@@ -20,6 +20,8 @@ import '../models/xb_result.dart';
 import '../providers/auth_state_provider.dart';
 import '../providers/xboard_providers.dart';
 import '../widgets/xb_ui_kit.dart';
+import 'forgot_password_page.dart';
+import 'register_page.dart';
 
 /// 登录页。[brandColor] 由 flavor 注入（XboardConfig.brandColor），默认品牌红 D3。
 class XboardLoginPage extends ConsumerStatefulWidget {
@@ -201,7 +203,14 @@ class _XboardLoginPageState extends ConsumerState<XboardLoginPage> {
                         Align(
                           alignment: Alignment.centerRight,
                           child: TextButton(
-                            onPressed: loading ? null : () {/* W3.5 跳忘记密码 */},
+                            onPressed: loading
+                                ? null
+                                : () => Navigator.of(context).push(
+                                      MaterialPageRoute<void>(
+                                        builder: (_) => XboardForgotPasswordPage(
+                                            brandColor: widget.brandColor),
+                                      ),
+                                    ),
                             child: const Text('忘记密码？'),
                           ),
                         ),
@@ -221,7 +230,14 @@ class _XboardLoginPageState extends ConsumerState<XboardLoginPage> {
                             Text('还没有账号？',
                                 style: TextStyle(color: cs.onSurfaceVariant)),
                             TextButton(
-                              onPressed: loading ? null : () {/* W3.3 跳注册 */},
+                              onPressed: loading
+                                  ? null
+                                  : () => Navigator.of(context).push(
+                                        MaterialPageRoute<void>(
+                                          builder: (_) => XboardRegisterPage(
+                                              brandColor: widget.brandColor),
+                                        ),
+                                      ),
                               child: const Text('立即注册'),
                             ),
                           ],
