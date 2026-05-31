@@ -127,16 +127,60 @@ void main() {
   });
 
   group('未填实方法', () {
-    test('logout 返 XbUnexpected(not_implemented)', () async {
-      final r = await service.logout();
-      final e = (r as XbFailure).error;
-      expect(e, isA<XbUnexpected>());
-      expect((e as XbUnexpected).operation, 'logout');
-    });
-
     test('fireAllMirrors void 不抛（Property 1 例外）', () {
       expect(() => service.fireAllMirrors(['https://m1', 'https://m2']),
           returnsNormally);
+    });
+  });
+
+  group('W3 反腐层认证方法填实', () {
+    test('register（SdkResult）+ D69 email 预处理', () async {
+      when(() => apis.authApi.registerResult(any(), any(),
+              emailCode: any(named: 'emailCode'),
+              inviteCode: any(named: 'inviteCode')))
+          .thenAnswer((_) async => const Success(true));
+      final r = await service.register('  A@B.com ', 'pw', emailCode: '123456');
+      expect((r as XbSuccess).data, isTrue);
+      verify(() => apis.authApi.registerResult('a@b.com', 'pw',
+          emailCode: '123456', inviteCode: null)).called(1);
+    });
+
+    test('sendEmailVerifyCode 限流 → XbBusiness(emailVerifyCodeRateLimit)', () async {
+      when(() => apis.authApi.sendEmailVerifyCodeResult(any())).thenAnswer(
+        (_) async => const Failure(BusinessError('rate',
+            httpStatusCode: 400, kind: BusinessErrorKind.emailVerifyCodeRateLimit)),
+      );
+      final r = await service.sendEmailVerifyCode('a@b.com');
+      final e = (r as XbFailure).error as XbBusiness;
+      expect(e.kind, BusinessErrorKind.emailVerifyCodeRateLimit);
+    });
+
+    test('forgotPassword（throw 形态）成功 → XbSuccess(true)', () async {
+      when(() => apis.authApi.forgotPassword(any(), any(), any()))
+          .thenAnswer((_) async => true);
+      final r = await service.forgotPassword('a@b.com', '123456', 'newpw');
+      expect((r as XbSuccess).data, isTrue);
+    });
+
+    test('checkLogin → XbCheckLogin(isLogin)', () async {
+      when(() => apis.userApi.checkLogin())
+          .thenAnswer((_) async => const CheckLoginResult(isLogin: true));
+      final r = await service.checkLogin();
+      expect((r as XbSuccess).data.isLogin, isTrue);
+    });
+
+    test('getSubscribeUrl → XbSuccess(url)', () async {
+      when(() => apis.subscriptionApi.getSubscribeUrl())
+          .thenAnswer((_) async => 'https://h/sub/tok');
+      final r = await service.getSubscribeUrl();
+      expect((r as XbSuccess).data, 'https://h/sub/tok');
+    });
+
+    test('logout：服务端撤销 + 永不抛（即便 SDK logout 抛）', () async {
+      when(() => sdk.auth).thenReturn(apis.authApi);
+      when(() => apis.authApi.logout()).thenThrow(Exception('server down'));
+      final r = await service.logout();
+      expect(r, isA<XbSuccess<void>>()); // θ-2：服务端失败不阻塞本地
     });
   });
 }

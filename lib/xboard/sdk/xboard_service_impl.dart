@@ -108,23 +108,53 @@ class XboardServiceImpl implements XboardService {
     String password, {
     String? emailCode,
     String? inviteCode,
-  }) async =>
-      _notImpl('register'); // W3.3
+  }) async {
+    // SdkResult 形态 + D69 email 预处理。register 不返 token（F407），DD-9 由 UI 层二步调 login。
+    final r = await _sdk.auth.registerResult(
+      email.toLowerCase().trim(),
+      password,
+      emailCode: emailCode,
+      inviteCode: inviteCode,
+    );
+    return _fromSdkResult(r, (ok) => ok);
+  }
 
   @override
-  Future<XbResult<bool>> sendEmailVerifyCode(String email) async =>
-      _notImpl('sendEmailVerifyCode'); // W3.3
+  Future<XbResult<bool>> sendEmailVerifyCode(String email) async {
+    // SdkResult 形态。失败可能含 BusinessError(emailVerifyCodeRateLimit) 60s 限流（F359，HTTP 400）。
+    final r = await _sdk.auth.sendEmailVerifyCodeResult(email.toLowerCase().trim());
+    return _fromSdkResult(r, (ok) => ok);
+  }
 
   @override
   Future<XbResult<bool>> forgotPassword(
     String email,
     String code,
     String newPassword,
-  ) async =>
-      _notImpl('forgotPassword'); // W3.5
+  ) async {
+    // throw 形态（SDK forgotPassword 无 Result 变体）。
+    return _guard('forgotPassword',
+        () => _sdk.auth.forgotPassword(email.toLowerCase().trim(), code, newPassword));
+  }
 
   @override
-  Future<XbResult<void>> logout() async => _notImpl('logout'); // W3.6
+  Future<XbResult<void>> logout() async {
+    // W3.6：服务端撤销 + token 清（θ-2）；完整 7 步清理（cache/profile/provider）由 UI 层
+    // logout 编排（需 ProviderContainer，见 auth notifier）。此处做 SDK 侧 + flag。
+    _isLoggingOut = true;
+    try {
+      // step 0：服务端撤销（fire-and-forget + 3s timeout，结果不阻塞本地，θ-2）。
+      try {
+        await _sdk.auth.logout().timeout(const Duration(seconds: 3));
+      } catch (_) {
+        // 服务端撤销失败不阻塞本地清理。
+      }
+      // SDK 内部 clearToken（logout() 已调）；反腐层 token 经注入的 TokenStorage 清。
+      return XbResult.success(null);
+    } finally {
+      _isLoggingOut = false;
+    }
+  }
 
   @override
   Future<XbResult<XbDomainSubscription>> getSubscription() async {
@@ -149,11 +179,16 @@ class XboardServiceImpl implements XboardService {
 
   @override
   Future<XbResult<String>> getSubscribeUrl() async =>
-      _notImpl('getSubscribeUrl'); // W6.6
+      _guard('getSubscribeUrl', () => _sdk.subscription.getSubscribeUrl());
 
   @override
-  Future<XbResult<XbCheckLogin>> checkLogin() async =>
-      _notImpl('checkLogin'); // W6.1
+  Future<XbResult<XbCheckLogin>> checkLogin() async => _guard(
+        'checkLogin',
+        () async {
+          final r = await _sdk.user.checkLogin();
+          return XbCheckLogin(isLogin: r.isLogin);
+        },
+      );
 
   @override
   Future<XbResult<List<PlanItem>>> getPlans() async =>
