@@ -197,6 +197,15 @@ List<String> validateFlavor({
     }
   }
 
+  // 6.5) versionName 须合法 SemVer（产品版本，conventions §2.8 双轨版本号）
+  //      W8.5 注入 pubspec version = `${versionName}+flclash${upstreamTag}`，
+  //      versionName 非法会污染最终 app 版本号 + 破坏 v0.3 自更新版本比较。
+  final versionName = doc['versionName'];
+  if (versionName is String && !_isSemVer(versionName)) {
+    errors.add('versionName 须为合法 SemVer（如 0.1.0），实为 "$versionName"'
+        '（conventions §2.8 — 注入 pubspec version=<versionName>+flclash<底座>）');
+  }
+
   // 7) theme.dark 与 light 同键集
   if (theme is YamlMap) {
     final light = theme['light'];
@@ -248,6 +257,12 @@ bool _isHttpUrl(String s) {
       (uri.scheme == 'https' || uri.scheme == 'http') &&
       uri.host.isNotEmpty;
 }
+
+/// 简化 SemVer 校验：MAJOR.MINOR.PATCH（可带 -prerelease / +build）。
+/// 产品版本号（conventions §2.8）；不接受上游 FlClash 的 `0.8.93+2026052901` 风格也 OK，
+/// 因为我们的 versionName 是独立产品版本（如 0.1.0）。
+bool _isSemVer(String s) =>
+    RegExp(r'^\d+\.\d+\.\d+([-+][0-9A-Za-z.-]+)?$').hasMatch(s);
 
 bool _setEquals(Set<Object?> a, Set<Object?> b) =>
     a.length == b.length && a.every(b.contains);

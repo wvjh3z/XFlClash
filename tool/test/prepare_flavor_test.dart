@@ -147,6 +147,14 @@ void main() {
     expect(errors.any((e) => e.contains('theme.dark 键集')), isTrue);
   });
 
+  test('⑧ versionName 非法 SemVer → 报错（§2.8 双轨版本号）', () {
+    writeFlavor(_validYaml().replaceFirst(
+        'versionName: "0.1.0"', 'versionName: "v0.1"'));
+    final errors = validateFlavor(yamlPath: yamlPath, flavorDir: flavorDir);
+    expect(errors.any((e) => e.contains('versionName') && e.contains('SemVer')),
+        isTrue);
+  });
+
   test('flavor.yaml 不存在 → 报错', () {
     final errors = validateFlavor(
         yamlPath: pJoin(flavorDir, 'nope.yaml'), flavorDir: flavorDir);
