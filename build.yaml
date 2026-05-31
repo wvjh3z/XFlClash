@@ -7,7 +7,11 @@ targets:
             '^lib/models/{{}}.dart': 'lib/models/generated/{{}}.g.dart'
             '^lib/providers/{{}}.dart': 'lib/providers/generated/{{}}.g.dart'
             '^lib/database/{{}}.dart': 'lib/database/generated/{{}}.g.dart'
+            # Xboard 段（接缝点 #8 / D64）：lib/xboard/ codegen 产物归集到 lib/xboard/generated/
+            '^lib/xboard/{{}}.dart': 'lib/xboard/generated/{{}}.g.dart'
       freezed:
         options:
           build_extensions:
             '^lib/models/{{}}.dart': 'lib/models/generated/{{}}.freezed.dart'
+            # Xboard 段（接缝点 #8 / D64）：freezed 产物同样归集
+            '^lib/xboard/{{}}.dart': 'lib/xboard/generated/{{}}.freezed.dart'
