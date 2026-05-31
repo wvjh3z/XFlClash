@@ -17,10 +17,12 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_xboard_sdk/flutter_xboard_sdk.dart'
     show TokenStorage, XBoardSDK;
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'config/xboard_config.dart';
 import 'l10n/content_language.dart';
 import 'providers/xboard_providers.dart';
+import 'widgets/xboard_consent_dialog.dart' show kXbConsentKey;
 
 class XboardModule {
   XboardModule._();
@@ -54,12 +56,21 @@ class XboardModule {
     required TokenStorage? tokenStorage,
     required XBoardSDK? sdk,
   }) async {
-    // step 0：firstLaunch 检测（W4.6 填实正式 token + consent 检测；W1 先 wire 框架）。
-    // 占位：无 token storage 注入时不改默认（false）。
+    // step 0：firstLaunch 检测（合规 § F / § J，W4.6 填实）。
+    // 「首次进入 Xboard 模块」= 无鉴权 token **且** 无 consent 记录（xb_consent_v1）。
+    // 两者都缺 → 用户从没用过「我的服务」→ firstLaunch=true（驱动首次离线提示页 §F）。
+    // 任一存在（有 token / 同意过）→ 非首次。tokenStorage 为 null（W1 早期/测试）时跳过检测。
     if (tokenStorage != null) {
-      final hasToken = (await tokenStorage.readToken()) != null;
-      if (!hasToken) {
-        container.read(firstLaunchProvider.notifier).set(true);
+      try {
+        final hasToken = (await tokenStorage.readToken()) != null;
+        final prefs = await SharedPreferences.getInstance();
+        final hasConsent = prefs.containsKey(kXbConsentKey);
+        if (!hasToken && !hasConsent) {
+          container.read(firstLaunchProvider.notifier).set(true);
+        }
+      } catch (e, s) {
+        // 检测失败不阻塞 bootstrap（DD-2）；保守视为非首次（不弹首次离线页）。
+        debugPrint('[XboardModule] firstLaunch detect failed: $e\n$s');
       }
     }
 

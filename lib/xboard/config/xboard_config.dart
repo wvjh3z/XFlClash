@@ -16,6 +16,12 @@ class XboardConfig {
     required this.devSubscriptionEndpoint,
     required this.debug,
     required this.kIsTest,
+    this.brandColor = 0xFFD92E1A,
+    this.termsUrl = 'https://example.com/terms',
+    this.privacyUrl = 'https://example.com/privacy',
+    this.dataResidency = 'Hong Kong',
+    this.dataController = 'Example Tech Co., Ltd.',
+    this.supportEmail = 'support@example.com',
   });
 
   /// 订阅 UA（含且仅含一个 `flclash` 子串，F202/F203）。
@@ -32,6 +38,24 @@ class XboardConfig {
 
   /// 测试环境（D63/F81：headless 无 D-Bus，强制 MemoryTokenStorage）。
   final bool kIsTest;
+
+  /// 品牌主色（flavor 注入，UI kit XbBrandTheme 用；默认品牌红 D3）。
+  final int brandColor;
+
+  /// 用户协议链接（合规 § A，flavor 必填；W8.5 prepare_flavor fail-fast 校验）。
+  final String termsUrl;
+
+  /// 隐私政策链接（合规 § A，flavor 必填）。
+  final String privacyUrl;
+
+  /// 数据存储位置（合规 § A，自由文本，consent dialog 展示）。
+  final String dataResidency;
+
+  /// 数据控制方（合规 § A，GDPR 法律实体名）。
+  final String dataController;
+
+  /// 客服邮箱（合规 § B，账号注销 mailto 用）。
+  final String supportEmail;
 
   /// W1 占位默认值（W8.5 由生成的 FlavorConfig 替换）。
   static const XboardConfig _placeholder = XboardConfig(

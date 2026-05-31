@@ -16,10 +16,15 @@ library;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../pages/account_deletion_request_page.dart';
 import '../pages/forgot_password_page.dart';
 import '../pages/login_page.dart';
 import '../pages/register_page.dart';
+import '../pages/xboard_service_home_page.dart';
+import '../providers/auth_state_provider.dart';
+import '../providers/xboard_connectivity_provider.dart';
 import '../providers/xboard_providers.dart';
+import '../widgets/account_info_card.dart';
 import '../widgets/xb_ui_kit.dart';
 import 'fake_xboard_service.dart';
 
@@ -32,10 +37,30 @@ void main() {
       overrides: [
         // 注入 fake 反腐层，所有调用返回可控假数据，不联网。
         xboardServiceProvider.overrideWithValue(FakeXboardService()),
+        // 预览态：SDK 已就绪 + 非首次 + 在线 + 已登录（让首页直接展示账号卡）。
+        bootstrapReadyProvider.overrideWith(() => _PreviewReady()),
+        firstLaunchProvider.overrideWith(() => _PreviewFirst()),
+        isOfflineProvider.overrideWith((ref) => false),
+        authStateProvider.overrideWith(() => _PreviewAuth()),
       ],
       child: const _PreviewApp(),
     ),
   );
+}
+
+class _PreviewReady extends BootstrapReady {
+  @override
+  bool build() => true;
+}
+
+class _PreviewFirst extends FirstLaunch {
+  @override
+  bool build() => false;
+}
+
+class _PreviewAuth extends AuthStateNotifier {
+  @override
+  AuthState build() => AuthState.authenticated;
 }
 
 class _PreviewApp extends StatefulWidget {
@@ -92,6 +117,12 @@ class _PreviewGallery extends StatelessWidget {
     final isDark = themeMode == ThemeMode.dark;
     final entries = <_PreviewEntry>[
       _PreviewEntry(
+        title: '我的服务首页',
+        subtitle: 'R5 · XboardServiceHomePage（游客/登录态切换）',
+        icon: Icons.dashboard_rounded,
+        builder: (_) => const XboardServiceHomePage(brandColor: _brandColor),
+      ),
+      _PreviewEntry(
         title: '登录页',
         subtitle: 'R2 · XboardLoginPage',
         icon: Icons.login_rounded,
@@ -108,6 +139,24 @@ class _PreviewGallery extends StatelessWidget {
         subtitle: 'R3 · XboardForgotPasswordPage（持久化倒计时）',
         icon: Icons.lock_reset_rounded,
         builder: (_) => const XboardForgotPasswordPage(brandColor: _brandColor),
+      ),
+      _PreviewEntry(
+        title: '账号信息卡',
+        subtitle: 'R6 · AccountInfoCard（流量/到期/重置）',
+        icon: Icons.account_circle_rounded,
+        builder: (_) => Scaffold(
+          appBar: AppBar(title: const Text('账号信息')),
+          body: const Padding(
+            padding: EdgeInsets.all(16),
+            child: AccountInfoCard(),
+          ),
+        ),
+      ),
+      _PreviewEntry(
+        title: '注销账号',
+        subtitle: 'R4.6 · AccountDeletionRequestPage（mailto）',
+        icon: Icons.no_accounts_rounded,
+        builder: (_) => const AccountDeletionRequestPage(currentToken: 'preview-token'),
       ),
     ];
 

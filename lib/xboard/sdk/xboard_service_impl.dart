@@ -25,19 +25,24 @@ import '../models/xb_domain_error.dart';
 import '../models/xb_domain_subscription.dart';
 import '../models/xb_domain_types.dart';
 import '../models/xb_result.dart';
+import '../util/subscription_cache.dart';
 import 'xboard_service.dart';
 
 class XboardServiceImpl implements XboardService {
-  XboardServiceImpl({required XBoardSDK sdk}) : _sdk = sdk;
+  XboardServiceImpl({required XBoardSDK sdk, SubscriptionCache? subscriptionCache})
+      : _sdk = sdk,
+        _subscriptionCache = subscriptionCache ?? SubscriptionCache();
 
   final XBoardSDK _sdk;
+
+  /// R6 离线缓存（决策 #11 success-write，W4.4）。
+  final SubscriptionCache _subscriptionCache;
 
   /// θ-8：logout 期间为 true，反腐层 success 回调写 cache 前先查（W3.6 填实清理链时置位）。
   // ignore: prefer_final_fields  (W3.6 logout 会写 true/false，非 final)
   bool _isLoggingOut = false;
 
   /// in-flight 写守卫（θ-8）：logout 期间丢弃 success 写入（design § B 末段）。
-  // ignore: unused_element  (W4.4 R6 离线缓存 success 即写时接入)
   Future<void> _writeIfNotLoggingOut(Future<void> Function() writeOp) async {
     if (_isLoggingOut) return;
     await writeOp();
@@ -170,6 +175,13 @@ class XboardServiceImpl implements XboardService {
 
       // step 5：清本地 token —— 调 SDK clearToken() 清注入的 TokenStorage
       // （SecureStorageTokenStorage → 删 xb_access_token_v1；SDK auth.logout() 不碰 token）。
+      // step 2（部分）：清 R6 订阅离线缓存（W4.4 已建 SubscriptionCache；需在清 token 前取 hash）。
+      try {
+        final token = await _sdk.getToken();
+        await _subscriptionCache.clear(token: token);
+      } catch (_) {
+        // 清缓存失败不阻塞（最大努力）。
+      }
       try {
         await _sdk.clearToken();
       } catch (_) {
@@ -199,7 +211,18 @@ class XboardServiceImpl implements XboardService {
         planId: m.planId,
       );
     });
-    // R6 离线缓存 success 即写在 W4.4 接入（_writeIfNotLoggingOut 守卫 θ-8）。
+    // R6 离线缓存 success 即写（决策 #11 / W4.4）：θ-8 守卫 logout 期间丢弃。
+    // 缓存写失败绝不影响返回结果（Property 1 永不抛）—— 整体 try/catch 吞掉。
+    if (result case XbSuccess(:final data)) {
+      try {
+        await _writeIfNotLoggingOut(() async {
+          final token = await _sdk.getToken();
+          await _subscriptionCache.write(data, token: token);
+        });
+      } catch (_) {
+        // 缓存写失败（storage 异常 / 平台 binding 未初始化等）不影响在线数据返回。
+      }
+    }
     return result;
   }
 

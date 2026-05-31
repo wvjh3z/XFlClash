@@ -13,11 +13,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_xboard_sdk/flutter_xboard_sdk.dart';
 import 'package:mocktail/mocktail.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:fl_clash/common/navigation.dart';
 import 'package:fl_clash/xboard/config/xboard_config.dart';
 import 'package:fl_clash/xboard/navigation/xboard_navigation.dart';
 import 'package:fl_clash/xboard/pages/xboard_service_home_page.dart';
+import 'package:fl_clash/xboard/providers/xboard_connectivity_provider.dart';
 import 'package:fl_clash/xboard/providers/xboard_providers.dart';
 import 'package:fl_clash/xboard/xboard_module.dart';
 
@@ -28,11 +30,15 @@ class _FakeTokenStorageFallback extends Fake implements TokenStorage {}
 
 void main() {
   setUpAll(() => registerFallbackValue(_FakeTokenStorageFallback()));
+  setUp(() => SharedPreferences.setMockInitialValues({'xb_consent_v1': true}));
   tearDown(XboardConfig.resetForTest);
 
   testWidgets('W1 walking skeleton：bootstrap + 9 项导航 + 点击进 stub', (tester) async {
     // 1. bootstrap 同步阶段（接缝点 #1 调用的入口）
-    final container = ProviderContainer();
+    final container = ProviderContainer(overrides: [
+      // 覆盖真实 connectivity 流（test 无平台插件，避免 onConnectivityChanged 挂起）。
+      isOfflineProvider.overrideWith((ref) => false),
+    ]);
     addTearDown(container.dispose);
     final sdk = FakeXBoardSDK();
     when(() => sdk.initialize(

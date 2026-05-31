@@ -11,6 +11,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_xboard_sdk/flutter_xboard_sdk.dart';
 import 'package:mocktail/mocktail.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:fl_clash/xboard/config/xboard_config.dart';
 import 'package:fl_clash/xboard/providers/xboard_providers.dart';
@@ -28,6 +29,7 @@ void main() {
   });
 
   setUp(() {
+    SharedPreferences.setMockInitialValues({}); // W4.6 firstLaunch 读 consent key
     container = ProviderContainer();
     sdk = FakeXBoardSDK();
     // initialize 默认成功（8 具名参，用 any/named 宽松匹配）。
@@ -80,7 +82,7 @@ void main() {
     expect(captured.single, XboardConfig.current.devApiEndpoint);
   });
 
-  test('step 0 firstLaunch：无 token → true', () async {
+  test('step 0 firstLaunch：无 token + 无 consent → true', () async {
     final storage = FakeTokenStorage(); // 无 token
     await XboardModule.bootstrap(container, tokenStorage: storage, sdk: sdk);
     expect(container.read(firstLaunchProvider), isTrue);
@@ -90,6 +92,13 @@ void main() {
     final storage = FakeTokenStorage(initialToken: 'raw-token');
     await XboardModule.bootstrap(container, tokenStorage: storage, sdk: sdk);
     expect(container.read(firstLaunchProvider), isFalse);
+  });
+
+  test('step 0 firstLaunch：无 token 但已 consent → 保持 false（W4.6 § J）', () async {
+    SharedPreferences.setMockInitialValues({'xb_consent_v1': true});
+    final storage = FakeTokenStorage(); // 无 token
+    await XboardModule.bootstrap(container, tokenStorage: storage, sdk: sdk);
+    expect(container.read(firstLaunchProvider), isFalse); // 用过 → 非首次
   });
 
   test('SDK initialize 抛异常 → bootstrap 不抛 + bootstrapReady 保持 false', () async {

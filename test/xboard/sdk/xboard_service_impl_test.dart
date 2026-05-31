@@ -11,6 +11,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_xboard_sdk/flutter_xboard_sdk.dart';
 import 'package:mocktail/mocktail.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:fl_clash/xboard/models/xb_domain_error.dart';
 import 'package:fl_clash/xboard/models/xb_result.dart';
@@ -24,6 +25,7 @@ void main() {
   late XboardServiceImpl service;
 
   setUp(() {
+    SharedPreferences.setMockInitialValues({}); // W4.4 getSubscription 缓存写
     sdk = FakeXBoardSDK();
     apis = sdk.setupFor(XbScenario.loggedIn);
     service = XboardServiceImpl(sdk: sdk);

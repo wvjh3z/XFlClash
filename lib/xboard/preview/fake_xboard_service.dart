@@ -95,11 +95,22 @@ class FakeXboardService implements XboardService {
     return XbResult.success(null);
   }
 
-  // ───────── 账号 / 订阅（预览不触达，返 not_implemented）─────────
+  // ───────── 账号 / 订阅（预览展示样例数据）─────────
 
   @override
-  Future<XbResult<XbDomainSubscription>> getSubscription() async =>
-      _notImpl('getSubscription');
+  Future<XbResult<XbDomainSubscription>> getSubscription() async {
+    await _delay;
+    return XbResult.success(XbDomainSubscription(
+      email: 'demo@example.com',
+      uuid: 'a1b2c3d4-5678-90ab-cdef',
+      planName: '专业版套餐',
+      totalBytes: 100 * 1024 * 1024 * 1024, // 100 GB
+      usedBytes: 37 * 1024 * 1024 * 1024, // 37 GB
+      expiredAt: DateTime.now().add(const Duration(days: 23)),
+      nextResetAt: DateTime.now().add(const Duration(days: 8, hours: 5)),
+      planId: 1,
+    ));
+  }
 
   @override
   Future<XbResult<String>> getSubscribeUrl() async => _notImpl('getSubscribeUrl');
