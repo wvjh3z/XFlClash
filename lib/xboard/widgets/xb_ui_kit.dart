@@ -11,6 +11,12 @@ import 'package:flutter/material.dart';
 
 /// 品牌色叠加：在 Xboard 页面树根部用 flavor brandColor 局部覆盖 seedColor，
 /// 让「我的服务」区域呈现品牌色但组件仍是 M3（与 FlClash 底座视觉协调）。
+///
+/// **🔴 配色保真（fidelity）**：M3 默认 `tonalSpot` 变体会把鲜艳品牌色去饱和调和
+/// （如 `#d92e1a` → 棕红 `#904b3f`），偏离品牌视觉。这里用 `DynamicSchemeVariant.fidelity`
+/// 让生成的配色**忠于品牌色**（primaryContainer 精确还原种子色），同时保留 M3 对比度体系。
+/// 关键交互元素（主按钮、徽标）再由 [XbPrimaryButton]/[XbBrandBadge] 用品牌本色直出，
+/// 确保「就是那个红」。
 class XbBrandTheme extends StatelessWidget {
   const XbBrandTheme({
     super.key,
@@ -24,13 +30,19 @@ class XbBrandTheme extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final base = Theme.of(context);
+    final seeded = ColorScheme.fromSeed(
+      seedColor: brandColor,
+      brightness: base.brightness,
+      dynamicSchemeVariant: DynamicSchemeVariant.fidelity,
+    );
+    // primary 锁定品牌本色（保证「就是那个红」）；onPrimary 取白
+    // （#d92e1a 配白字对比度 4.82:1，过 WCAG AA）。容器/表面色仍由 fidelity 调和。
+    final scheme = seeded.copyWith(
+      primary: brandColor,
+      onPrimary: Colors.white,
+    );
     return Theme(
-      data: base.copyWith(
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: brandColor,
-          brightness: base.brightness,
-        ),
-      ),
+      data: base.copyWith(colorScheme: scheme),
       child: child,
     );
   }

@@ -55,13 +55,17 @@ class _PreviewAppState extends State<_PreviewApp> {
       title: 'Xboard 页面预览',
       theme: ThemeData(
         useMaterial3: true,
-        colorScheme: ColorScheme.fromSeed(seedColor: _brandColor),
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: _brandColor,
+          dynamicSchemeVariant: DynamicSchemeVariant.fidelity,
+        ).copyWith(primary: _brandColor, onPrimary: Colors.white),
       ),
       darkTheme: ThemeData(
         useMaterial3: true,
         colorScheme: ColorScheme.fromSeed(
           seedColor: _brandColor,
           brightness: Brightness.dark,
+          dynamicSchemeVariant: DynamicSchemeVariant.fidelity,
         ),
       ),
       themeMode: _mode,
