@@ -1,0 +1,41 @@
+# flavors/brand_a/flavor.yaml — v0.1 单 flavor 模板
+# 关联：design §E flavor.yaml schema / R14 多租户 / 决策 #4 / μ-6 μ-7。
+# prepare_flavor.dart 读本文件 → 校验 → 生成 lib/xboard/config/flavor_config.g.dart（gitignored）。
+
+# === 基础品牌 ===
+appName: "MyClient"                         # 应用名（多平台显示用）
+appId: "com.example.myclient"               # Android applicationId / iOS Bundle ID 基础值
+versionName: "0.1.0"                        # pubspec.yaml version 来源
+brandColor: "#d92e1a"                       # 主题色（D3 锁定）
+
+# === Bootstrap（R15）===
+# ⚠️ aesKey 留空：CI secrets 注入，不进 git（D58 / D59 / R15.G.37 / conventions §7.1）。
+aesKey: ""                                  # AES-256-GCM 密钥（base64，解码后须 == 32 字节）
+bootstrapUrls:                              # ≥3 个镜像，按优先级排
+  - "https://cdn1.example.com/bootstrap.bin"
+  - "https://cdn2.example.com/bootstrap.bin"
+  - "https://cdn3.example.com/bootstrap.bin"
+fallbackEnvelope: "assets/fallback.bin"     # 出厂 fallback 密文（assets 必带，W5.1 生成真内容）
+
+# === SDK 配置 ===
+subscribeUserAgent: "MyClient/0.1.0 flclash"  # 必须含且仅含一个 'flclash' 子串（F202/F203）
+sentryDsn: ""                                 # 空 = no-op（dev / 用户关闭后）
+panelType: "xboard"                           # SDK initialize 参数（R16 唯一合法值）
+
+# === 货币 ===
+currencySymbol: "¥"                         # v0.1 锁死（D11 跨境风险已接受）
+
+# === 合规（GDPR 三件套，第 25/26 轮必填）===
+termsUrl: "https://example.com/terms"       # 用户协议链接
+privacyUrl: "https://example.com/privacy"   # 隐私政策链接
+dataResidency: "Hong Kong"                  # 数据存储位置（自由文本，UI 展示）
+dataController: "Example Tech Co., Ltd."    # 数据控制方（GDPR 法律实体）
+supportEmail: "support@example.com"         # 客服邮箱（账号注销 mailto 用）
+
+# === 主题（a11y 必填，light/dark 同键集）===
+theme:
+  light: { primary: "#d92e1a", surface: "#ffffff", error: "#b00020" }
+  dark:  { primary: "#ff5a4a", surface: "#1a1a1a", error: "#cf6679" }
+
+# === v0.2 预留（v0.1 不读不报错）===
+crisp: { websiteId: "" }                    # v0.2 客服（D9）
