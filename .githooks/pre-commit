@@ -39,17 +39,17 @@ if [[ -z "$STAGED" ]]; then
     exit 0
 fi
 
-# 触发校验的路径前缀 / 文件（接缝点 + 锚点指向的 FlClash 既有文件 + 锚点资产本身）
-TRIGGER_REGEX='^(lib/main\.dart|lib/state\.dart|lib/common/|lib/providers/|lib/models/|lib/enum/|android/app/build\.gradle\.kts|tool/check-line-anchors\.dart)|flclash-anchors\.md$'
+# 触发校验的路径前缀 / 文件（接缝点 + 锚点指向的 FlClash 既有文件 + 锚点/校验器资产本身）
+TRIGGER_REGEX='^(lib/main\.dart|lib/state\.dart|lib/common/|lib/providers/|lib/models/|lib/enum/|android/app/build\.gradle\.kts|build\.yaml|pubspec\.yaml|tool/check-line-anchors\.dart|tool/check-seam-whitelist\.dart)|flclash-anchors\.md$'
 
 if ! echo "$STAGED" | grep -qE "$TRIGGER_REGEX"; then
     # 本次 commit 未触及接缝点/锚点相关文件，跳过校验（日常 lib/xboard/ 改动走这里）
     exit 0
 fi
 
-echo "[pre-commit] 检测到接缝点/锚点相关文件变动 → 跑 DD-21 行号锚点校验…"
+echo "[pre-commit] 检测到接缝点/锚点相关文件变动 → 跑 DD-21 行号锚点 + 接缝点白名单校验…"
 
-# 用 dart run 跑校验器（纯 Dart，不 import Flutter）。失败则拦截 commit。
+# (a) DD-21 行号锚点校验（已登记接缝点行号是否漂移）
 if ! dart run "$VALIDATOR" --anchors "$REPO_ROOT/../.kiro/specs/xboard-mvp-form-b/flclash-anchors.md" 2>&1; then
     cat >&2 <<'EOF'
 
@@ -66,5 +66,23 @@ EOF
     exit 1
 fi
 
-echo "[pre-commit] ✓ 锚点全命中。"
+# (b) 接缝点白名单完整性校验（改了 FlClash 既有文件却没登记 PATCHES.md）
+SEAM_VALIDATOR="$REPO_ROOT/tool/check-seam-whitelist.dart"
+if [[ -f "$SEAM_VALIDATOR" ]]; then
+    if ! dart run "$SEAM_VALIDATOR" 2>&1; then
+        cat >&2 <<'EOF'
+
+[pre-commit] ✗ 接缝点白名单校验未通过 —— 改了 FlClash 既有文件但未登记 PATCHES.md。
+
+修复（conventions §1.2）：
+  - 有意接缝点 → 先 chat 确认扩白名单 → PATCHES.md 加接缝点段（diff + 锚点）
+  - 误改 upstream → git checkout 还原
+
+紧急跳过（不推荐）: git commit --no-verify -m "..."
+EOF
+        exit 1
+    fi
+fi
+
+echo "[pre-commit] ✓ 锚点全命中 + 接缝点白名单完整。"
 exit 0
