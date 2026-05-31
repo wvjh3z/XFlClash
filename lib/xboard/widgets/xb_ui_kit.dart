@@ -12,11 +12,15 @@ import 'package:flutter/material.dart';
 /// 品牌色叠加：在 Xboard 页面树根部用 flavor brandColor 局部覆盖 seedColor，
 /// 让「我的服务」区域呈现品牌色但组件仍是 M3（与 FlClash 底座视觉协调）。
 ///
-/// **🔴 配色保真（fidelity）**：M3 默认 `tonalSpot` 变体会把鲜艳品牌色去饱和调和
-/// （如 `#d92e1a` → 棕红 `#904b3f`），偏离品牌视觉。这里用 `DynamicSchemeVariant.fidelity`
-/// 让生成的配色**忠于品牌色**（primaryContainer 精确还原种子色），同时保留 M3 对比度体系。
-/// 关键交互元素（主按钮、徽标）再由 [XbPrimaryButton]/[XbBrandBadge] 用品牌本色直出，
-/// 确保「就是那个红」。
+/// **🔴 配色策略（品牌强调 + 中性底）**：
+/// M3 `fromSeed` 会把**所有**色（含表面/文字/填充）按种子色调和——品牌红会把输入框填充染成
+/// 粉红 `#fbdcd6`、次要文字染成浑浊棕 `#5c403b`，整体「发脏」。
+/// 解法：**双 scheme 合并**——
+/// - 品牌色（fidelity）只供「强调色族」：primary / onPrimary / secondary / tertiary / error 等；
+/// - 中性灰（neutral 变体，灰种子）供「中性色族」：surface* / onSurface* / outline* 等。
+/// 结果：按钮/徽标/链接/焦点框是品牌红，输入框填充与正文/次要文字是干净的中性灰。
+///
+/// 关键交互元素（主按钮、徽标）再由 [XbPrimaryButton]/[XbBrandBadge] 用品牌本色直出。
 class XbBrandTheme extends StatelessWidget {
   const XbBrandTheme({
     super.key,
@@ -27,22 +31,62 @@ class XbBrandTheme extends StatelessWidget {
   final Color brandColor;
   final Widget child;
 
+  /// 中性灰种子（生成干净的 surface/text/outline，不带品牌色调）。
+  static const _neutralSeed = Color(0xFF6B7280);
+
   @override
   Widget build(BuildContext context) {
     final base = Theme.of(context);
-    final seeded = ColorScheme.fromSeed(
+    final brightness = base.brightness;
+
+    // 强调色族：忠于品牌色。
+    final brand = ColorScheme.fromSeed(
       seedColor: brandColor,
-      brightness: base.brightness,
+      brightness: brightness,
       dynamicSchemeVariant: DynamicSchemeVariant.fidelity,
     );
-    // primary 锁定品牌本色（保证「就是那个红」）；onPrimary 取白
-    // （#d92e1a 配白字对比度 4.82:1，过 WCAG AA）。容器/表面色仍由 fidelity 调和。
-    final scheme = seeded.copyWith(
+    // 中性色族：干净灰，不染品牌色。
+    final neutral = ColorScheme.fromSeed(
+      seedColor: _neutralSeed,
+      brightness: brightness,
+      dynamicSchemeVariant: DynamicSchemeVariant.neutral,
+    );
+
+    // 合并：品牌出强调，中性出底。primary 锁品牌本色（#d92e1a 配白字 4.82:1 过 WCAG AA）。
+    final scheme = brand.copyWith(
       primary: brandColor,
       onPrimary: Colors.white,
+      // 中性色族整体替换（去掉品牌红染色）。
+      surface: neutral.surface,
+      onSurface: neutral.onSurface,
+      onSurfaceVariant: neutral.onSurfaceVariant,
+      surfaceContainerLowest: neutral.surfaceContainerLowest,
+      surfaceContainerLow: neutral.surfaceContainerLow,
+      surfaceContainer: neutral.surfaceContainer,
+      surfaceContainerHigh: neutral.surfaceContainerHigh,
+      surfaceContainerHighest: neutral.surfaceContainerHighest,
+      outline: neutral.outline,
+      outlineVariant: neutral.outlineVariant,
+      inverseSurface: neutral.inverseSurface,
+      onInverseSurface: neutral.onInverseSurface,
     );
+
+    // 链接文字色：用品牌的**较深色调**（fidelity primary，浅色 #b50e00 对比度 6.58:1），
+    // 既明显是「品牌可点链接」，又比纯亮红 #d92e1a（4.57:1）更耐看不刺眼。
+    final linkColor = brand.primary;
+
     return Theme(
-      data: base.copyWith(colorScheme: scheme),
+      data: base.copyWith(
+        colorScheme: scheme,
+        scaffoldBackgroundColor: scheme.surface,
+        // 链接/文字按钮：用较深品牌色，清晰可点且不刺眼。
+        textButtonTheme: TextButtonThemeData(
+          style: TextButton.styleFrom(
+            foregroundColor: linkColor,
+            textStyle: const TextStyle(fontWeight: FontWeight.w600),
+          ),
+        ),
+      ),
       child: child,
     );
   }
@@ -132,6 +176,7 @@ class XbTextField extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
     return TextField(
       controller: controller,
       obscureText: obscureText,
@@ -140,12 +185,20 @@ class XbTextField extends StatelessWidget {
       onSubmitted: onSubmitted,
       enabled: enabled,
       autofillHints: autofillHints,
+      style: TextStyle(color: cs.onSurface, fontSize: 15),
       decoration: InputDecoration(
         labelText: label,
+        labelStyle: TextStyle(color: cs.onSurfaceVariant),
+        floatingLabelStyle: TextStyle(color: cs.primary),
         errorText: errorText,
-        prefixIcon: prefixIcon != null ? Icon(prefixIcon) : null,
+        prefixIcon: prefixIcon != null
+            ? Icon(prefixIcon, color: cs.onSurfaceVariant, size: 22)
+            : null,
         suffixIcon: suffix,
         filled: true,
+        // 干净中性灰填充（中性 scheme 提供，不带品牌色调）。
+        fillColor: cs.surfaceContainerHigh,
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(14),
           borderSide: BorderSide.none,
@@ -156,10 +209,7 @@ class XbTextField extends StatelessWidget {
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(14),
-          borderSide: BorderSide(
-            color: Theme.of(context).colorScheme.primary,
-            width: 1.6,
-          ),
+          borderSide: BorderSide(color: cs.primary, width: 1.8),
         ),
       ),
     );
