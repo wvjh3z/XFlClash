@@ -1,0 +1,82 @@
+#!/usr/bin/env bash
+###############################################################################
+# XFlClash commit-msg hook
+#
+# 强制约束: 所有 Xboard 相关 commit 必须用 `[xfork] <type>(<scope>?): <subject>` 格式
+#           (项目级 conventions §2.4 机器强制)
+#
+# type 必须 ∈ {feat, fix, refactor, chore, docs, test, build, ci, perf, style}
+# scope 可选(`<scope>?`)
+# subject 必须非空且不以句号结尾
+#
+# 例外放行(无需 [xfork] 前缀):
+#   - git 自动生成的 Merge / Revert / fixup! / squash! commit
+#   - upstream sync commit(`sync(flclash): ...` — conventions §4.3 主仓通用前缀)
+#
+# 合法示例:
+#   [xfork] feat(xboard): lib/xboard scaffold
+#   [xfork] build(deps): add Xboard sibling path + 4 deps (seam #3)
+#   sync(flclash): rebase to v0.8.93
+#
+# 安装: bash tool/setup-hooks.sh  (一次性配置 git config core.hooksPath)
+# 跳过 (不推荐): git commit --no-verify -m "..."
+#
+# 关联: conventions §2.4 / spec xboard-mvp-form-b W0.6
+###############################################################################
+
+set -euo pipefail
+
+COMMIT_MSG_FILE="${1:-}"
+if [[ -z "${COMMIT_MSG_FILE}" || ! -f "${COMMIT_MSG_FILE}" ]]; then
+    echo "[commit-msg] ✗ 内部错误: 拿不到 commit message 文件路径" >&2
+    exit 1
+fi
+
+SUBJECT_LINE="$(grep -v '^#' "${COMMIT_MSG_FILE}" | grep -v '^[[:space:]]*$' | head -n 1 || true)"
+
+if [[ -z "${SUBJECT_LINE}" ]]; then
+    echo "[commit-msg] ✗ commit message 不能为空" >&2
+    exit 1
+fi
+
+# 放行 git 自动生成的 merge / revert / fixup / squash + upstream sync commit
+if [[ "${SUBJECT_LINE}" =~ ^Merge\ .+ ]] \
+   || [[ "${SUBJECT_LINE}" =~ ^Revert\ .+ ]] \
+   || [[ "${SUBJECT_LINE}" =~ ^fixup! ]] \
+   || [[ "${SUBJECT_LINE}" =~ ^squash! ]] \
+   || [[ "${SUBJECT_LINE}" =~ ^sync\(flclash\):\ .+ ]]; then
+    exit 0
+fi
+
+# 正则模式: [xfork] <type>(<optional scope>): <subject>
+PATTERN='^\[xfork\] (feat|fix|refactor|chore|docs|test|build|ci|perf|style)(\([a-zA-Z0-9._/-]+\))?: [^.[:space:]].*[^.[:space:]]$|^\[xfork\] (feat|fix|refactor|chore|docs|test|build|ci|perf|style)(\([a-zA-Z0-9._/-]+\))?: [^.[:space:]]+$'
+
+if [[ ! "${SUBJECT_LINE}" =~ ${PATTERN} ]]; then
+    cat >&2 <<EOF
+[commit-msg] ✗ commit message 不符合规范
+
+实际:
+    ${SUBJECT_LINE}
+
+要求格式:
+    [xfork] <type>(<scope>?): <subject>
+
+允许 type:
+    feat, fix, refactor, chore, docs, test, build, ci, perf, style
+
+合法示例:
+    [xfork] feat(xboard): lib/xboard scaffold
+    [xfork] build(deps): add Xboard sibling path + 4 deps (seam #3)
+
+upstream sync 例外(放行):
+    sync(flclash): rebase to v0.8.93
+
+跳过 (仅紧急情况, 不推荐):
+    git commit --no-verify -m "..."
+
+完整规则: 项目根 .kiro/steering/conventions.md §2.4
+EOF
+    exit 1
+fi
+
+exit 0
