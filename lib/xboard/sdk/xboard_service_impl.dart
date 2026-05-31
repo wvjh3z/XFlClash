@@ -18,7 +18,7 @@ library;
 
 import 'package:flutter_xboard_sdk/flutter_xboard_sdk.dart';
 
-import '../models/checkout_outcome_ui.dart';
+import '../models/checkout_outcome_ui.dart' as ui;
 import '../models/order_summary.dart';
 import '../models/plan_item.dart';
 import '../models/xb_domain_error.dart';
@@ -95,10 +95,7 @@ class XboardServiceImpl implements XboardService {
         Failure(:final error) => XbResult.failure(_mapError(error)),
       };
 
-  // ───────── 18 方法 stub（逐 wave 填实；W2.2 先注入式骨架 + 双形态归一就位）─────────
-
-  static XbResult<T> _notImpl<T>(String op) =>
-      XbResult.failure(XbDomainError.unexpected(op, 'not_implemented'));
+  // ───────── 18 方法（逐 wave 填实；fireAllMirrors 是 void 例外）─────────
 
   @override
   Future<XbResult<String>> login(String email, String password) async {
@@ -241,7 +238,10 @@ class XboardServiceImpl implements XboardService {
 
   @override
   Future<XbResult<List<PlanItem>>> getPlans() async =>
-      _notImpl('getPlans'); // W7.1
+      _guard('getPlans', () async {
+        final plans = await _sdk.plan.getPlans();
+        return plans.map(_mapPlan).toList();
+      });
 
   @override
   Future<XbResult<String>> createOrder(
@@ -249,29 +249,54 @@ class XboardServiceImpl implements XboardService {
     XbPlanPeriod period, {
     String? couponCode,
   }) async =>
-      _notImpl('createOrder'); // W7.2
+      // SDK createOrder 收 String（PlanPeriod.value，旧版 *_price 命名 F338）→ 返 tradeNo。
+      _guard('createOrder',
+          () => _sdk.order.createOrder(planId, _toSdkPeriod(period).value,
+              couponCode: couponCode));
 
   @override
-  Future<XbResult<CheckoutOutcomeUi>> checkout(
+  Future<XbResult<ui.CheckoutOutcomeUi>> checkout(
     String tradeNo,
     String method,
   ) async =>
-      _notImpl('checkout'); // W7.2
+      // SDK checkoutOrder（零金额 method=''）→ CheckoutOutcome sealed 5 分支 → UI 副本。
+      _guard('checkout', () async {
+        final outcome = await _sdk.order.checkoutOrder(tradeNo, method);
+        return _mapCheckout(outcome);
+      });
 
   @override
   Future<XbResult<XbPagedList<OrderSummary>>> getOrders({
     int page = 1,
     int pageSize = 20,
   }) async =>
-      _notImpl('getOrders'); // W7.6
+      _guard('getOrders', () async {
+        final paged = await _sdk.order.getOrders(page: page, pageSize: pageSize);
+        return XbPagedList<OrderSummary>(
+          items: paged.data.map(_mapOrderSummary).toList(), // PaginatedList.data（第12轮）
+          page: page,
+          pageSize: pageSize,
+          total: paged.total,
+        );
+      });
 
   @override
   Future<XbResult<OrderDetail?>> getOrder(String tradeNo) async =>
-      _notImpl('getOrder'); // W7.6
+      _guard('getOrder', () async {
+        final m = await _sdk.order.getOrder(tradeNo);
+        if (m == null) return null;
+        return OrderDetail(
+          summary: _mapOrderSummary(m),
+          balanceAmountYuan: _centsToYuan(m.balanceAmount),
+          surplusAmountYuan: _centsToYuan(m.surplusAmount),
+          discountAmountYuan: _centsToYuan(m.discountAmount),
+          handlingAmountYuan: _centsToYuan(m.handlingAmount),
+        );
+      });
 
   @override
   Future<XbResult<bool>> cancelOrder(String tradeNo) async =>
-      _notImpl('cancelOrder'); // W7.x
+      _guard('cancelOrder', () => _sdk.order.cancelOrder(tradeNo));
 
   @override
   Future<XbResult<CouponInfo?>> checkCoupon(
@@ -279,18 +304,108 @@ class XboardServiceImpl implements XboardService {
     int planId,
     XbPlanPeriod period,
   ) async =>
-      _notImpl('checkCoupon'); // W7.2
+      // SDK checkCoupon 收 SDK PlanPeriod（非 String，第12轮非对称）。
+      _guard('checkCoupon', () async {
+        final m =
+            await _sdk.order.checkCoupon(code, planId, _toSdkPeriod(period));
+        if (m == null) return null;
+        return CouponInfo(
+          code: code,
+          type: m.type ?? 0, // CouponModel.type int? → 兜底（第12轮）
+          value: m.value ?? 0,
+          endedAt: m.endedAt,
+        );
+      });
 
   @override
   Future<XbResult<List<PaymentMethodItem>>> getPaymentMethods() async =>
-      _notImpl('getPaymentMethods'); // W7.2
+      // payment adapter 无参 getPaymentMethods（非 order.getPaymentMethods(tradeNo)，第12轮）。
+      _guard('getPaymentMethods', () async {
+        final methods = await _sdk.payment.getPaymentMethods();
+        return methods.map(_mapPaymentMethod).toList();
+      });
 
   @override
   Future<XbResult<IpMirrorConfigUi>> fetchMirrorList() async =>
-      _notImpl('fetchMirrorList'); // W6.5
+      _guard('fetchMirrorList', () async {
+        final cfg = await _sdk.ipMirror.fetchMirrorList();
+        return IpMirrorConfigUi(
+          enabled: cfg.enabled,
+          urls: cfg.urls,
+          throttle: cfg.throttle,
+          fetchTimeout: cfg.fetchTimeout,
+        );
+      });
 
   @override
   void fireAllMirrors(List<String> urls) {
-    // W6.5 填实 fire-and-forget；Property 1 例外（void 不返结果）。
+    // R7.13.bis fire-and-forget；Property 1 例外（void 不返结果）。
+    try {
+      _sdk.ipMirror.fireAllMirrors(urls);
+    } catch (_) {
+      // fire-and-forget：错误静默（全部不可达也不影响功能，用户 2026-05-27 锁定）。
+    }
   }
+
+  // ───────── W7 SDK model → 领域模型映射 ─────────
+
+  /// XbPlanPeriod → SDK PlanPeriod（值序一一对应：monthly..resetTraffic）。
+  PlanPeriod _toSdkPeriod(XbPlanPeriod p) => PlanPeriod.values[p.index];
+
+  /// SDK PlanPeriod → XbPlanPeriod。
+  XbPlanPeriod _toXbPeriod(PlanPeriod p) => XbPlanPeriod.values[p.index];
+
+  double? _centsToYuan(double? cents) => cents == null ? null : cents / 100;
+
+  PlanItem _mapPlan(PlanModel m) {
+    final prices = <PricePlan>[];
+    for (final sdkPeriod in PlanPeriod.values) {
+      final yuan = m.priceForPeriod(sdkPeriod);
+      if (yuan != null && yuan > 0) {
+        prices.add(PricePlan(period: _toXbPeriod(sdkPeriod), amountYuan: yuan));
+      }
+    }
+    return PlanItem(
+      id: m.id,
+      name: m.name,
+      description: m.content,
+      transferEnableGb: m.transferEnable.toInt(), // 第12轮：transfer_enable 单位 GB
+      prices: prices,
+    );
+  }
+
+  OrderSummary _mapOrderSummary(OrderModel m) => OrderSummary(
+        tradeNo: m.tradeNo ?? '',
+        planName: m.orderPlan?.name,
+        period: _toXbPeriod(PlanPeriod.fromValue(m.period) ?? PlanPeriod.monthly),
+        totalAmountYuan: m.totalAmountInYuan ?? 0,
+        status: _mapOrderStatus(OrderStatus.fromRaw(m.status)),
+        createdAt: m.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0),
+      );
+
+  XbOrderStatus _mapOrderStatus(OrderStatus? s) => switch (s) {
+        OrderStatus.pending => XbOrderStatus.pending,
+        OrderStatus.processing => XbOrderStatus.processing,
+        OrderStatus.cancelled => XbOrderStatus.cancelled,
+        OrderStatus.completed => XbOrderStatus.completed,
+        OrderStatus.discounted => XbOrderStatus.discounted,
+        null => XbOrderStatus.pending,
+      };
+
+  PaymentMethodItem _mapPaymentMethod(PaymentMethodModel m) => PaymentMethodItem(
+        id: m.id,
+        name: m.name,
+        icon: m.icon,
+        feeFixedYuan: _centsToYuan(m.handlingFeeFixed), // cents/100（第12轮）
+        feePercent: m.handlingFeePercent, // 百分比原值
+      );
+
+  /// SDK CheckoutOutcome sealed 5 分支 → UI 副本（零 SDK 类型穿透 Property 2）。
+  ui.CheckoutOutcomeUi _mapCheckout(CheckoutOutcome o) => switch (o) {
+        CheckoutRedirect(:final url) => ui.CheckoutRedirect(url),
+        CheckoutQrCode(:final qrCodeUrl) => ui.CheckoutQrCode(qrCodeUrl),
+        CheckoutPaid() => const ui.CheckoutPaid(),
+        CheckoutCanceled(:final message) => ui.CheckoutCanceled(message),
+        CheckoutFailed(:final message) => ui.CheckoutFailed(message),
+      };
 }
