@@ -19,6 +19,9 @@ library;
 import 'package:flutter_xboard_sdk/flutter_xboard_sdk.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
+import '../sdk/xboard_service.dart';
+import '../sdk/xboard_service_impl.dart';
+
 part '../generated/providers/xboard_providers.g.dart';
 
 /// 当前生效的 API endpoint（DD-18 写运行期值，非 override）。
@@ -80,4 +83,20 @@ class FirstLaunch extends _$FirstLaunch {
 
   // ignore: use_setters_to_change_properties
   void set(bool value) => state = value;
+}
+
+/// 反腐层单例（conventions §2.1 / W2.2）。
+///
+/// 依赖 `xboardSdkProvider`（bootstrap step6 写 `XBoardSDK.instance`）；SDK 就绪后
+/// 构造注入式 `XboardServiceImpl`（决策 #9）。bootstrap 完成前 SDK 为 null → 抛
+/// StateError（UI 应先 gate `bootstrapReadyProvider`，不在未就绪时调反腐层）。
+@Riverpod(keepAlive: true)
+XboardService xboardService(Ref ref) {
+  final sdk = ref.watch(xboardSdkProvider);
+  if (sdk == null) {
+    throw StateError(
+      'XboardService 在 SDK initialize 前被访问 —— UI 应先 gate bootstrapReadyProvider',
+    );
+  }
+  return XboardServiceImpl(sdk: sdk);
 }

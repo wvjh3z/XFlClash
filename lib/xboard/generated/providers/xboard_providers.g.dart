@@ -339,3 +339,61 @@ abstract class _$FirstLaunch extends $Notifier<bool> {
     element.handleCreate(ref, build);
   }
 }
+
+/// 反腐层单例（conventions §2.1 / W2.2）。
+///
+/// 依赖 `xboardSdkProvider`（bootstrap step6 写 `XBoardSDK.instance`）；SDK 就绪后
+/// 构造注入式 `XboardServiceImpl`（决策 #9）。bootstrap 完成前 SDK 为 null → 抛
+/// StateError（UI 应先 gate `bootstrapReadyProvider`，不在未就绪时调反腐层）。
+
+@ProviderFor(xboardService)
+final xboardServiceProvider = XboardServiceProvider._();
+
+/// 反腐层单例（conventions §2.1 / W2.2）。
+///
+/// 依赖 `xboardSdkProvider`（bootstrap step6 写 `XBoardSDK.instance`）；SDK 就绪后
+/// 构造注入式 `XboardServiceImpl`（决策 #9）。bootstrap 完成前 SDK 为 null → 抛
+/// StateError（UI 应先 gate `bootstrapReadyProvider`，不在未就绪时调反腐层）。
+
+final class XboardServiceProvider
+    extends $FunctionalProvider<XboardService, XboardService, XboardService>
+    with $Provider<XboardService> {
+  /// 反腐层单例（conventions §2.1 / W2.2）。
+  ///
+  /// 依赖 `xboardSdkProvider`（bootstrap step6 写 `XBoardSDK.instance`）；SDK 就绪后
+  /// 构造注入式 `XboardServiceImpl`（决策 #9）。bootstrap 完成前 SDK 为 null → 抛
+  /// StateError（UI 应先 gate `bootstrapReadyProvider`，不在未就绪时调反腐层）。
+  XboardServiceProvider._()
+    : super(
+        from: null,
+        argument: null,
+        retry: null,
+        name: r'xboardServiceProvider',
+        isAutoDispose: false,
+        dependencies: null,
+        $allTransitiveDependencies: null,
+      );
+
+  @override
+  String debugGetCreateSourceHash() => _$xboardServiceHash();
+
+  @$internal
+  @override
+  $ProviderElement<XboardService> $createElement($ProviderPointer pointer) =>
+      $ProviderElement(pointer);
+
+  @override
+  XboardService create(Ref ref) {
+    return xboardService(ref);
+  }
+
+  /// {@macro riverpod.override_with_value}
+  Override overrideWithValue(XboardService value) {
+    return $ProviderOverride(
+      origin: this,
+      providerOverride: $SyncValueProvider<XboardService>(value),
+    );
+  }
+}
+
+String _$xboardServiceHash() => r'24045bd92428eca0faf65f86c90564595add1487';
