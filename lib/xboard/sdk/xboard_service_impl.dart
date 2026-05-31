@@ -99,7 +99,18 @@ class XboardServiceImpl implements XboardService {
   Future<XbResult<String>> login(String email, String password) async {
     // SdkResult 形态（switch 解构）+ D69 email 预处理（trim + lowercase）。
     final r = await _sdk.auth.loginResult(email.toLowerCase().trim(), password);
-    return _fromSdkResult(r, (token) => token); // data 已是鉴权 token（F406）
+    final result = _fromSdkResult(r, (token) => token); // data 已是鉴权 token（F406）
+    // 🔴 W3.9（F406 致命语义）：SDK `auth.loginResult` **不自动存 token**（只有便捷方法
+    // `loginWithCredentials` 才存）；反腐层必须显式 saveToken，否则后续 API 无 Authorization。
+    // saveToken 内部补 'Bearer ' 前缀 + 经注入的 SecureStorageTokenStorage 落盘（F277 strip）。
+    if (result case XbSuccess(:final data)) {
+      try {
+        await _sdk.saveToken(data);
+      } catch (_) {
+        // 存储失败不改变登录结果（Property 1 永不抛）；下次启动需重登。
+      }
+    }
+    return result;
   }
 
   @override
@@ -139,20 +150,35 @@ class XboardServiceImpl implements XboardService {
 
   @override
   Future<XbResult<void>> logout() async {
-    // W3.6：服务端撤销 + token 清（θ-2）；完整 7 步清理（cache/profile/provider）由 UI 层
-    // logout 编排（需 ProviderContainer，见 auth notifier）。此处做 SDK 侧 + flag。
-    _isLoggingOut = true;
+    // W3.6 数据层 logout（数据一致性总章 § B）—— θ-8 in-flight race 防御 + θ-2 服务端撤销。
+    //
+    // 本方法负责「SDK / token」侧（step 0 + step 5）；完整 7 步中的离线缓存清理（step 2）、
+    // 订阅 path 清理（step 3）、外挂索引 + profile 删除（step 4）依赖 W4/W6/W7 才建的
+    // drift 索引表 + SharedPreferences 缓存，在那些 wave 接入（已留 hook：success 写回均经
+    // _writeIfNotLoggingOut 守卫，logout 期间丢弃）。authState 切换（step 6）由
+    // AuthStateNotifier.logout() 编排（需 ref，见 auth_state_provider.dart）。
+    _isLoggingOut = true; // 🔴 θ-8：先置 flag，确保清理期间任何 in-flight success 被丢弃
     try {
-      // step 0：服务端撤销（fire-and-forget + 3s timeout，结果不阻塞本地，θ-2）。
+      // step 0：服务端撤销（θ-2，fire-and-forget + 3s timeout，失败不阻塞本地）。
+      // 注：XBoard 后端无 logout 端点，SDK auth.logout() 当前是 no-op 返 true；step 0 保留
+      // 调用点，待后端支持 token 撤销（v0.2 / refresh token 模型）时天然生效。
       try {
         await _sdk.auth.logout().timeout(const Duration(seconds: 3));
       } catch (_) {
-        // 服务端撤销失败不阻塞本地清理。
+        // 服务端撤销失败不阻塞本地清理（最大努力）。
       }
-      // SDK 内部 clearToken（logout() 已调）；反腐层 token 经注入的 TokenStorage 清。
+
+      // step 5：清本地 token —— 调 SDK clearToken() 清注入的 TokenStorage
+      // （SecureStorageTokenStorage → 删 xb_access_token_v1；SDK auth.logout() 不碰 token）。
+      try {
+        await _sdk.clearToken();
+      } catch (_) {
+        // 清 token 失败（storage 异常）也不抛 —— Property 1 永不抛。
+      }
+
       return XbResult.success(null);
     } finally {
-      _isLoggingOut = false;
+      _isLoggingOut = false; // 解除 flag（authState 已由编排层切，cache 写回也无害）
     }
   }
 

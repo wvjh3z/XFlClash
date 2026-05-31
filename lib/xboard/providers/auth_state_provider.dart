@@ -17,6 +17,8 @@ library;
 
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
+import 'xboard_providers.dart';
+
 part '../generated/providers/auth_state_provider.g.dart';
 
 /// 登录态 3 态（§ G）。
@@ -52,4 +54,26 @@ class AuthStateNotifier extends _$AuthStateNotifier {
     if (state == AuthState.unauthenticated) return; // R12 跳登录只触发一次
     state = AuthState.unauthenticated;
   }
+
+  /// R4.5 主动登出编排（数据一致性总章 § B step 6 + idempotency）。
+  ///
+  /// 调反腐层 `logout()`（数据层 step 0 服务端撤销 + step 5 清 token；W4/W6/W7 接入
+  /// 缓存/profile 清理），完成后切 `unauthenticated`（触发 R12 重定向）。
+  ///
+  /// **idempotent**：反腐层 logout 永不抛（Property 1），无论成功失败都切 unauthenticated
+  /// （本地态以"已登出"为终态，避免卡在中间态）；重入安全（markUnauthenticated 幂等）。
+  Future<void> logout() async {
+    // 反腐层 logout 永不抛；忽略结果，本地态强制切未登录。
+    await ref.read(xboardServiceProvider).logout();
+    state = AuthState.unauthenticated;
+  }
+
+  /// R4.4 401/403 自动登出（D61 双重判定 / W3.7）。
+  ///
+  /// 任意需登录 API 返 `XbUnauthorized`（SDK `AuthInterceptor` 已对 401 / 403+5 子串
+  /// 主动 clearToken）时调用。**不调服务端撤销**（已经 401，token 已失效，调也无意义）+
+  /// **不重复清 token**（SDK 已清），仅切 `unauthenticated` 触发 R12 跳登录。
+  ///
+  /// 幂等：已 unauthenticated 时 no-op（401 风暴只触发一次重定向，复用 markUnauthenticated 守卫）。
+  void handleUnauthorized() => markUnauthenticated();
 }

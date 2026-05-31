@@ -18,6 +18,7 @@ import '../l10n/xboard_business_messages.dart';
 import '../models/xb_domain_error.dart';
 import '../models/xb_result.dart';
 import '../providers/auth_state_provider.dart';
+import '../providers/pending_destination_provider.dart';
 import '../providers/xboard_providers.dart';
 import '../widgets/xb_ui_kit.dart';
 import 'forgot_password_page.dart';
@@ -75,8 +76,20 @@ class _XboardLoginPageState extends ConsumerState<XboardLoginPage> {
     switch (result) {
       case XbSuccess():
         ref.read(authStateProvider.notifier).markAuthenticated();
-        // R12：登录成功跳目标页 / 主页（W3.11 pendingDestination 接入后细化）。
-        if (mounted) Navigator.of(context).maybePop();
+        // R12：登录成功 → 有 pendingDestination 则跳目标页（替换登录页，保留来源栈），
+        // 否则 pop 回来源（R13.2）。用纯函数 buildXbRoute + 当前 context 构造（Property 22）。
+        final pending = ref.read(pendingDestinationProvider.notifier).consume();
+        if (!mounted) return;
+        final nav = Navigator.of(context);
+        if (pending != null) {
+          nav.pushReplacement(
+            MaterialPageRoute<void>(
+              builder: (ctx) => buildXbRoute(pending.route, pending.args, ctx),
+            ),
+          );
+        } else {
+          nav.maybePop();
+        }
       case XbFailure(:final error):
         ref.read(authStateProvider.notifier).markUnauthenticated();
         _handleError(error);

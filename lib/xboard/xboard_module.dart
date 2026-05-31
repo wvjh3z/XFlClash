@@ -19,6 +19,7 @@ import 'package:flutter_xboard_sdk/flutter_xboard_sdk.dart'
     show TokenStorage, XBoardSDK;
 
 import 'config/xboard_config.dart';
+import 'l10n/content_language.dart';
 import 'providers/xboard_providers.dart';
 
 class XboardModule {
@@ -86,6 +87,22 @@ class XboardModule {
     );
 
     // step 5：SdkLogger.onLog 占位（W8.3 SentryBootstrap 完成后 wire 真实 capture）。
+    //
+    // W3.10：Content-Language 一次性默认 header 注入（DD-4 / F398 / F399）。
+    // SDK 不主动发 Content-Language；反腐层在此（SDK initialize 后 + 首个 API 调用前）
+    // 按系统 locale 映射后端 locale，写 dio 默认 header（一次性，非 per-call）。
+    try {
+      final backendLocale =
+          mapToBackendLocale(PlatformDispatcher.instance.locale.toLanguageTag());
+      // design L484 授权反腐层注入 Content-Language；SDK 无 default-headers 公共 API，
+      // dio getter 是唯一注入点，受控例外。
+      // ignore: deprecated_member_use
+      instance.httpService.dio.options.headers[kContentLanguageHeader] =
+          backendLocale;
+    } catch (e, s) {
+      // 注入失败不阻塞 bootstrap（DD-2 全捕获）；后端 fallback 默认 zh-CN。
+      debugPrint('[XboardModule] Content-Language inject failed: $e\n$s');
+    }
 
     // step 6：写运行期值（DD-18，非 override）。fallback 兜底即 bootstrapReady=true。
     container.read(apiEndpointProvider.notifier).set(apiEndpoint);

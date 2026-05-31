@@ -51,6 +51,28 @@ void main() {
       final r = await service.login('a@b.com', 'pw');
       expect((r as XbFailure).error, isA<XbUnauthorized>());
     });
+
+    test('W3.9：成功登录 → 显式 saveToken（F406，loginResult 不自动存）', () async {
+      when(() => apis.authApi.loginResult(any(), any()))
+          .thenAnswer((_) async => const Success('bearer-token'));
+      await service.login('a@b.com', 'pw');
+      verify(() => sdk.saveToken('bearer-token')).called(1);
+    });
+
+    test('W3.9：登录失败 → 不 saveToken', () async {
+      when(() => apis.authApi.loginResult(any(), any()))
+          .thenAnswer((_) async => const Failure(UnauthorizedError('bad')));
+      await service.login('a@b.com', 'pw');
+      verifyNever(() => sdk.saveToken(any()));
+    });
+
+    test('W3.9：saveToken 抛异常 → 仍返 XbSuccess（Property 1 永不抛）', () async {
+      when(() => apis.authApi.loginResult(any(), any()))
+          .thenAnswer((_) async => const Success('t'));
+      when(() => sdk.saveToken(any())).thenThrow(Exception('storage fail'));
+      final r = await service.login('a@b.com', 'pw');
+      expect(r, isA<XbSuccess<String>>());
+    });
   });
 
   group('_mapError 7 子类映射（经 login Failure 驱动）', () {

@@ -9,6 +9,7 @@ import 'package:mocktail/mocktail.dart';
 
 import 'package:fl_clash/xboard/pages/login_page.dart';
 import 'package:fl_clash/xboard/providers/auth_state_provider.dart';
+import 'package:fl_clash/xboard/providers/pending_destination_provider.dart';
 import 'package:fl_clash/xboard/providers/xboard_providers.dart';
 import 'package:fl_clash/xboard/sdk/xboard_service.dart';
 import 'package:fl_clash/xboard/models/xb_domain_error.dart';
@@ -115,5 +116,33 @@ void main() {
 
     await t.pump(const Duration(milliseconds: 150)); // 等 login 完成
     expect(calls, 1); // 只调用 1 次
+  });
+
+  testWidgets('R12：登录成功 + pendingDestination → 跳目标页（buildXbRoute）', (t) async {
+    when(() => service.login(any(), any()))
+        .thenAnswer((_) async => const XbSuccess('token'));
+    final container = ProviderContainer(
+      overrides: [xboardServiceProvider.overrideWithValue(service)],
+    );
+    addTearDown(container.dispose);
+    // 守卫预置：未登录点订单详情 → 记录 pending
+    container.read(pendingDestinationProvider.notifier).set(
+          const PendingDestination(XbRoute.orderDetail, {'tradeNo': 'T9'}),
+        );
+    await t.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: XboardLoginPage()),
+      ),
+    );
+    await t.enterText(find.byType(TextField).first, 'a@b.com');
+    await t.enterText(find.byType(TextField).last, 'password');
+    await t.tap(find.text('登录'));
+    await t.pump();
+    await t.pump(const Duration(milliseconds: 50));
+    await t.pumpAndSettle();
+    // 跳到目标页（占位页渲染 args）+ pending 已消费清空
+    expect(find.textContaining('T9'), findsOneWidget);
+    expect(container.read(pendingDestinationProvider), isNull);
   });
 }

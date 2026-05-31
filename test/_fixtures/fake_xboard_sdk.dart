@@ -85,6 +85,9 @@ extension FakeXBoardSDKSetup on FakeXBoardSDK {
 
     // SDK 生命周期 / 认证态桩
     when(() => isInitialized).thenReturn(true);
+    // token 写/清桩（W3.9 login saveToken / W3.6 logout clearToken 默认 no-op）。
+    when(() => saveToken(any())).thenAnswer((_) async {});
+    when(clearToken).thenAnswer((_) async {});
 
     switch (scenario) {
       case XbScenario.loggedIn:
