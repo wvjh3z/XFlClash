@@ -57,7 +57,7 @@ void main() {
 
   test('命中：真实 main.dart runApp 在 :22 ±3 → exit 0', () async {
     final anchors = writeAnchors([
-      'T-runapp | lib/main.dart | 22 | runApp(',
+      'T-runapp | lib/main.dart | 33 | runApp(',
     ]);
     final (code, out) = await run(anchors);
     expect(code, 0, reason: out);
