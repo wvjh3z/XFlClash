@@ -15,7 +15,8 @@ library;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter_xboard_sdk/flutter_xboard_sdk.dart';
+import 'package:flutter_xboard_sdk/flutter_xboard_sdk.dart'
+    show TokenStorage, XBoardSDK;
 
 import 'config/xboard_config.dart';
 import 'providers/xboard_providers.dart';

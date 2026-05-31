@@ -16,7 +16,7 @@
 /// - bootstrapReady / firstLaunch：✅ UI 可 watch
 library;
 
-import 'package:flutter_xboard_sdk/flutter_xboard_sdk.dart';
+import 'package:flutter_xboard_sdk/flutter_xboard_sdk.dart' show XBoardSDK;
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../sdk/xboard_service.dart';
