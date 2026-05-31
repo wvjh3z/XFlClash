@@ -1,6 +1,7 @@
 import 'package:fl_clash/enum/enum.dart';
 import 'package:fl_clash/models/models.dart';
 import 'package:fl_clash/views/views.dart';
+import 'package:fl_clash/xboard/navigation/xboard_navigation.dart';
 import 'package:flutter/material.dart';
 
 class Navigation {
@@ -72,6 +73,8 @@ class Navigation {
         builder: (_) => const ToolsView(key: GlobalObjectKey(PageLabel.tools)),
         modes: [NavigationItemMode.desktop, NavigationItemMode.mobile],
       ),
+      // === Xboard 接缝点 #6：注入「我的服务」主 Tab（决策 #8，加而不改）===
+      ...XboardNavigation.items,
     ];
   }
 
