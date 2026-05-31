@@ -185,6 +185,15 @@ class _XboardRegisterPageState extends ConsumerState<XboardRegisterPage> {
               _inviteError = '邀请码无效';
             case BusinessErrorKind.invalidEmailCode:
               _codeError = '验证码错误或已过期';
+            case BusinessErrorKind.generic:
+              // 后端未识别子类型（含「邮箱后缀白名单」「reCAPTCHA 校验失败」等 v0.1 未建模
+              // 的注册限制，DD-10）→ 优先透传后端 message（通常已是中文且最精准），
+              // 仅当后端 message 为空才回退通用文案。
+              if (!silentBanner) {
+                _banner = error.message.isNotEmpty
+                    ? error.message
+                    : '注册失败，请稍后重试';
+              }
             default:
               if (!silentBanner) {
                 _banner = localizedBusinessMessage(kind, XbLocale.zhCN);

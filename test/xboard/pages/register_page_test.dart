@@ -147,6 +147,21 @@ void main() {
     expect(find.text('验证码错误或已过期'), findsOneWidget);
   });
 
+  testWidgets('generic（邮箱后缀白名单）→ 透传后端 message', (t) async {
+    // 后端开启 email_whitelist 后非白名单邮箱注册返 400 generic + 中文 message（DD-10）。
+    when(() => service.register(any(), any(),
+            emailCode: any(named: 'emailCode'),
+            inviteCode: any(named: 'inviteCode')))
+        .thenAnswer((_) async => const XbFailure(
+            XbBusiness(BusinessErrorKind.generic, '邮箱后缀不在白名单内', null)));
+    await pump(t);
+    await fillValid(t);
+    await tapRegister(t);
+    await t.pump();
+    await t.pump(const Duration(milliseconds: 50));
+    expect(find.text('邮箱后缀不在白名单内'), findsOneWidget); // 透传，不被吞成通用文案
+  });
+
   testWidgets('R1.7 loading：注册中按钮 spinner', (t) async {
     when(() => service.register(any(), any(),
             emailCode: any(named: 'emailCode'),
