@@ -22,6 +22,8 @@ class XboardConfig {
     this.dataResidency = 'Hong Kong',
     this.dataController = 'Example Tech Co., Ltd.',
     this.supportEmail = 'support@example.com',
+    this.bootstrapUrls = const <String>[],
+    this.bootstrapAesKeyBytes,
   });
 
   /// 订阅 UA（含且仅含一个 `flclash` 子串，F202/F203）。
@@ -56,6 +58,12 @@ class XboardConfig {
 
   /// 客服邮箱（合规 § B，账号注销 mailto 用）。
   final String supportEmail;
+
+  /// Bootstrap 远端镜像 URL 列表（R15；运行时地址不入 Dart/yaml，仅 flavor 注入 bootstrap 入口）。
+  final List<String> bootstrapUrls;
+
+  /// Bootstrap AES-256 解密 key（32 字节；编译期注入，D58 不进 git）。null = 未配置（降级）。
+  final List<int>? bootstrapAesKeyBytes;
 
   /// W1 占位默认值（W8.5 由生成的 FlavorConfig 替换）。
   static const XboardConfig _placeholder = XboardConfig(

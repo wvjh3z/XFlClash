@@ -19,13 +19,26 @@ import 'package:flutter_xboard_sdk/flutter_xboard_sdk.dart'
     show TokenStorage, XBoardSDK;
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../providers/config.dart' show patchClashConfigProvider;
+import '../providers/app.dart' show initProvider;
 import 'config/xboard_config.dart';
 import 'l10n/content_language.dart';
 import 'providers/xboard_providers.dart';
+import 'services/endpoint_race_controller.dart';
+import 'services/xboard_lifecycle_observer.dart';
 import 'widgets/xboard_consent_dialog.dart' show kXbConsentKey;
 
 class XboardModule {
   XboardModule._();
+
+  /// 自起 lifecycle observer（DD-19，dispose 时摘除）。
+  static XboardLifecycleObserver? _lifecycleObserver;
+
+  /// 自起 endpoint 竞速控制器（DD-19）。
+  static EndpointRaceController? _raceController;
+
+  /// seam #7 globalUa 注入的 initProvider 监听句柄（dispose 时关）。
+  static ProviderSubscription<bool>? _initListener;
 
   /// 同步阶段启动（接缝点 #1 调用点，DD-17 render-first，零网络）。
   ///
@@ -121,13 +134,76 @@ class XboardModule {
     container.read(xboardSdkProvider.notifier).set(instance);
     container.read(bootstrapReadyProvider.notifier).set(true);
 
-    // step 7：占位 XboardLifecycleObserver（W5.3 完成）。
-    // step 8：占位 xboardConnectivityProvider（W5.4 完成，复用 DD-5 单一数据源）。
+    // step 7：XboardLifecycleObserver（W5.3）—— 自挂 observer + endpoint 竞速控制器。
+    // 各子步骤独立 try/catch：一个失败（如 test 无 WidgetsBinding）不阻断其余（含 seam #7）。
+    try {
+      _raceController = EndpointRaceController(
+        onApiSwitch: (ep) {
+          try {
+            instance.switchBaseUrl(ep);
+          } catch (_) {}
+          container.read(apiEndpointProvider.notifier).set(ep);
+        },
+        onSubscriptionSwitch: (ep) =>
+            container.read(subscriptionEndpointProvider.notifier).set(ep),
+      );
+      _lifecycleObserver =
+          XboardLifecycleObserver(raceController: _raceController!)..attach();
+    } catch (e, s) {
+      debugPrint('[XboardModule] lifecycle observer wire failed: $e\n$s');
+    }
+
+    // seam #7（W5.5）：等 initProvider==true（globalState.attach 完成）后强制注入 globalUa。
+    try {
+      _wireGlobalUaInjection(container);
+    } catch (e, s) {
+      debugPrint('[XboardModule] globalUa wire failed: $e\n$s');
+    }
+
+    // step 8：connectivity（W5.4 xboardConnectivityProvider 自起 StreamProvider，
+    // UI/race 通过 ref.watch/listen 复用，不在此裸 listen，DD-5/E12）。
   }
 
-  /// 释放模块自起的长生命周期资源（DD-19）。
+  /// seam #7 globalUa 强制注入（F221 / DD-12 / R7 AC 0.bis）。
+  ///
+  /// 监听 `initProvider`，==true（globalState.attach 完成）时强制写 globalUa（含单一 flclash 子串）。
+  /// **DD-12**：不盲目复用用户值（防用户改 globalUa 成 clash-verge 致 R7 协议歧义崩）。
+  static void _wireGlobalUaInjection(ProviderContainer container) {
+    void inject() {
+      try {
+        final ua = XboardConfig.current.subscribeUserAgent;
+        container
+            .read(patchClashConfigProvider.notifier)
+            .update((s) => s.copyWith(globalUa: ua));
+      } catch (e, s) {
+        debugPrint('[XboardModule] globalUa inject failed: $e\n$s');
+      }
+    }
+
+    // 已就绪则立即注入；否则监听首次 true。
+    if (container.read(initProvider)) {
+      inject();
+    } else {
+      _initListener = container.listen<bool>(initProvider, (prev, next) {
+        if (next) {
+          inject();
+          _initListener?.close();
+          _initListener = null;
+        }
+      });
+    }
+  }
+
+  /// 释放模块自起的长生命周期资源（DD-19 顺序：摘 observer → 关监听 → race dispose）。
   static Future<void> dispose() async {
-    // W5 填实：移除 lifecycle observer / 取消心跳 timer / 关 connectivity 订阅 /
-    // dispose EndpointRaceController。
+    // 1. 先摘 observer（停止接收 lifecycle 事件，避免 race 已 dispose 后还触发竞速）。
+    _lifecycleObserver?.dispose();
+    _lifecycleObserver = null;
+    // 2. 关 seam #7 initProvider 监听。
+    _initListener?.close();
+    _initListener = null;
+    // 3. dispose endpoint 竞速控制器（最后，前面已无人触发它）。
+    _raceController?.dispose();
+    _raceController = null;
   }
 }
