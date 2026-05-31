@@ -1,0 +1,1 @@
+Riverpod providers：keepAlive 基础设施（apiEndpoint / subscriptionEndpoint / xboardSdk / bootstrapReady / firstLaunch，W1.6）+ authState（W3.2）+ 领域 provider（userProfile/plans/orders，各功能 wave）+ connectivity（W5.4）。

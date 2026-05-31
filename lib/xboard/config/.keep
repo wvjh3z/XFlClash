@@ -1,0 +1,1 @@
+配置：XboardConfig（XboardConfig.current 接入点）+ flavor_config.g.dart（prepare_flavor.dart 生成，gitignored）+ bootstrap_constants.dart（AAD 串等）。W1.5 / W8.5 填实。

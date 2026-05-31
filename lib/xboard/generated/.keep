@@ -1,0 +1,1 @@
+freezed / json_serializable / Drift codegen 产物（build.yaml 子规则导向此处，D64）。生成产物不进 git（首次 clone 后跑 build_runner）。

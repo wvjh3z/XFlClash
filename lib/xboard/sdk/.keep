@@ -1,0 +1,1 @@
+SDK 反腐层：xboard_service.dart（抽象接口）+ xboard_service_impl.dart（唯一 import SDK barrel）。W2 填实。
