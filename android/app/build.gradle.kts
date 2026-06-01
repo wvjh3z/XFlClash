@@ -82,6 +82,17 @@ android {
             )
         }
     }
+
+    // ── 接缝点 #4（W8.4 / D36 / θ-10）：Xboard 多租户 flavor 骨架 ──
+    // applicationId 不在此覆盖（保留 upstream com.follow.clash）；品牌包名由
+    // tool/prepare_flavor.dart 在 build 前按 flavor.yaml 注入（W8.5）。v0.1 单 flavor brand_a。
+    flavorDimensions += "brand"
+    productFlavors {
+        create("brand_a") {
+            dimension = "brand"
+            // applicationId / appName / 资源由 prepare_flavor.dart 注入（不硬编码品牌信息）。
+        }
+    }
 }
 
 kotlin {

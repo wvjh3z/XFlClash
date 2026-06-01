@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- θ-10（W8.4.3）：Android 12+ (API 31+) 数据抽取规则 —— 云备份 + 设备迁移都排除敏感数据。
+     配合 AndroidManifest android:dataExtractionRules="@xml/data_extraction_rules"。 -->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="sharedpref" />
+        <exclude domain="database" />
+        <exclude domain="file" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="sharedpref" />
+        <exclude domain="database" />
+        <exclude domain="file" />
+    </device-transfer>
+</data-extraction-rules>

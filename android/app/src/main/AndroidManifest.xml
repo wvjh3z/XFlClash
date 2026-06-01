@@ -28,7 +28,10 @@
 
     <application
         android:name=".Application"
+        android:allowBackup="false"
         android:banner="@mipmap/ic_banner"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:fullBackupContent="@xml/no_backup"
         android:hardwareAccelerated="true"
         android:icon="@mipmap/ic_launcher"
         android:label="FlClash">

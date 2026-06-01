@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- θ-10（W8.4.3）：禁止云备份 / ADB backup 抽取 token 等敏感数据。
+     配合 AndroidManifest android:allowBackup="false" + android:fullBackupContent="@xml/no_backup"。
+     Android 12+ 用 dataExtractionRules（见 data_extraction_rules.xml）；本文件供 <=API31 fullBackupContent。 -->
+<full-backup-content>
+    <!-- 排除全部：不参与任何自动备份。 -->
+    <exclude domain="sharedpref" />
+    <exclude domain="database" />
+    <exclude domain="file" />
+</full-backup-content>

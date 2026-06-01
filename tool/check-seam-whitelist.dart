@@ -41,6 +41,9 @@ const _ourAdditions = <String>[
   '.githooks/',
   '.github/workflows/xboard-ci.yml', // W9.8 Xboard 专属 CI（新增文件，不改 upstream workflow）
   'CHANGELOG_XBOARD.md',
+  // W8.4（θ-10）新增的 backup 规则资源（新增文件，非改 upstream；AndroidManifest 引用已登记 #4.bis）。
+  'android/app/src/main/res/xml/no_backup.xml',
+  'android/app/src/main/res/xml/data_extraction_rules.xml',
 ];
 
 /// pub get 机械衍生文件（seam #3 连带，PATCHES.md「seam #3 衍生改动」已登记，不单列接缝点）。
@@ -55,6 +58,8 @@ const _pubGetDerivatives = <String>[
   'android/gradle.properties',
   // CI 治理：禁用上游自动构建（PATCHES.md「其他 upstream 文件改动」已登记）。
   '.github/workflows/build.yaml',
+  // W8.5 衍生：.gitignore 追加 flavor_config.g.dart（PATCHES.md「衍生」段已登记）。
+  '.gitignore',
 ];
 
 void main(List<String> argv) {
