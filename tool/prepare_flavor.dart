@@ -81,8 +81,85 @@ void main(List<String> argv) {
 
   stdout.writeln('[prepare_flavor] ✓ flavor "$flavor" 校验通过'
       '${isTest ? '（test target）' : ''}。');
-  // W8.5：此处后续接 flavor_config.g.dart 生成 / 资源拷贝 / 原生配置注入。
+
+  // W8.5：生成 lib/xboard/config/flavor_config.g.dart（gitignored，含 CI 注入 aesKey/sentryDsn）。
+  final doc = loadYaml(File(yamlPath).readAsStringSync()) as YamlMap;
+  final genPath = p.join('lib', 'xboard', 'config', 'flavor_config.g.dart');
+  File(genPath)
+    ..createSync(recursive: true)
+    ..writeAsStringSync(
+        generateFlavorConfigDart(doc, flavorId: flavor, isTest: isTest));
+  stdout.writeln('[prepare_flavor] ✓ 已生成 $genPath');
+
+  // W8.5（8.5.1）：注入 pubspec version = <versionName>+flclash<底座>（conventions §2.8）。
+  // 单 flavor v0.1 Android applicationId 保留 upstream（productFlavors 注释已说明）；
+  // 多品牌 applicationId 注入留 v0.2（需各品牌签名密钥）。
   exit(0);
+}
+
+/// 生成 flavor_config.g.dart 源码（W8.5）。emit `xboardConfigFromFlavor()` 工厂。
+///
+/// **零硬编码**（NFR-2 / Property 19）：所有「随发行变化」的值来自 flavor.yaml。
+/// aesKey base64 → `List<int>`（空 → null，降级路径）。devApi/devSub endpoint 是 W5.6 前
+/// stub 占位（生产由 Bootstrap 解密热替换），取 bootstrapUrls 首项 origin。
+String generateFlavorConfigDart(YamlMap doc,
+    {required String flavorId, required bool isTest}) {
+  String s(String key) => (doc[key] as String?) ?? '';
+  String esc(String v) => v.replaceAll(r'$', r'\$').replaceAll("'", r"\'");
+
+  final brandColorHex = s('brandColor').replaceAll('#', '');
+  final brandColorInt = brandColorHex.isEmpty
+      ? 0xFFD92E1A
+      : int.parse('FF${brandColorHex.toUpperCase()}', radix: 16);
+
+  final aesKey = s('aesKey');
+  final String aesExpr;
+  if (aesKey.isEmpty) {
+    aesExpr = 'null';
+  } else {
+    final bytes = base64.decode(aesKey);
+    aesExpr = '<int>[${bytes.join(', ')}]';
+  }
+
+  final urls = (doc['bootstrapUrls'] as YamlList?)
+          ?.map((e) => "'${esc(e as String)}'")
+          .join(', ') ??
+      '';
+
+  // stub endpoint：从首个 bootstrap URL 取 scheme+host（生产被 Bootstrap 热替换）。
+  final firstUrl = (doc['bootstrapUrls'] as YamlList?)?.isNotEmpty == true
+      ? (doc['bootstrapUrls'] as YamlList).first as String
+      : 'https://api.example.com';
+  final origin = (() {
+    final u = Uri.tryParse(firstUrl);
+    return u != null && u.host.isNotEmpty ? '${u.scheme}://${u.host}' : firstUrl;
+  })();
+
+  return '''
+// GENERATED — 由 tool/prepare_flavor.dart 生成，请勿手改（gitignored，含 CI 注入密钥）。
+// 关联：design §E flavor.yaml → XboardConfig / W8.5 / NFR-2 Property 19。
+// ignore_for_file: type=lint
+
+import 'xboard_config.dart';
+
+/// 由 flavor.yaml 生成的运行期配置（bootstrap step 1 调 `XboardConfig.bind(xboardConfigFromFlavor())`）。
+XboardConfig xboardConfigFromFlavor() => const XboardConfig(
+      flavorId: '${esc(flavorId)}',
+      subscribeUserAgent: '${esc(s('subscribeUserAgent'))}',
+      devApiEndpoint: '${esc(origin)}',
+      devSubscriptionEndpoint: '${esc(origin)}',
+      debug: ${isTest ? 'true' : 'false'},
+      kIsTest: $isTest,
+      brandColor: 0x${brandColorInt.toRadixString(16).toUpperCase().padLeft(8, '0')},
+      termsUrl: '${esc(s('termsUrl'))}',
+      privacyUrl: '${esc(s('privacyUrl'))}',
+      dataResidency: '${esc(s('dataResidency'))}',
+      dataController: '${esc(s('dataController'))}',
+      supportEmail: '${esc(s('supportEmail'))}',
+      bootstrapUrls: <String>[$urls],
+      bootstrapAesKeyBytes: $aesExpr,
+    );
+''';
 }
 
 /// 校验 flavor.yaml，返回错误列表（空 = 通过）。

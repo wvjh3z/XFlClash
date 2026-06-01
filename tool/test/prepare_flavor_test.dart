@@ -7,6 +7,7 @@ import 'dart:io';
 
 import 'package:flutter_xboard_sdk/flutter_xboard_sdk.dart' show HttpConfig;
 import 'package:test/test.dart';
+import 'package:yaml/yaml.dart';
 
 // 直接引相对路径脚本（tool/ 不是 package lib，用相对 import）。
 import '../prepare_flavor.dart';
@@ -159,6 +160,55 @@ void main() {
     final errors = validateFlavor(
         yamlPath: pJoin(flavorDir, 'nope.yaml'), flavorDir: flavorDir);
     expect(errors.any((e) => e.contains('不存在')), isTrue);
+  });
+
+  // W8.5：flavor_config.g.dart 生成器（generateFlavorConfigDart）。
+  group('generateFlavorConfigDart（W8.5 生成器）', () {
+    YamlMap loadValid({String aesKey = ''}) =>
+        loadYaml(_validYaml(aesKey: aesKey)) as YamlMap;
+
+    test('test target → kIsTest/debug true + flavorId + UA + endpoints', () {
+      final out = generateFlavorConfigDart(loadValid(),
+          flavorId: 'brand_a', isTest: true);
+      expect(out, contains("flavorId: 'brand_a'"));
+      expect(out, contains("subscribeUserAgent: 'MyClient/0.1.0 flclash'"));
+      expect(out, contains('kIsTest: true'));
+      expect(out, contains('debug: true'));
+      // devApi 取首 URL 的 origin。
+      expect(out, contains("devApiEndpoint: 'https://a.example.com'"));
+      // 空 aesKey → null（降级路径）。
+      expect(out, contains('bootstrapAesKeyBytes: null'));
+      expect(out, contains('xboardConfigFromFlavor()'));
+    });
+
+    test('prod target → kIsTest/debug false', () {
+      final out = generateFlavorConfigDart(loadValid(),
+          flavorId: 'brand_a', isTest: false);
+      expect(out, contains('kIsTest: false'));
+      expect(out, contains('debug: false'));
+    });
+
+    test('aesKey 非空 → 生成 List<int> 32 字节', () {
+      final key = base64.encode(List<int>.generate(32, (i) => i));
+      final out = generateFlavorConfigDart(loadValid(aesKey: key),
+          flavorId: 'brand_a', isTest: false);
+      expect(out, contains('bootstrapAesKeyBytes: <int>[0, 1, 2,'));
+      expect(out, contains('30, 31]'));
+    });
+
+    test('brandColor #d92e1a → 0xFFD92E1A', () {
+      final out = generateFlavorConfigDart(loadValid(),
+          flavorId: 'brand_a', isTest: true);
+      expect(out, contains('brandColor: 0xFFD92E1A'));
+    });
+
+    test('bootstrapUrls 全部进数组', () {
+      final out = generateFlavorConfigDart(loadValid(),
+          flavorId: 'brand_a', isTest: true);
+      expect(out, contains("'https://a.example.com/b.bin'"));
+      expect(out, contains("'https://b.example.com/b.bin'"));
+      expect(out, contains("'https://c.example.com/b.bin'"));
+    });
   });
 
   // 🔴 W0.5 漂移守护：内联 hasSingleFlclashFlag 必须与 SDK ground truth 等价。
