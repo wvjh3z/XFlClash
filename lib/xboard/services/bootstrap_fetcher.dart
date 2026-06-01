@@ -4,9 +4,10 @@
 /// FlClashHttpOverrides.findProxy 访问未就绪运行时 ClashConfig 会抛 LateInitializationError。
 /// 自建 adapter 覆盖 findProxy=DIRECT 绕过。
 ///
-/// **🔴 θ-1 安全约束**：`client.badCertificateCallback = null`——FlClash 全局 HttpOverrides 设
-/// `=> true` 全境放行任意证书（MITM 风险），自建 client 继承该行为，**必须显式 reset 为 null**
-/// 恢复 dart:io 默认严格 TLS 校验（v0.1 不开 cert pinning，决策 #12，至少保严格 hostname 校验）。
+/// **⚠️ 证书校验全放行（用户 override，2026-06-01 知情决策）**：原 θ-1 约束要求 bootstrap 拉取
+/// 走严格 TLS（`badCertificateCallback=null`）以挡明网 MITM。**用户已知晓全放行会带来明网 MITM
+/// 风险（可能泄漏用户登录凭据），仍决定与 FlClash 上游一致全放行**（`=> true`）。本类据此放行
+/// 任意证书。安全影响见 SECURITY.md「Bootstrap TLS 全放行」+ design 决策 #12 修订。
 ///
 /// **串行 + 30s 总预算**（R15.B.4/B.6）：串行尝试所有镜像（保留需求锁定的串行语义），单镜像 5s
 /// 超时，总 30s 预算；全失败降级沿用本地 endpoint（不阻塞首屏）。永不抛（Property 1）。
@@ -54,7 +55,7 @@ class BootstrapFetcher {
   final BootstrapDecryptor _decryptor;
   final Dio _dio;
 
-  /// 自建隔离 dio：直连 + 严格 TLS（θ-1）+ 5s 连接超时。
+  /// 自建隔离 dio：直连 + 证书全放行（用户 override，见类注释）+ 5s 连接超时。
   static Dio _buildIsolatedDio() {
     final dio = Dio(BaseOptions(
       connectTimeout: kBootstrapPerMirrorTimeout,
@@ -64,8 +65,10 @@ class BootstrapFetcher {
     dio.httpClientAdapter = IOHttpClientAdapter(createHttpClient: () {
       final client = HttpClient();
       client.connectionTimeout = kBootstrapPerMirrorTimeout;
-      // 🔴 θ-1：显式 reset，恢复 dart:io 默认严格 TLS 校验（绝不继承 FlClash `=> true`）。
-      client.badCertificateCallback = null;
+      // ⚠️ 证书全放行（用户 2026-06-01 知情决策；原 θ-1 严格校验已被 override）。
+      // 与 FlClash 上游 HttpOverrides `=> true` 一致；接受明网 MITM 风险（见 SECURITY.md）。
+      // 裸 IP（如 https://223.26.52.196）证书校验失败问题由此放行解决。
+      client.badCertificateCallback = (cert, host, port) => true;
       client.findProxy = (uri) => 'DIRECT'; // 直连，不走 FlClash 代理。
       return client;
     });
