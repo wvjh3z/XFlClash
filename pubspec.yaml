@@ -113,6 +113,9 @@ dev_dependencies:
   mocktail: ^1.0.4
   # tool/prepare_flavor.dart（W0.5 flavor 校验器）直接依赖
   yaml: ^3.1.2
+  # Xboard 段（spec xboard-mvp-form-b）：W4.8/W5.8/W6.9/W7.10/W8.9 端到端集成测试
+  integration_test:
+    sdk: flutter
 
 flutter:
   uses-material-design: true

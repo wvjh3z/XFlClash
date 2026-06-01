@@ -35,9 +35,11 @@ const _patchesRelPath = '../.kiro/PATCHES.md';
 const _ourAdditions = <String>[
   'lib/xboard/',
   'test/',
+  'integration_test/',
   'tool/',
   'flavors/',
   '.githooks/',
+  '.github/workflows/xboard-ci.yml', // W9.8 Xboard 专属 CI（新增文件，不改 upstream workflow）
   'CHANGELOG_XBOARD.md',
 ];
 
@@ -49,6 +51,8 @@ const _pubGetDerivatives = <String>[
   'macos/Flutter/GeneratedPluginRegistrant.swift',
   'windows/flutter/generated_plugin_registrant.cc',
   'windows/flutter/generated_plugins.cmake',
+  // 构建环境衍生（Flutter 版本迁移器自动产物，PATCHES.md「构建环境衍生改动」已登记）。
+  'android/gradle.properties',
 ];
 
 void main(List<String> argv) {
