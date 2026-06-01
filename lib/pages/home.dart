@@ -5,6 +5,7 @@ import 'package:fl_clash/models/common.dart';
 import 'package:fl_clash/providers/providers.dart';
 import 'package:fl_clash/state.dart';
 import 'package:fl_clash/widgets/widgets.dart';
+import 'package:fl_clash/xboard/navigation/xboard_navigation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -43,7 +44,10 @@ class HomePage extends StatelessWidget {
                       .map(
                         (e) => NavigationDestination(
                           icon: e.icon,
-                          label: Intl.message(e.label.name),
+                          // Xboard 接缝点 #6.bis：「我的服务」自渲染标题（不走 enum→arb）。
+                          label: XboardNavigation.isXboardItem(e)
+                              ? XboardNavigation.titleOf(e)
+                              : Intl.message(e.label.name),
                         ),
                       )
                       .toList(),

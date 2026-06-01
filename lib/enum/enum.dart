@@ -340,6 +340,11 @@ enum PageLabel {
   requests,
   resources,
   connections,
+  // === Xboard 接缝点 #6.bis（决策 #8 修订 a）：「我的服务」专属唯一寻址 label ===
+  // FlClash 用 PageLabel 作全局唯一页面寻址 key（currentPageLabelProvider + indexWhere）；
+  // 原占位复用 dashboard 导致两项同 label 路由冲突。新增独立值根治（标题走 XboardNavigation
+  // 自渲染，不挂 arb，见 home.dart / app_manager.dart 的 isXboardItem 分支）。
+  xboard,
 }
 
 enum RuleAction {
