@@ -10,11 +10,12 @@ brandColor: "#d92e1a"                       # 主题色（D3 锁定）
 
 # === Bootstrap（R15）===
 # ⚠️ aesKey 留空：CI secrets 注入，不进 git（D58 / D59 / R15.G.37 / conventions §7.1）。
+#    真实 key 经 gitignored 的 flavor_defines.json 注入（dart-define），绝不写本文件。
 aesKey: ""                                  # AES-256-GCM 密钥（base64，解码后须 == 32 字节）
-bootstrapUrls:                              # ≥3 个镜像，按优先级排
-  - "https://cdn1.example.com/bootstrap.bin"
-  - "https://cdn2.example.com/bootstrap.bin"
-  - "https://cdn3.example.com/bootstrap.bin"
+bootstrapUrls:                              # ≥3 个镜像，按优先级排（公开地址，可进 git）
+  - "https://ds-1437142333.cos.accelerate.myqcloud.com/data/omo/config.json"
+  - "https://multi-platform-client.lovedaishu.workers.dev/omo/config.json"
+  - "https://ds-1437142333.cos.accelerate.myqcloud.com/data/omo/config.json"
 fallbackEnvelope: "assets/fallback.bin"     # 出厂 fallback 密文（assets 必带，W5.1 生成真内容）
 
 # === SDK 配置 ===
