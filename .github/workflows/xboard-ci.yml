@@ -1,23 +1,19 @@
 # Xboard 模块 CI（µ-8 build_runner 顺序 / DD-20 contract / DD-21 锚点 / NFR-7）。
 #
 # 命名 xboard-ci.yml（不碰 upstream FlClash 既有 workflow，加而不改）。
-# 触发：PR + push 到 main + 手动。
+# 🔴 当前仅手动触发（workflow_dispatch）：v0.1 开发期 + sibling SDK 需 SIBLING_SDK_TOKEN secret，
+#    自动跑会失败。配齐 secrets 后改回 push/pull_request 触发（见下方注释块）。
 name: Xboard CI
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'lib/xboard/**'
-      - 'test/xboard/**'
-      - 'test/sdk_contract_test.dart'
-      - 'tool/**'
-      - '.kiro/**'
-  pull_request:
-    paths:
-      - 'lib/xboard/**'
-      - 'test/xboard/**'
   workflow_dispatch:
+
+# 配齐 secrets（SIBLING_SDK_TOKEN / XBOARD_BOOTSTRAP_AES_KEY）后启用：
+#  push:
+#    branches: [main]
+#    paths: ['lib/xboard/**', 'test/xboard/**', 'test/sdk_contract_test.dart', 'tool/**', '.kiro/**']
+#  pull_request:
+#    paths: ['lib/xboard/**', 'test/xboard/**']
 
 jobs:
   analyze-and-test:

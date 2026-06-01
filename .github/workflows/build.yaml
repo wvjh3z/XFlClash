@@ -1,9 +1,9 @@
 name: build
 
+# 🔴 Xboard fork：暂时禁用上游自动构建（缺 release 签名/secrets，且 v0.1 客户端仍在开发期）。
+# 仅保留手动触发（workflow_dispatch）；需要上游 release 流程时改回 `push: tags: v*`。
 on:
-  push:
-    tags:
-      - 'v*'
+  workflow_dispatch:
 env:
   IS_STABLE: ${{ !contains(github.ref, '-') }}
 

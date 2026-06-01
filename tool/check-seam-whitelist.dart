@@ -53,6 +53,8 @@ const _pubGetDerivatives = <String>[
   'windows/flutter/generated_plugins.cmake',
   // 构建环境衍生（Flutter 版本迁移器自动产物，PATCHES.md「构建环境衍生改动」已登记）。
   'android/gradle.properties',
+  // CI 治理：禁用上游自动构建（PATCHES.md「其他 upstream 文件改动」已登记）。
+  '.github/workflows/build.yaml',
 ];
 
 void main(List<String> argv) {
