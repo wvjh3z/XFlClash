@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- brand_a flavor 覆盖：自适应图标背景 = 品牌红（flavor.yaml brandColor #d92e1a）。
+     占位品牌图标（W8.5.4）；真实品牌 logo 确定后替换本前景/背景。 -->
+<resources>
+    <color name="ic_launcher_background">#D92E1A</color>
+</resources>

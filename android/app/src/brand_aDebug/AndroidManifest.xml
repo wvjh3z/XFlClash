@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- brand_aDebug 组合 sourceSet（flavor=brand_a × buildType=debug）：优先级高于 debug，
+     覆盖 src/debug 的 "FlClash Debug" label 为品牌名（占位 MyClient，W8.5.4）。
+     真实品牌名由 prepare_flavor 从 flavor.yaml appName 注入时替换。 -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+    <application
+        android:label="MyClient Debug"
+        tools:replace="android:label">
+        <service
+            android:name=".TileService"
+            android:label="MyClient Debug"
+            tools:replace="android:label" />
+    </application>
+</manifest>

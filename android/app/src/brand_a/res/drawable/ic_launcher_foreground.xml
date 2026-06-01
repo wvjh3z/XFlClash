@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- brand_a flavor 覆盖：自适应图标前景 = 白色盾牌 + 对勾（VPN 安全感占位标志，W8.5.4）。
+     viewport 240×240 与上游一致；主体居中、占安全区（自适应图标外圈会被裁切，主体控制在中心 ~60%）。
+     真实品牌 logo 确定后替换本矢量。 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+        android:width="108dp"
+        android:height="108dp"
+        android:viewportWidth="240"
+        android:viewportHeight="240">
+    <!-- 盾牌轮廓（白色描边主体），中心约 (120,120)，高 ~96。 -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M120,68 C120,68 148,80 168,80 C168,80 168,128 168,140 C168,164 146,182 120,196 C94,182 72,164 72,140 C72,128 72,80 72,80 C92,80 120,68 120,68 Z"/>
+    <!-- 内嵌对勾（品牌红镂空，体现"已连接/受保护"）。 -->
+    <path
+        android:fillColor="#D92E1A"
+        android:pathData="M104,134 L114,144 L140,114 L150,124 L114,164 L94,144 Z"/>
+</vector>

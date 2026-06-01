@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- brand_a flavor manifest：覆盖 app label 为品牌名（占位 MyClient，W8.5.4）。
+     非 debug 构建（release/profile）走此 label；debug 走 src/brand_aDebug。
+     真实品牌名由 prepare_flavor 从 flavor.yaml appName 注入时替换。 -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+    <application
+        android:label="MyClient"
+        tools:replace="android:label" />
+</manifest>

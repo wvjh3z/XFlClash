@@ -44,6 +44,9 @@ const _ourAdditions = <String>[
   // W8.4（θ-10）新增的 backup 规则资源（新增文件，非改 upstream；AndroidManifest 引用已登记 #4.bis）。
   'android/app/src/main/res/xml/no_backup.xml',
   'android/app/src/main/res/xml/data_extraction_rules.xml',
+  // W8.5.4 品牌图标/标签 flavor sourceSet（新增「加而不改」，不触碰上游 main/debug，PATCHES.md #4.ter 已登记）。
+  'android/app/src/brand_a/',
+  'android/app/src/brand_aDebug/',
 ];
 
 /// pub get 机械衍生文件（seam #3 连带，PATCHES.md「seam #3 衍生改动」已登记，不单列接缝点）。
