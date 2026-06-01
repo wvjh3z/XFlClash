@@ -96,6 +96,7 @@ dependencies:
   sentry_flutter: ^8.10.0          # NFR-7 — crash 上报（F82 锁版本，pubspec.lock 进 git）
   flutter_secure_storage: ^9.2.4   # NFR-3 — TokenStorage 注入实现
   qr_flutter: ^4.1.0               # R8 AC 6.bis（F346）— AlipayF2f 支付二维码渲染
+  flutter_html: ^3.0.0             # R8 — 套餐 content 富文本 HTML 渲染（emoji 标题/✓✗列表/颜色）
 dev_dependencies:
   flutter_test:
     sdk: flutter

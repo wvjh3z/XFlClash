@@ -6,12 +6,14 @@ library;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../config/xboard_config.dart';
 import '../models/order_summary.dart';
 import '../models/xb_domain_types.dart';
 import '../models/xb_result.dart';
 import '../providers/xboard_providers.dart';
 import '../util/period_label.dart';
-import '../widgets/order_detail_card.dart';
+import '../widgets/xb_ui_kit.dart';
+import 'order_payment_page.dart';
 
 class OrderListPage extends ConsumerStatefulWidget {
   const OrderListPage({super.key});
@@ -41,6 +43,13 @@ class _OrderListPageState extends ConsumerState<OrderListPage> {
 
   @override
   Widget build(BuildContext context) {
+    return XbBrandTheme(
+      brandColor: Color(XboardConfig.current.brandColor),
+      child: Builder(builder: _buildScaffold),
+    );
+  }
+
+  Widget _buildScaffold(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('我的订单')),
       body: RefreshIndicator(
@@ -71,7 +80,7 @@ class _OrderListPageState extends ConsumerState<OrderListPage> {
                 order: orders[i],
                 onTap: () => Navigator.of(context).push(
                   MaterialPageRoute<void>(
-                    builder: (_) => OrderDetailPage(tradeNo: orders[i].tradeNo),
+                    builder: (_) => OrderPaymentPage(tradeNo: orders[i].tradeNo),
                   ),
                 ),
               ),
@@ -137,61 +146,6 @@ class _StatusChip extends StatelessWidget {
               .textTheme
               .labelSmall
               ?.copyWith(color: fg, fontWeight: FontWeight.w700)),
-    );
-  }
-}
-
-/// 订单详情页（R9）：拉 getOrder → OrderDetailCard。
-class OrderDetailPage extends ConsumerStatefulWidget {
-  const OrderDetailPage({super.key, required this.tradeNo});
-  final String tradeNo;
-
-  @override
-  ConsumerState<OrderDetailPage> createState() => _OrderDetailPageState();
-}
-
-class _OrderDetailPageState extends ConsumerState<OrderDetailPage> {
-  late Future<OrderDetail?> _detailFuture;
-
-  @override
-  void initState() {
-    super.initState();
-    _detailFuture = _load();
-  }
-
-  Future<OrderDetail?> _load() async {
-    final result = await ref.read(xboardServiceProvider).getOrder(widget.tradeNo);
-    return switch (result) {
-      XbSuccess(:final data) => data,
-      XbFailure(:final error) => throw Exception(error.message),
-    };
-  }
-
-  void _reload() => setState(() => _detailFuture = _load());
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('订单详情')),
-      body: FutureBuilder<OrderDetail?>(
-        future: _detailFuture,
-        builder: (context, snap) {
-          if (snap.connectionState != ConnectionState.done) {
-            return const Center(child: CircularProgressIndicator());
-          }
-          if (snap.hasError) {
-            return _ErrorRetry(message: '加载订单详情失败', onRetry: _reload);
-          }
-          final detail = snap.data;
-          if (detail == null) {
-            return const Center(child: Text('订单不存在'));
-          }
-          return ListView(
-            padding: const EdgeInsets.all(16),
-            children: [OrderDetailCard(detail: detail)],
-          );
-        },
-      ),
     );
   }
 }

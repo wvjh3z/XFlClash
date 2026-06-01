@@ -1,0 +1,629 @@
+/// R9 订单/支付页（pending 与终态共用）：订单状态 + 产品信息 + 订单信息 + 支付方式 + 操作。
+///
+/// **数据源**：反腐层 `getOrder()` / `getPaymentMethods()` / `checkout()` / `cancelOrder()`。
+/// pending → 显示支付方式 + 立即支付/取消订单/检测支付状态 + **自动轮询**（pending/processing
+/// 每 5s 拉一次 getOrder，终态停）；终态 → 仅显示信息无操作。
+library;
+
+import 'dart:async';
+
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:qr_flutter/qr_flutter.dart';
+import 'package:url_launcher/url_launcher.dart';
+
+import '../config/xboard_config.dart';
+import '../models/checkout_outcome_ui.dart';
+import '../models/order_summary.dart';
+import '../models/xb_domain_types.dart';
+import '../models/xb_result.dart';
+import '../providers/user_profile_provider.dart';
+import '../providers/xboard_providers.dart';
+import '../util/period_label.dart';
+import '../widgets/xb_ui_kit.dart';
+
+/// 轮询间隔（pending/processing 时）。
+const _kPollInterval = Duration(seconds: 5);
+
+class OrderPaymentPage extends ConsumerStatefulWidget {
+  const OrderPaymentPage({super.key, required this.tradeNo});
+  final String tradeNo;
+
+  @override
+  ConsumerState<OrderPaymentPage> createState() => _OrderPaymentPageState();
+}
+
+class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage> {
+  OrderDetail? _detail;
+  List<PaymentMethodItem> _methods = const [];
+  String? _selectedMethodId;
+  Object? _loadError;
+  bool _loading = true;
+  bool _busy = false; // 支付/取消进行中
+  Timer? _pollTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    _initialLoad();
+  }
+
+  @override
+  void dispose() {
+    _pollTimer?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _initialLoad() async {
+    setState(() => _loading = true);
+    final service = ref.read(xboardServiceProvider);
+    try {
+      final orderRes = await service.getOrder(widget.tradeNo);
+      final detail = switch (orderRes) {
+        XbSuccess(:final data) => data,
+        XbFailure(:final error) => throw Exception(error.message),
+      };
+      // 支付方式（仅 pending 需要；失败不阻塞）。
+      var methods = const <PaymentMethodItem>[];
+      if (detail != null && detail.summary.status == XbOrderStatus.pending) {
+        final mRes = await service.getPaymentMethods();
+        if (mRes case XbSuccess(:final data)) methods = data;
+      }
+      if (!mounted) return;
+      setState(() {
+        _detail = detail;
+        _methods = methods;
+        _selectedMethodId = methods.isNotEmpty ? methods.first.id : null;
+        _loading = false;
+      });
+      _maybeStartPolling();
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _loadError = e;
+        _loading = false;
+      });
+    }
+  }
+
+  /// 静默刷新（轮询 / 检测支付状态用，不显示全屏 loading）。
+  Future<void> _refreshStatus() async {
+    final service = ref.read(xboardServiceProvider);
+    final orderRes = await service.getOrder(widget.tradeNo);
+    if (orderRes case XbSuccess(:final data) when data != null && mounted) {
+      final wasNonTerminal = _detail != null && !_isTerminal(_detail!.summary.status);
+      setState(() => _detail = data);
+      // 刚变终态（支付成功 → completed）→ 刷新账号卡 + 停轮询。
+      if (wasNonTerminal && _isTerminal(data.summary.status)) {
+        ref.invalidate(userProfileProvider);
+        _pollTimer?.cancel();
+      }
+      _maybeStartPolling();
+    }
+  }
+
+  void _maybeStartPolling() {
+    final status = _detail?.summary.status;
+    if (status == null) return;
+    final shouldPoll =
+        status == XbOrderStatus.pending || status == XbOrderStatus.processing;
+    if (shouldPoll && (_pollTimer == null || !_pollTimer!.isActive)) {
+      _pollTimer = Timer.periodic(_kPollInterval, (_) => _refreshStatus());
+    } else if (!shouldPoll) {
+      _pollTimer?.cancel();
+    }
+  }
+
+  bool _isTerminal(XbOrderStatus s) =>
+      s == XbOrderStatus.cancelled ||
+      s == XbOrderStatus.completed ||
+      s == XbOrderStatus.discounted;
+
+  @override
+  Widget build(BuildContext context) {
+    return XbBrandTheme(
+      brandColor: Color(XboardConfig.current.brandColor),
+      child: Builder(builder: _buildScaffold),
+    );
+  }
+
+  Widget _buildScaffold(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('支付订单')),
+      body: _loading
+          ? const Center(child: CircularProgressIndicator())
+          : _loadError != null
+              ? _errorRetry()
+              : _detail == null
+                  ? const Center(child: Text('订单不存在'))
+                  : _content(context, _detail!),
+    );
+  }
+
+  Widget _errorRetry() => Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.cloud_off_rounded, size: 40),
+            const SizedBox(height: 8),
+            const Text('加载订单失败'),
+            const SizedBox(height: 12),
+            OutlinedButton.icon(
+              onPressed: _initialLoad,
+              icon: const Icon(Icons.refresh_rounded, size: 18),
+              label: const Text('重试'),
+            ),
+          ],
+        ),
+      );
+
+  Widget _content(BuildContext context, OrderDetail detail) {
+    final s = detail.summary;
+    final isPending = s.status == XbOrderStatus.pending;
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+      children: [
+        _StatusCard(status: s.status),
+        const SizedBox(height: 16),
+        _SectionCard(
+          title: '产品信息',
+          children: [
+            _row('套餐名称', s.planName ?? '套餐订单'),
+            _row('周期', planPeriodLabel(s.period)),
+          ],
+        ),
+        const SizedBox(height: 16),
+        _SectionCard(
+          title: '订单信息',
+          children: [
+            _copyableRow('订单号', s.tradeNo),
+            _row('创建时间', _fmtDateTime(s.createdAt)),
+            if (detail.balanceAmountYuan != null)
+              _row('余额抵扣', '¥${detail.balanceAmountYuan!.toStringAsFixed(2)}'),
+            if (detail.discountAmountYuan != null)
+              _row('优惠券', '¥${detail.discountAmountYuan!.toStringAsFixed(2)}'),
+            if (detail.handlingAmountYuan != null)
+              _row('手续费', '¥${detail.handlingAmountYuan!.toStringAsFixed(2)}'),
+            _totalRow('含手续费总额', s.totalAmountYuan),
+          ],
+        ),
+        if (isPending) ...[
+          const SizedBox(height: 16),
+          _SectionCard(
+            title: '支付方式',
+            children: [_paymentMethods(context)],
+          ),
+          const SizedBox(height: 20),
+          _actions(context),
+        ],
+      ],
+    );
+  }
+
+  Widget _paymentMethods(BuildContext context) {
+    if (_methods.isEmpty) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(vertical: 8),
+        child: Text('暂无可用支付方式'),
+      );
+    }
+    final scheme = Theme.of(context).colorScheme;
+    final text = Theme.of(context).textTheme;
+    return Column(
+      children: _methods.map((m) {
+        final selected = m.id == _selectedMethodId;
+        final feeText = (m.feePercent != null && m.feePercent! > 0)
+            ? '手续费: ${m.feePercent!.toStringAsFixed(2)}%'
+            : (m.feeFixedYuan != null && m.feeFixedYuan! > 0)
+                ? '手续费: ¥${m.feeFixedYuan!.toStringAsFixed(2)}'
+                : null;
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 8),
+          child: InkWell(
+            onTap: _busy ? null : () => setState(() => _selectedMethodId = m.id),
+            borderRadius: BorderRadius.circular(12),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              decoration: BoxDecoration(
+                color: selected
+                    ? scheme.primary.withValues(alpha: 0.08)
+                    : scheme.surfaceContainerHighest,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: selected ? scheme.primary : Colors.transparent,
+                  width: 1.6,
+                ),
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(m.name,
+                            style: text.titleSmall
+                                ?.copyWith(fontWeight: FontWeight.w600)),
+                        if (feeText != null) ...[
+                          const SizedBox(height: 2),
+                          Text(feeText,
+                              style: text.bodySmall?.copyWith(
+                                  color: scheme.onSurfaceVariant)),
+                        ],
+                      ],
+                    ),
+                  ),
+                  Icon(
+                    selected
+                        ? Icons.check_circle_rounded
+                        : Icons.radio_button_unchecked,
+                    color: selected ? scheme.primary : scheme.onSurfaceVariant,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      }).toList(),
+    );
+  }
+
+  Widget _actions(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Column(
+      children: [
+        FilledButton.icon(
+          onPressed: _busy ? null : _pay,
+          icon: _busy
+              ? const SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(
+                      strokeWidth: 2.2, color: Colors.white))
+              : const Icon(Icons.payment_rounded),
+          style: FilledButton.styleFrom(
+            backgroundColor: scheme.primary,
+            minimumSize: const Size.fromHeight(50),
+          ),
+          label: const Text('立即支付'),
+        ),
+        const SizedBox(height: 10),
+        OutlinedButton.icon(
+          onPressed: _busy ? null : _cancel,
+          icon: const Icon(Icons.close_rounded, size: 18),
+          style: OutlinedButton.styleFrom(minimumSize: const Size.fromHeight(48)),
+          label: const Text('取消订单'),
+        ),
+        const SizedBox(height: 4),
+        TextButton.icon(
+          onPressed: _busy ? null : _refreshStatus,
+          icon: const Icon(Icons.refresh_rounded, size: 18),
+          label: const Text('检测支付状态'),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _pay() async {
+    final method = _selectedMethodId ?? '';
+    setState(() => _busy = true);
+    try {
+      final result =
+          await ref.read(xboardServiceProvider).checkout(widget.tradeNo, method);
+      if (result case XbFailure(:final error)) {
+        _toast('支付失败：${error.message}');
+        return;
+      }
+      if (!mounted) return;
+      await _handleOutcome((result as XbSuccess<CheckoutOutcomeUi>).data);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _handleOutcome(CheckoutOutcomeUi outcome) async {
+    switch (outcome) {
+      case CheckoutRedirect(:final url):
+        final uri = Uri.tryParse(url);
+        if (uri != null && await canLaunchUrl(uri)) {
+          await launchUrl(uri, mode: LaunchMode.externalApplication);
+          _toast('已打开支付页面，完成后返回点「检测支付状态」');
+        } else {
+          _toast('无法打开支付页面');
+        }
+      case CheckoutQrCode(:final qrCodeUrl):
+        if (mounted) await _showQrDialog(qrCodeUrl);
+      case CheckoutPaid():
+        ref.invalidate(userProfileProvider);
+        _toast('支付成功');
+        await _refreshStatus();
+      case CheckoutCanceled(:final message):
+        _toast(message ?? '已取消');
+      case CheckoutFailed(:final message):
+        _toast('支付失败：$message');
+    }
+  }
+
+  Future<void> _showQrDialog(String qrUrl) async {
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('扫码支付'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            QrImageView(data: qrUrl, size: 220),
+            const SizedBox(height: 12),
+            const Text('请用支付宝 / 微信扫描二维码完成支付',
+                textAlign: TextAlign.center),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('关闭'),
+          ),
+        ],
+      ),
+    );
+    await _refreshStatus(); // 关闭二维码后查最新状态。
+  }
+
+  Future<void> _cancel() async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('取消订单'),
+        content: const Text('确定取消这笔订单吗？'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.of(ctx).pop(false),
+              child: const Text('再想想')),
+          FilledButton(
+              onPressed: () => Navigator.of(ctx).pop(true),
+              child: const Text('确定取消')),
+        ],
+      ),
+    );
+    if (confirm != true) return;
+    setState(() => _busy = true);
+    try {
+      final result =
+          await ref.read(xboardServiceProvider).cancelOrder(widget.tradeNo);
+      switch (result) {
+        case XbSuccess():
+          _toast('订单已取消');
+          await _refreshStatus();
+        case XbFailure(:final error):
+          _toast('取消失败：${error.message}');
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  // ── helpers ──
+
+  Widget _row(String label, String value) => _InfoRow(label: label, value: value);
+  Widget _copyableRow(String label, String value) =>
+      _CopyableRow(label: label, value: value);
+  Widget _totalRow(String label, double yuan) => _TotalRow(label: label, yuan: yuan);
+
+  String _fmtDateTime(DateTime d) =>
+      '${d.year}-${d.month.toString().padLeft(2, '0')}-'
+      '${d.day.toString().padLeft(2, '0')} '
+      '${d.hour.toString().padLeft(2, '0')}:'
+      '${d.minute.toString().padLeft(2, '0')}:'
+      '${d.second.toString().padLeft(2, '0')}';
+
+  void _toast(String msg) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+  }
+}
+
+/// 订单状态卡（顶部，按状态变色 + 文案）。
+class _StatusCard extends StatelessWidget {
+  const _StatusCard({required this.status});
+  final XbOrderStatus status;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final text = Theme.of(context).textTheme;
+    final (icon, title, desc, color) = switch (status) {
+      XbOrderStatus.pending => (
+          Icons.schedule_rounded,
+          '待支付',
+          '请选择您的支付方式完成订单',
+          const Color(0xFFE8920A),
+        ),
+      XbOrderStatus.processing => (
+          Icons.hourglass_top_rounded,
+          '处理中',
+          '订单正在处理，请稍候…',
+          const Color(0xFF2E7DE8),
+        ),
+      XbOrderStatus.completed => (
+          Icons.check_circle_rounded,
+          '已完成',
+          '订单已支付完成',
+          const Color(0xFF1FA463),
+        ),
+      XbOrderStatus.discounted => (
+          Icons.verified_rounded,
+          '已抵扣',
+          '订单已通过余额 / 优惠抵扣完成',
+          const Color(0xFF1FA463),
+        ),
+      XbOrderStatus.cancelled => (
+          Icons.cancel_rounded,
+          '已取消',
+          '订单已取消',
+          scheme.error,
+        ),
+    };
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, color: color, size: 36),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title,
+                    style: text.titleMedium
+                        ?.copyWith(color: color, fontWeight: FontWeight.w800)),
+                const SizedBox(height: 4),
+                Text(desc,
+                    style: text.bodySmall
+                        ?.copyWith(color: scheme.onSurfaceVariant)),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// 信息分区卡（标题 + 子行）。
+class _SectionCard extends StatelessWidget {
+  const _SectionCard({required this.title, required this.children});
+  final String title;
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final text = Theme.of(context).textTheme;
+    return Card(
+      elevation: 0,
+      margin: EdgeInsets.zero,
+      color: scheme.surfaceContainerHigh,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(title,
+                style: text.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
+            const SizedBox(height: 12),
+            ...children,
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _InfoRow extends StatelessWidget {
+  const _InfoRow({required this.label, required this.value});
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final text = Theme.of(context).textTheme;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(label,
+              style: text.bodyMedium?.copyWith(color: scheme.onSurfaceVariant)),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(value,
+                textAlign: TextAlign.right,
+                style: text.bodyMedium?.copyWith(fontWeight: FontWeight.w500),
+                softWrap: true),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CopyableRow extends StatelessWidget {
+  const _CopyableRow({required this.label, required this.value});
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final text = Theme.of(context).textTheme;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(label,
+              style: text.bodyMedium?.copyWith(color: scheme.onSurfaceVariant)),
+          const SizedBox(width: 12),
+          Expanded(
+            child: InkWell(
+              onTap: () {
+                Clipboard.setData(ClipboardData(text: value));
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('订单号已复制')),
+                );
+              },
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  Flexible(
+                    child: Text(value,
+                        textAlign: TextAlign.right,
+                        style: text.bodyMedium
+                            ?.copyWith(fontWeight: FontWeight.w500),
+                        softWrap: true),
+                  ),
+                  const SizedBox(width: 6),
+                  Icon(Icons.copy_rounded,
+                      size: 15, color: scheme.onSurfaceVariant),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _TotalRow extends StatelessWidget {
+  const _TotalRow({required this.label, required this.yuan});
+  final String label;
+  final double yuan;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final text = Theme.of(context).textTheme;
+    return Padding(
+      padding: const EdgeInsets.only(top: 8),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(label,
+                style: text.bodyLarge?.copyWith(fontWeight: FontWeight.w600)),
+          ),
+          const SizedBox(width: 8),
+          Text('¥${yuan.toStringAsFixed(2)}',
+              style: text.titleLarge?.copyWith(
+                  color: scheme.primary, fontWeight: FontWeight.w800)),
+        ],
+      ),
+    );
+  }
+}

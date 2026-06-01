@@ -1,6 +1,6 @@
 /// W9.4 — a11y golden test 3 处（合规 § D / ι-1）。
 ///
-/// 覆盖：R6 账号信息卡 / R8 套餐价格卡 / R9 订单详情卡。
+/// 覆盖三个真实出货界面：R6 账号信息卡 / R8 套餐详情页 / R9 订单支付页。
 /// - textScaleFactor 1.0 / 1.5 / 2.0 三组：断言无 overflow 异常（不溢出不截断，9.4.2）；
 /// - light / dark 各跑一遍 golden（9.4.3）；
 /// - `meetsGuideline(textContrastGuideline)` WCAG AA 对比度（9.4.4，不用 web 工具，ξ-§D）。
@@ -11,6 +11,9 @@
 ///
 /// **CJK 字体**：测试环境默认 Ahem 字体把中文渲染成方块（布局仍真实）。setUpAll 尽力加载系统
 /// Noto CJK（装在 CI/本机时 golden 中文可读）；加载失败不阻断（fallback 方块，断言仍有效）。
+///
+/// **订单支付页用终态订单**（completed）：pending/processing 会启动 5s 轮询 Timer，导致
+/// `pumpAndSettle` 永不收敛；终态订单无 Timer、无支付方式拉取，渲染确定。
 library;
 
 import 'dart:io';
@@ -26,11 +29,11 @@ import 'package:fl_clash/xboard/models/plan_item.dart';
 import 'package:fl_clash/xboard/models/xb_domain_subscription.dart';
 import 'package:fl_clash/xboard/models/xb_domain_types.dart';
 import 'package:fl_clash/xboard/models/xb_result.dart';
+import 'package:fl_clash/xboard/pages/order_payment_page.dart';
+import 'package:fl_clash/xboard/pages/plan_detail_page.dart';
 import 'package:fl_clash/xboard/providers/xboard_providers.dart';
 import 'package:fl_clash/xboard/sdk/xboard_service.dart';
 import 'package:fl_clash/xboard/widgets/account_info_card.dart';
-import 'package:fl_clash/xboard/widgets/order_detail_card.dart';
-import 'package:fl_clash/xboard/widgets/plan_price_card.dart';
 import 'package:fl_clash/xboard/widgets/xb_ui_kit.dart';
 
 class _MockService extends Mock implements XboardService {}
@@ -83,7 +86,8 @@ const _subStatic = XbDomainSubscription(
 const _plan = PlanItem(
   id: 1,
   name: 'Pro 高级套餐',
-  description: '全球节点 / 不限速 / 多设备',
+  description:
+      '<p>全球优质节点 · 不限速</p><ul><li>多设备同时在线</li><li>7×24 客服支持</li></ul>',
   transferEnableGb: 100,
   prices: [
     PricePlan(period: XbPlanPeriod.monthly, amountYuan: 15.00),
@@ -92,6 +96,7 @@ const _plan = PlanItem(
   ],
 );
 
+/// 终态订单（completed）：无轮询 Timer，OrderPaymentPage 渲染确定。
 OrderDetail get _order => OrderDetail(
       summary: OrderSummary(
         tradeNo: '2026050100001',
@@ -110,8 +115,8 @@ OrderDetail get _order => OrderDetail(
 void main() {
   setUpAll(_loadCjkFont);
 
-  /// 在固定尺寸 + 指定 textScale + brightness 下渲染 [child]（包 XbBrandTheme）。
-  Future<void> pump(
+  /// 在固定尺寸 + 指定 textScale + brightness 下渲染单个卡片 [child]（包 XbBrandTheme）。
+  Future<void> pumpCardWidget(
     WidgetTester tester,
     Widget child, {
     required double textScale,
@@ -149,6 +154,37 @@ void main() {
     await tester.pumpAndSettle();
   }
 
+  /// 渲染整页（自带 Scaffold）。pages 内部 ListView 可滚，golden 截首屏视口。
+  Future<void> pumpPage(
+    WidgetTester tester,
+    Widget page, {
+    required double textScale,
+    required Brightness brightness,
+    XboardService? service,
+  }) async {
+    tester.view.physicalSize = const Size(390 * 3, 844 * 3);
+    tester.view.devicePixelRatio = 3.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          if (service != null) xboardServiceProvider.overrideWithValue(service),
+        ],
+        child: MaterialApp(
+          debugShowCheckedModeBanner: false,
+          theme: ThemeData(useMaterial3: true, brightness: brightness),
+          home: MediaQuery(
+            data: MediaQueryData(textScaler: TextScaler.linear(textScale)),
+            child: page,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+  }
+
   // ── R6 账号信息卡 ──
   group('R6 账号信息卡 a11y golden', () {
     Future<void> pumpCard(WidgetTester t, double scale, Brightness b,
@@ -156,7 +192,7 @@ void main() {
       final service = _MockService();
       when(() => service.getSubscription())
           .thenAnswer((_) async => XbResult.success(sub ?? _subStatic));
-      await pump(
+      await pumpCardWidget(
         t,
         const AccountInfoCard(),
         textScale: scale,
@@ -189,62 +225,67 @@ void main() {
     });
   });
 
-  // ── R8 套餐价格卡 ──
-  group('R8 套餐价格卡 a11y golden', () {
+  // ── R8 套餐详情页 ──
+  group('R8 套餐详情页 a11y golden', () {
     testWidgets('light 1.0 + golden + contrast', (t) async {
-      await pump(t, const PlanPriceCard(plan: _plan),
+      await pumpPage(t, const PlanDetailPage(plan: _plan),
           textScale: 1.0, brightness: Brightness.light);
       expect(t.takeException(), isNull);
-      await expectLater(find.byType(PlanPriceCard),
+      await expectLater(find.byType(PlanDetailPage),
           matchesGoldenFile('goldens/a11y_plan_light_1.0.png'));
       await expectLater(t, meetsGuideline(textContrastGuideline));
     });
     testWidgets('dark 1.0 + golden + contrast', (t) async {
-      await pump(t, const PlanPriceCard(plan: _plan),
+      await pumpPage(t, const PlanDetailPage(plan: _plan),
           textScale: 1.0, brightness: Brightness.dark);
       expect(t.takeException(), isNull);
-      await expectLater(find.byType(PlanPriceCard),
+      await expectLater(find.byType(PlanDetailPage),
           matchesGoldenFile('goldens/a11y_plan_dark_1.0.png'));
       await expectLater(t, meetsGuideline(textContrastGuideline));
     });
     testWidgets('1.5 无溢出', (t) async {
-      await pump(t, const PlanPriceCard(plan: _plan),
+      await pumpPage(t, const PlanDetailPage(plan: _plan),
           textScale: 1.5, brightness: Brightness.light);
       expect(t.takeException(), isNull);
     });
     testWidgets('2.0 无溢出', (t) async {
-      await pump(t, const PlanPriceCard(plan: _plan),
+      await pumpPage(t, const PlanDetailPage(plan: _plan),
           textScale: 2.0, brightness: Brightness.light);
       expect(t.takeException(), isNull);
     });
   });
 
-  // ── R9 订单详情卡 ──
-  group('R9 订单详情卡 a11y golden', () {
+  // ── R9 订单支付页（终态订单）──
+  group('R9 订单支付页 a11y golden', () {
+    Future<void> pumpOrderPage(
+        WidgetTester t, double scale, Brightness b) async {
+      final service = _MockService();
+      when(() => service.getOrder('2026050100001'))
+          .thenAnswer((_) async => XbResult.success(_order));
+      await pumpPage(t, const OrderPaymentPage(tradeNo: '2026050100001'),
+          textScale: scale, brightness: b, service: service);
+    }
+
     testWidgets('light 1.0 + golden + contrast', (t) async {
-      await pump(t, OrderDetailCard(detail: _order),
-          textScale: 1.0, brightness: Brightness.light);
+      await pumpOrderPage(t, 1.0, Brightness.light);
       expect(t.takeException(), isNull);
-      await expectLater(find.byType(OrderDetailCard),
+      await expectLater(find.byType(OrderPaymentPage),
           matchesGoldenFile('goldens/a11y_order_light_1.0.png'));
       await expectLater(t, meetsGuideline(textContrastGuideline));
     });
     testWidgets('dark 1.0 + golden + contrast', (t) async {
-      await pump(t, OrderDetailCard(detail: _order),
-          textScale: 1.0, brightness: Brightness.dark);
+      await pumpOrderPage(t, 1.0, Brightness.dark);
       expect(t.takeException(), isNull);
-      await expectLater(find.byType(OrderDetailCard),
+      await expectLater(find.byType(OrderPaymentPage),
           matchesGoldenFile('goldens/a11y_order_dark_1.0.png'));
       await expectLater(t, meetsGuideline(textContrastGuideline));
     });
     testWidgets('1.5 无溢出', (t) async {
-      await pump(t, OrderDetailCard(detail: _order),
-          textScale: 1.5, brightness: Brightness.light);
+      await pumpOrderPage(t, 1.5, Brightness.light);
       expect(t.takeException(), isNull);
     });
     testWidgets('2.0 无溢出', (t) async {
-      await pump(t, OrderDetailCard(detail: _order),
-          textScale: 2.0, brightness: Brightness.light);
+      await pumpOrderPage(t, 2.0, Brightness.light);
       expect(t.takeException(), isNull);
     });
   });

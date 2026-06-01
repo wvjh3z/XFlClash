@@ -1,21 +1,19 @@
-/// R8 套餐购买页：拉套餐列表 → 选周期 → 下单 → 结算（5 分支）。
+/// R8 套餐列表页：瘦身卡片（名 + 摘要 + 最小周期价 + 箭头）→ 点进套餐详情页。
 ///
-/// **数据源**：反腐层 `getPlans()` / `createOrder()` / `checkout()` / `getPaymentMethods()`。
-/// 结算 5 分支（CheckoutOutcomeUi）：redirect → 跳浏览器；qrCode → 二维码弹窗；paid → 成功；
-/// canceled/failed → toast。永不抛（反腐层 XbResult）。
+/// **数据源**：反腐层 `getPlans()`。卡片只显示概要；周期选择 / 优惠码 / 提交在 [PlanDetailPage]。
 library;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:qr_flutter/qr_flutter.dart';
-import 'package:url_launcher/url_launcher.dart';
 
-import '../models/checkout_outcome_ui.dart';
+import '../config/xboard_config.dart';
 import '../models/plan_item.dart';
 import '../models/xb_result.dart';
-import '../providers/user_profile_provider.dart';
 import '../providers/xboard_providers.dart';
-import '../widgets/plan_price_card.dart';
+import '../util/html_text.dart';
+import '../util/period_label.dart';
+import '../widgets/xb_ui_kit.dart';
+import 'plan_detail_page.dart';
 
 class PlanListPage extends ConsumerStatefulWidget {
   const PlanListPage({super.key});
@@ -26,7 +24,6 @@ class PlanListPage extends ConsumerStatefulWidget {
 
 class _PlanListPageState extends ConsumerState<PlanListPage> {
   late Future<List<PlanItem>> _plansFuture;
-  bool _busy = false;
 
   @override
   void initState() {
@@ -46,135 +43,147 @@ class _PlanListPageState extends ConsumerState<PlanListPage> {
 
   @override
   Widget build(BuildContext context) {
+    return XbBrandTheme(
+      brandColor: Color(XboardConfig.current.brandColor),
+      child: Builder(builder: _buildScaffold),
+    );
+  }
+
+  Widget _buildScaffold(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('购买套餐')),
-      body: Stack(
-        children: [
-          FutureBuilder<List<PlanItem>>(
-            future: _plansFuture,
-            builder: (context, snap) {
-              if (snap.connectionState != ConnectionState.done) {
-                return const Center(child: CircularProgressIndicator());
-              }
-              if (snap.hasError) {
-                return _ErrorRetry(
-                  message: '加载套餐失败',
-                  onRetry: _reload,
-                );
-              }
-              final plans = snap.data ?? const <PlanItem>[];
-              if (plans.isEmpty) {
-                return const Center(child: Text('暂无可购买套餐'));
-              }
-              return ListView.builder(
-                padding: const EdgeInsets.all(16),
-                itemCount: plans.length,
-                itemBuilder: (_, i) => Padding(
-                  padding: const EdgeInsets.only(bottom: 12),
-                  child: PlanPriceCard(
-                    plan: plans[i],
-                    onSelectPeriod: _busy
-                        ? null
-                        : (price) => _purchase(plans[i], price),
-                  ),
+      body: FutureBuilder<List<PlanItem>>(
+        future: _plansFuture,
+        builder: (context, snap) {
+          if (snap.connectionState != ConnectionState.done) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          if (snap.hasError) {
+            return _ErrorRetry(message: '加载套餐失败', onRetry: _reload);
+          }
+          final plans = snap.data ?? const <PlanItem>[];
+          if (plans.isEmpty) {
+            return const Center(child: Text('暂无可购买套餐'));
+          }
+          return ListView.builder(
+            padding: const EdgeInsets.all(16),
+            itemCount: plans.length,
+            itemBuilder: (_, i) => _PlanSummaryCard(
+              plan: plans[i],
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => PlanDetailPage(plan: plans[i]),
                 ),
-              );
-            },
-          ),
-          if (_busy)
-            const ColoredBox(
-              color: Color(0x66000000),
-              child: Center(child: CircularProgressIndicator()),
+              ),
             ),
-        ],
+          );
+        },
       ),
     );
   }
+}
 
-  /// 下单 + 结算（createOrder → checkout）。
-  Future<void> _purchase(PlanItem plan, PricePlan price) async {
-    setState(() => _busy = true);
-    try {
-      final service = ref.read(xboardServiceProvider);
-      // 1. 创建订单。
-      final orderResult = await service.createOrder(plan.id, price.period);
-      if (orderResult case XbFailure(:final error)) {
-        _toast('下单失败：${error.message}');
-        return;
-      }
-      final tradeNo = (orderResult as XbSuccess<String>).data;
+/// 瘦身套餐卡：名 + 一行摘要（HTML 首段纯文本）+ 最小周期价「¥X/周期 起」+ 箭头。
+class _PlanSummaryCard extends StatelessWidget {
+  const _PlanSummaryCard({required this.plan, required this.onTap});
+  final PlanItem plan;
+  final VoidCallback onTap;
 
-      // 2. 选支付方式（取第一个可用；零金额场景 method 可空）。
-      final methodsResult = await service.getPaymentMethods();
-      final method = switch (methodsResult) {
-        XbSuccess(:final data) when data.isNotEmpty => data.first.id,
-        _ => '',
-      };
-
-      // 3. 结算。
-      final checkoutResult = await service.checkout(tradeNo, method);
-      if (checkoutResult case XbFailure(:final error)) {
-        _toast('结算失败：${error.message}');
-        return;
-      }
-      if (!mounted) return;
-      await _handleOutcome((checkoutResult as XbSuccess<CheckoutOutcomeUi>).data);
-    } finally {
-      if (mounted) setState(() => _busy = false);
-    }
+  /// 取最小周期价（周期 enum 顺序靠前 = 周期更短 = 价更低，取第一个有价的）。
+  PricePlan? get _minPeriodPrice {
+    if (plan.prices.isEmpty) return null;
+    final sorted = [...plan.prices]
+      ..sort((a, b) => a.period.index.compareTo(b.period.index));
+    return sorted.first;
   }
 
-  Future<void> _handleOutcome(CheckoutOutcomeUi outcome) async {
-    switch (outcome) {
-      case CheckoutRedirect(:final url):
-        final uri = Uri.tryParse(url);
-        if (uri != null && await canLaunchUrl(uri)) {
-          await launchUrl(uri, mode: LaunchMode.externalApplication);
-        } else {
-          _toast('无法打开支付页面');
-        }
-      case CheckoutQrCode(:final qrCodeUrl):
-        if (mounted) await _showQrDialog(qrCodeUrl);
-      case CheckoutPaid():
-        ref.invalidate(userProfileProvider); // 刷新账号卡（流量/到期更新）。
-        _toast('支付成功');
-        if (mounted) Navigator.of(context).pop();
-      case CheckoutCanceled(:final message):
-        _toast(message ?? '已取消');
-      case CheckoutFailed(:final message):
-        _toast('支付失败：$message');
-    }
-  }
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final text = Theme.of(context).textTheme;
+    final min = _minPeriodPrice;
+    // 摘要：HTML content 转纯文本取首行非空。
+    final summary = plan.description == null
+        ? ''
+        : htmlToPlainText(plan.description!)
+            .split('\n')
+            .firstWhere((l) => l.trim().isNotEmpty, orElse: () => '');
 
-  Future<void> _showQrDialog(String qrUrl) async {
-    await showDialog<void>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('扫码支付'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            QrImageView(data: qrUrl, size: 220),
-            const SizedBox(height: 12),
-            const Text('请用支付宝 / 微信扫描二维码完成支付',
-                textAlign: TextAlign.center),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(),
-            child: const Text('支付完成 / 关闭'),
+    return Card(
+      elevation: 0,
+      margin: const EdgeInsets.only(bottom: 12),
+      color: scheme.surfaceContainerHigh,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(16),
+        child: Padding(
+          padding: const EdgeInsets.all(18),
+          child: Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(plan.name,
+                              style: text.titleMedium
+                                  ?.copyWith(fontWeight: FontWeight.w700),
+                              overflow: TextOverflow.ellipsis),
+                        ),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 8, vertical: 3),
+                          decoration: BoxDecoration(
+                            color: scheme.primary.withValues(alpha: 0.12),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Text('${plan.transferEnableGb} GB',
+                              style: text.labelMedium?.copyWith(
+                                  color: scheme.primary,
+                                  fontWeight: FontWeight.w600)),
+                        ),
+                      ],
+                    ),
+                    if (summary.isNotEmpty) ...[
+                      const SizedBox(height: 6),
+                      Text(summary,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: text.bodySmall
+                              ?.copyWith(color: scheme.onSurfaceVariant)),
+                    ],
+                    const SizedBox(height: 10),
+                    if (min != null)
+                      RichText(
+                        text: TextSpan(
+                          style: text.titleMedium?.copyWith(
+                              color: scheme.primary,
+                              fontWeight: FontWeight.w800),
+                          children: [
+                            TextSpan(
+                                text: '¥${min.amountYuan.toStringAsFixed(2)}'),
+                            TextSpan(
+                              text: '/${planPeriodLabel(min.period)} 起',
+                              style: text.bodySmall?.copyWith(
+                                  color: scheme.onSurfaceVariant,
+                                  fontWeight: FontWeight.w400),
+                            ),
+                          ],
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              Icon(Icons.chevron_right_rounded, color: scheme.onSurfaceVariant),
+            ],
           ),
-        ],
+        ),
       ),
     );
-    // 关闭二维码后刷新账号信息（用户可能已支付）。
-    ref.invalidate(userProfileProvider);
-  }
-
-  void _toast(String msg) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
   }
 }
 
