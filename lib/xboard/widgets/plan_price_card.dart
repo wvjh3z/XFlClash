@@ -10,6 +10,7 @@ library;
 import 'package:flutter/material.dart';
 
 import '../models/plan_item.dart';
+import '../util/html_text.dart';
 import '../util/period_label.dart';
 
 /// 套餐价格卡。[currencySymbol] 由 flavor 注入（默认 ¥）。
@@ -70,7 +71,7 @@ class PlanPriceCard extends StatelessWidget {
             if (plan.description != null && plan.description!.isNotEmpty) ...[
               const SizedBox(height: 6),
               Text(
-                plan.description!,
+                htmlToPlainText(plan.description!),
                 style:
                     text.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
               ),

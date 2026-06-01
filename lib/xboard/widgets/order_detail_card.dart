@@ -8,6 +8,7 @@
 library;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../models/order_summary.dart';
 import '../models/xb_domain_types.dart';
@@ -26,6 +27,11 @@ class OrderDetailCard extends StatelessWidget {
 
   String _money(double? v) =>
       v == null ? '-' : '$currencySymbol${v.toStringAsFixed(2)}';
+
+  String _fmtDateTime(DateTime d) =>
+      '${d.year}-${d.month.toString().padLeft(2, '0')}-'
+      '${d.day.toString().padLeft(2, '0')} '
+      '${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';
 
   @override
   Widget build(BuildContext context) {
@@ -56,12 +62,15 @@ class OrderDetailCard extends StatelessWidget {
                 _StatusBadge(status: s.status),
               ],
             ),
-            const SizedBox(height: 4),
-            Text('${planPeriodLabel(s.period)} · 订单号 ${s.tradeNo}',
-                style: text.bodySmall
-                    ?.copyWith(color: scheme.onSurfaceVariant),
-                overflow: TextOverflow.ellipsis),
-            const SizedBox(height: 16),
+            const SizedBox(height: 12),
+            const Divider(height: 1),
+            const SizedBox(height: 12),
+            // 订单信息段
+            _InfoRow(label: '套餐周期', value: planPeriodLabel(s.period)),
+            _InfoRow(label: '创建时间', value: _fmtDateTime(s.createdAt)),
+            _InfoRow(label: '订单状态', value: orderStatusLabel(s.status)),
+            _CopyableRow(label: '订单号', value: s.tradeNo),
+            const SizedBox(height: 12),
             const Divider(height: 1),
             const SizedBox(height: 12),
             // 金额拆分
@@ -126,6 +135,87 @@ class _AmountRow extends StatelessWidget {
                     text.bodyMedium?.copyWith(fontWeight: FontWeight.w500),
                 textAlign: TextAlign.right,
                 overflow: TextOverflow.ellipsis),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// 信息行（label 左 / value 右，value 可换行不截断）。
+class _InfoRow extends StatelessWidget {
+  const _InfoRow({required this.label, required this.value});
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final text = Theme.of(context).textTheme;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(label,
+              style:
+                  text.bodyMedium?.copyWith(color: scheme.onSurfaceVariant)),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(value,
+                style: text.bodyMedium?.copyWith(fontWeight: FontWeight.w500),
+                textAlign: TextAlign.right,
+                softWrap: true),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// 订单号行（可点击复制到剪贴板）。
+class _CopyableRow extends StatelessWidget {
+  const _CopyableRow({required this.label, required this.value});
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final text = Theme.of(context).textTheme;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(label,
+              style:
+                  text.bodyMedium?.copyWith(color: scheme.onSurfaceVariant)),
+          const SizedBox(width: 12),
+          Expanded(
+            child: InkWell(
+              onTap: () {
+                Clipboard.setData(ClipboardData(text: value));
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('订单号已复制')),
+                );
+              },
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  Flexible(
+                    child: Text(value,
+                        style: text.bodyMedium
+                            ?.copyWith(fontWeight: FontWeight.w500),
+                        textAlign: TextAlign.right,
+                        softWrap: true),
+                  ),
+                  const SizedBox(width: 6),
+                  Icon(Icons.copy_rounded,
+                      size: 15, color: scheme.onSurfaceVariant),
+                ],
+              ),
+            ),
           ),
         ],
       ),
