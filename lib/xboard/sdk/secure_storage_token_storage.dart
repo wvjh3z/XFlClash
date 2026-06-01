@@ -28,9 +28,15 @@ const String kXbAccessTokenKey = 'xb_access_token_v1';
 /// 直接走 secure_storage 的 TokenStorage 实现（默认路径）。
 class SecureStorageTokenStorage implements TokenStorage {
   SecureStorageTokenStorage({FlutterSecureStorage? storage})
-      : _storage = storage ?? const FlutterSecureStorage();
+      : _storage =
+            storage ?? const FlutterSecureStorage(aOptions: _androidOptions);
 
   final FlutterSecureStorage _storage;
+
+  /// θ-10：Android 强制 EncryptedSharedPreferences（AES-256，硬件 keystore 支持时入 TEE）。
+  /// 配合 AndroidManifest `allowBackup=false`（W8.4.3）防卸载重装 / ADB backup 残留。
+  static const AndroidOptions _androidOptions =
+      AndroidOptions(encryptedSharedPreferences: true);
 
   /// 探测 secure_storage 是否可用（ζ1）；不可用返降级实现。
   ///
@@ -42,7 +48,7 @@ class SecureStorageTokenStorage implements TokenStorage {
     required Uint8List fallbackAesKey,
     void Function()? onDegraded,
   }) async {
-    final s = storage ?? const FlutterSecureStorage();
+    final s = storage ?? const FlutterSecureStorage(aOptions: _androidOptions);
     try {
       await s.read(key: '__xb_probe__'); // ζ1 探测
       return SecureStorageTokenStorage(storage: s);
