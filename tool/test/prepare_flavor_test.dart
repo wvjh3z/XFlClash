@@ -162,52 +162,52 @@ void main() {
     expect(errors.any((e) => e.contains('不存在')), isTrue);
   });
 
-  // W8.5：flavor_config.g.dart 生成器（generateFlavorConfigDart）。
-  group('generateFlavorConfigDart（W8.5 生成器）', () {
+  // W8.5：flavor_defines.json 生成器（generateFlavorDefinesJson，dart-define 路径）。
+  group('generateFlavorDefinesJson（W8.5 dart-define 生成器）', () {
     YamlMap loadValid({String aesKey = ''}) =>
         loadYaml(_validYaml(aesKey: aesKey)) as YamlMap;
 
-    test('test target → kIsTest/debug true + flavorId + UA + endpoints', () {
-      final out = generateFlavorConfigDart(loadValid(),
-          flavorId: 'brand_a', isTest: true);
-      expect(out, contains("flavorId: 'brand_a'"));
-      expect(out, contains("subscribeUserAgent: 'MyClient/0.1.0 flclash'"));
-      expect(out, contains('kIsTest: true'));
-      expect(out, contains('debug: true'));
+    Map<String, dynamic> defines({String aesKey = '', bool isTest = true}) =>
+        jsonDecode(generateFlavorDefinesJson(loadValid(aesKey: aesKey),
+            flavorId: 'brand_a', isTest: isTest)) as Map<String, dynamic>;
+
+    test('test target → XB_DEBUG true + flavorId + UA + endpoints', () {
+      final d = defines(isTest: true);
+      expect(d['XB_FLAVOR_ID'], 'brand_a');
+      expect(d['XB_SUBSCRIBE_UA'], 'MyClient/0.1.0 flclash');
+      expect(d['XB_DEBUG'], 'true');
       // devApi 取首 URL 的 origin。
-      expect(out, contains("devApiEndpoint: 'https://a.example.com'"));
-      // 空 aesKey → null（降级路径）。
-      expect(out, contains('bootstrapAesKeyBytes: null'));
-      expect(out, contains('xboardConfigFromFlavor()'));
+      expect(d['XB_API_ENDPOINT'], 'https://a.example.com');
+      // 空 aesKey → 空串（fromEnvironment 运行时降级 null）。
+      expect(d['XB_AES_KEY_B64'], '');
     });
 
-    test('prod target → kIsTest/debug false', () {
-      final out = generateFlavorConfigDart(loadValid(),
-          flavorId: 'brand_a', isTest: false);
-      expect(out, contains('kIsTest: false'));
-      expect(out, contains('debug: false'));
+    test('prod target → XB_DEBUG false', () {
+      expect(defines(isTest: false)['XB_DEBUG'], 'false');
     });
 
-    test('aesKey 非空 → 生成 List<int> 32 字节', () {
+    test('aesKey 非空 → 原样传 base64 串', () {
       final key = base64.encode(List<int>.generate(32, (i) => i));
-      final out = generateFlavorConfigDart(loadValid(aesKey: key),
-          flavorId: 'brand_a', isTest: false);
-      expect(out, contains('bootstrapAesKeyBytes: <int>[0, 1, 2,'));
-      expect(out, contains('30, 31]'));
+      expect(defines(aesKey: key)['XB_AES_KEY_B64'], key);
     });
 
     test('brandColor #d92e1a → 0xFFD92E1A', () {
-      final out = generateFlavorConfigDart(loadValid(),
-          flavorId: 'brand_a', isTest: true);
-      expect(out, contains('brandColor: 0xFFD92E1A'));
+      expect(defines()['XB_BRAND_COLOR'], '0xFFD92E1A');
     });
 
-    test('bootstrapUrls 全部进数组', () {
-      final out = generateFlavorConfigDart(loadValid(),
-          flavorId: 'brand_a', isTest: true);
-      expect(out, contains("'https://a.example.com/b.bin'"));
-      expect(out, contains("'https://b.example.com/b.bin'"));
-      expect(out, contains("'https://c.example.com/b.bin'"));
+    test('bootstrapUrls → 逗号分隔串', () {
+      final urls = defines()['XB_BOOTSTRAP_URLS'] as String;
+      expect(urls.split(','), [
+        'https://a.example.com/b.bin',
+        'https://b.example.com/b.bin',
+        'https://c.example.com/b.bin',
+      ]);
+    });
+
+    test('输出是合法 JSON（dart-define-from-file 可解析）', () {
+      final raw = generateFlavorDefinesJson(loadValid(),
+          flavorId: 'brand_a', isTest: false);
+      expect(() => jsonDecode(raw), returnsNormally);
     });
   });
 

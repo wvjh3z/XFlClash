@@ -77,4 +77,4 @@ devtools_options.yaml
 .fvmrc
 
 # Xboard flavor 生成产物（含 CI 注入的 aesKey / sentryDsn，绝不入 git，D58/conventions §7.1）
-/lib/xboard/config/flavor_config.g.dart
+/flavor_defines.json

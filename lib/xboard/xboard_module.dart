@@ -60,15 +60,23 @@ class XboardModule {
   /// 后由调用方注入。W1 阶段 null 时走 SDK 自带（`useMemoryStorage` 走测试路径）。
   ///
   /// [sdk] 注入：测试传 fake `XBoardSDK`（W0.3）；生产默认 `XBoardSDK.instance`。
+  ///
+  /// [config] 注入：生产由接缝点 #1 传 `XboardConfig.fromEnvironment()`（dart-define 编译期值，
+  /// W8.5）；测试不传（沿用测试前 `XboardConfig.bind(...)` 设的实例 / 占位默认）。非 null 时
+  /// step1 `XboardConfig.bind(config)`。
   static Future<void> bootstrap(
     ProviderContainer container, {
     TokenStorage? tokenStorage,
     XBoardSDK? sdk,
+    XboardConfig? config,
     @visibleForTesting EndpointProbe? debugProbe,
   }) async {
     try {
       await _bootstrapSyncPhase(container,
-          tokenStorage: tokenStorage, sdk: sdk, debugProbe: debugProbe);
+          tokenStorage: tokenStorage,
+          sdk: sdk,
+          config: config,
+          debugProbe: debugProbe);
     } catch (e, s) {
       // DD-2：同步阶段任何异常全吞 —— bootstrapReady 保持 false，UI gate 登录禁用 + banner。
       // W8.3 SentryBootstrap 完成后此处尽力上报。
@@ -146,6 +154,7 @@ class XboardModule {
     ProviderContainer container, {
     required TokenStorage? tokenStorage,
     required XBoardSDK? sdk,
+    XboardConfig? config,
     EndpointProbe? debugProbe,
   }) async {
     // step 0：firstLaunch 检测（合规 § F / § J，W4.6 填实）。
@@ -166,12 +175,15 @@ class XboardModule {
       }
     }
 
-    // step 1：加载 flavor 配置（W8.5 prepare_flavor.dart 产物；W1 用占位默认）。
-    // XboardConfig.bind(FlavorConfig.fromGenerated()) — W8.5 填实。
-    final config = XboardConfig.current;
+    // step 1：加载 flavor 配置。生产由接缝点 #1 传 XboardConfig.fromEnvironment()（dart-define
+    // 编译期值，W8.5）→ 此处 bind；测试不传 config，沿用测试前 bind 的实例 / 占位默认。
+    if (config != null) {
+      XboardConfig.bind(config);
+    }
+    final activeConfig = XboardConfig.current;
 
     // DD-23：flavor.id + bootstrap 起始阶段 tag（W5.7 / λ-4）。
-    SentryBootstrap.tagFlavor(config.flavorId);
+    SentryBootstrap.tagFlavor(activeConfig.flavorId);
     SentryBootstrap.tagBootstrap(stage: 'sync_start');
 
     // step 2：SentryBootstrap.installEarly + PlatformDispatcher.onError 早期 hook。
@@ -180,9 +192,9 @@ class XboardModule {
     // step 3：BootstrapLocalLoader.loadLocal()（W5.6 真实 AES-256-GCM 解密，零网络）。
     //   优先级：本地缓存密文 → 出厂 fallback 资产 → null（双双损坏走 config 出厂 endpoint 兜底）。
     //   解出的 payload 暂存（_localPayload），异步阶段远端拉取失败时作竞速候选。
-    final decryptor = BootstrapDecryptor(aesKey: config.bootstrapAesKeyBytes);
-    String apiEndpoint = config.devApiEndpoint;
-    String subscriptionEndpoint = config.devSubscriptionEndpoint;
+    final decryptor = BootstrapDecryptor(aesKey: activeConfig.bootstrapAesKeyBytes);
+    String apiEndpoint = activeConfig.devApiEndpoint;
+    String subscriptionEndpoint = activeConfig.devSubscriptionEndpoint;
     try {
       final local = await BootstrapLocalLoader(decryptor: decryptor).loadLocal();
       final payload = local.payload;
@@ -202,9 +214,9 @@ class XboardModule {
       apiEndpoint,
       panelType: 'xboard',
       customStorage: tokenStorage, // null → SDK 自带；测试注入 fake / W3.1 注入 SecureStorage
-      useMemoryStorage: tokenStorage == null && config.kIsTest,
-      userAgent: config.subscribeUserAgent,
-      enableLogging: config.debug,
+      useMemoryStorage: tokenStorage == null && activeConfig.kIsTest,
+      userAgent: activeConfig.subscribeUserAgent,
+      enableLogging: activeConfig.debug,
     );
 
     // step 5：SdkLogger.onLog 占位（W8.3 SentryBootstrap 完成后 wire 真实 capture）。

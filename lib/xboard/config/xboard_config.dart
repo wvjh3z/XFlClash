@@ -1,12 +1,17 @@
 /// Xboard 运行期配置接入点（design §E / NFR-2）。
 ///
-/// **W1 占位实现**：v0.1 正式版由 `tool/prepare_flavor.dart`（W8.5）生成
-/// `flavor_config.g.dart` → `XboardConfig.bind(FlavorConfig.fromGenerated())`。
-/// 当前 W1 阶段用内置默认值占位，保证 bootstrap 同步阶段可编译可跑。
+/// **配置来源（W8.5 修订：dart-define 而非生成 .dart）**：
+/// - 默认值（本文件 [_placeholder]）：dev/test 直跑、无 flavor 注入时用。
+/// - 生产/品牌构建：`tool/prepare_flavor.dart` 读 flavor.yaml → 生成 `flavor_defines.json`
+///   （gitignored，含 CI 注入 aesKey/sentryDsn）→ `flutter build --dart-define-from-file=flavor_defines.json`
+///   → [XboardConfig.fromEnvironment] 编译期读入。**committed 代码零 import 生成物**（恒可编译，
+///   不破 CI/测试）；密钥只在 build 时经 dart-define 流入，绝不进 git（D58）。
 ///
 /// **铁律（NFR-2 / Property 19）**：任何「会因发行不同而变化」的值（应用名 / 包名 /
 /// 品牌色 / API URL / 订阅 UA）一律走 `XboardConfig.current`，业务代码 0 处硬编码。
 library;
+
+import 'dart:convert';
 
 /// flavor 配置的运行期视图（W8.5 prepare_flavor.dart 生成实体后替换占位字段）。
 class XboardConfig {
@@ -69,7 +74,67 @@ class XboardConfig {
   /// Bootstrap AES-256 解密 key（32 字节；编译期注入，D58 不进 git）。null = 未配置（降级）。
   final List<int>? bootstrapAesKeyBytes;
 
-  /// W1 占位默认值（W8.5 由生成的 FlavorConfig 替换）。
+  /// 从 dart-define 编译期常量构造（W8.5 生产/品牌构建路径）。
+  ///
+  /// 读 `--dart-define-from-file=flavor_defines.json` 注入的常量；任一未注入则回退到
+  /// [_placeholder] 同名默认（保证无 flavor 注入时也能跑）。`XB_BOOTSTRAP_URLS` 是逗号分隔串，
+  /// `XB_AES_KEY_B64` 是 base64（空/非法 → null 降级）。**全 const 读取**（编译期内联，
+  /// 业务代码无 import 生成物，CI/测试零依赖）。
+  factory XboardConfig.fromEnvironment() {
+    const ua = String.fromEnvironment('XB_SUBSCRIBE_UA',
+        defaultValue: 'Multi-Platform-Client/v0.1.0 flclash');
+    const api =
+        String.fromEnvironment('XB_API_ENDPOINT', defaultValue: 'https://api.example.com');
+    const sub = String.fromEnvironment('XB_SUBSCRIPTION_ENDPOINT',
+        defaultValue: 'https://sub.example.com');
+    const debug = bool.fromEnvironment('XB_DEBUG', defaultValue: true);
+    const flavorId = String.fromEnvironment('XB_FLAVOR_ID', defaultValue: 'brand_a');
+    const brandColor = int.fromEnvironment('XB_BRAND_COLOR', defaultValue: 0xFFD92E1A);
+    const termsUrl = String.fromEnvironment('XB_TERMS_URL',
+        defaultValue: 'https://example.com/terms');
+    const privacyUrl = String.fromEnvironment('XB_PRIVACY_URL',
+        defaultValue: 'https://example.com/privacy');
+    const dataResidency =
+        String.fromEnvironment('XB_DATA_RESIDENCY', defaultValue: 'Hong Kong');
+    const dataController = String.fromEnvironment('XB_DATA_CONTROLLER',
+        defaultValue: 'Example Tech Co., Ltd.');
+    const supportEmail = String.fromEnvironment('XB_SUPPORT_EMAIL',
+        defaultValue: 'support@example.com');
+    const urlsCsv = String.fromEnvironment('XB_BOOTSTRAP_URLS', defaultValue: '');
+    const aesKeyB64 = String.fromEnvironment('XB_AES_KEY_B64', defaultValue: '');
+
+    final urls = urlsCsv.isEmpty
+        ? const <String>[]
+        : urlsCsv.split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
+    List<int>? aesBytes;
+    if (aesKeyB64.isNotEmpty) {
+      try {
+        final decoded = base64.decode(aesKeyB64);
+        if (decoded.length == 32) aesBytes = decoded;
+      } catch (_) {
+        aesBytes = null; // 非法 base64 → 降级（永不抛）
+      }
+    }
+
+    return XboardConfig(
+      subscribeUserAgent: ua,
+      devApiEndpoint: api,
+      devSubscriptionEndpoint: sub,
+      debug: debug,
+      kIsTest: false,
+      flavorId: flavorId,
+      brandColor: brandColor,
+      termsUrl: termsUrl,
+      privacyUrl: privacyUrl,
+      dataResidency: dataResidency,
+      dataController: dataController,
+      supportEmail: supportEmail,
+      bootstrapUrls: urls,
+      bootstrapAesKeyBytes: aesBytes,
+    );
+  }
+
+  /// 占位默认值（dev/test 直跑、无 dart-define 注入时用；与 [fromEnvironment] 默认值一致）。
   static const XboardConfig _placeholder = XboardConfig(
     subscribeUserAgent: 'Multi-Platform-Client/v0.1.0 flclash',
     devApiEndpoint: 'https://api.example.com',
@@ -83,7 +148,7 @@ class XboardConfig {
   /// 当前生效配置（NFR-2 唯一接入点）。
   static XboardConfig get current => _current;
 
-  /// bootstrap step1 绑定（W8.5 传入生成的 FlavorConfig）。
+  /// bootstrap step1 绑定（生产传 [XboardConfig.fromEnvironment]；测试传自定义实例）。
   static void bind(XboardConfig config) => _current = config;
 
   /// 测试用：重置回占位默认。
