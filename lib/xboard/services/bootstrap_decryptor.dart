@@ -119,6 +119,9 @@ class BootstrapDecryptor {
           BootstrapDecryptFailure.payloadParseError);
     }
 
+    // endpoint 规范化（去末尾斜杠等，避免下游拼接出 `/omo//api/v1` 双斜杠）。
+    payload = payload.normalized();
+
     if (!payload.isValid) {
       return BootstrapDecryptResult.failure(BootstrapDecryptFailure.payloadEmpty);
     }
