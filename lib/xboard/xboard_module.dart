@@ -23,7 +23,11 @@ import '../providers/config.dart' show patchClashConfigProvider;
 import '../providers/app.dart' show initProvider;
 import 'config/xboard_config.dart';
 import 'l10n/content_language.dart';
+import 'models/bootstrap_payload.dart';
 import 'providers/xboard_providers.dart';
+import 'services/bootstrap_decryptor.dart';
+import 'services/bootstrap_fetcher.dart';
+import 'services/bootstrap_local_loader.dart';
 import 'services/endpoint_race_controller.dart';
 import 'services/sentry_bootstrap.dart';
 import 'services/xboard_lifecycle_observer.dart';
@@ -41,6 +45,12 @@ class XboardModule {
   /// seam #7 globalUa 注入的 initProvider 监听句柄（dispose 时关）。
   static ProviderSubscription<bool>? _initListener;
 
+  /// 同步阶段 loadLocal() 解出的本地 payload（异步阶段远端失败时的竞速候选）。
+  static BootstrapPayload? _localPayload;
+
+  /// 异步阶段 single-flight 守卫（避免重复 fire）。
+  static bool _asyncStarted = false;
+
   /// 同步阶段启动（接缝点 #1 调用点，DD-17 render-first，零网络）。
   ///
   /// **绝不抛**：所有内部异常在此全捕获（DD-2 / NFR-7）。接缝点 #1 外层再包一层兜底
@@ -54,9 +64,11 @@ class XboardModule {
     ProviderContainer container, {
     TokenStorage? tokenStorage,
     XBoardSDK? sdk,
+    @visibleForTesting EndpointProbe? debugProbe,
   }) async {
     try {
-      await _bootstrapSyncPhase(container, tokenStorage: tokenStorage, sdk: sdk);
+      await _bootstrapSyncPhase(container,
+          tokenStorage: tokenStorage, sdk: sdk, debugProbe: debugProbe);
     } catch (e, s) {
       // DD-2：同步阶段任何异常全吞 —— bootstrapReady 保持 false，UI gate 登录禁用 + banner。
       // W8.3 SentryBootstrap 完成后此处尽力上报。
@@ -64,11 +76,77 @@ class XboardModule {
     }
   }
 
+  /// 异步阶段（接缝点 #1.bis 调用点，runApp **后** fire-and-forget，R15.B/C/H）。
+  ///
+  /// **DD-17 render-first**：本方法绝不在 runApp 前 await——首屏立即用同步阶段的本地/出厂
+  /// endpoint 渲染；远端 Bootstrap + endpoint 竞速 + 热替换全在后台跑，拉到更优 endpoint 后
+  /// 通过 `EndpointRaceController.onApiSwitch` → `switchBaseUrl` 热替换（已加载 UI 不重建）。
+  ///
+  /// **编排**（永不抛，DD-2 / Property 1）：
+  ///   1. 远端拉取 `fetchRemote(bootstrapUrls)`（串行 + 30s 预算 + 严格 TLS θ-1）；
+  ///   2. 成功 → 写缓存密文（DD-22 / R15.D.25）+ 用远端 payload 竞速；
+  ///      失败 → 退回同步阶段本地 payload（`_localPayload`）竞速；二者皆无 → 不竞速（沿用出厂）；
+  ///   3. `raceApi` + `raceSubscription` → 最快可达者经 `onApiSwitch` 回调热替换 SDK baseUrl。
+  ///
+  /// `bootstrap()` 完成（SDK initialized + race controller 就绪）后由接缝点 #1 调用。
+  static Future<void> bootstrapAsync(ProviderContainer container) async {
+    if (_asyncStarted) return; // single-flight
+    _asyncStarted = true;
+    try {
+      await _bootstrapAsyncPhase(container);
+    } catch (e, s) {
+      // DD-2：异步阶段任何异常全吞——失败沿用同步阶段 endpoint，绝不波及已渲染 UI。
+      debugPrint('[XboardModule.bootstrapAsync] swallowed: $e\n$s');
+    }
+  }
+
+  static Future<void> _bootstrapAsyncPhase(ProviderContainer container) async {
+    final config = XboardConfig.current;
+    final race = _raceController;
+    if (race == null) {
+      // 同步阶段 race controller 未就绪（如 bootstrap 失败）→ 无法竞速，沿用出厂 endpoint。
+      debugPrint('[XboardModule] async: race controller 未就绪，跳过竞速');
+      return;
+    }
+
+    SentryBootstrap.tagBootstrap(stage: 'async_start');
+
+    // 1. 远端拉取（仅在 flavor 配了镜像时；否则直接用本地 payload 竞速）。
+    BootstrapPayload? payload;
+    if (config.bootstrapUrls.isNotEmpty) {
+      final decryptor = BootstrapDecryptor(aesKey: config.bootstrapAesKeyBytes);
+      final fetcher = BootstrapFetcher(decryptor: decryptor);
+      final result = await fetcher.fetchRemote(config.bootstrapUrls);
+      if (result.isSuccess) {
+        payload = result.payload;
+        // 2. 写缓存密文（下次冷启同步阶段 loadLocal 命中，DD-22 / R15.D.25）。
+        final env = result.winnerEnvelope;
+        if (env != null) {
+          await BootstrapLocalLoader(decryptor: decryptor).writeCache(env);
+        }
+      }
+    }
+
+    // 远端失败 → 退回同步阶段本地 payload（cache / fallback 解出的，R15.B 三级降级）。
+    payload ??= _localPayload;
+    if (payload == null || !payload.isValid) {
+      SentryBootstrap.tagBootstrap(stage: 'async_no_endpoints');
+      return; // 无任何 endpoint 候选 → 沿用同步阶段出厂 endpoint。
+    }
+
+    // 3. endpoint 竞速 → 最快可达者经 onApiSwitch 回调热替换 SDK baseUrl + 写 provider。
+    await race.raceApi(payload.apiEndpoints);
+    await race.raceSubscription(payload.subscriptionEndpoints);
+
+    SentryBootstrap.tagBootstrap(stage: 'async_done');
+  }
+
   /// 同步阶段 step 0-8（design §I / L168-247）。
   static Future<void> _bootstrapSyncPhase(
     ProviderContainer container, {
     required TokenStorage? tokenStorage,
     required XBoardSDK? sdk,
+    EndpointProbe? debugProbe,
   }) async {
     // step 0：firstLaunch 检测（合规 § F / § J，W4.6 填实）。
     // 「首次进入 Xboard 模块」= 无鉴权 token **且** 无 consent 记录（xb_consent_v1）。
@@ -99,10 +177,24 @@ class XboardModule {
     // step 2：SentryBootstrap.installEarly + PlatformDispatcher.onError 早期 hook。
     //   W8.3 填实 6 参实现；W1 占位 no-op（不抢占 FlClash 的 FlutterError.onError）。
 
-    // step 3：BootstrapLocalLoader.loadLocal()（W5.6 填实真实 AES-256-GCM 解密）。
-    //   W1 stub：直接用 flavor 内置固定出厂 endpoint（非网络拉取），保证 step6 有值。
-    final apiEndpoint = config.devApiEndpoint;
-    final subscriptionEndpoint = config.devSubscriptionEndpoint;
+    // step 3：BootstrapLocalLoader.loadLocal()（W5.6 真实 AES-256-GCM 解密，零网络）。
+    //   优先级：本地缓存密文 → 出厂 fallback 资产 → null（双双损坏走 config 出厂 endpoint 兜底）。
+    //   解出的 payload 暂存（_localPayload），异步阶段远端拉取失败时作竞速候选。
+    final decryptor = BootstrapDecryptor(aesKey: config.bootstrapAesKeyBytes);
+    String apiEndpoint = config.devApiEndpoint;
+    String subscriptionEndpoint = config.devSubscriptionEndpoint;
+    try {
+      final local = await BootstrapLocalLoader(decryptor: decryptor).loadLocal();
+      final payload = local.payload;
+      if (payload != null && payload.isValid) {
+        _localPayload = payload;
+        apiEndpoint = payload.apiEndpoints.first;
+        subscriptionEndpoint = payload.subscriptionEndpoints.first;
+      }
+    } catch (e, s) {
+      // 本地加载失败不阻塞（DD-2 / Property 1）；沿用 config 出厂 endpoint。
+      debugPrint('[XboardModule] loadLocal failed: $e\n$s');
+    }
 
     // step 4：SDK initialize（用本地 endpoint 作初始 baseUrl，远端拉到后 W5 热替换）。
     final instance = sdk ?? XBoardSDK.instance;
@@ -143,6 +235,7 @@ class XboardModule {
     // 各子步骤独立 try/catch：一个失败（如 test 无 WidgetsBinding）不阻断其余（含 seam #7）。
     try {
       _raceController = EndpointRaceController(
+        probe: debugProbe, // 生产 null → 默认真实 Dio 探针；测试注入 fake。
         onApiSwitch: (ep) {
           try {
             instance.switchBaseUrl(ep);
@@ -214,5 +307,8 @@ class XboardModule {
     // 3. dispose endpoint 竞速控制器（最后，前面已无人触发它）。
     _raceController?.dispose();
     _raceController = null;
+    // 4. 重置异步阶段状态（允许下次 bootstrap 重新跑；测试 teardown 复用）。
+    _asyncStarted = false;
+    _localPayload = null;
   }
 }

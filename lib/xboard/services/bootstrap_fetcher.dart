@@ -25,10 +25,18 @@ import 'sentry_bootstrap.dart';
 
 /// 远端拉取结果（成功携 payload + 命中镜像；失败为 null payload）。
 class BootstrapFetchResult {
-  const BootstrapFetchResult({this.payload, this.winnerUrl, this.lastFailure});
+  const BootstrapFetchResult({
+    this.payload,
+    this.winnerUrl,
+    this.winnerEnvelope,
+    this.lastFailure,
+  });
 
   final BootstrapPayload? payload;
   final String? winnerUrl;
+
+  /// 命中镜像的外层 envelope（成功时供 [BootstrapLocalLoader.writeCache] 写缓存密文）。
+  final BootstrapEnvelope? winnerEnvelope;
 
   /// 最后一次失败的解密分类（全失败时供 DD-23 tag）。
   final BootstrapDecryptFailure? lastFailure;
@@ -90,7 +98,11 @@ class BootstrapFetcher {
             stage: 'remote_fetched',
             envelopeSource: 'remote',
           );
-          return BootstrapFetchResult(payload: result.payload, winnerUrl: url);
+          return BootstrapFetchResult(
+            payload: result.payload,
+            winnerUrl: url,
+            winnerEnvelope: env,
+          );
         }
         lastFailure = result.failure;
       } catch (_) {

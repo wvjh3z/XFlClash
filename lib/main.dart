@@ -36,6 +36,10 @@ Future<void> main() async {
         child: const Application(),
       ),
     );
+
+    // === Xboard 接缝点 #1.bis（W5 异步阶段，runApp 后 fire-and-forget，DD-17 render-first）===
+    // 远端 Bootstrap 拉取 + endpoint 竞速 + baseUrl 热替换；绝不 await（不阻塞首屏）+ 永不抛（DD-2）。
+    unawaited(XboardModule.bootstrapAsync(container));
   } catch (e, s) {
     return runApp(
       MaterialApp(
