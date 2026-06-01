@@ -16,6 +16,7 @@ class XboardConfig {
     required this.devSubscriptionEndpoint,
     required this.debug,
     required this.kIsTest,
+    this.flavorId = 'brand_a',
     this.brandColor = 0xFFD92E1A,
     this.termsUrl = 'https://example.com/terms',
     this.privacyUrl = 'https://example.com/privacy',
@@ -40,6 +41,9 @@ class XboardConfig {
 
   /// 测试环境（D63/F81：headless 无 D-Bus，强制 MemoryTokenStorage）。
   final bool kIsTest;
+
+  /// flavor 标识（DD-23 `flavor.id` Sentry tag；W8.5 prepare_flavor 注入，默认 brand_a）。
+  final String flavorId;
 
   /// 品牌主色（flavor 注入，UI kit XbBrandTheme 用；默认品牌红 D3）。
   final int brandColor;

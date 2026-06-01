@@ -25,6 +25,7 @@ import 'config/xboard_config.dart';
 import 'l10n/content_language.dart';
 import 'providers/xboard_providers.dart';
 import 'services/endpoint_race_controller.dart';
+import 'services/sentry_bootstrap.dart';
 import 'services/xboard_lifecycle_observer.dart';
 import 'widgets/xboard_consent_dialog.dart' show kXbConsentKey;
 
@@ -91,6 +92,10 @@ class XboardModule {
     // XboardConfig.bind(FlavorConfig.fromGenerated()) — W8.5 填实。
     final config = XboardConfig.current;
 
+    // DD-23：flavor.id + bootstrap 起始阶段 tag（W5.7 / λ-4）。
+    SentryBootstrap.tagFlavor(config.flavorId);
+    SentryBootstrap.tagBootstrap(stage: 'sync_start');
+
     // step 2：SentryBootstrap.installEarly + PlatformDispatcher.onError 早期 hook。
     //   W8.3 填实 6 参实现；W1 占位 no-op（不抢占 FlClash 的 FlutterError.onError）。
 
@@ -143,6 +148,7 @@ class XboardModule {
             instance.switchBaseUrl(ep);
           } catch (_) {}
           container.read(apiEndpointProvider.notifier).set(ep);
+          SentryBootstrap.tagEndpoint(current: ep); // DD-23 endpoint.current
         },
         onSubscriptionSwitch: (ep) =>
             container.read(subscriptionEndpointProvider.notifier).set(ep),
@@ -159,6 +165,9 @@ class XboardModule {
     } catch (e, s) {
       debugPrint('[XboardModule] globalUa wire failed: $e\n$s');
     }
+
+    // DD-23：bootstrap 同步阶段完成 tag（W5.7）。
+    SentryBootstrap.tagBootstrap(stage: 'sync_done');
 
     // step 8：connectivity（W5.4 xboardConnectivityProvider 自起 StreamProvider，
     // UI/race 通过 ref.watch/listen 复用，不在此裸 listen，DD-5/E12）。

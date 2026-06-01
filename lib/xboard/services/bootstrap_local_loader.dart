@@ -16,9 +16,19 @@ import '../config/bootstrap_constants.dart';
 import '../models/bootstrap_envelope.dart';
 import '../models/bootstrap_payload.dart';
 import 'bootstrap_decryptor.dart';
+import 'sentry_bootstrap.dart';
 
 /// 本地 Bootstrap 加载结果（payload + 来源，DD-23 envelope_source tag）。
 enum BootstrapLocalSource { cache, fallbackAsset, none }
+
+/// DD-23 `bootstrap.envelope_source` tag 值映射（5.7.2）。远端拉取成功用 `'remote'`（见编排层）。
+extension BootstrapLocalSourceTag on BootstrapLocalSource {
+  String get tagValue => switch (this) {
+        BootstrapLocalSource.cache => 'cache',
+        BootstrapLocalSource.fallbackAsset => 'fallback_asset',
+        BootstrapLocalSource.none => 'none',
+      };
+}
 
 class BootstrapLocalResult {
   const BootstrapLocalResult(this.payload, this.source);
@@ -47,14 +57,20 @@ class BootstrapLocalLoader {
     // 1. 本地缓存密文。
     final cached = await _tryCache();
     if (cached != null) {
+      SentryBootstrap.tagBootstrap(
+          envelopeSource: BootstrapLocalSource.cache.tagValue);
       return BootstrapLocalResult(cached, BootstrapLocalSource.cache);
     }
     // 2. 出厂 fallback 资产密文（随包必带 R15.B-extra.9）。
     final fallback = await _tryFallbackAsset();
     if (fallback != null) {
+      SentryBootstrap.tagBootstrap(
+          envelopeSource: BootstrapLocalSource.fallbackAsset.tagValue);
       return BootstrapLocalResult(fallback, BootstrapLocalSource.fallbackAsset);
     }
     // 3. 双双损坏 → null（F15 处理）。
+    SentryBootstrap.tagBootstrap(
+        envelopeSource: BootstrapLocalSource.none.tagValue);
     return const BootstrapLocalResult(null, BootstrapLocalSource.none);
   }
 

@@ -34,6 +34,21 @@ enum BootstrapDecryptFailure {
   noKey,
 }
 
+/// DD-23 `bootstrap.decryption_failure` tag 值映射（5.7.3：5 种失败路径各异 + noKey）。
+///
+/// 纯映射（无副作用），便于单测穷举；编排层失败时调
+/// `SentryBootstrap.tagBootstrap(decryptionFailure: failure.tagValue)`。
+extension BootstrapDecryptFailureTag on BootstrapDecryptFailure {
+  String get tagValue => switch (this) {
+        BootstrapDecryptFailure.schemaIncompatible => 'schema_incompatible',
+        BootstrapDecryptFailure.malformedCiphertext => 'malformed_ciphertext',
+        BootstrapDecryptFailure.decryptError => 'decrypt_error',
+        BootstrapDecryptFailure.payloadParseError => 'payload_parse_error',
+        BootstrapDecryptFailure.payloadEmpty => 'payload_empty',
+        BootstrapDecryptFailure.noKey => 'no_key',
+      };
+}
+
 /// 解密结果（payload 或失败原因，二选一）。
 class BootstrapDecryptResult {
   const BootstrapDecryptResult._(this.payload, this.failure);

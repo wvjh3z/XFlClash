@@ -17,6 +17,7 @@ library;
 
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
+import '../services/sentry_bootstrap.dart';
 import 'xboard_providers.dart';
 
 part '../generated/providers/auth_state_provider.g.dart';
@@ -41,18 +42,24 @@ class AuthStateNotifier extends _$AuthStateNotifier {
   @override
   AuthState build() => AuthState.unauthenticated;
 
+  /// 状态切换 + DD-23 auth.state tag（W5.7 / 5.7.2）。
+  void _set(AuthState next) {
+    state = next;
+    SentryBootstrap.tagAuthState(next.name);
+  }
+
   /// 发起登录 / 注册（→ authenticating）。
-  void startAuthenticating() => state = AuthState.authenticating;
+  void startAuthenticating() => _set(AuthState.authenticating);
 
   /// 认证成功（→ authenticated）。
-  void markAuthenticated() => state = AuthState.authenticated;
+  void markAuthenticated() => _set(AuthState.authenticated);
 
   /// 未登录 / 登录失败 / 登出（→ unauthenticated）。
   ///
   /// 401 尾递归保护：已是 unauthenticated 时再调是 no-op（idempotent）。
   void markUnauthenticated() {
     if (state == AuthState.unauthenticated) return; // R12 跳登录只触发一次
-    state = AuthState.unauthenticated;
+    _set(AuthState.unauthenticated);
   }
 
   /// R4.5 主动登出编排（数据一致性总章 § B step 6 + idempotency）。
@@ -65,7 +72,7 @@ class AuthStateNotifier extends _$AuthStateNotifier {
   Future<void> logout() async {
     // 反腐层 logout 永不抛；忽略结果，本地态强制切未登录。
     await ref.read(xboardServiceProvider).logout();
-    state = AuthState.unauthenticated;
+    _set(AuthState.unauthenticated);
   }
 
   /// R4.4 401/403 自动登出（D61 双重判定 / W3.7）。

@@ -16,6 +16,7 @@ import 'dart:async';
 import 'package:dio/dio.dart';
 
 import '../config/bootstrap_constants.dart';
+import 'sentry_bootstrap.dart';
 
 /// 竞速探针：给定 endpoint 返回是否 2xx 可达（默认 GET /guest/comm/config）。
 typedef EndpointProbe = Future<bool> Function(String endpoint);
@@ -46,6 +47,9 @@ class EndpointRaceController {
   /// 30 分钟滚动窗口内的切换时间戳（R15.C.19）。
   final List<DateTime> _switchTimes = [];
 
+  /// 累计完整竞速次数（DD-23 `endpoint.race_attempts` tag，W5.7）。
+  int _raceAttempts = 0;
+
   /// failOver 串行化锁（B4）：进行中的 failOver 未完成时复用同一 Future。
   Future<void>? _inFlightFailOver;
 
@@ -75,6 +79,9 @@ class EndpointRaceController {
   Future<void> raceApi(List<String> apiEndpoints) async {
     if (apiEndpoints.isEmpty) return;
     _apiEndpoints = List.unmodifiable(apiEndpoints);
+    // DD-23：累计竞速次数 tag（W5.7 / 5.7.2 endpoint.race_attempts）。
+    _raceAttempts++;
+    SentryBootstrap.tagEndpoint(raceAttempts: _raceAttempts);
     final winner = await _race(apiEndpoints);
     if (winner != null && winner != _currentApi) {
       _currentApi = winner;

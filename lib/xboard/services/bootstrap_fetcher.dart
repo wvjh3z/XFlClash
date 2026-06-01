@@ -21,6 +21,7 @@ import '../config/bootstrap_constants.dart';
 import '../models/bootstrap_envelope.dart';
 import '../models/bootstrap_payload.dart';
 import 'bootstrap_decryptor.dart';
+import 'sentry_bootstrap.dart';
 
 /// 远端拉取结果（成功携 payload + 命中镜像；失败为 null payload）。
 class BootstrapFetchResult {
@@ -84,6 +85,11 @@ class BootstrapFetcher {
             data.map((k, v) => MapEntry(k.toString(), v)));
         final result = await _decryptor.decryptAndValidate(env);
         if (result.isSuccess) {
+          // DD-23：远端拉取成功 → envelope_source=remote（W5.7 / 5.7.2）。
+          SentryBootstrap.tagBootstrap(
+            stage: 'remote_fetched',
+            envelopeSource: 'remote',
+          );
           return BootstrapFetchResult(payload: result.payload, winnerUrl: url);
         }
         lastFailure = result.failure;
@@ -91,6 +97,10 @@ class BootstrapFetcher {
         // 网络/解析失败 → 下一镜像（R15.B.4）。
         continue;
       }
+    }
+    // DD-23：全镜像失败 → 打 decryption_failure tag（5.7.3 五种路径各异）。
+    if (lastFailure != null) {
+      SentryBootstrap.tagBootstrap(decryptionFailure: lastFailure.tagValue);
     }
     return BootstrapFetchResult(lastFailure: lastFailure);
   }

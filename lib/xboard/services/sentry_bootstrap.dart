@@ -108,6 +108,17 @@ class SentryBootstrap {
     }
   }
 
+  /// 登录态 tag（DD-23 auth.state）。值取 `AuthState.name`（unauthenticated/authenticating/authenticated）。
+  static void tagAuthState(String state) => setTag(SentryTagKeys.authState, state);
+
+  /// 连通性 tag（DD-23 connectivity.online）。W5.4 connectivity provider 接入后由其调用。
+  static void tagConnectivity({required bool online}) =>
+      setTag(SentryTagKeys.connectivityOnline, online ? 'true' : 'false');
+
+  /// flavor tag（DD-23 flavor.id）。bootstrap step 1 绑定 flavor 后调用。
+  static void tagFlavor(String flavorId) =>
+      setTag(SentryTagKeys.flavorId, flavorId);
+
   /// SDK 日志桥接（String 翻译，避免 import SDK LogLevel，第 4 轮 Property 2）。
   static void captureFromSdk(String levelStr, String message) {
     if (!_enabled) return;
