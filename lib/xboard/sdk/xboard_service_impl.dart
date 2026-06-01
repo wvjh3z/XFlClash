@@ -95,16 +95,32 @@ class XboardServiceImpl implements XboardService {
         Failure(:final error) => XbResult.failure(_mapError(error)),
       };
 
+  /// SdkResult 形态 + 异常防御（Property 1）：SDK adapter 理论上返 SdkResult 不抛，但若意外
+  /// 抛（panel TypeError / 未预期）也归一为 XbUnexpected，绝不向 UI 抛（θ-11）。
+  Future<XbResult<R>> _guardSdkResult<S, R>(
+    String operation,
+    Future<SdkResult<S>> Function() body,
+    R Function(S data) map,
+  ) async {
+    try {
+      return _fromSdkResult(await body(), map);
+    } catch (e) {
+      return XbResult.failure(XbDomainError.unexpected(operation, e.toString()));
+    }
+  }
+
   // ───────── 18 方法（逐 wave 填实；fireAllMirrors 是 void 例外）─────────
 
   @override
   Future<XbResult<String>> login(String email, String password) async {
-    // SdkResult 形态（switch 解构）+ D69 email 预处理（trim + lowercase）。
-    final r = await _sdk.auth.loginResult(email.toLowerCase().trim(), password);
-    final result = _fromSdkResult(r, (token) => token); // data 已是鉴权 token（F406）
+    // SdkResult 形态 + Property 1 异常防御（D69 email 预处理 trim+lowercase）。
+    final result = await _guardSdkResult<String, String>(
+      'login',
+      () => _sdk.auth.loginResult(email.toLowerCase().trim(), password),
+      (token) => token, // data 已是鉴权 token（F406）
+    );
     // 🔴 W3.9（F406 致命语义）：SDK `auth.loginResult` **不自动存 token**（只有便捷方法
     // `loginWithCredentials` 才存）；反腐层必须显式 saveToken，否则后续 API 无 Authorization。
-    // saveToken 内部补 'Bearer ' 前缀 + 经注入的 SecureStorageTokenStorage 落盘（F277 strip）。
     if (result case XbSuccess(:final data)) {
       try {
         await _sdk.saveToken(data);
@@ -122,21 +138,27 @@ class XboardServiceImpl implements XboardService {
     String? emailCode,
     String? inviteCode,
   }) async {
-    // SdkResult 形态 + D69 email 预处理。register 不返 token（F407），DD-9 由 UI 层二步调 login。
-    final r = await _sdk.auth.registerResult(
-      email.toLowerCase().trim(),
-      password,
-      emailCode: emailCode,
-      inviteCode: inviteCode,
+    // SdkResult 形态 + Property 1 异常防御。register 不返 token（F407），DD-9 由 UI 层二步调 login。
+    return _guardSdkResult<bool, bool>(
+      'register',
+      () => _sdk.auth.registerResult(
+        email.toLowerCase().trim(),
+        password,
+        emailCode: emailCode,
+        inviteCode: inviteCode,
+      ),
+      (ok) => ok,
     );
-    return _fromSdkResult(r, (ok) => ok);
   }
 
   @override
   Future<XbResult<bool>> sendEmailVerifyCode(String email) async {
-    // SdkResult 形态。失败可能含 BusinessError(emailVerifyCodeRateLimit) 60s 限流（F359，HTTP 400）。
-    final r = await _sdk.auth.sendEmailVerifyCodeResult(email.toLowerCase().trim());
-    return _fromSdkResult(r, (ok) => ok);
+    // SdkResult 形态 + Property 1。失败可能含 BusinessError(emailVerifyCodeRateLimit) 60s 限流（F359，HTTP 400）。
+    return _guardSdkResult<bool, bool>(
+      'sendEmailVerifyCode',
+      () => _sdk.auth.sendEmailVerifyCodeResult(email.toLowerCase().trim()),
+      (ok) => ok,
+    );
   }
 
   @override

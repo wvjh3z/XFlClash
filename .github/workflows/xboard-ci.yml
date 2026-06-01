@@ -1,0 +1,110 @@
+# Xboard 模块 CI（µ-8 build_runner 顺序 / DD-20 contract / DD-21 锚点 / NFR-7）。
+#
+# 命名 xboard-ci.yml（不碰 upstream FlClash 既有 workflow，加而不改）。
+# 触发：PR + push 到 main + 手动。
+name: Xboard CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'lib/xboard/**'
+      - 'test/xboard/**'
+      - 'test/sdk_contract_test.dart'
+      - 'tool/**'
+      - '.kiro/**'
+  pull_request:
+    paths:
+      - 'lib/xboard/**'
+      - 'test/xboard/**'
+  workflow_dispatch:
+
+jobs:
+  analyze-and-test:
+    name: Analyze + Test (Xboard module)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # sibling SDK 也需 checkout（path 依赖）。
+          submodules: false
+
+      # sibling Xboard_sdk 与 XFlClash 平级；CI 需把 SDK clone 到上级目录。
+      - name: Checkout Xboard_sdk (sibling)
+        uses: actions/checkout@v4
+        with:
+          repository: wvjh3z/Xboard_sdk
+          path: ../Xboard_sdk
+          token: ${{ secrets.SIBLING_SDK_TOKEN }}
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      # µ-8 顺序：SDK build_runner → client pub get → client build_runner → analyze → test
+      - name: SDK build_runner
+        working-directory: ../Xboard_sdk
+        run: |
+          dart pub get
+          dart run build_runner build --delete-conflicting-outputs
+
+      - name: Client pub get
+        run: flutter pub get
+
+      - name: Client build_runner
+        run: dart run build_runner build --delete-conflicting-outputs
+
+      # DD-21：FlClash 行号锚点机器校验（接缝点未漂移）。
+      - name: Check line anchors (DD-21)
+        run: dart run tool/check-line-anchors.dart
+
+      # 接缝点白名单完整性（改 FlClash 既有文件必登记 PATCHES.md）。
+      - name: Check seam whitelist
+        run: dart run tool/check-seam-whitelist.dart --baseline ${{ github.event.pull_request.base.sha || 'HEAD~1' }}
+        continue-on-error: true # baseline 不可达时不阻断（本地 pre-commit 已覆盖）
+
+      - name: Analyze (xboard module, fatal-infos)
+        run: flutter analyze lib/xboard
+
+      # DD-20 contract + 全 xboard 单测/widget test。
+      - name: Test (xboard + contract)
+        run: flutter test test/xboard/ test/sdk_contract_test.dart test/_fixtures/
+
+  # 4 平台 build matrix（原生工具链；headless dev 环境跑不了，CI 补齐）。
+  build-matrix:
+    name: Build ${{ matrix.platform }}
+    needs: analyze-and-test
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest, platform: linux }
+          - { os: ubuntu-latest, platform: apk }
+          - { os: windows-latest, platform: windows }
+          - { os: macos-latest, platform: macos }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Checkout Xboard_sdk (sibling)
+        uses: actions/checkout@v4
+        with:
+          repository: wvjh3z/Xboard_sdk
+          path: ../Xboard_sdk
+          token: ${{ secrets.SIBLING_SDK_TOKEN }}
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+      - name: SDK build_runner
+        working-directory: ../Xboard_sdk
+        run: dart pub get && dart run build_runner build --delete-conflicting-outputs
+      - name: Client deps + codegen
+        run: flutter pub get && dart run build_runner build --delete-conflicting-outputs
+      # prepare_flavor 注入 flavor（AES key / endpoint 走 CI secrets，θ-4）。
+      - name: Prepare flavor
+        run: dart run tool/prepare_flavor.dart --flavor brand_a --target release
+        env:
+          XBOARD_BOOTSTRAP_AES_KEY: ${{ secrets.XBOARD_BOOTSTRAP_AES_KEY }}
+        continue-on-error: true # flavor 资产未齐时不阻断（W8.5 完善后转 required）
+      - name: Build ${{ matrix.platform }}
+        run: flutter build ${{ matrix.platform }} --release
+        continue-on-error: true # 原生工具链 / 签名未齐时不阻断（RC 前转 required）
