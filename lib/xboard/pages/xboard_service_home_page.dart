@@ -20,8 +20,9 @@ import '../widgets/account_info_card.dart';
 import '../widgets/xb_ui_kit.dart';
 import '../widgets/xboard_consent_dialog.dart';
 import '../widgets/xboard_offline_banner.dart';
-import 'account_deletion_request_page.dart';
 import 'login_page.dart';
+import 'order_list_page.dart';
+import 'plan_list_page.dart';
 import 'register_page.dart';
 
 /// 「我的服务」主页（Xboard 主 Tab 的目标页）。
@@ -122,22 +123,86 @@ class _LoggedInView extends ConsumerWidget {
         padding: const EdgeInsets.all(16),
         children: [
           const AccountInfoCard(),
+          const SizedBox(height: 16),
+          // 功能入口（账号卡下方）。
+          _EntryTile(
+            icon: Icons.shopping_bag_outlined,
+            title: '购买套餐',
+            subtitle: '查看可用套餐并下单',
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(builder: (_) => const PlanListPage()),
+            ),
+          ),
+          _EntryTile(
+            icon: Icons.receipt_long_outlined,
+            title: '我的订单',
+            subtitle: '查看订单记录与支付状态',
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(builder: (_) => const OrderListPage()),
+            ),
+          ),
           const SizedBox(height: 24),
           OutlinedButton.icon(
             onPressed: () => ref.read(authStateProvider.notifier).logout(), // R4.5
             icon: const Icon(Icons.logout_rounded, size: 18),
             label: const Text('退出登录'),
           ),
-          const SizedBox(height: 8),
-          TextButton(
-            onPressed: () => Navigator.of(context).push(
-              MaterialPageRoute<void>(
-                builder: (_) => const AccountDeletionRequestPage(),
-              ),
-            ),
-            child: const Text('注销账号'),
-          ),
         ],
+      ),
+    );
+  }
+}
+
+/// 账号卡下方功能入口磁贴（卡片样式，统一外观）。
+class _EntryTile extends StatelessWidget {
+  const _EntryTile({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final text = Theme.of(context).textTheme;
+    return Card(
+      elevation: 0,
+      margin: const EdgeInsets.only(bottom: 8),
+      color: scheme.surfaceContainerHigh,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(14),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          child: Row(
+            children: [
+              Icon(icon, color: scheme.primary),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(title,
+                        style:
+                            text.titleSmall?.copyWith(fontWeight: FontWeight.w600)),
+                    const SizedBox(height: 2),
+                    Text(subtitle,
+                        style: text.bodySmall
+                            ?.copyWith(color: scheme.onSurfaceVariant)),
+                  ],
+                ),
+              ),
+              Icon(Icons.chevron_right_rounded, color: scheme.onSurfaceVariant),
+            ],
+          ),
+        ),
       ),
     );
   }

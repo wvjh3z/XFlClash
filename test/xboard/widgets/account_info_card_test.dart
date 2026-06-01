@@ -34,7 +34,7 @@ void main() {
     );
   }
 
-  testWidgets('success → 渲染邮箱(脱敏)/套餐/流量/到期/重置', (t) async {
+  testWidgets('success → 渲染邮箱(完整)/套餐/流量/到期/重置', (t) async {
     when(() => service.getSubscription()).thenAnswer((_) async => XbResult.success(
           XbDomainSubscription(
             email: 'alice@example.com',
@@ -48,7 +48,7 @@ void main() {
         ));
     await pump(t);
     await t.pump(const Duration(milliseconds: 50));
-    expect(find.text('al***@example.com'), findsOneWidget); // 脱敏
+    expect(find.text('alice@example.com'), findsOneWidget); // 完整邮箱(用户自己的账号,不脱敏)
     expect(find.text('Pro 套餐'), findsOneWidget);
     expect(find.textContaining('GB'), findsWidgets); // 流量
     expect(find.text('套餐到期'), findsOneWidget);

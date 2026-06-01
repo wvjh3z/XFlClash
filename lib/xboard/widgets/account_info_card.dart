@@ -14,7 +14,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/xb_domain_error.dart';
 import '../models/xb_domain_subscription.dart';
 import '../providers/user_profile_provider.dart';
-import '../util/pii_mask.dart';
 
 /// 账号信息卡。需在已登录态下使用（调用方 gate authState，F14）。
 class AccountInfoCard extends ConsumerWidget {
@@ -90,7 +89,7 @@ class _SubscriptionView extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(maskEmail(sub.email),
+                  Text(sub.email,
                       style: text.titleMedium?.copyWith(fontWeight: FontWeight.w600),
                       overflow: TextOverflow.ellipsis),
                   Text(sub.planName ?? '未购买套餐',
@@ -198,16 +197,22 @@ class _InfoRow extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 6),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(icon, size: 18, color: scheme.onSurfaceVariant),
+          Padding(
+            padding: const EdgeInsets.only(top: 2),
+            child: Icon(icon, size: 18, color: scheme.onSurfaceVariant),
+          ),
           const SizedBox(width: 10),
-          Text(label, style: text.bodyMedium?.copyWith(color: scheme.onSurfaceVariant)),
-          const Spacer(),
-          Flexible(
+          Text(label,
+              style: text.bodyMedium?.copyWith(color: scheme.onSurfaceVariant)),
+          const SizedBox(width: 12),
+          // value 占满剩余空间 + 右对齐 + 允许换行（不截断，空间够时单行显示）。
+          Expanded(
             child: Text(value,
                 style: text.bodyMedium?.copyWith(fontWeight: FontWeight.w500),
                 textAlign: TextAlign.right,
-                overflow: TextOverflow.ellipsis),
+                softWrap: true),
           ),
         ],
       ),
