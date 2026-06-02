@@ -96,4 +96,37 @@ void main() {
     await t.pump(const Duration(milliseconds: 50));
     expect(t.takeException(), isNull); // 无 overflow throw
   });
+
+  testWidgets('用量 ≥90% + 有套餐 → 显示购买流量重置包提示', (t) async {
+    when(() => service.getSubscription()).thenAnswer((_) async => XbResult.success(
+          XbDomainSubscription(
+            email: 'a@b.com',
+            uuid: 'x',
+            planName: 'Pro',
+            planId: 7,
+            totalBytes: 10 * 1024 * 1024 * 1024,
+            usedBytes: 95 * 1024 * 1024 * 1024 ~/ 10, // 9.5/10 = 95%
+          ),
+        ));
+    await pump(t);
+    await t.pump(const Duration(milliseconds: 50));
+    expect(find.textContaining('流量重置包'), findsOneWidget);
+    expect(find.text('购买'), findsOneWidget);
+  });
+
+  testWidgets('用量 <90% → 不显示流量重置包提示', (t) async {
+    when(() => service.getSubscription()).thenAnswer((_) async => XbResult.success(
+          XbDomainSubscription(
+            email: 'a@b.com',
+            uuid: 'x',
+            planName: 'Pro',
+            planId: 7,
+            totalBytes: 10 * 1024 * 1024 * 1024,
+            usedBytes: 5 * 1024 * 1024 * 1024, // 50%
+          ),
+        ));
+    await pump(t);
+    await t.pump(const Duration(milliseconds: 50));
+    expect(find.text('购买'), findsNothing);
+  });
 }

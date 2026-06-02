@@ -13,6 +13,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/xb_domain_error.dart';
 import '../models/xb_domain_subscription.dart';
+import '../pages/reset_traffic_page.dart';
 import '../providers/user_profile_provider.dart';
 
 /// 账号信息卡。需在已登录态下使用（调用方 gate authState，F14）。
@@ -64,7 +65,14 @@ class _SubscriptionView extends StatelessWidget {
 
   static const _gb = 1024 * 1024 * 1024;
 
+  /// 触发流量重置包提示的用量阈值（≥90% 已用，与 R10 trafficWarningPercent=0.1 对齐）。
+  static const _resetPromptThreshold = 0.9;
+
   String _fmtGb(int bytes) => '${(bytes / _gb).toStringAsFixed(1)} GB';
+
+  /// 是否提示购买流量重置包：有套餐（planId 非空 + 有总量）且已用 ≥ 90%。
+  bool _shouldPromptReset(double usedRatio) =>
+      sub.planId != null && sub.totalBytes > 0 && usedRatio >= _resetPromptThreshold;
 
   @override
   Widget build(BuildContext context) {
@@ -102,6 +110,9 @@ class _SubscriptionView extends StatelessWidget {
         const SizedBox(height: 20),
         // 流量进度
         _trafficSection(context, usedRatio),
+        // 流量用量 ≥ 90%（含超额）且有套餐 → 提示购买流量重置包（R10 / 用户需求）。
+        if (_shouldPromptReset(usedRatio))
+          _ResetTrafficPrompt(planId: sub.planId!, planName: sub.planName),
         const SizedBox(height: 16),
         // 到期 / 重置 行
         _InfoRow(
@@ -181,6 +192,55 @@ class _SubscriptionView extends StatelessWidget {
     final diff = r.difference(DateTime.now());
     if (diff.isNegative) return '流量已超额，即将重置';
     return '流量已超额，等待 ${diff.inHours % 24} 时 ${diff.inMinutes % 60} 分重置';
+  }
+}
+
+/// 流量用量 ≥90% 时的「购买流量重置包」提示条（账号卡内，紧贴流量进度下方）。
+class _ResetTrafficPrompt extends StatelessWidget {
+  const _ResetTrafficPrompt({required this.planId, this.planName});
+  final int planId;
+  final String? planName;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final text = Theme.of(context).textTheme;
+    return Padding(
+      padding: const EdgeInsets.only(top: 12),
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(12, 10, 8, 10),
+        decoration: BoxDecoration(
+          color: scheme.errorContainer.withValues(alpha: 0.5),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Row(
+          children: [
+            Icon(Icons.warning_amber_rounded,
+                size: 20, color: scheme.error),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text('流量即将用尽，可购买流量重置包恢复用量',
+                  style: text.bodySmall
+                      ?.copyWith(color: scheme.onErrorContainer)),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) =>
+                      ResetTrafficPage(planId: planId, planName: planName),
+                ),
+              ),
+              style: TextButton.styleFrom(
+                foregroundColor: scheme.error,
+                padding: const EdgeInsets.symmetric(horizontal: 10),
+                visualDensity: VisualDensity.compact,
+              ),
+              child: const Text('购买'),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
 

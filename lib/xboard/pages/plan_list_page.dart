@@ -8,6 +8,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../config/xboard_config.dart';
 import '../models/plan_item.dart';
+import '../models/xb_domain_types.dart';
 import '../models/xb_result.dart';
 import '../providers/xboard_providers.dart';
 import '../util/html_text.dart';
@@ -89,12 +90,14 @@ class _PlanSummaryCard extends StatelessWidget {
   final PlanItem plan;
   final VoidCallback onTap;
 
-  /// 取最小周期价（周期 enum 顺序靠前 = 周期更短 = 价更低，取第一个有价的）。
+  /// 取最小周期价（排除流量重置包；周期 enum 顺序靠前 = 周期更短 = 价更低，取第一个有价的）。
   PricePlan? get _minPeriodPrice {
-    if (plan.prices.isEmpty) return null;
-    final sorted = [...plan.prices]
-      ..sort((a, b) => a.period.index.compareTo(b.period.index));
-    return sorted.first;
+    final purchasable = plan.prices
+        .where((p) => p.period != XbPlanPeriod.resetTraffic)
+        .toList();
+    if (purchasable.isEmpty) return null;
+    purchasable.sort((a, b) => a.period.index.compareTo(b.period.index));
+    return purchasable.first;
   }
 
   @override

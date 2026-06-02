@@ -35,13 +35,17 @@ class _PlanDetailPageState extends ConsumerState<PlanDetailPage> {
 
   PlanItem get plan => widget.plan;
 
+  /// 可购买周期（排除流量重置包 resetTraffic —— 重置包只在账号卡按需购买，不在下单页选）。
+  List<PricePlan> get _purchasablePrices => plan.prices
+      .where((p) => p.period != XbPlanPeriod.resetTraffic)
+      .toList()
+    ..sort((a, b) => a.period.index.compareTo(b.period.index));
+
   @override
   void initState() {
     super.initState();
     // 默认选最小周期（index 最小 = 周期最短）。
-    final sorted = [...plan.prices]
-      ..sort((a, b) => a.period.index.compareTo(b.period.index));
-    _selected = sorted.first;
+    _selected = _purchasablePrices.first;
   }
 
   @override
@@ -165,8 +169,7 @@ class _PlanDetailPageState extends ConsumerState<PlanDetailPage> {
 
   Widget _periodSection(BuildContext context) {
     final text = Theme.of(context).textTheme;
-    final sorted = [...plan.prices]
-      ..sort((a, b) => a.period.index.compareTo(b.period.index));
+    final sorted = _purchasablePrices;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
