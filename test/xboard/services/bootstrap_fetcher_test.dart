@@ -48,7 +48,7 @@ void main() {
     final r = await fetcher.fetchRemote(['https://m1.com']);
     expect(r.isSuccess, isTrue);
     expect(r.winnerUrl, 'https://m1.com');
-    expect(r.payload!.apiEndpoints, ['https://win.com']);
+    expect(r.payload!.apiUrls, ['https://win.com']);
   });
 
   test('第一个镜像失败 → 串行 fallback 到第二个', () async {

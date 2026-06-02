@@ -13,6 +13,7 @@ import 'dart:typed_data';
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:fl_clash/xboard/models/bootstrap_payload.dart';
 import 'package:fl_clash/xboard/services/bootstrap_decryptor.dart';
 import 'package:fl_clash/xboard/services/bootstrap_fetcher.dart';
 import 'package:fl_clash/xboard/services/bootstrap_local_loader.dart';
@@ -90,10 +91,16 @@ void main() {
     test('raceApi 递增 race_attempts tag', () async {
       final reachable = {'https://b.example.com'};
       final c = EndpointRaceController(probe: (e) async => reachable.contains(e));
-      await c.raceApi(['https://a.example.com', 'https://b.example.com']);
+      await c.raceApi([
+        const BootstrapEndpoint(url: 'https://a.example.com'),
+        const BootstrapEndpoint(url: 'https://b.example.com'),
+      ]);
       expect(SentryBootstrap.tagsSnapshot[SentryTagKeys.endpointRaceAttempts],
           '1');
-      await c.raceApi(['https://a.example.com', 'https://b.example.com']);
+      await c.raceApi([
+        const BootstrapEndpoint(url: 'https://a.example.com'),
+        const BootstrapEndpoint(url: 'https://b.example.com'),
+      ]);
       expect(SentryBootstrap.tagsSnapshot[SentryTagKeys.endpointRaceAttempts],
           '2');
       c.dispose();

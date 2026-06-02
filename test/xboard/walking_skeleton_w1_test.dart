@@ -16,6 +16,7 @@ import 'package:mocktail/mocktail.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:fl_clash/common/navigation.dart';
+import 'package:fl_clash/providers/state.dart' show isStartProvider;
 import 'package:fl_clash/xboard/config/xboard_config.dart';
 import 'package:fl_clash/xboard/navigation/xboard_navigation.dart';
 import 'package:fl_clash/xboard/pages/xboard_service_home_page.dart';
@@ -31,13 +32,22 @@ class _FakeTokenStorageFallback extends Fake implements TokenStorage {}
 void main() {
   setUpAll(() => registerFallbackValue(_FakeTokenStorageFallback()));
   setUp(() => SharedPreferences.setMockInitialValues({'xb_consent_v1': true}));
-  tearDown(XboardConfig.resetForTest);
+  tearDown(() async {
+    await XboardModule.dispose(); // 关 R4.9 isStartProvider 监听 + observer，清挂起 timer
+    XboardConfig.resetForTest();
+  });
 
   testWidgets('W1 walking skeleton：bootstrap + 9 项导航 + 点击进 stub', (tester) async {
     // 1. bootstrap 同步阶段（接缝点 #1 调用的入口）
     final container = ProviderContainer(overrides: [
       // 覆盖真实 connectivity 流（test 无平台插件，避免 onConnectivityChanged 挂起）。
       isOfflineProvider.overrideWith((ref) => false),
+      // R4.9：覆盖 isStartProvider（VPN 开关）+ keepAlive，避免读 FlClash autoDispose
+      // provider 触发 riverpod 调度器留挂起 dispose timer（testWidgets !timersPending 断言）。
+      isStartProvider.overrideWith((ref) {
+        ref.keepAlive();
+        return false;
+      }),
     ]);
     addTearDown(container.dispose);
     final sdk = FakeXBoardSDK();

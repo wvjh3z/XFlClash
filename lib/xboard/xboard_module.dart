@@ -21,6 +21,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../providers/config.dart' show patchClashConfigProvider;
 import '../providers/app.dart' show initProvider;
+import '../providers/state.dart' show isStartProvider;
 import 'config/xboard_config.dart';
 import 'l10n/content_language.dart';
 import 'models/bootstrap_payload.dart';
@@ -44,6 +45,9 @@ class XboardModule {
 
   /// seam #7 globalUa 注入的 initProvider 监听句柄（dispose 时关）。
   static ProviderSubscription<bool>? _initListener;
+
+  /// R4.9：isStartProvider（VPN 开关）监听句柄（dispose 时关）。
+  static ProviderSubscription<bool>? _vpnStateListener;
 
   /// 同步阶段 loadLocal() 解出的本地 payload（异步阶段远端失败时的竞速候选）。
   static BootstrapPayload? _localPayload;
@@ -200,8 +204,8 @@ class XboardModule {
       final payload = local.payload;
       if (payload != null && payload.isValid) {
         _localPayload = payload;
-        apiEndpoint = payload.apiEndpoints.first;
-        subscriptionEndpoint = payload.subscriptionEndpoints.first;
+        apiEndpoint = payload.apiUrls.first;
+        subscriptionEndpoint = payload.subscriptionUrls.first;
       }
     } catch (e, s) {
       // 本地加载失败不阻塞（DD-2 / Property 1）；沿用 config 出厂 endpoint。
@@ -260,6 +264,19 @@ class XboardModule {
       );
       _lifecycleObserver =
           XboardLifecycleObserver(raceController: _raceController!)..attach();
+
+      // R4.9：监听 VPN 开关（isStartProvider），变化时让 race controller 用新档位重竞速。
+      // 用 fireImmediately 一次性拿初值 + 后续变化（避免单独 read 留挂起 dispose timer）；
+      // race controller 不绑 riverpod，保持可测试（决策 #14 风格）。
+      try {
+        _vpnStateListener = container.listen<bool>(
+          isStartProvider,
+          (prev, next) => _raceController?.setVpnActive(next),
+          fireImmediately: true,
+        );
+      } catch (e, s) {
+        debugPrint('[XboardModule] vpn-state wire failed: $e\n$s');
+      }
     } catch (e, s) {
       debugPrint('[XboardModule] lifecycle observer wire failed: $e\n$s');
     }
@@ -313,9 +330,11 @@ class XboardModule {
     // 1. 先摘 observer（停止接收 lifecycle 事件，避免 race 已 dispose 后还触发竞速）。
     _lifecycleObserver?.dispose();
     _lifecycleObserver = null;
-    // 2. 关 seam #7 initProvider 监听。
+    // 2. 关 seam #7 initProvider 监听 + R4.9 VPN 状态监听。
     _initListener?.close();
     _initListener = null;
+    _vpnStateListener?.close();
+    _vpnStateListener = null;
     // 3. dispose endpoint 竞速控制器（最后，前面已无人触发它）。
     _raceController?.dispose();
     _raceController = null;

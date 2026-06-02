@@ -20,8 +20,8 @@ void main() {
     );
     final r = await decryptor.decryptAndValidate(env);
     expect(r.isSuccess, isTrue);
-    expect(r.payload!.apiEndpoints, ['https://a.com']);
-    expect(r.payload!.subscriptionEndpoints, ['https://s.com']);
+    expect(r.payload!.apiUrls, ['https://a.com']);
+    expect(r.payload!.subscriptionUrls, ['https://s.com']);
   });
 
   test('schemaVersion < 1 → schemaIncompatible', () async {

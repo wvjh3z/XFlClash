@@ -3,6 +3,7 @@
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:fl_clash/xboard/models/bootstrap_payload.dart';
 import 'package:fl_clash/xboard/services/endpoint_race_controller.dart';
 import 'package:fl_clash/xboard/services/xboard_lifecycle_observer.dart';
 
@@ -47,7 +48,7 @@ void main() {
       raceRefreshes++;
       return true;
     })
-      ..raceApi(['https://a.com']);
+      ..raceApi([const BootstrapEndpoint(url: 'https://a.com')]);
     await Future<void>.delayed(const Duration(milliseconds: 5));
     final obs = XboardLifecycleObserver(
       raceController: raceProbe,
@@ -65,7 +66,7 @@ void main() {
   test('desktop resumed → 不重启 Timer 但仍后台竞速', () async {
     var resumed = false;
     final obs = XboardLifecycleObserver(
-      raceController: race..raceApi(['https://a.com']),
+      raceController: race..raceApi([const BootstrapEndpoint(url: 'https://a.com')]),
       isMobileOverride: false,
       onResumeTimers: () => resumed = true,
     );

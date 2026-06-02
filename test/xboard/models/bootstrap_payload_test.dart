@@ -1,4 +1,5 @@
-/// BootstrapPayload.normalizeEndpoint / normalized — endpoint 规范化（去末尾斜杠等）。
+/// BootstrapPayload / BootstrapEndpoint — v2 endpoint 对象 + region 解析 + 规范化（去末尾斜杠等）。
+library;
 
 import 'package:flutter_test/flutter_test.dart';
 
@@ -42,31 +43,124 @@ void main() {
     });
 
     test('真实双斜杠根因 case（us-cn2 /omo/）', () {
-      // 解出的 endpoint 是 https://us-cn2.x-panel-getip.com/omo/
-      // 规范化后 + SDK 拼 /api/v1/... = .../omo/api/v1/...（不再双斜杠）
       const raw = 'https://us-cn2.x-panel-getip.com/omo/';
       expect(BootstrapPayload.normalizeEndpoint(raw),
           'https://us-cn2.x-panel-getip.com/omo');
     });
   });
 
-  group('BootstrapPayload.normalized', () {
-    test('两个列表都规范化 + 丢空串', () {
-      const p = BootstrapPayload(
-        apiEndpoints: ['https://a/omo/', '  ', 'https://b/'],
-        subscriptionEndpoints: ['https://s/sub//'],
-      );
-      final n = p.normalized();
-      expect(n.apiEndpoints, ['https://a/omo', 'https://b']);
-      expect(n.subscriptionEndpoints, ['https://s/sub']);
+  group('BootstrapEndpoint region 解析', () {
+    test('overseas / cn 正常解析', () {
+      final o = BootstrapEndpoint.fromJson(
+          {'url': 'https://a', 'region': 'overseas'});
+      final c = BootstrapEndpoint.fromJson({'url': 'https://b', 'region': 'cn'});
+      expect(o.region, BootstrapRegion.overseas);
+      expect(c.region, BootstrapRegion.cn);
     });
 
-    test('已规范化 payload 幂等', () {
-      const p = BootstrapPayload(
-        apiEndpoints: ['https://a/omo'],
-        subscriptionEndpoints: ['https://s'],
+    test('大小写不敏感', () {
+      final o = BootstrapEndpoint.fromJson(
+          {'url': 'https://a', 'region': 'OVERSEAS'});
+      expect(o.region, BootstrapRegion.overseas);
+    });
+
+    test('缺 region → unknown', () {
+      final e = BootstrapEndpoint.fromJson({'url': 'https://a'});
+      expect(e.region, BootstrapRegion.unknown);
+    });
+
+    test('非法 region 值 → unknown', () {
+      final e =
+          BootstrapEndpoint.fromJson({'url': 'https://a', 'region': 'mars'});
+      expect(e.region, BootstrapRegion.unknown);
+    });
+
+    test('fromDynamic 容错：纯字符串 → url + unknown', () {
+      final e = BootstrapEndpoint.fromDynamic('https://legacy.com');
+      expect(e.url, 'https://legacy.com');
+      expect(e.region, BootstrapRegion.unknown);
+    });
+
+    test('fromDynamic 容错：对象正常解析', () {
+      final e = BootstrapEndpoint.fromDynamic(
+          {'url': 'https://a', 'region': 'cn'});
+      expect(e.url, 'https://a');
+      expect(e.region, BootstrapRegion.cn);
+    });
+  });
+
+  group('BootstrapPayload.fromJson（v2 格式）', () {
+    test('对象数组 endpoint + region + next_bootstrap_urls', () {
+      final p = BootstrapPayload.fromJson({
+        'schema_version': 2,
+        'api_endpoints': [
+          {'url': 'https://api-o.com', 'region': 'overseas'},
+          {'url': 'https://api-c.com', 'region': 'cn'},
+        ],
+        'subscription_endpoints': [
+          {'url': 'https://sub.com', 'region': 'cn'},
+        ],
+        'next_bootstrap_urls': ['https://next-a.com', 'https://next-b.com'],
+      });
+      expect(p.apiEndpoints.length, 2);
+      expect(p.apiEndpoints[0].region, BootstrapRegion.overseas);
+      expect(p.apiEndpoints[1].region, BootstrapRegion.cn);
+      expect(p.apiUrls, ['https://api-o.com', 'https://api-c.com']);
+      expect(p.subscriptionUrls, ['https://sub.com']);
+      expect(p.nextBootstrapUrls, ['https://next-a.com', 'https://next-b.com']);
+      expect(p.isValid, isTrue);
+    });
+
+    test('容错：endpoint 误填纯字符串数组（健壮性兜底）', () {
+      final p = BootstrapPayload.fromJson({
+        'api_endpoints': ['https://api.com'],
+        'subscription_endpoints': ['https://sub.com'],
+      });
+      expect(p.apiEndpoints.single.url, 'https://api.com');
+      expect(p.apiEndpoints.single.region, BootstrapRegion.unknown);
+      expect(p.isValid, isTrue);
+    });
+
+    test('缺 next_bootstrap_urls → 空列表，不报错', () {
+      final p = BootstrapPayload.fromJson({
+        'api_endpoints': [
+          {'url': 'https://api.com', 'region': 'cn'}
+        ],
+        'subscription_endpoints': [
+          {'url': 'https://sub.com', 'region': 'cn'}
+        ],
+      });
+      expect(p.nextBootstrapUrls, isEmpty);
+    });
+
+    test('空 endpoint 列表 → isValid=false', () {
+      final p = BootstrapPayload.fromJson({
+        'api_endpoints': <dynamic>[],
+        'subscription_endpoints': <dynamic>[],
+      });
+      expect(p.isValid, isFalse);
+    });
+  });
+
+  group('BootstrapPayload.normalized', () {
+    test('endpoint url 规范化 + 丢空 url + next urls trim', () {
+      final p = BootstrapPayload(
+        apiEndpoints: const [
+          BootstrapEndpoint(url: 'https://a/omo/', region: BootstrapRegion.overseas),
+          BootstrapEndpoint(url: '  ', region: BootstrapRegion.cn),
+          BootstrapEndpoint(url: 'https://b/', region: BootstrapRegion.cn),
+        ],
+        subscriptionEndpoints: const [
+          BootstrapEndpoint(url: 'https://s/sub//', region: BootstrapRegion.cn),
+        ],
+        nextBootstrapUrls: const ['  https://next.com  ', ''],
       );
-      expect(p.normalized(), p);
+      final n = p.normalized();
+      expect(n.apiUrls, ['https://a/omo', 'https://b']);
+      // region 保留。
+      expect(n.apiEndpoints.first.region, BootstrapRegion.overseas);
+      expect(n.subscriptionUrls, ['https://s/sub']);
+      expect(n.nextBootstrapUrls, ['https://next.com']);
     });
   });
 }

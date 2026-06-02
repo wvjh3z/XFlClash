@@ -59,8 +59,8 @@ void main() {
         'announcements': ['hi'],
         'client_update': {'version': '2.0'},
       });
-      expect(payload.apiEndpoints, ['https://a']);
-      expect(payload.subscriptionEndpoints, ['https://s']);
+      expect(payload.apiUrls, ['https://a']);
+      expect(payload.subscriptionUrls, ['https://s']);
       expect(payload.isValid, isTrue);
     });
 

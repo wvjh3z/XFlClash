@@ -33,14 +33,14 @@ void main() {
     await prefs.setString(kBootstrapCacheKey, jsonEncode(env.toJson()));
     final r = await loader().loadLocal();
     expect(r.source, BootstrapLocalSource.cache);
-    expect(r.payload!.apiEndpoints, ['https://cached.com']);
+    expect(r.payload!.apiUrls, ['https://cached.com']);
   });
 
   test('无缓存 → fallback 资产兜底', () async {
     final env = await validEnvelope(api: ['https://fallback.com']);
     final r = await loader(asset: (_) async => jsonEncode(env.toJson())).loadLocal();
     expect(r.source, BootstrapLocalSource.fallbackAsset);
-    expect(r.payload!.apiEndpoints, ['https://fallback.com']);
+    expect(r.payload!.apiUrls, ['https://fallback.com']);
   });
 
   test('缓存损坏 → delete + 走 fallback', () async {
@@ -63,6 +63,6 @@ void main() {
     await loader().writeCache(env);
     final r = await loader().loadLocal();
     expect(r.source, BootstrapLocalSource.cache);
-    expect(r.payload!.apiEndpoints, ['https://w.com']);
+    expect(r.payload!.apiUrls, ['https://w.com']);
   });
 }
