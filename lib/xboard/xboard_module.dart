@@ -123,19 +123,24 @@ class XboardModule {
 
     SentryBootstrap.tagBootstrap(stage: 'async_start');
 
-    // 1. 远端拉取（仅在 flavor 配了镜像时；否则直接用本地 payload 竞速）。
+    // 1. 远端拉取（仅在有镜像可用时）。镜像列表 = R4.7 缓存的 next_bootstrap_urls（优先）
+    //    + 编译期 flavor bootstrapUrls（兜底），去重。即便编译期地址全挂，只要上次拉到过
+    //    next_bootstrap_urls 就能滚动到新地址（地址自举，根治「所有 bootstrapUrls 全挂」死锁）。
     BootstrapPayload? payload;
-    if (config.bootstrapUrls.isNotEmpty) {
-      final decryptor = BootstrapDecryptor(aesKey: config.bootstrapAesKeyBytes);
+    final decryptor = BootstrapDecryptor(aesKey: config.bootstrapAesKeyBytes);
+    final loader = BootstrapLocalLoader(decryptor: decryptor);
+    final cachedNext = await loader.readNextBootstrapUrls();
+    final mirrors = _mergeMirrors(cachedNext, config.bootstrapUrls);
+    if (mirrors.isNotEmpty) {
       final fetcher = BootstrapFetcher(decryptor: decryptor);
-      final result = await fetcher.fetchRemote(config.bootstrapUrls);
+      final result = await fetcher.fetchRemote(mirrors);
       if (result.isSuccess) {
         payload = result.payload;
         // 2. 写缓存密文（下次冷启同步阶段 loadLocal 命中，DD-22 / R15.D.25）。
         final env = result.winnerEnvelope;
-        if (env != null) {
-          await BootstrapLocalLoader(decryptor: decryptor).writeCache(env);
-        }
+        if (env != null) await loader.writeCache(env);
+        // R4.7：写 next_bootstrap_urls 缓存（地址自举滚动；payload 已 normalized）。
+        await loader.writeNextBootstrapUrls(payload?.nextBootstrapUrls ?? const []);
       }
     }
 
@@ -151,6 +156,18 @@ class XboardModule {
     await race.raceSubscription(payload.subscriptionEndpoints);
 
     SentryBootstrap.tagBootstrap(stage: 'async_done');
+  }
+
+  /// R4.7：合并镜像列表 —— 缓存的 next_bootstrap_urls 优先，编译期 flavor bootstrapUrls 兜底，去重保序。
+  static List<String> _mergeMirrors(List<String> cached, List<String> flavor) {
+    final seen = <String>{};
+    final merged = <String>[];
+    for (final u in [...cached, ...flavor]) {
+      final t = u.trim();
+      if (t.isEmpty || !seen.add(t)) continue;
+      merged.add(t);
+    }
+    return merged;
   }
 
   /// 同步阶段 step 0-8（design §I / L168-247）。

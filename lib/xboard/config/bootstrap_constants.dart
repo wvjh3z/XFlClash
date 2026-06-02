@@ -8,6 +8,11 @@ const String kBootstrapAad = 'xboard-bootstrap-v1';
 /// Bootstrap 本地缓存 key（DD-22 v1；存外层 envelope 密文，不存明文 R15.D.25/D.28）。
 const String kBootstrapCacheKey = 'xb_bootstrap_cache_v1';
 
+/// R4.7 地址自举：缓存的 next_bootstrap_urls（明文 JSON 字符串数组）。
+/// 下次冷启动加载 bootstrapUrls 时优先用（缓存 > 编译期 flavor bootstrapUrls）。
+/// 只存 URL 列表（非密文，非敏感；scheme 白名单 https 校验后才写）。
+const String kNextBootstrapUrlsKey = 'xb_next_bootstrap_urls_v1';
+
 /// 出厂 fallback 资产路径（随包必带，R15.B-extra.9）。
 const String kBootstrapFallbackAsset = 'assets/xboard/bootstrap_fallback.json';
 

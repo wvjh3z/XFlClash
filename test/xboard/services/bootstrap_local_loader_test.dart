@@ -65,4 +65,46 @@ void main() {
     expect(r.source, BootstrapLocalSource.cache);
     expect(r.payload!.apiUrls, ['https://w.com']);
   });
+
+  // ── R4.7 next_bootstrap_urls 地址自举缓存 ──
+  group('R4.7 next_bootstrap_urls 缓存', () {
+    test('写后能读回（仅 https）', () async {
+      await loader().writeNextBootstrapUrls(
+          ['https://a.com/config.json', 'https://b.com/config.json']);
+      final got = await loader().readNextBootstrapUrls();
+      expect(got, ['https://a.com/config.json', 'https://b.com/config.json']);
+    });
+
+    test('非 https 元素被过滤（scheme 白名单防注入）', () async {
+      await loader().writeNextBootstrapUrls([
+        'https://ok.com',
+        'http://insecure.com', // 被过滤
+        'ftp://x.com', // 被过滤
+        '  https://trimmed.com  ', // trim 后保留
+      ]);
+      final got = await loader().readNextBootstrapUrls();
+      expect(got, ['https://ok.com', 'https://trimmed.com']);
+    });
+
+    test('空列表 → 清除缓存', () async {
+      await loader().writeNextBootstrapUrls(['https://a.com']);
+      await loader().writeNextBootstrapUrls(const []);
+      expect(await loader().readNextBootstrapUrls(), isEmpty);
+      expect(prefs.getString(kNextBootstrapUrlsKey), isNull);
+    });
+
+    test('全非 https → 清除缓存（不写脏数据）', () async {
+      await loader().writeNextBootstrapUrls(['http://x.com', 'ftp://y.com']);
+      expect(await loader().readNextBootstrapUrls(), isEmpty);
+    });
+
+    test('无缓存 → 读返空', () async {
+      expect(await loader().readNextBootstrapUrls(), isEmpty);
+    });
+
+    test('缓存内容非法 JSON → 读返空（不崩）', () async {
+      await prefs.setString(kNextBootstrapUrlsKey, '{bad json');
+      expect(await loader().readNextBootstrapUrls(), isEmpty);
+    });
+  });
 }

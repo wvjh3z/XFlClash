@@ -84,6 +84,43 @@ class BootstrapLocalLoader {
     }
   }
 
+  /// R4.7：写 next_bootstrap_urls 缓存（远端拉取成功后）。
+  ///
+  /// 只接受 https URL（scheme 白名单，防注入恶意地址）；空列表则清除缓存。永不抛。
+  Future<void> writeNextBootstrapUrls(List<String> urls) async {
+    try {
+      final clean = urls
+          .map((e) => e.trim())
+          .where((e) => e.startsWith('https://'))
+          .toList(growable: false);
+      final prefs = await _prefs;
+      if (clean.isEmpty) {
+        await prefs.remove(kNextBootstrapUrlsKey);
+      } else {
+        await prefs.setString(kNextBootstrapUrlsKey, jsonEncode(clean));
+      }
+    } catch (_) {
+      // 写失败不影响运行（Property 1）。
+    }
+  }
+
+  /// R4.7：读 next_bootstrap_urls 缓存（冷启动构造有效镜像列表时优先用）。永不抛，失败返空。
+  Future<List<String>> readNextBootstrapUrls() async {
+    try {
+      final prefs = await _prefs;
+      final raw = prefs.getString(kNextBootstrapUrlsKey);
+      if (raw == null) return const [];
+      final decoded = jsonDecode(raw);
+      if (decoded is! List) return const [];
+      return decoded
+          .whereType<String>()
+          .where((e) => e.startsWith('https://'))
+          .toList(growable: false);
+    } catch (_) {
+      return const [];
+    }
+  }
+
   Future<BootstrapPayload?> _tryCache() async {
     try {
       final prefs = await _prefs;
