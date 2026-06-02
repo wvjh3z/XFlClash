@@ -21,6 +21,7 @@ import '../widgets/xb_ui_kit.dart';
 import '../widgets/xboard_consent_dialog.dart';
 import '../widgets/xboard_offline_banner.dart';
 import 'login_page.dart';
+import 'manual_config_import_page.dart';
 import 'order_list_page.dart';
 import 'plan_list_page.dart';
 import 'register_page.dart';
@@ -81,12 +82,14 @@ class _XboardServiceHomePageState extends ConsumerState<XboardServiceHomePage> {
 
   Widget _body(BuildContext context, bool ready, bool firstLaunch, bool offline,
       AuthState auth) {
-    // 1. SDK 未就绪（fallback 损坏）→ 配置异常 banner（DD-17 / F15）。
+    // 1. SDK 未就绪（fallback 损坏）→ 配置异常 + R4.8 手动救援入口（DD-17 / F15）。
     if (!ready) {
-      return const _CenteredMessage(
-        icon: Icons.settings_suggest_outlined,
-        title: '配置加载异常',
-        body: '初始化未完成，请重启应用后重试。',
+      return _ConfigErrorView(
+        onManualImport: () => Navigator.of(context).push(
+          MaterialPageRoute<void>(
+            builder: (_) => const ManualConfigImportPage(),
+          ),
+        ),
       );
     }
     // 2. 首次安装 + 完全离线 → 提示页（合规 § F / ι-3）。
@@ -361,12 +364,10 @@ class _ConsentRequiredView extends StatelessWidget {
   }
 }
 
-class _CenteredMessage extends StatelessWidget {
-  const _CenteredMessage(
-      {required this.icon, required this.title, required this.body});
-  final IconData icon;
-  final String title;
-  final String body;
+/// 配置加载异常视图（bootstrapReady=false）+ R4.8 手动救援入口。
+class _ConfigErrorView extends StatelessWidget {
+  const _ConfigErrorView({required this.onManualImport});
+  final VoidCallback onManualImport;
 
   @override
   Widget build(BuildContext context) {
@@ -378,18 +379,26 @@ class _CenteredMessage extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, size: 56, color: scheme.onSurfaceVariant),
+            Icon(Icons.settings_suggest_outlined,
+                size: 56, color: scheme.onSurfaceVariant),
             const SizedBox(height: 16),
-            Text(title,
+            Text('配置加载异常',
                 textAlign: TextAlign.center,
                 style: text.titleMedium?.copyWith(fontWeight: FontWeight.w600)),
             const SizedBox(height: 8),
-            Text(body,
+            Text('初始化未完成，请重启应用后重试。\n若多次重启仍无法恢复，可向客服获取应急配置手动导入。',
                 textAlign: TextAlign.center,
                 style: text.bodyMedium?.copyWith(color: scheme.onSurfaceVariant)),
+            const SizedBox(height: 20),
+            OutlinedButton.icon(
+              onPressed: onManualImport,
+              icon: const Icon(Icons.download_rounded, size: 18),
+              label: const Text('手动导入配置'),
+            ),
           ],
         ),
       ),
     );
   }
 }
+
