@@ -8,9 +8,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../config/xboard_config.dart';
 import '../models/plan_item.dart';
+import '../models/xb_domain_error.dart';
 import '../models/xb_domain_types.dart';
 import '../models/xb_result.dart';
 import '../providers/xboard_providers.dart';
+import '../util/error_text.dart';
 import '../util/html_text.dart';
 import '../util/period_label.dart';
 import '../widgets/xb_ui_kit.dart';
@@ -36,7 +38,7 @@ class _PlanListPageState extends ConsumerState<PlanListPage> {
     final result = await ref.read(xboardServiceProvider).getPlans();
     return switch (result) {
       XbSuccess(:final data) => data,
-      XbFailure(:final error) => throw Exception(error.message),
+      XbFailure(:final error) => throw error, // 抛领域错误，error 分支 resolveErrorText 还原文案
     };
   }
 
@@ -60,7 +62,11 @@ class _PlanListPageState extends ConsumerState<PlanListPage> {
             return const Center(child: CircularProgressIndicator());
           }
           if (snap.hasError) {
-            return _ErrorRetry(message: '加载套餐失败', onRetry: _reload);
+            final err = snap.error;
+            final msg = err is XbDomainError
+                ? resolveErrorText(err, fallback: '加载套餐失败')
+                : '加载套餐失败';
+            return _ErrorRetry(message: msg, onRetry: _reload);
           }
           final plans = snap.data ?? const <PlanItem>[];
           if (plans.isEmpty) {

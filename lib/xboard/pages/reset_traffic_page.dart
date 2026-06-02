@@ -13,6 +13,7 @@ import '../models/plan_item.dart';
 import '../models/xb_domain_types.dart';
 import '../models/xb_result.dart';
 import '../providers/xboard_providers.dart';
+import '../util/error_text.dart';
 import '../widgets/xb_ui_kit.dart';
 import 'order_payment_page.dart';
 
@@ -32,7 +33,7 @@ class ResetTrafficPage extends ConsumerStatefulWidget {
 class _ResetTrafficPageState extends ConsumerState<ResetTrafficPage> {
   PlanItem? _plan;
   PricePlan? _resetPrice; // 当前套餐的流量重置包价（period == resetTraffic）
-  Object? _loadError;
+  String? _loadError; // 已解析的错误文案（resolveErrorText）
   bool _loading = true;
   bool _submitting = false;
 
@@ -71,7 +72,7 @@ class _ResetTrafficPageState extends ConsumerState<ResetTrafficPage> {
         });
       case XbFailure(:final error):
         setState(() {
-          _loadError = error.message;
+          _loadError = resolveErrorText(error, fallback: '加载失败');
           _loading = false;
         });
     }
@@ -105,7 +106,13 @@ class _ResetTrafficPageState extends ConsumerState<ResetTrafficPage> {
           children: [
             const Icon(Icons.cloud_off_rounded, size: 40),
             const SizedBox(height: 8),
-            const Text('加载失败'),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 24),
+              child: Text(
+                _loadError ?? '加载失败',
+                textAlign: TextAlign.center,
+              ),
+            ),
             const SizedBox(height: 12),
             OutlinedButton.icon(
               onPressed: _load,

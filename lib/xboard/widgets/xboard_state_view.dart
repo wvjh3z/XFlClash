@@ -11,6 +11,7 @@ import 'package:flutter/material.dart';
 
 import '../l10n/xboard_business_messages.dart';
 import '../models/xb_domain_error.dart';
+import '../util/error_text.dart';
 
 /// Xboard 4 状态视图。
 class XboardStateView<T> extends StatelessWidget {
@@ -112,19 +113,10 @@ class _ErrorView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // error 态按 XbDomainError 7 子类型分流（design L1416-1444）。
-    final (text, showRetry) = switch (error) {
-      XbUnauthorized() => ('登录已过期，请重新登录', false), // UI 上层据此跳登录
-      XbRateLimit(:final retryAfterMinutes) => (
-          retryAfterMinutes != null ? '请求过于频繁，请 $retryAfterMinutes 分钟后重试' : '请求过于频繁，请稍后重试',
-          false,
-        ),
-      XbBusiness(:final kind) => (localizedBusinessMessage(kind, locale), false),
-      XbNetwork() => ('网络异常，请重试', true),
-      XbServer() => ('服务异常，请稍后重试', true),
-      XbSecurity() => ('安全连接失败', false),
-      XbUnexpected() => ('出错了', true),
-    };
+    // error 态按 XbDomainError 子类型分流文案（统一走 resolveErrorText，透传后端 message）。
+    // XbUnauthorized 例外：不显示重试（UI 上层据此跳登录）。
+    final text = resolveErrorText(error, fallback: '出错了', locale: locale);
+    final showRetry = errorAllowsRetry(error);
     return Center(
       child: Column(
         mainAxisSize: MainAxisSize.min,

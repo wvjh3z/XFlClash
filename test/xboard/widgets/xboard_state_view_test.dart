@@ -70,22 +70,38 @@ void main() {
       expect(find.text('重试'), findsOneWidget);
     });
 
-    testWidgets('XbServer → 服务异常 + 重试', (t) async {
-      await pump(t, const XbViewError(XbServer(503, 'x')), onRetry: () {});
+    testWidgets('XbServer(空 message) → 服务异常 + 重试', (t) async {
+      await pump(t, const XbViewError(XbServer(503, '')), onRetry: () {});
       expect(find.textContaining('服务异常'), findsOneWidget);
       expect(find.text('重试'), findsOneWidget);
     });
 
+    testWidgets('XbServer(有 message) → 透传后端文案', (t) async {
+      await pump(t, const XbViewError(XbServer(503, '后端维护中')),
+          onRetry: () {});
+      expect(find.textContaining('后端维护中'), findsOneWidget);
+    });
+
     testWidgets('XbSecurity → 安全连接失败（无重试）', (t) async {
-      await pump(t, const XbViewError(XbSecurity('x')), onRetry: () {});
+      await pump(t, const XbViewError(XbSecurity('')), onRetry: () {});
       expect(find.textContaining('安全连接失败'), findsOneWidget);
       expect(find.text('重试'), findsNothing);
     });
 
-    testWidgets('XbUnexpected → 出错了 + 重试', (t) async {
-      await pump(t, const XbViewError(XbUnexpected('op', 'x')), onRetry: () {});
+    testWidgets('XbUnexpected(空 message) → 出错了 + 重试', (t) async {
+      await pump(t, const XbViewError(XbUnexpected('op', '')), onRetry: () {});
       expect(find.textContaining('出错了'), findsOneWidget);
       expect(find.text('重试'), findsOneWidget);
+    });
+
+    testWidgets('XbBusiness(generic + 后端 message) → 透传后端文案', (t) async {
+      await pump(
+          t,
+          const XbViewError(
+              XbBusiness(BusinessErrorKind.generic, '邮箱或密码错误', null)),
+          onRetry: () {});
+      expect(find.textContaining('邮箱或密码错误'), findsOneWidget);
+      expect(find.text('操作失败，请稍后重试'), findsNothing);
     });
   });
 }

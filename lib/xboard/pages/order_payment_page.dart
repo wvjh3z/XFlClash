@@ -16,10 +16,12 @@ import 'package:url_launcher/url_launcher.dart';
 import '../config/xboard_config.dart';
 import '../models/checkout_outcome_ui.dart';
 import '../models/order_summary.dart';
+import '../models/xb_domain_error.dart';
 import '../models/xb_domain_types.dart';
 import '../models/xb_result.dart';
 import '../providers/user_profile_provider.dart';
 import '../providers/xboard_providers.dart';
+import '../util/error_text.dart';
 import '../util/period_label.dart';
 import '../widgets/xb_ui_kit.dart';
 
@@ -62,7 +64,7 @@ class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage> {
       final orderRes = await service.getOrder(widget.tradeNo);
       final detail = switch (orderRes) {
         XbSuccess(:final data) => data,
-        XbFailure(:final error) => throw Exception(error.message),
+        XbFailure(:final error) => throw error, // 抛领域错误，_errorRetry 还原文案
       };
       // 支付方式（仅 pending 需要；失败不阻塞）。
       var methods = const <PaymentMethodItem>[];
@@ -141,22 +143,31 @@ class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage> {
     );
   }
 
-  Widget _errorRetry() => Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(Icons.cloud_off_rounded, size: 40),
-            const SizedBox(height: 8),
-            const Text('加载订单失败'),
-            const SizedBox(height: 12),
-            OutlinedButton.icon(
-              onPressed: _initialLoad,
-              icon: const Icon(Icons.refresh_rounded, size: 18),
-              label: const Text('重试'),
-            ),
-          ],
-        ),
-      );
+  Widget _errorRetry() {
+    final err = _loadError;
+    final msg = err is XbDomainError
+        ? resolveErrorText(err, fallback: '加载订单失败')
+        : '加载订单失败';
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.cloud_off_rounded, size: 40),
+          const SizedBox(height: 8),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 24),
+            child: Text(msg, textAlign: TextAlign.center),
+          ),
+          const SizedBox(height: 12),
+          OutlinedButton.icon(
+            onPressed: _initialLoad,
+            icon: const Icon(Icons.refresh_rounded, size: 18),
+            label: const Text('重试'),
+          ),
+        ],
+      ),
+    );
+  }
 
   Widget _content(BuildContext context, OrderDetail detail) {
     final s = detail.summary;

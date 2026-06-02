@@ -8,9 +8,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../config/xboard_config.dart';
 import '../models/order_summary.dart';
+import '../models/xb_domain_error.dart';
 import '../models/xb_domain_types.dart';
 import '../models/xb_result.dart';
 import '../providers/xboard_providers.dart';
+import '../util/error_text.dart';
 import '../util/period_label.dart';
 import '../widgets/xb_ui_kit.dart';
 import 'order_payment_page.dart';
@@ -35,7 +37,7 @@ class _OrderListPageState extends ConsumerState<OrderListPage> {
     final result = await ref.read(xboardServiceProvider).getOrders();
     return switch (result) {
       XbSuccess(:final data) => data.items,
-      XbFailure(:final error) => throw Exception(error.message),
+      XbFailure(:final error) => throw error, // 抛领域错误，error 分支还原文案
     };
   }
 
@@ -61,7 +63,11 @@ class _OrderListPageState extends ConsumerState<OrderListPage> {
               return const Center(child: CircularProgressIndicator());
             }
             if (snap.hasError) {
-              return _ErrorRetry(message: '加载订单失败', onRetry: _reload);
+              final err = snap.error;
+              final msg = err is XbDomainError
+                  ? resolveErrorText(err, fallback: '加载订单失败')
+                  : '加载订单失败';
+              return _ErrorRetry(message: msg, onRetry: _reload);
             }
             final orders = snap.data ?? const <OrderSummary>[];
             if (orders.isEmpty) {
