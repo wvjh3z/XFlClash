@@ -97,6 +97,33 @@ void main() {
     expect(find.textContaining('封禁'), findsOneWidget);
   });
 
+  testWidgets('generic 业务错误 → 透传后端真实 message（非"操作失败"）', (t) async {
+    when(() => service.login(any(), any())).thenAnswer((_) async =>
+        const XbFailure(
+            XbBusiness(BusinessErrorKind.generic, '账号已停用，请联系客服', null)));
+    await pump(t);
+    await t.enterText(find.byType(TextField).first, 'a@b.com');
+    await t.enterText(find.byType(TextField).last, 'password');
+    await t.tap(find.text('登录'));
+    await t.pump();
+    await t.pump(const Duration(milliseconds: 50));
+    expect(find.text('账号已停用，请联系客服'), findsOneWidget);
+    expect(find.text('操作失败，请稍后重试'), findsNothing);
+  });
+
+  testWidgets('密码错误走 400 business → 内联"邮箱或密码错误"', (t) async {
+    when(() => service.login(any(), any())).thenAnswer((_) async =>
+        const XbFailure(
+            XbBusiness(BusinessErrorKind.generic, '邮箱或密码错误', null)));
+    await pump(t);
+    await t.enterText(find.byType(TextField).first, 'a@b.com');
+    await t.enterText(find.byType(TextField).last, 'password');
+    await t.tap(find.text('登录'));
+    await t.pump();
+    await t.pump(const Duration(milliseconds: 50));
+    expect(find.text('邮箱或密码错误'), findsOneWidget);
+  });
+
   testWidgets('single-flight：登录中按钮变 spinner，无法再次点击', (t) async {
     var calls = 0;
     when(() => service.login(any(), any())).thenAnswer((_) async {

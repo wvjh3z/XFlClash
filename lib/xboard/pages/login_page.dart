@@ -105,10 +105,17 @@ class _XboardLoginPageState extends ConsumerState<XboardLoginPage> {
               ? '密码错误次数过多，请 $mins 分钟后重试'
               : '请求过于频繁，请 $mins 分钟后重试';
           _startCountdown(mins * 60);
-        case XbBusiness(:final kind):
-          if (kind == BusinessErrorKind.banned) {
-            _banner = localizedBusinessMessage(kind, XbLocale.zhCN);
-            // banned：强制登出态（已是 unauthenticated）
+        case XbBusiness(:final kind, :final message):
+          // 后端密码错误走 HTTP 400 → BusinessError(generic)，不是 401；
+          // 命中"邮箱或密码错误"类 message 时按凭据错误内联展示（与 XbUnauthorized 一致）。
+          if (_looksLikeBadCredentials(message)) {
+            _passwordError = '邮箱或密码错误';
+          } else if (kind == BusinessErrorKind.generic ||
+              kind == BusinessErrorKind.validationFailed) {
+            // 未细分的业务错误：优先透传后端真实 message（比"操作失败"更有用）。
+            _banner = message.isNotEmpty
+                ? message
+                : localizedBusinessMessage(kind, XbLocale.zhCN);
           } else {
             _banner = localizedBusinessMessage(kind, XbLocale.zhCN);
           }
@@ -122,6 +129,18 @@ class _XboardLoginPageState extends ConsumerState<XboardLoginPage> {
           _banner = error.message.isNotEmpty ? error.message : '登录失败，请稍后重试';
       }
     });
+  }
+
+  /// 后端凭据错误 message 判定（zh / en 双语；wrong-password 走 HTTP 400 business）。
+  bool _looksLikeBadCredentials(String message) {
+    final m = message.toLowerCase();
+    return m.contains('邮箱或密码') ||
+        m.contains('密码错误') ||
+        m.contains('账号或密码') ||
+        m.contains('用户名或密码') ||
+        m.contains('incorrect') && m.contains('password') ||
+        m.contains('invalid') && (m.contains('password') || m.contains('credential')) ||
+        m.contains('wrong') && m.contains('password');
   }
 
   void _startCountdown(int seconds) {
