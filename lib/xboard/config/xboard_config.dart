@@ -30,6 +30,7 @@ class XboardConfig {
     this.supportEmail = 'support@example.com',
     this.bootstrapUrls = const <String>[],
     this.bootstrapAesKeyBytes,
+    this.subscriptionAesKeyBytes,
   });
 
   /// 订阅 UA（含且仅含一个 `flclash` 子串，F202/F203）。
@@ -74,6 +75,15 @@ class XboardConfig {
   /// Bootstrap AES-256 解密 key（32 字节；编译期注入，D58 不进 git）。null = 未配置（降级）。
   final List<int>? bootstrapAesKeyBytes;
 
+  /// R4.1 加密订阅 AES-256 解密 key（32 字节；编译期注入）。
+  /// null → fallback 到 [bootstrapAesKeyBytes]（contract 0-B：key 可与 bootstrap 同可不同；
+  /// 当前部署同一把 key，未单独注入时复用 bootstrap key）。
+  final List<int>? subscriptionAesKeyBytes;
+
+  /// R4.1 加密订阅解密用 key：优先专用 key，未注入则复用 bootstrap key（当前部署同一把）。
+  List<int>? get effectiveSubscriptionAesKeyBytes =>
+      subscriptionAesKeyBytes ?? bootstrapAesKeyBytes;
+
   /// 从 dart-define 编译期常量构造（W8.5 生产/品牌构建路径）。
   ///
   /// 读 `--dart-define-from-file=flavor_defines.json` 注入的常量；任一未注入则回退到
@@ -102,6 +112,8 @@ class XboardConfig {
         defaultValue: 'support@example.com');
     const urlsCsv = String.fromEnvironment('XB_BOOTSTRAP_URLS', defaultValue: '');
     const aesKeyB64 = String.fromEnvironment('XB_AES_KEY_B64', defaultValue: '');
+    const subAesKeyB64 =
+        String.fromEnvironment('XB_SUB_AES_KEY_B64', defaultValue: '');
 
     final urls = urlsCsv.isEmpty
         ? const <String>[]
@@ -113,6 +125,16 @@ class XboardConfig {
         if (decoded.length == 32) aesBytes = decoded;
       } catch (_) {
         aesBytes = null; // 非法 base64 → 降级（永不抛）
+      }
+    }
+    // R4.1 加密订阅专用 key（可选；未注入则运行期 fallback 到 bootstrap key）。
+    List<int>? subAesBytes;
+    if (subAesKeyB64.isNotEmpty) {
+      try {
+        final decoded = base64.decode(subAesKeyB64);
+        if (decoded.length == 32) subAesBytes = decoded;
+      } catch (_) {
+        subAesBytes = null;
       }
     }
 
@@ -131,6 +153,7 @@ class XboardConfig {
       supportEmail: supportEmail,
       bootstrapUrls: urls,
       bootstrapAesKeyBytes: aesBytes,
+      subscriptionAesKeyBytes: subAesBytes,
     );
   }
 

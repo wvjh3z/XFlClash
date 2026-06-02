@@ -5,6 +5,18 @@ library;
 /// 解密时必须与加密端一致，否则 GCM tag 校验失败 → 视该来源不可用。
 const String kBootstrapAad = 'xboard-bootstrap-v1';
 
+/// R4.1 加密订阅 AAD（与 [kBootstrapAad] 区分，防跨用途重放，contract 0-B / 后端 EncryptedSubscribe v1.0.2）。
+/// 加密订阅密文（ClashMeta YAML）解密时用此 AAD；密码学其余约定（AES-256-GCM / nonce 12B 拼前 /
+/// tag 16B）与 bootstrap 完全一致，故复用 [BootstrapDecryptor]（仅 AAD 参数不同）。
+const String kEncryptedSubscriptionAad = 'xboard-encrypted-sub-v1';
+
+/// R4.1 加密订阅子路径片段：在原订阅 URL `https://host/{path}/{token}` 的 `/{token}` 前插入
+/// 本片段 → `https://host/{path}/encrypted/{token}`（contract 0-B「方案 b」，无需知 subscribe_path）。
+const String kEncryptedSubscriptionPathSegment = 'encrypted';
+
+/// R4.1 加密订阅单次拉取超时（密文 ~数十 KB，比 config.json envelope 大，给足余量）。
+const Duration kEncryptedSubscriptionTimeout = Duration(seconds: 15);
+
 /// Bootstrap 本地缓存 key（DD-22 v1；存外层 envelope 密文，不存明文 R15.D.25/D.28）。
 const String kBootstrapCacheKey = 'xb_bootstrap_cache_v1';
 

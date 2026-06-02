@@ -17,11 +17,21 @@ Future<String> encryptPayload(
   List<int>? key,
   String aad = kBootstrapAad,
 }) async {
+  return encryptPayloadRaw(jsonEncode(payloadJson), key: key, aad: aad);
+}
+
+/// 加密任意明文字符串（R4.1 加密订阅：明文是 ClashMeta YAML 文本，非 endpoint JSON）。
+/// 返回 base64(nonce(12)||cipher||tag(16))，与 bootstrap 同布局，仅 AAD 可不同。
+Future<String> encryptPayloadRaw(
+  String plain, {
+  List<int>? key,
+  String aad = kBootstrapAad,
+}) async {
   final algo = AesGcm.with256bits();
   final secretKey = SecretKey(key ?? testAesKey);
   final nonce = algo.newNonce();
   final box = await algo.encrypt(
-    utf8.encode(jsonEncode(payloadJson)),
+    utf8.encode(plain),
     secretKey: secretKey,
     nonce: nonce,
     aad: utf8.encode(aad),

@@ -6,6 +6,7 @@
 library;
 
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:cryptography/cryptography.dart';
 
@@ -64,6 +65,24 @@ class BootstrapDecryptResult {
   bool get isSuccess => payload != null;
 }
 
+/// 原始字节解密结果（R4.1 加密订阅复用 AES-GCM 核心，明文非 endpoint JSON 而是任意 bytes）。
+///
+/// 与 [BootstrapDecryptResult] 区分：后者解出 + 校验 [BootstrapPayload]（endpoint 列表）；
+/// 本类只解出明文字节（如 ClashMeta YAML），不做 payload 语义校验，由调用方处理。
+class RawDecryptResult {
+  const RawDecryptResult._(this.clearBytes, this.failure);
+
+  factory RawDecryptResult.success(Uint8List clearBytes) =>
+      RawDecryptResult._(clearBytes, null);
+  factory RawDecryptResult.failure(BootstrapDecryptFailure failure) =>
+      RawDecryptResult._(null, failure);
+
+  final Uint8List? clearBytes;
+  final BootstrapDecryptFailure? failure;
+
+  bool get isSuccess => clearBytes != null;
+}
+
 /// Bootstrap 解密器（注入 AES key 便于测试）。
 class BootstrapDecryptor {
   BootstrapDecryptor({required List<int>? aesKey}) : _aesKey = aesKey;
@@ -73,47 +92,23 @@ class BootstrapDecryptor {
 
   /// 解密 + 校验 envelope。永不抛；失败返 [BootstrapDecryptResult.failure]。
   Future<BootstrapDecryptResult> decryptAndValidate(BootstrapEnvelope env) async {
-    final key = _aesKey;
-    if (key == null || key.length != 32) {
-      return BootstrapDecryptResult.failure(BootstrapDecryptFailure.noKey);
-    }
     if (env.schemaVersion < 1) {
       return BootstrapDecryptResult.failure(
           BootstrapDecryptFailure.schemaIncompatible);
     }
-
-    List<int> bytes;
-    try {
-      bytes = base64Decode(env.encrypted);
-    } catch (_) {
-      return BootstrapDecryptResult.failure(
-          BootstrapDecryptFailure.malformedCiphertext);
-    }
-    // 布局：nonce(12) || ciphertext || tag(16)。
-    if (bytes.length < 12 + 16) {
-      return BootstrapDecryptResult.failure(
-          BootstrapDecryptFailure.malformedCiphertext);
-    }
-
-    List<int> clear;
-    try {
-      final nonce = bytes.sublist(0, 12);
-      final mac = bytes.sublist(bytes.length - 16);
-      final cipher = bytes.sublist(12, bytes.length - 16);
-      clear = await _algo.decrypt(
-        SecretBox(cipher, nonce: nonce, mac: Mac(mac)),
-        secretKey: SecretKey(key),
-        aad: utf8.encode(kBootstrapAad),
-      );
-    } catch (_) {
-      // 密钥/tag/AAD 不符（GCM 认证失败）。
-      return BootstrapDecryptResult.failure(BootstrapDecryptFailure.decryptError);
+    // AES-GCM 核心解密（AAD = bootstrap 用途）。
+    final raw = await decryptCiphertext(
+      base64Cipher: env.encrypted,
+      aad: kBootstrapAad,
+    );
+    if (!raw.isSuccess) {
+      return BootstrapDecryptResult.failure(raw.failure!);
     }
 
     BootstrapPayload payload;
     try {
       payload = BootstrapPayload.fromJson(
-          jsonDecode(utf8.decode(clear)) as Map<String, dynamic>);
+          jsonDecode(utf8.decode(raw.clearBytes!)) as Map<String, dynamic>);
     } catch (_) {
       return BootstrapDecryptResult.failure(
           BootstrapDecryptFailure.payloadParseError);
@@ -126,5 +121,46 @@ class BootstrapDecryptor {
       return BootstrapDecryptResult.failure(BootstrapDecryptFailure.payloadEmpty);
     }
     return BootstrapDecryptResult.success(payload);
+  }
+
+  /// AES-256-GCM 解密核心（R4.1 复用入口）：解 base64 → 拆 `nonce(12)‖cipher‖tag(16)` → GCM 解密。
+  ///
+  /// 密码学约定与 bootstrap 完全一致（nonce 12B 拼前 / tag 16B 拼后），仅 [aad] 由调用方指定
+  /// （bootstrap 用 [kBootstrapAad]，加密订阅用 [kEncryptedSubscriptionAad]）。永不抛——失败归
+  /// [BootstrapDecryptFailure]（noKey / malformedCiphertext / decryptError 三种适用）。
+  Future<RawDecryptResult> decryptCiphertext({
+    required String base64Cipher,
+    required String aad,
+  }) async {
+    final key = _aesKey;
+    if (key == null || key.length != 32) {
+      return RawDecryptResult.failure(BootstrapDecryptFailure.noKey);
+    }
+
+    List<int> bytes;
+    try {
+      bytes = base64Decode(base64Cipher.trim());
+    } catch (_) {
+      return RawDecryptResult.failure(BootstrapDecryptFailure.malformedCiphertext);
+    }
+    // 布局：nonce(12) || ciphertext || tag(16)。
+    if (bytes.length < 12 + 16) {
+      return RawDecryptResult.failure(BootstrapDecryptFailure.malformedCiphertext);
+    }
+
+    try {
+      final nonce = bytes.sublist(0, 12);
+      final mac = bytes.sublist(bytes.length - 16);
+      final cipher = bytes.sublist(12, bytes.length - 16);
+      final clear = await _algo.decrypt(
+        SecretBox(cipher, nonce: nonce, mac: Mac(mac)),
+        secretKey: SecretKey(key),
+        aad: utf8.encode(aad),
+      );
+      return RawDecryptResult.success(Uint8List.fromList(clear));
+    } catch (_) {
+      // 密钥/tag/AAD 不符（GCM 认证失败）。
+      return RawDecryptResult.failure(BootstrapDecryptFailure.decryptError);
+    }
   }
 }

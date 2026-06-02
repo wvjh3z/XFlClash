@@ -46,11 +46,9 @@
 library;
 
 import 'dart:convert';
-import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
-import 'package:dio/io.dart';
 import 'package:flutter/foundation.dart' show visibleForTesting;
 
 import '../config/bootstrap_constants.dart';
@@ -58,6 +56,7 @@ import '../models/bootstrap_envelope.dart';
 import '../models/bootstrap_payload.dart';
 import 'bootstrap_decryptor.dart';
 import 'sentry_bootstrap.dart';
+import 'xboard_release_dio.dart';
 
 /// 单个响应字节解析的中间结果（envelope + 识别路径，供 Sentry tag 追溯）。
 @visibleForTesting
@@ -103,27 +102,8 @@ class BootstrapFetcher {
   final Dio _dio;
 
   /// 自建隔离 dio：直连 + 证书全放行（用户 override，见类注释）+ 5s 连接超时 + bytes 响应。
-  static Dio _buildIsolatedDio() {
-    final dio = Dio(BaseOptions(
-      connectTimeout: kBootstrapPerMirrorTimeout,
-      receiveTimeout: kBootstrapPerMirrorTimeout,
-      // bytes 拿原始字节，不让 dio 按 Content-Type 自动 parse；自行解 BOM/UTF-8/JSON。
-      responseType: ResponseType.bytes,
-      followRedirects: true,
-      maxRedirects: 5,
-    ));
-    dio.httpClientAdapter = IOHttpClientAdapter(createHttpClient: () {
-      final client = HttpClient();
-      client.connectionTimeout = kBootstrapPerMirrorTimeout;
-      // ⚠️ 证书全放行（用户 2026-06-01 知情决策；原 θ-1 严格校验已被 override）。
-      // 与 FlClash 上游 HttpOverrides `=> true` 一致；接受明网 MITM 风险（见 SECURITY.md）。
-      // 裸 IP（如 https://223.26.52.196）证书校验失败问题由此放行解决。
-      client.badCertificateCallback = (cert, host, port) => true;
-      client.findProxy = (uri) => 'DIRECT'; // 直连，不走 FlClash 代理。
-      return client;
-    });
-    return dio;
-  }
+  static Dio _buildIsolatedDio() =>
+      buildReleasedIsolatedDio(timeout: kBootstrapPerMirrorTimeout);
 
   /// 串行尝试所有 [mirrors]，30s 总预算；首个解出有效 payload 的镜像胜出。
   /// 全失败 → payload=null（调用方沿用本地 endpoint）。永不抛。

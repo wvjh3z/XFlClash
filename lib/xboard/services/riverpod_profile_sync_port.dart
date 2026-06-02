@@ -5,9 +5,16 @@
 /// - `profilesActionProvider.notifier.putProfile(profile)`（first-win 激活，F51/F226）。
 /// - **禁止** `addProfileFormURL`（F225：内部 popUntil + toProfiles 破坏路由栈）。
 ///
+/// **R4.1 文件化订阅**（`putFileProfile`）：SDK 自拉密文 → 解密 → 明文 YAML 字节经
+/// `Profile.saveFile(bytes)`（现成公开方法：validateConfig 校验 + 写 `$id.yaml`）写 file 型
+/// profile（url=''）；新建走 putProfile first-win，覆写走 setProfileAndAutoApply（active 时
+/// applyProfileDebounce 通知 core 重载）。**零改上游**——saveFile/setProfileAndAutoApply 均现成。
+///
 /// **错误形态**（R7.9 / F278）：`Profile.update()` 失败抛本地化中文字符串（非结构化异常），
 /// 调用方（XboardSubscriptionService）catch 后归一为 XbSyncOutcome.failed。
 library;
+
+import 'dart:typed_data';
 
 import 'package:fl_clash/models/profile.dart';
 import 'package:fl_clash/providers/database.dart' show profilesProvider;
@@ -42,6 +49,31 @@ class RiverpodProfileSyncPort implements ProfileSyncPort {
     }
     final updated = existing.copyWith(url: url);
     await _ref.read(profilesActionProvider.notifier).updateProfile(updated);
+  }
+
+  @override
+  Future<int> putFileProfile({
+    required int? profileId,
+    required Uint8List yamlBytes,
+    required String label,
+  }) async {
+    // file 型 profile：url 留空（ProfileType.file），明文 bytes 经 saveFile（validateConfig +
+    // 写 $id.yaml）。core 从文件路径加载，不重拉 url（R4.5 查证）。
+    final profiles = _ref.read(profilesProvider);
+    final existing =
+        profileId == null ? null : profiles.where((p) => p.id == profileId).firstOrNull;
+
+    if (existing != null) {
+      // 原地覆写：保留 id + 选择态，写新明文文件 → 若是当前 active 则 applyProfileDebounce 重载。
+      final saved = await existing.copyWith(label: label).saveFile(yamlBytes);
+      _ref.read(profilesActionProvider.notifier).setProfileAndAutoApply(saved);
+      return saved.id;
+    }
+
+    // 新建 file 型 profile（url=''）→ saveFile → putProfile first-win 激活。
+    final profile = await Profile.normal(label: label).saveFile(yamlBytes);
+    _ref.read(profilesActionProvider.notifier).putProfile(profile);
+    return profile.id;
   }
 
   @override

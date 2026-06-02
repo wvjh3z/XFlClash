@@ -5,6 +5,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_xboard_sdk/flutter_xboard_sdk.dart' hide AuthState;
 import 'package:mocktail/mocktail.dart';
 
+import 'dart:typed_data';
+
 import 'package:fl_clash/xboard/data/xboard_database.dart';
 import 'package:fl_clash/xboard/models/xb_domain_error.dart';
 import 'package:fl_clash/xboard/models/xb_domain_subscription.dart';
@@ -38,6 +40,17 @@ class _FakePort implements ProfileSyncPort {
   Future<void> updateProfileUrl({required int profileId, required String url}) async {
     updateCalls++;
     profiles[profileId] = url;
+  }
+
+  @override
+  Future<int> putFileProfile({
+    required int? profileId,
+    required Uint8List yamlBytes,
+    required String label,
+  }) async {
+    final id = profileId ?? _nextId++;
+    profiles[id] = 'file:${yamlBytes.length}b';
+    return id;
   }
 
   @override
