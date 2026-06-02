@@ -178,4 +178,96 @@ void main() {
       c.dispose();
     });
   });
+
+  // ── R4.2 订阅 failOver + 候选列表 ──
+  group('R4.2 订阅 failOver / subscriptionCandidates', () {
+    test('竞速已选首发：候选首发在前 + 其余当替补（去重）', () async {
+      final c = EndpointRaceController(probe: (e) async => e.contains('sub2'));
+      await c.raceSubscription(_eps([
+        'https://sub1.com',
+        'https://sub2.com',
+        'https://sub3.com',
+      ]));
+      expect(c.currentSubscriptionEndpoint, 'https://sub2.com');
+      // 首发 sub2 排最前，其余按原序补上，sub2 不重复。
+      expect(c.subscriptionCandidates(), [
+        'https://sub2.com',
+        'https://sub1.com',
+        'https://sub3.com',
+      ]);
+      c.dispose();
+    });
+
+    test('竞速未跑（首发为 null）：直接用完整列表（D10 推广，无空窗）', () async {
+      // 全不可达竞速把列表灌进去但不选出首发（模拟竞速跑了但没选出 / 等价未选首发态）。
+      final c = EndpointRaceController(probe: (_) async => false);
+      await c.raceSubscription(_eps(['https://s1.com', 'https://s2.com']));
+      expect(c.currentSubscriptionEndpoint, isNull); // 全不可达 → 未选首发
+      // 候选仍为完整列表（按地区排序，VPN 关 → 原序）。
+      expect(c.subscriptionCandidates(), ['https://s1.com', 'https://s2.com']);
+      c.dispose();
+    });
+
+    test('列表为空 → 候选空（调用方退回原 URL 兜底）', () {
+      final c = EndpointRaceController(probe: (_) async => true);
+      expect(c.subscriptionCandidates(), isEmpty);
+      c.dispose();
+    });
+
+    test('VPN 开：候选海外在前', () async {
+      final c = EndpointRaceController(
+        vpnActive: true,
+        probe: (e) async => e.contains('overseas'),
+      );
+      await c.raceSubscription(_mixed({
+        'https://cn.com': BootstrapRegion.cn,
+        'https://overseas.com': BootstrapRegion.overseas,
+      }));
+      expect(c.currentSubscriptionEndpoint, 'https://overseas.com');
+      // 海外首发在前，国内当替补。
+      expect(c.subscriptionCandidates(),
+          ['https://overseas.com', 'https://cn.com']);
+      c.dispose();
+    });
+
+    test('failOverSubscription：首发挂了切到下一个可达者', () async {
+      var firstReachable = true;
+      final c = EndpointRaceController(
+        probe: (e) async {
+          if (e.contains('sub1')) return firstReachable;
+          return true; // sub2 始终可达
+        },
+      );
+      await c.raceSubscription(_eps(['https://sub1.com', 'https://sub2.com']));
+      expect(c.currentSubscriptionEndpoint, 'https://sub1.com');
+      // sub1 挂了 → failOver 到 sub2。
+      firstReachable = false;
+      await c.failOverSubscription();
+      expect(c.currentSubscriptionEndpoint, 'https://sub2.com');
+      c.dispose();
+    });
+
+    test('failOverSubscription：串行化锁——并发复用同一 Future', () async {
+      final c = EndpointRaceController(
+        probe: (e) async {
+          await Future<void>.delayed(const Duration(milliseconds: 10));
+          return e.contains('sub2');
+        },
+      );
+      await c.raceSubscription(_eps(['https://sub1.com', 'https://sub2.com']));
+      await Future.wait([c.failOverSubscription(), c.failOverSubscription()]);
+      expect(c.currentSubscriptionEndpoint, 'https://sub2.com');
+      c.dispose();
+    });
+
+    test('failOverSubscription：与 API failOver 独立互不影响', () async {
+      final c = EndpointRaceController(probe: (_) async => true);
+      await c.raceApi(_eps(['https://api1.com']));
+      await c.raceSubscription(_eps(['https://sub1.com']));
+      await c.failOverSubscription();
+      // API 首发不受订阅 failOver 影响。
+      expect(c.currentApiEndpoint, 'https://api1.com');
+      c.dispose();
+    });
+  });
 }

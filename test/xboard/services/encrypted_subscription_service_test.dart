@@ -236,4 +236,113 @@ void main() {
       expect(r.failure, EncryptedSubscriptionFailure.decryptFailed);
     });
   });
+
+  group('fetchWithFailOver — R4.2 串行 failOver', () {
+    Future<ResponseBody> okBody(String cipher) async => ResponseBody.fromString(
+          cipher,
+          200,
+          headers: {
+            Headers.contentTypeHeader: ['text/plain']
+          },
+        );
+
+    test('首发挂（网络错）→ 顺位试第二个成功', () async {
+      final cipher =
+          await encryptPayloadRaw(_sampleYaml, aad: kEncryptedSubscriptionAad);
+      final hits = <String>[];
+      final adapter = _StubAdapter((opts) async {
+        hits.add(opts.uri.host);
+        if (opts.uri.host == '1.1.1.1') {
+          throw DioException(requestOptions: opts); // 首发网络挂
+        }
+        return okBody(cipher);
+      });
+      final svc = serviceWith((_) async => throw StateError('unused'),
+          adapter: adapter);
+      final r = await svc.fetchWithFailOver(
+        'https://orig.com/thunder/tok',
+        candidateHosts: ['https://1.1.1.1', 'https://2.2.2.2'],
+      );
+      expect(r.isSuccess, isTrue);
+      expect(utf8.decode(r.yamlBytes!), _sampleYaml);
+      // 试了首发（挂）再到第二个（成功），URL 走方案 b 改写。
+      expect(hits, ['1.1.1.1', '2.2.2.2']);
+      expect(r.winnerUrl, 'https://2.2.2.2/thunder/encrypted/tok');
+    });
+
+    test('业务错误（无套餐）→ 立即停，不试后续 host', () async {
+      final hits = <String>[];
+      final adapter = _StubAdapter((opts) async {
+        hits.add(opts.uri.host);
+        return ResponseBody.fromString(
+          jsonEncode({'code': 40305, 'message': '无有效套餐'}),
+          403,
+        );
+      });
+      final svc = serviceWith((_) async => throw StateError('unused'),
+          adapter: adapter);
+      final r = await svc.fetchWithFailOver(
+        'https://orig.com/thunder/tok',
+        candidateHosts: ['https://1.1.1.1', 'https://2.2.2.2'],
+      );
+      expect(r.failure, EncryptedSubscriptionFailure.noActivePlan);
+      expect(r.serverMessage, '无有效套餐');
+      // 换 host 无意义 → 只试了首发就停。
+      expect(hits, ['1.1.1.1']);
+    });
+
+    test('全部 host 网络挂 → 返最后一次网络失败', () async {
+      final hits = <String>[];
+      final adapter = _StubAdapter((opts) async {
+        hits.add(opts.uri.host);
+        throw DioException(requestOptions: opts);
+      });
+      final svc = serviceWith((_) async => throw StateError('unused'),
+          adapter: adapter);
+      final r = await svc.fetchWithFailOver(
+        'https://orig.com/thunder/tok',
+        candidateHosts: ['https://1.1.1.1', 'https://2.2.2.2', 'https://3.3.3.3'],
+      );
+      expect(r.failure, EncryptedSubscriptionFailure.network);
+      expect(hits, ['1.1.1.1', '2.2.2.2', '3.3.3.3']); // 穷举全部
+    });
+
+    test('候选为空 → 退回原始 URL host 兜底拉一次', () async {
+      final cipher =
+          await encryptPayloadRaw(_sampleYaml, aad: kEncryptedSubscriptionAad);
+      final hits = <String>[];
+      final adapter = _StubAdapter((opts) async {
+        hits.add(opts.uri.host);
+        return okBody(cipher);
+      });
+      final svc = serviceWith((_) async => throw StateError('unused'),
+          adapter: adapter);
+      final r = await svc.fetchWithFailOver(
+        'https://orig.com/thunder/tok',
+        candidateHosts: const [],
+      );
+      expect(r.isSuccess, isTrue);
+      // 用原始 host（未替换），仍走方案 b 插 encrypted。
+      expect(hits, ['orig.com']);
+      expect(r.winnerUrl, 'https://orig.com/thunder/encrypted/tok');
+    });
+
+    test('解密失败（坏数据）也算可换 host → 试下一个', () async {
+      final goodCipher =
+          await encryptPayloadRaw(_sampleYaml, aad: kEncryptedSubscriptionAad);
+      final adapter = _StubAdapter((opts) async {
+        if (opts.uri.host == '1.1.1.1') {
+          return ResponseBody.fromString('garbage not envelope', 200);
+        }
+        return okBody(goodCipher);
+      });
+      final svc = serviceWith((_) async => throw StateError('unused'),
+          adapter: adapter);
+      final r = await svc.fetchWithFailOver(
+        'https://orig.com/thunder/tok',
+        candidateHosts: ['https://1.1.1.1', 'https://2.2.2.2'],
+      );
+      expect(r.isSuccess, isTrue);
+    });
+  });
 }

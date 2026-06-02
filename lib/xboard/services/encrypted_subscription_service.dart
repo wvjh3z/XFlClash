@@ -18,6 +18,11 @@
 /// **错误分流（contract §5）**：HTTP 非 2xx → 后端明文 JSON `{code,message}`（不加密），按
 /// code 归类（token 类 / 无套餐 / 加密未配置 / 其他）；2xx → 走解密；解密失败 → 数据损坏。
 ///
+/// **R4.2 failOver**（[fetchWithFailOver]）：按候选 host 列表（竞速排序 + 去重，来自
+/// `EndpointRaceController.subscriptionCandidates()`）串行试穿——某 host 网络/解密失败就试下一个，
+/// 业务类错误（token/无套餐/未配置）立即停（换 host 无意义），全程受总预算约束；候选为空退回原
+/// URL host 兜底。"列表是输入、竞速是优化"——不依赖竞速是否跑完，无空窗。
+///
 /// **永不抛**（Property 1）：任何失败返 [EncryptedSubscriptionResult.failure]。
 library;
 
@@ -155,7 +160,68 @@ class EncryptedSubscriptionService {
       return EncryptedSubscriptionResult.failure(
           EncryptedSubscriptionFailure.noSubscribeUrl);
     }
+    return _fetchOne(url);
+  }
 
+  /// R4.2：按候选 host 列表串行 failOver 拉取（首发挂了顺位试下一个，总预算内）。
+  ///
+  /// - [originalSubscribeUrl]：SDK 原订阅 URL（提供 token + path，host 会被候选替换）。
+  /// - [candidateHosts]：已排序去重的订阅 endpoint host 串（来自
+  ///   `EndpointRaceController.subscriptionCandidates()`，首发在前 / VPN 开海外在前）。
+  ///   **空列表** → 退回用原始 URL host 原样拉一次（终极兜底，列表未解出时不致无路可走）。
+  /// - [budget]：总预算（默认 [kEncryptedSubscriptionTotalBudget]），耗尽即停止试更多 host。
+  ///
+  /// **智能停止**（不是所有失败都值得换 host）：
+  /// - `network` / `decryptFailed`（连不上 / 超时 / 数据损坏）→ 该 host 不行，**试下一个**。
+  /// - `unauthorized` / `noActivePlan` / `serverNotConfigured`（后端明确拒绝）→ 换 host 也一样，
+  ///   **立即返回**该业务错误（呼应错误文案透传，不浪费时间穷举）。
+  ///
+  /// 返回首个成功结果；全部失败返回**最后一次有意义的失败**（优先保留业务错误，否则网络错误）。
+  Future<EncryptedSubscriptionResult> fetchWithFailOver(
+    String originalSubscribeUrl, {
+    required List<String> candidateHosts,
+    Duration budget = kEncryptedSubscriptionTotalBudget,
+  }) async {
+    // 候选为空 → 原始 URL host 兜底（不替换 host）。
+    if (candidateHosts.isEmpty) {
+      return fetch(originalSubscribeUrl);
+    }
+
+    final deadline = DateTime.now().add(budget);
+    EncryptedSubscriptionResult? lastFailure;
+
+    for (final host in candidateHosts) {
+      if (DateTime.now().isAfter(deadline)) break; // 总预算耗尽。
+      final r = await fetch(originalSubscribeUrl, subscriptionEndpoint: host);
+      if (r.isSuccess) return r;
+
+      // 业务类错误：换 host 无意义，立即返回。
+      if (_isTerminal(r.failure!)) return r;
+
+      // 网络 / 解密类：记录后试下一个 host。
+      lastFailure = r;
+    }
+    // 全部失败 → 返最后一次失败（候选非空时 lastFailure 必非 null）。
+    return lastFailure ??
+        EncryptedSubscriptionResult.failure(
+            EncryptedSubscriptionFailure.network);
+  }
+
+  /// 该失败是否「终态」（换 host 也救不了，应立即停止 failOver）。
+  static bool _isTerminal(EncryptedSubscriptionFailure f) => switch (f) {
+        EncryptedSubscriptionFailure.unauthorized ||
+        EncryptedSubscriptionFailure.noActivePlan ||
+        EncryptedSubscriptionFailure.serverNotConfigured ||
+        EncryptedSubscriptionFailure.noSubscribeUrl =>
+          true,
+        EncryptedSubscriptionFailure.network ||
+        EncryptedSubscriptionFailure.decryptFailed ||
+        EncryptedSubscriptionFailure.unknown =>
+          false,
+      };
+
+  /// 单个加密订阅 URL 的拉取 + 解密（[fetch] / [fetchWithFailOver] 共用核心）。永不抛。
+  Future<EncryptedSubscriptionResult> _fetchOne(String url) async {
     // 1. 拉密文（放行 dio，bytes 响应）。
     Response<List<int>> resp;
     try {

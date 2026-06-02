@@ -68,11 +68,34 @@ class EndpointRaceController {
   /// failOver 串行化锁（B4）：进行中的 failOver 未完成时复用同一 Future。
   Future<void>? _inFlightFailOver;
 
+  /// R4.2：订阅 failOver 串行化锁（与 API failOver 独立，互不阻塞）。
+  Future<void>? _inFlightSubFailOver;
+
   /// 当前 api endpoint（D10：null = 未竞速胜出，调用方回退 endpoints.first）。
   String? get currentApiEndpoint => _currentApi;
 
   /// 当前 subscription endpoint（D10 同上）。
   String? get currentSubscriptionEndpoint => _currentSub;
+
+  /// R4.2：订阅 failOver 候选列表（**已排序 + 去重的 host 串**，供 [EncryptedSubscriptionService]
+  /// 逐个串行拉取）。**不依赖竞速是否跑完**——「列表是输入、竞速是优化」：
+  /// - 竞速选出首发（[_currentSub] 非 null）→ 首发排最前 + 其余按地区顺序当替补（最优）。
+  /// - 竞速未跑 / 未选出（[_currentSub] 为 null）→ 该项被去重逻辑自动跳过，直接用按地区排序的
+  ///   完整列表（D10「current 为 null 用列表」的推广：从「用第一个」推广成「用整串」）。
+  /// - 列表本身为空（config 未解出，仅出厂 fallback）→ 返空列表，调用方退回原始 URL host 兜底。
+  ///
+  /// 排序随 VPN 状态（[_vpnActive]）：VPN 开则海外档在前（[_orderByRegion]）。永不抛、纯读快照
+  /// （不 await 竞速，保持后台静默不卡）。
+  List<String> subscriptionCandidates() {
+    final ordered = _orderByRegion(_subEndpoints);
+    final seen = <String>{};
+    final result = <String>[];
+    for (final url in [?_currentSub, ...ordered]) {
+      if (url.isEmpty || !seen.add(url)) continue;
+      result.add(url);
+    }
+    return result;
+  }
 
   /// 当前 VPN 状态（测试 / 调试可读）。
   bool get vpnActive => _vpnActive;
@@ -157,6 +180,40 @@ class EndpointRaceController {
     }
     // 全不可达 → 完整重竞速兜底。
     await raceApi(_apiEndpoints);
+  }
+
+  /// R4.2：订阅 endpoint failOver —— 当前订阅 host 拉取失败后切到下一个可达者（B4 同款串行化锁）。
+  ///
+  /// 与 [failOverApi] 对称（API 链路 v0.1 已有，订阅链路 v0.2 R4.2 补齐）。调用时机：
+  /// [EncryptedSubscriptionService] 拉订阅串行试穿整个候选列表仍失败后，让控制器探测切换，
+  /// **更新首发地址**，下次刷新直接从新的好地址开始（避免每次都从挂掉的旧首发重试）。
+  Future<void> failOverSubscription() async {
+    final inFlight = _inFlightSubFailOver;
+    if (inFlight != null) return inFlight;
+    final future = _doFailOverSubscription();
+    _inFlightSubFailOver = future;
+    try {
+      await future;
+    } finally {
+      _inFlightSubFailOver = null;
+    }
+  }
+
+  Future<void> _doFailOverSubscription() async {
+    if (_subEndpoints.isEmpty) return;
+    final ordered = _orderByRegion(_subEndpoints)
+        .where((u) => u != _currentSub)
+        .toList();
+    for (final u in ordered) {
+      if (await _probe(u)) {
+        _currentSub = u;
+        onSubscriptionSwitch?.call(u);
+        _recordSwitch();
+        return;
+      }
+    }
+    // 全不可达 → 完整重竞速兜底。
+    await raceSubscription(_subEndpoints);
   }
 
   void _switchApiTo(String endpoint) {

@@ -49,7 +49,6 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
-import 'package:flutter/foundation.dart' show visibleForTesting;
 
 import '../config/bootstrap_constants.dart';
 import '../models/bootstrap_envelope.dart';
@@ -59,7 +58,9 @@ import 'sentry_bootstrap.dart';
 import 'xboard_release_dio.dart';
 
 /// 单个响应字节解析的中间结果（envelope + 识别路径，供 Sentry tag 追溯）。
-@visibleForTesting
+///
+/// R4.1/R4.2：加密订阅复用 [BootstrapFetcher.parseEnvelopeBytes]（同款多档宽容解析），故本类
+/// 与该方法已从 `@visibleForTesting` 提升为 `lib/xboard` 内共享公共 API。
 class BootstrapParseResult {
   const BootstrapParseResult(this.envelope, this.parsePath);
   final BootstrapEnvelope envelope;
@@ -184,7 +185,9 @@ class BootstrapFetcher {
   /// 解析顺序见类注释「内容形态识别」。识别成功携 [BootstrapParseResult.parsePath]（Sentry tag）；
   /// 全部识别策略失败返 null。**安全契约不动**——本方法只产出 envelope，加密格式校验仍由
   /// [BootstrapDecryptor] 严格执行。
-  @visibleForTesting
+  ///
+  /// R4.1/R4.2：加密订阅 [EncryptedSubscriptionService] 复用本方法抽 envelope（已从
+  /// `@visibleForTesting` 提升为 `lib/xboard` 内共享公共 API）。
   static BootstrapParseResult? parseEnvelopeBytes(Uint8List bytes) {
     // 1. 剥 BOM + 解 UTF-8（容错替换非 UTF-8 字节，不在外层包装上报错）。
     final stripped = _stripBom(bytes);
