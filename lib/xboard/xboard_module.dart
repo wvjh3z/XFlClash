@@ -34,6 +34,7 @@ import 'services/bootstrap_fetcher.dart';
 import 'services/bootstrap_local_loader.dart';
 import 'services/endpoint_race_controller.dart';
 import 'services/sentry_bootstrap.dart';
+import 'services/subscription_triggers.dart';
 import 'services/xboard_lifecycle_observer.dart';
 import 'widgets/xboard_consent_dialog.dart' show kXbConsentKey;
 
@@ -51,6 +52,10 @@ class XboardModule {
 
   /// R4.9：isStartProvider（VPN 开关）监听句柄（dispose 时关）。
   static ProviderSubscription<bool>? _vpnStateListener;
+
+  /// R4.6 step2b-fix：authState 监听句柄（登录/冷启动跃迁 → 订阅同步，dispose 时关）。
+  /// **始终存活**（住 module，不依赖任何 UI 页面构建）—— 根治「不进我的服务页订阅不触发」。
+  static ProviderSubscription<AuthState>? _authStateListener;
 
   /// 同步阶段 loadLocal() 解出的本地 payload（异步阶段远端失败时的竞速候选）。
   static BootstrapPayload? _localPayload;
@@ -329,17 +334,52 @@ class XboardModule {
           } catch (_) {}
           container.read(apiEndpointProvider.notifier).set(ep);
           SentryBootstrap.tagEndpoint(current: ep); // DD-23 endpoint.current
+          // R4.6 T5（endpoint 切换）：API endpoint 竞速选中可达地址后触发订阅同步。
+          // **关键修复**：冷启动 T2 sync 可能早于竞速完成 → 用初始(可能死的)endpoint 调
+          // getSubscribeUrl 失败；竞速切到可达 endpoint 后在此重试。gate(authenticated)+
+          // single-flight 保证游客不触发、不重复拉。
+          SubscriptionTriggers.onAuthenticated(container);
         },
         onSubscriptionSwitch: (ep) =>
             container.read(subscriptionEndpointProvider.notifier).set(ep),
       );
       _lifecycleObserver =
-          XboardLifecycleObserver(raceController: _raceController!)..attach();
+          XboardLifecycleObserver(
+        raceController: _raceController!,
+        // R4.6 step2b-fix：切回前台 → 订阅 + 账号刷新（24h 节流内部判定）。始终存活，
+        // 不依赖任何 UI 页面构建。observer 已在监听 resumed 事件，这里把空回调填上。
+        onResumeTimers: () => SubscriptionTriggers.onResume(container),
+      )..attach();
 
       // R4.6 step2a：注入 race controller（订阅服务 provider 据此取 subscriptionCandidates）。
       container
           .read(injectedRaceControllerProvider.notifier)
           .set(_raceController!);
+
+      // R4.6 step2b-fix：监听 authState（T1 登录跃迁 / T2 冷启动恢复）→ 订阅同步。
+      // **关键**：触发接线住 module（始终存活），不再依赖「我的服务」页构建——根治
+      // 「登录后不进我的服务页 → 订阅不导入」的 bug。
+      // 时序：step6 的冷启动 markAuthenticated 已先于此发生 → listen 捕获不到那次跃迁，
+      // 故注册后**立即补查一次**（已 authenticated 就 fire onAuthenticated，覆盖 T2）；
+      // listen 负责后续 T1 登录跃迁。
+      try {
+        _authStateListener = container.listen<AuthState>(
+          authStateProvider,
+          (prev, next) {
+            if (prev != AuthState.authenticated &&
+                next == AuthState.authenticated) {
+              SubscriptionTriggers.onAuthenticated(container);
+            }
+          },
+        );
+        // T2 冷启动补查（step6 已 markAuthenticated，listen 错过该次跃迁）。
+        final authNow = container.read(authStateProvider);
+        if (authNow == AuthState.authenticated) {
+          SubscriptionTriggers.onAuthenticated(container);
+        }
+      } catch (e, s) {
+        debugPrint('[XboardModule] auth-state wire failed: $e\n$s');
+      }
 
       // R4.9：监听 VPN 开关（isStartProvider），变化时让 race controller 用新档位重竞速。
       // 用 fireImmediately 一次性拿初值 + 后续变化（避免单独 read 留挂起 dispose timer）；
@@ -406,11 +446,13 @@ class XboardModule {
     // 1. 先摘 observer（停止接收 lifecycle 事件，避免 race 已 dispose 后还触发竞速）。
     _lifecycleObserver?.dispose();
     _lifecycleObserver = null;
-    // 2. 关 seam #7 initProvider 监听 + R4.9 VPN 状态监听。
+    // 2. 关 seam #7 initProvider 监听 + R4.9 VPN 状态监听 + R4.6 authState 监听。
     _initListener?.close();
     _initListener = null;
     _vpnStateListener?.close();
     _vpnStateListener = null;
+    _authStateListener?.close();
+    _authStateListener = null;
     // 3. dispose endpoint 竞速控制器（最后，前面已无人触发它）。
     _raceController?.dispose();
     _raceController = null;

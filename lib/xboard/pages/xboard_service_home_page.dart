@@ -36,38 +36,15 @@ class XboardServiceHomePage extends ConsumerStatefulWidget {
   ConsumerState<XboardServiceHomePage> createState() => _XboardServiceHomePageState();
 }
 
-class _XboardServiceHomePageState extends ConsumerState<XboardServiceHomePage>
-    with WidgetsBindingObserver {
+class _XboardServiceHomePageState extends ConsumerState<XboardServiceHomePage> {
   bool _consentChecked = false;
   bool _consentGranted = false;
 
   @override
   void initState() {
     super.initState();
-    // R4.6 step2b：onResume 订阅 + 账号刷新（24h 节流，§A）。监听 app 生命周期。
-    WidgetsBinding.instance.addObserver(this);
     // 首帧后检查 consent（需 BuildContext，不能在 build 内弹 dialog）。
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _ensureConsent();
-      // 冷启动若已是 authenticated（bootstrap 恢复登录态，T2）→ 首帧触发一次刷新。
-      if (ref.read(authStateProvider) == AuthState.authenticated) {
-        SubscriptionTriggers.onAuthenticated(ref);
-      }
-    });
-  }
-
-  @override
-  void dispose() {
-    WidgetsBinding.instance.removeObserver(this);
-    super.dispose();
-  }
-
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    // R4.6 step2b：切回前台 → onResume 刷新（24h 节流内部判定）。
-    if (state == AppLifecycleState.resumed) {
-      SubscriptionTriggers.onResume(ref);
-    }
+    WidgetsBinding.instance.addPostFrameCallback((_) => _ensureConsent());
   }
 
   Future<void> _ensureConsent() async {
@@ -86,14 +63,8 @@ class _XboardServiceHomePageState extends ConsumerState<XboardServiceHomePage>
     final firstLaunch = ref.watch(firstLaunchProvider);
     final offline = ref.watch(isOfflineProvider);
     final auth = ref.watch(authStateProvider);
-
-    // R4.6 step2b T1：登录成功（→ authenticated 跃迁）触发订阅 + 账号刷新。
-    ref.listen<AuthState>(authStateProvider, (prev, next) {
-      if (prev != AuthState.authenticated &&
-          next == AuthState.authenticated) {
-        SubscriptionTriggers.onAuthenticated(ref);
-      }
-    });
+    // 注：T1 登录 / T2 冷启动 / onResume 订阅触发已移到 xboard_module（始终存活，
+    // 不依赖本页构建）—— 修复「登录后不进我的服务页订阅不导入」。本页只留 T4 下拉刷新。
 
     return XbBrandTheme(
       brandColor: widget.brandColor,
