@@ -83,6 +83,6 @@ class SubscriptionTriggers {
     _refreshAccount(ref);
   }
 
-  /// 测试可见：重置节流时钟（teardown 用，避免跨用例污染）。
-  static void debugResetThrottle() => _resumeThrottle = null;
+  /// 重置 onResume 节流时钟（退出登录调，避免下个账号被上个账号的节流窗口挡住；测试 teardown 同用）。
+  static void resetResumeThrottle() => _resumeThrottle = null;
 }

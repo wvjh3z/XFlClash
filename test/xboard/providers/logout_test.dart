@@ -12,18 +12,67 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_xboard_sdk/flutter_xboard_sdk.dart' hide AuthState;
 import 'package:mocktail/mocktail.dart';
 
+import 'dart:typed_data';
+
+import 'package:drift/native.dart';
+import 'package:fl_clash/xboard/data/xboard_database.dart';
 import 'package:fl_clash/xboard/providers/auth_state_provider.dart';
+import 'package:fl_clash/xboard/providers/user_profile_provider.dart';
 import 'package:fl_clash/xboard/providers/xboard_providers.dart';
 import 'package:fl_clash/xboard/sdk/xboard_service.dart';
 import 'package:fl_clash/xboard/sdk/xboard_service_impl.dart';
+import 'package:fl_clash/xboard/services/bootstrap_decryptor.dart';
+import 'package:fl_clash/xboard/services/encrypted_subscription_service.dart';
+import 'package:fl_clash/xboard/services/profile_sync_port.dart';
+import 'package:fl_clash/xboard/services/xboard_subscription_service.dart';
 import 'package:fl_clash/xboard/models/xb_domain_error.dart';
 import 'package:fl_clash/xboard/models/xb_result.dart';
+import 'package:fl_clash/xboard/util/pii_mask.dart';
+
+import '../../_fixtures/fake_token_storage.dart';
 
 class _MockService extends Mock implements XboardService {}
 
 class _MockSdk extends Mock implements XBoardSDK {}
 
 class _MockAuthApi extends Mock implements AuthApi {}
+
+/// 内存 fake profile 端口（记录删除调用，验证 step 4）。
+class _FakePort implements ProfileSyncPort {
+  final Map<int, String> profiles = {};
+  final List<int> deleted = [];
+
+  @override
+  Future<int> createAndPutProfile(
+      {required String url, required String label}) async {
+    profiles[999] = url;
+    return 999;
+  }
+
+  @override
+  Future<void> updateProfileUrl(
+      {required int profileId, required String url}) async {}
+
+  @override
+  Future<int> putFileProfile({
+    required int? profileId,
+    required Uint8List yamlBytes,
+    required String label,
+  }) async {
+    final id = profileId ?? 777;
+    profiles[id] = 'file';
+    return id;
+  }
+
+  @override
+  Future<void> deleteProfile(int profileId) async {
+    deleted.add(profileId);
+    profiles.remove(profileId);
+  }
+
+  @override
+  List<int> currentProfileIds() => profiles.keys.toList();
+}
 
 void main() {
   group('AuthStateNotifier.logout 编排（step 6）', () {
@@ -71,6 +120,61 @@ void main() {
 
       expect(c.read(authStateProvider), AuthState.unauthenticated);
       verify(() => service.logout()).called(2); // 各自调用，service 侧 _isLoggingOut 幂等
+    });
+  });
+
+  group('logout step 4：删 file profile + 外挂索引（数据一致性 § B）', () {
+    late _MockService service;
+    late _FakePort port;
+    late XboardDatabase db;
+    late ProviderContainer c;
+    const token = 'tokA';
+
+    setUp(() async {
+      service = _MockService();
+      port = _FakePort();
+      db = XboardDatabase(NativeDatabase.memory());
+      when(() => service.logout())
+          .thenAnswer((_) async => XbResult<void>.success(null));
+
+      // 预置：当前用户 token=tokA 已同步出一个 profile（id=777）+ 索引。
+      final hash = userIdHashFromToken(token);
+      await port.putFileProfile(profileId: null, yamlBytes: Uint8List(0), label: '我的套餐');
+      await db.putIndex(profileId: 777, flavorId: 'brandA', userIdHash: hash);
+
+      final subService = XboardSubscriptionService(
+        service: service,
+        encrypted: EncryptedSubscriptionService(
+            decryptor: BootstrapDecryptor(aesKey: null)),
+        profilePort: port,
+        db: db,
+        tokenStorage: FakeTokenStorage(initialToken: token),
+        flavorId: 'brandA',
+      );
+
+      c = ProviderContainer(overrides: [
+        xboardServiceProvider.overrideWithValue(service),
+        subscriptionServiceProvider.overrideWithValue(subService),
+      ]);
+    });
+    tearDown(() async {
+      c.dispose();
+      await db.close();
+    });
+
+    test('logout → 删 profile 777 + 清索引 + 切 unauthenticated', () async {
+      c.read(authStateProvider.notifier).markAuthenticated();
+
+      await c.read(authStateProvider.notifier).logout();
+
+      // step 4：profile 被删 + 索引清空。
+      expect(port.deleted, contains(777));
+      expect(await db.findProfileId(flavorId: 'brandA', userIdHash: userIdHashFromToken(token)),
+          isNull);
+      // step 5：反腐层 logout 调用。
+      verify(() => service.logout()).called(1);
+      // step 6：切未登录。
+      expect(c.read(authStateProvider), AuthState.unauthenticated);
     });
   });
 

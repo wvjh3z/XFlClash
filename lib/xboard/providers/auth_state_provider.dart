@@ -18,6 +18,8 @@ library;
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../services/sentry_bootstrap.dart';
+import '../services/subscription_triggers.dart';
+import 'user_profile_provider.dart';
 import 'xboard_providers.dart';
 
 part '../generated/providers/auth_state_provider.g.dart';
@@ -62,16 +64,35 @@ class AuthStateNotifier extends _$AuthStateNotifier {
     _set(AuthState.unauthenticated);
   }
 
-  /// R4.5 主动登出编排（数据一致性总章 § B step 6 + idempotency）。
+  /// R4.5 主动登出编排（数据一致性总章 § B step 4-6 + idempotency）。
   ///
-  /// 调反腐层 `logout()`（数据层 step 0 服务端撤销 + step 5 清 token；W4/W6/W7 接入
-  /// 缓存/profile 清理），完成后切 `unauthenticated`（触发 R12 重定向）。
+  /// **清理顺序**（§ B）：
+  /// 1. step 4：删 file profile「我的套餐」+ 外挂索引（`clearForCurrentUser`，**必须在清 token
+  ///    前**——它用当前 token 算 userIdHash 定位 profile；清 token 后 hash 变 null 找不到，
+  ///    会残留上个账号配置 = 多租户泄漏）。
+  /// 2. step 0+2+5：反腐层 `logout()`（服务端撤销 + 清订阅缓存 + 清 token）。
+  /// 3. 清账号信息内存缓存（invalidate `userProfileProvider`，避免下个用户短暂看到上个账号数据）。
+  /// 4. step 6：切 `unauthenticated`（触发 R12 重定向）。
   ///
-  /// **idempotent**：反腐层 logout 永不抛（Property 1），无论成功失败都切 unauthenticated
-  /// （本地态以"已登出"为终态，避免卡在中间态）；重入安全（markUnauthenticated 幂等）。
+  /// **idempotent + 永不抛**：每步独立 try/catch（Property 1）；无论成败都切 unauthenticated
+  /// （本地态以"已登出"为终态，避免卡中间态）；重入安全（markUnauthenticated 幂等）。
   Future<void> logout() async {
-    // 反腐层 logout 永不抛；忽略结果，本地态强制切未登录。
+    // step 4（先于清 token）：删 file profile + 外挂索引。永不抛。
+    try {
+      await ref.read(subscriptionServiceProvider).clearForCurrentUser();
+    } catch (_) {
+      // profile/索引清理失败不阻塞登出（最大努力，§ B 每步独立）。
+    }
+    // step 0+2+5：反腐层 logout（服务端撤销 + 清订阅缓存 + 清 token）。永不抛。
     await ref.read(xboardServiceProvider).logout();
+    // 清账号信息内存缓存（keepAlive provider 不会自动失效）。
+    ref.invalidate(userProfileProvider);
+    // 重建订阅服务（keepAlive 单例 _loggingOut 已置 true，invalidate 让下次登录得新实例，
+    // 避免 _loggingOut 残留永久禁用 sync）。
+    ref.invalidate(subscriptionServiceProvider);
+    // 重置 onResume 24h 节流时钟（下个账号首次 onResume 不被上个账号的节流挡住）。
+    SubscriptionTriggers.resetResumeThrottle();
+    // step 6：切未登录态。
     _set(AuthState.unauthenticated);
   }
 

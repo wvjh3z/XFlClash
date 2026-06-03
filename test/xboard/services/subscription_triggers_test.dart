@@ -40,7 +40,7 @@ void main() {
   setUp(() {
     service = _MockService();
     getSubCalls = 0;
-    SubscriptionTriggers.debugResetThrottle();
+    SubscriptionTriggers.resetResumeThrottle();
     when(() => service.getSubscription()).thenAnswer((_) async {
       getSubCalls++;
       return XbResult.success(

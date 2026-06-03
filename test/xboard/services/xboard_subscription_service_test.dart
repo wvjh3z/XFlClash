@@ -277,6 +277,20 @@ void main() {
     expect(port.profiles.isEmpty, isTrue);
   });
 
+  test('clearForCurrentUser：θ-8 登出后 sync 被 skip（不重建孤儿）', () async {
+    final adapter = _StubAdapter((_) async => _plain(cipher));
+    final s = sut(encWith(adapter));
+    await s.sync(force: true); // 建立 profile
+    expect(port.fileCalls, 1);
+    await s.clearForCurrentUser(); // 删 profile + 置 _loggingOut
+    // 登出后再 sync → skip，不重建 profile。
+    final r = await s.sync(force: true);
+    expect(r, XbSyncOutcome.skipped);
+    expect(port.fileCalls, 1); // 未再写文件
+    final id = await db.findProfileId(flavorId: 'brandA', userIdHash: _hash('tokA'));
+    expect(id, isNull); // 索引未被重建
+  });
+
   test('validateProfileIndex：孤儿索引清理', () async {
     final adapter = _StubAdapter((_) async => _plain(cipher));
     final s = sut(encWith(adapter));

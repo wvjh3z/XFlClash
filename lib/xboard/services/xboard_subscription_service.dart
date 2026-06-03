@@ -69,8 +69,12 @@ class XboardSubscriptionService {
   Completer<XbSyncOutcome>? _inFlight;
   bool _pendingForce = false;
 
+  /// θ-8：退出登录期间为 true —— 新 sync 直接 skip（避免删 profile 后 in-flight sync 重建孤儿）。
+  bool _loggingOut = false;
+
   /// R7 主同步（single-flight + force 队列，§ A）。
   Future<XbSyncOutcome> sync({bool force = false}) async {
+    if (_loggingOut) return XbSyncOutcome.skipped; // 登出期间不同步（θ-8）。
     final inFlight = _inFlight;
     if (inFlight != null) {
       if (force) _pendingForce = true; // 队列上限 1，多个 force 合并。
@@ -156,6 +160,25 @@ class XboardSubscriptionService {
       } catch (_) {}
       await _db.deleteByProfileId(id);
     }
+  }
+
+  /// 退出登录便捷入口（数据一致性 § B step 4）：内部用**当前 token** 算 userIdHash 再删
+  /// profile + 索引。**必须在反腐层 logout 清 token 之前调**（清 token 后 hash 变 null 找不到）。
+  ///
+  /// **θ-8 race 防御**：先置 `_loggingOut`（挡新 sync）→ await 在途 sync 完成（避免它在删除
+  /// 后重建孤儿 profile）→ 再删。删完不复位 flag（本 service 实例随账号生命周期，下次登录
+  /// 新容器/新实例；若同实例复用，bootstrap 重新注入时为新实例）。
+  Future<void> clearForCurrentUser() async {
+    _loggingOut = true;
+    // await 在途 sync 完成（single-flight 的 Completer），避免删后重建。
+    final inFlight = _inFlight;
+    if (inFlight != null) {
+      try {
+        await inFlight.future;
+      } catch (_) {}
+    }
+    final userIdHash = await _currentUserIdHash();
+    await clearForLogout(userIdHash);
   }
 
   /// §C 孤儿索引对账：FlClash 已删但索引仍存的 profileId → 清索引。
