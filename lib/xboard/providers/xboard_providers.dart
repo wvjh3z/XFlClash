@@ -16,11 +16,18 @@
 /// - bootstrapReady / firstLaunch：✅ UI 可 watch
 library;
 
-import 'package:flutter_xboard_sdk/flutter_xboard_sdk.dart' show XBoardSDK;
+import 'package:flutter_xboard_sdk/flutter_xboard_sdk.dart' show TokenStorage, XBoardSDK;
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
+import '../config/xboard_config.dart';
+import '../data/xboard_database.dart';
 import '../sdk/xboard_service.dart';
 import '../sdk/xboard_service_impl.dart';
+import '../services/bootstrap_decryptor.dart';
+import '../services/encrypted_subscription_service.dart';
+import '../services/endpoint_race_controller.dart';
+import '../services/riverpod_profile_sync_port.dart';
+import '../services/xboard_subscription_service.dart';
 
 part '../generated/providers/xboard_providers.g.dart';
 
@@ -99,4 +106,72 @@ XboardService xboardService(Ref ref) {
     );
   }
   return XboardServiceImpl(sdk: sdk);
+}
+
+// ───────── R4.6 step2a：订阅同步地基 provider ─────────
+
+/// 注入的 TokenStorage（bootstrap step4 写真实实现：SecureStorage / AES-SharedPrefs / Memory）。
+///
+/// 订阅同步服务用它取 userIdHash（profile 外挂索引绑定，C7 退出登录删）。null = bootstrap 未
+/// 注入（测试 / 早期）→ 订阅服务 provider 不可用（callers 先 gate authenticated 隐含已注入）。
+@Riverpod(keepAlive: true)
+class InjectedTokenStorage extends _$InjectedTokenStorage {
+  @override
+  TokenStorage? build() => null;
+
+  // ignore: use_setters_to_change_properties
+  void set(TokenStorage storage) => state = storage;
+}
+
+/// 注入的 endpoint 竞速控制器（bootstrap step7 写）。订阅服务读它取 `subscriptionCandidates()`
+/// （R4.2 竞速候选 host 串）。null = 未就绪 → 候选为空（[EncryptedSubscriptionService] 退回原 URL host 兜底）。
+@Riverpod(keepAlive: true)
+class InjectedRaceController extends _$InjectedRaceController {
+  @override
+  EndpointRaceController? build() => null;
+
+  // ignore: use_setters_to_change_properties
+  void set(EndpointRaceController controller) => state = controller;
+}
+
+/// Xboard 外挂索引数据库（决策 #3 / R7.6）—— keepAlive 单例，dispose 时关闭。
+@Riverpod(keepAlive: true)
+XboardDatabase xboardDatabase(Ref ref) {
+  final db = XboardDatabase();
+  ref.onDispose(db.close);
+  return db;
+}
+
+/// R4.1/R4.2 加密订阅拉取服务（decryptor 用订阅 AES key，未注入则 fallback bootstrap key）。
+@Riverpod(keepAlive: true)
+EncryptedSubscriptionService encryptedSubscriptionService(Ref ref) {
+  final decryptor = BootstrapDecryptor(
+      aesKey: XboardConfig.current.effectiveSubscriptionAesKeyBytes);
+  return EncryptedSubscriptionService(decryptor: decryptor);
+}
+
+/// R4.6 订阅自动同步服务（组装：反腐层 + 加密订阅 + profile 端口 + DB + tokenStorage + 竞速候选）。
+///
+/// **gate**：依赖 `xboardServiceProvider`（SDK 未就绪抛 StateError）+ tokenStorage 已注入
+/// （未注入抛 StateError）；callers 先 gate authenticated（隐含 bootstrap 完成 + token 注入）。
+@Riverpod(keepAlive: true)
+XboardSubscriptionService subscriptionService(Ref ref) {
+  final tokenStorage = ref.watch(injectedTokenStorageProvider);
+  if (tokenStorage == null) {
+    throw StateError(
+      'subscriptionService 在 tokenStorage 注入前被访问 —— 应先 gate bootstrap 完成',
+    );
+  }
+  return XboardSubscriptionService(
+    service: ref.watch(xboardServiceProvider),
+    encrypted: ref.watch(encryptedSubscriptionServiceProvider),
+    profilePort: RiverpodProfileSyncPort(ref),
+    db: ref.watch(xboardDatabaseProvider),
+    tokenStorage: tokenStorage,
+    flavorId: XboardConfig.current.flavorId,
+    // R4.2：竞速候选 host 串（首发在前 + 地区序替补）；竞速未就绪 → 空（退回原 URL host 兜底）。
+    subscriptionCandidates: () =>
+        ref.read(injectedRaceControllerProvider)?.subscriptionCandidates() ??
+        const <String>[],
+  );
 }

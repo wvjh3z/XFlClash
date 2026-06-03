@@ -397,3 +397,301 @@ final class XboardServiceProvider
 }
 
 String _$xboardServiceHash() => r'24045bd92428eca0faf65f86c90564595add1487';
+
+/// 注入的 TokenStorage（bootstrap step4 写真实实现：SecureStorage / AES-SharedPrefs / Memory）。
+///
+/// 订阅同步服务用它取 userIdHash（profile 外挂索引绑定，C7 退出登录删）。null = bootstrap 未
+/// 注入（测试 / 早期）→ 订阅服务 provider 不可用（callers 先 gate authenticated 隐含已注入）。
+
+@ProviderFor(InjectedTokenStorage)
+final injectedTokenStorageProvider = InjectedTokenStorageProvider._();
+
+/// 注入的 TokenStorage（bootstrap step4 写真实实现：SecureStorage / AES-SharedPrefs / Memory）。
+///
+/// 订阅同步服务用它取 userIdHash（profile 外挂索引绑定，C7 退出登录删）。null = bootstrap 未
+/// 注入（测试 / 早期）→ 订阅服务 provider 不可用（callers 先 gate authenticated 隐含已注入）。
+final class InjectedTokenStorageProvider
+    extends $NotifierProvider<InjectedTokenStorage, TokenStorage?> {
+  /// 注入的 TokenStorage（bootstrap step4 写真实实现：SecureStorage / AES-SharedPrefs / Memory）。
+  ///
+  /// 订阅同步服务用它取 userIdHash（profile 外挂索引绑定，C7 退出登录删）。null = bootstrap 未
+  /// 注入（测试 / 早期）→ 订阅服务 provider 不可用（callers 先 gate authenticated 隐含已注入）。
+  InjectedTokenStorageProvider._()
+    : super(
+        from: null,
+        argument: null,
+        retry: null,
+        name: r'injectedTokenStorageProvider',
+        isAutoDispose: false,
+        dependencies: null,
+        $allTransitiveDependencies: null,
+      );
+
+  @override
+  String debugGetCreateSourceHash() => _$injectedTokenStorageHash();
+
+  @$internal
+  @override
+  InjectedTokenStorage create() => InjectedTokenStorage();
+
+  /// {@macro riverpod.override_with_value}
+  Override overrideWithValue(TokenStorage? value) {
+    return $ProviderOverride(
+      origin: this,
+      providerOverride: $SyncValueProvider<TokenStorage?>(value),
+    );
+  }
+}
+
+String _$injectedTokenStorageHash() =>
+    r'cf6e5bfde6e63e3b5604f1114f1d3c1f5b892055';
+
+/// 注入的 TokenStorage（bootstrap step4 写真实实现：SecureStorage / AES-SharedPrefs / Memory）。
+///
+/// 订阅同步服务用它取 userIdHash（profile 外挂索引绑定，C7 退出登录删）。null = bootstrap 未
+/// 注入（测试 / 早期）→ 订阅服务 provider 不可用（callers 先 gate authenticated 隐含已注入）。
+
+abstract class _$InjectedTokenStorage extends $Notifier<TokenStorage?> {
+  TokenStorage? build();
+  @$mustCallSuper
+  @override
+  void runBuild() {
+    final ref = this.ref as $Ref<TokenStorage?, TokenStorage?>;
+    final element =
+        ref.element
+            as $ClassProviderElement<
+              AnyNotifier<TokenStorage?, TokenStorage?>,
+              TokenStorage?,
+              Object?,
+              Object?
+            >;
+    element.handleCreate(ref, build);
+  }
+}
+
+/// 注入的 endpoint 竞速控制器（bootstrap step7 写）。订阅服务读它取 `subscriptionCandidates()`
+/// （R4.2 竞速候选 host 串）。null = 未就绪 → 候选为空（[EncryptedSubscriptionService] 退回原 URL host 兜底）。
+
+@ProviderFor(InjectedRaceController)
+final injectedRaceControllerProvider = InjectedRaceControllerProvider._();
+
+/// 注入的 endpoint 竞速控制器（bootstrap step7 写）。订阅服务读它取 `subscriptionCandidates()`
+/// （R4.2 竞速候选 host 串）。null = 未就绪 → 候选为空（[EncryptedSubscriptionService] 退回原 URL host 兜底）。
+final class InjectedRaceControllerProvider
+    extends $NotifierProvider<InjectedRaceController, EndpointRaceController?> {
+  /// 注入的 endpoint 竞速控制器（bootstrap step7 写）。订阅服务读它取 `subscriptionCandidates()`
+  /// （R4.2 竞速候选 host 串）。null = 未就绪 → 候选为空（[EncryptedSubscriptionService] 退回原 URL host 兜底）。
+  InjectedRaceControllerProvider._()
+    : super(
+        from: null,
+        argument: null,
+        retry: null,
+        name: r'injectedRaceControllerProvider',
+        isAutoDispose: false,
+        dependencies: null,
+        $allTransitiveDependencies: null,
+      );
+
+  @override
+  String debugGetCreateSourceHash() => _$injectedRaceControllerHash();
+
+  @$internal
+  @override
+  InjectedRaceController create() => InjectedRaceController();
+
+  /// {@macro riverpod.override_with_value}
+  Override overrideWithValue(EndpointRaceController? value) {
+    return $ProviderOverride(
+      origin: this,
+      providerOverride: $SyncValueProvider<EndpointRaceController?>(value),
+    );
+  }
+}
+
+String _$injectedRaceControllerHash() =>
+    r'74977d64498904fbdbf882534845a65978fed66e';
+
+/// 注入的 endpoint 竞速控制器（bootstrap step7 写）。订阅服务读它取 `subscriptionCandidates()`
+/// （R4.2 竞速候选 host 串）。null = 未就绪 → 候选为空（[EncryptedSubscriptionService] 退回原 URL host 兜底）。
+
+abstract class _$InjectedRaceController
+    extends $Notifier<EndpointRaceController?> {
+  EndpointRaceController? build();
+  @$mustCallSuper
+  @override
+  void runBuild() {
+    final ref =
+        this.ref as $Ref<EndpointRaceController?, EndpointRaceController?>;
+    final element =
+        ref.element
+            as $ClassProviderElement<
+              AnyNotifier<EndpointRaceController?, EndpointRaceController?>,
+              EndpointRaceController?,
+              Object?,
+              Object?
+            >;
+    element.handleCreate(ref, build);
+  }
+}
+
+/// Xboard 外挂索引数据库（决策 #3 / R7.6）—— keepAlive 单例，dispose 时关闭。
+
+@ProviderFor(xboardDatabase)
+final xboardDatabaseProvider = XboardDatabaseProvider._();
+
+/// Xboard 外挂索引数据库（决策 #3 / R7.6）—— keepAlive 单例，dispose 时关闭。
+
+final class XboardDatabaseProvider
+    extends $FunctionalProvider<XboardDatabase, XboardDatabase, XboardDatabase>
+    with $Provider<XboardDatabase> {
+  /// Xboard 外挂索引数据库（决策 #3 / R7.6）—— keepAlive 单例，dispose 时关闭。
+  XboardDatabaseProvider._()
+    : super(
+        from: null,
+        argument: null,
+        retry: null,
+        name: r'xboardDatabaseProvider',
+        isAutoDispose: false,
+        dependencies: null,
+        $allTransitiveDependencies: null,
+      );
+
+  @override
+  String debugGetCreateSourceHash() => _$xboardDatabaseHash();
+
+  @$internal
+  @override
+  $ProviderElement<XboardDatabase> $createElement($ProviderPointer pointer) =>
+      $ProviderElement(pointer);
+
+  @override
+  XboardDatabase create(Ref ref) {
+    return xboardDatabase(ref);
+  }
+
+  /// {@macro riverpod.override_with_value}
+  Override overrideWithValue(XboardDatabase value) {
+    return $ProviderOverride(
+      origin: this,
+      providerOverride: $SyncValueProvider<XboardDatabase>(value),
+    );
+  }
+}
+
+String _$xboardDatabaseHash() => r'230d61eb32c0427bf8d4dacac9c89573752e2600';
+
+/// R4.1/R4.2 加密订阅拉取服务（decryptor 用订阅 AES key，未注入则 fallback bootstrap key）。
+
+@ProviderFor(encryptedSubscriptionService)
+final encryptedSubscriptionServiceProvider =
+    EncryptedSubscriptionServiceProvider._();
+
+/// R4.1/R4.2 加密订阅拉取服务（decryptor 用订阅 AES key，未注入则 fallback bootstrap key）。
+
+final class EncryptedSubscriptionServiceProvider
+    extends
+        $FunctionalProvider<
+          EncryptedSubscriptionService,
+          EncryptedSubscriptionService,
+          EncryptedSubscriptionService
+        >
+    with $Provider<EncryptedSubscriptionService> {
+  /// R4.1/R4.2 加密订阅拉取服务（decryptor 用订阅 AES key，未注入则 fallback bootstrap key）。
+  EncryptedSubscriptionServiceProvider._()
+    : super(
+        from: null,
+        argument: null,
+        retry: null,
+        name: r'encryptedSubscriptionServiceProvider',
+        isAutoDispose: false,
+        dependencies: null,
+        $allTransitiveDependencies: null,
+      );
+
+  @override
+  String debugGetCreateSourceHash() => _$encryptedSubscriptionServiceHash();
+
+  @$internal
+  @override
+  $ProviderElement<EncryptedSubscriptionService> $createElement(
+    $ProviderPointer pointer,
+  ) => $ProviderElement(pointer);
+
+  @override
+  EncryptedSubscriptionService create(Ref ref) {
+    return encryptedSubscriptionService(ref);
+  }
+
+  /// {@macro riverpod.override_with_value}
+  Override overrideWithValue(EncryptedSubscriptionService value) {
+    return $ProviderOverride(
+      origin: this,
+      providerOverride: $SyncValueProvider<EncryptedSubscriptionService>(value),
+    );
+  }
+}
+
+String _$encryptedSubscriptionServiceHash() =>
+    r'ddfe859e48bb3bd9c00e9b868c0ad229ba5419fb';
+
+/// R4.6 订阅自动同步服务（组装：反腐层 + 加密订阅 + profile 端口 + DB + tokenStorage + 竞速候选）。
+///
+/// **gate**：依赖 `xboardServiceProvider`（SDK 未就绪抛 StateError）+ tokenStorage 已注入
+/// （未注入抛 StateError）；callers 先 gate authenticated（隐含 bootstrap 完成 + token 注入）。
+
+@ProviderFor(subscriptionService)
+final subscriptionServiceProvider = SubscriptionServiceProvider._();
+
+/// R4.6 订阅自动同步服务（组装：反腐层 + 加密订阅 + profile 端口 + DB + tokenStorage + 竞速候选）。
+///
+/// **gate**：依赖 `xboardServiceProvider`（SDK 未就绪抛 StateError）+ tokenStorage 已注入
+/// （未注入抛 StateError）；callers 先 gate authenticated（隐含 bootstrap 完成 + token 注入）。
+
+final class SubscriptionServiceProvider
+    extends
+        $FunctionalProvider<
+          XboardSubscriptionService,
+          XboardSubscriptionService,
+          XboardSubscriptionService
+        >
+    with $Provider<XboardSubscriptionService> {
+  /// R4.6 订阅自动同步服务（组装：反腐层 + 加密订阅 + profile 端口 + DB + tokenStorage + 竞速候选）。
+  ///
+  /// **gate**：依赖 `xboardServiceProvider`（SDK 未就绪抛 StateError）+ tokenStorage 已注入
+  /// （未注入抛 StateError）；callers 先 gate authenticated（隐含 bootstrap 完成 + token 注入）。
+  SubscriptionServiceProvider._()
+    : super(
+        from: null,
+        argument: null,
+        retry: null,
+        name: r'subscriptionServiceProvider',
+        isAutoDispose: false,
+        dependencies: null,
+        $allTransitiveDependencies: null,
+      );
+
+  @override
+  String debugGetCreateSourceHash() => _$subscriptionServiceHash();
+
+  @$internal
+  @override
+  $ProviderElement<XboardSubscriptionService> $createElement(
+    $ProviderPointer pointer,
+  ) => $ProviderElement(pointer);
+
+  @override
+  XboardSubscriptionService create(Ref ref) {
+    return subscriptionService(ref);
+  }
+
+  /// {@macro riverpod.override_with_value}
+  Override overrideWithValue(XboardSubscriptionService value) {
+    return $ProviderOverride(
+      origin: this,
+      providerOverride: $SyncValueProvider<XboardSubscriptionService>(value),
+    );
+  }
+}
+
+String _$subscriptionServiceHash() =>
+    r'e83e51769eed41263c625fc502ec47113a3ee220';

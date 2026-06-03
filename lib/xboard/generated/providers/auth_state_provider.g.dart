@@ -50,7 +50,7 @@ final class AuthStateNotifierProvider
   }
 }
 
-String _$authStateNotifierHash() => r'35bb9ef0b6b345b7e1ba35bb44fb7aa2387931dc';
+String _$authStateNotifierHash() => r'08ecb6c62850202e49c6616c816963a0a32c24d5';
 
 /// 登录态 provider（keepAlive，DD-19）。
 ///

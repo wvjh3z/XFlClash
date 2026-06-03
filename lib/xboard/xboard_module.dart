@@ -25,7 +25,9 @@ import '../providers/state.dart' show isStartProvider;
 import 'config/xboard_config.dart';
 import 'l10n/content_language.dart';
 import 'models/bootstrap_payload.dart';
+import 'providers/auth_state_provider.dart';
 import 'providers/xboard_providers.dart';
+import 'sdk/secure_storage_token_storage.dart';
 import 'services/bootstrap_decryptor.dart';
 import 'services/bootstrap_fetcher.dart';
 import 'services/bootstrap_local_loader.dart';
@@ -158,7 +160,7 @@ class XboardModule {
     SentryBootstrap.tagBootstrap(stage: 'async_done');
   }
 
-  /// R4.7：合并镜像列表 —— 缓存的 next_bootstrap_urls 优先，编译期 flavor bootstrapUrls 兜底，去重保序。
+  /// R4.6 step2a：合并镜像列表 —— 缓存的 next_bootstrap_urls 优先，编译期 flavor bootstrapUrls 兜底，去重保序。
   static List<String> _mergeMirrors(List<String> cached, List<String> flavor) {
     final seen = <String>{};
     final merged = <String>[];
@@ -170,6 +172,33 @@ class XboardModule {
     return merged;
   }
 
+  /// R4.6 step2a：解析生产 TokenStorage。
+  /// - 显式注入（测试 fake / 调用方传）→ 原样用。
+  /// - 测试环境（kIsTest）→ null（step4 走 useMemoryStorage）。
+  /// - 生产 → `SecureStorageTokenStorage.create`（fallback AES key = bootstrap key；
+  ///   Linux 不可用降级 AES-SharedPrefs，ζ1）。AES key 缺失（未注入）→ null（SDK 自带兜底）。
+  /// 永不抛（DD-2）：创建失败返 null（降级 SDK 自带存储，登录态不持久化但不崩）。
+  static Future<TokenStorage?> _resolveTokenStorage(
+      TokenStorage? injected, XboardConfig config) async {
+    if (injected != null) return injected;
+    if (config.kIsTest) return null;
+    final keyBytes = config.bootstrapAesKeyBytes;
+    if (keyBytes == null || keyBytes.length != 32) {
+      debugPrint('[XboardModule] no AES key → token storage 降级 SDK 自带（不持久化）');
+      return null;
+    }
+    try {
+      return await SecureStorageTokenStorage.create(
+        fallbackAesKey: Uint8List.fromList(keyBytes),
+        onDegraded: () => debugPrint(
+            '[XboardModule] secure_storage 不可用 → 降级 AES-SharedPrefs（ζ1）'),
+      );
+    } catch (e, s) {
+      debugPrint('[XboardModule] token storage create failed: $e\n$s');
+      return null;
+    }
+  }
+
   /// 同步阶段 step 0-8（design §I / L168-247）。
   static Future<void> _bootstrapSyncPhase(
     ProviderContainer container, {
@@ -178,13 +207,26 @@ class XboardModule {
     XboardConfig? config,
     EndpointProbe? debugProbe,
   }) async {
-    // step 0：firstLaunch 检测（合规 § F / § J，W4.6 填实）。
+    // step 1（前移）：加载 flavor 配置。生产由接缝点 #1 传 XboardConfig.fromEnvironment()
+    // （dart-define 编译期值，W8.5）→ 此处 bind；测试不传 config，沿用测试前 bind 的实例。
+    // 前移到 step 0 之前：tokenStorage 解析（生产 SecureStorage）需要 config 的 AES key + kIsTest。
+    if (config != null) {
+      XboardConfig.bind(config);
+    }
+    final activeConfig = XboardConfig.current;
+
+    // R4.6 step2a：解析 TokenStorage。
+    // - 显式注入（测试 fake / 调用方传）→ 用注入的。
+    // - 测试环境（kIsTest）→ null（step4 走 useMemoryStorage，SDK 自带）。
+    // - 生产 → SecureStorageTokenStorage.create（Linux 不可用降级 AES-SharedPrefs，ζ1）。
+    final resolvedTokenStorage =
+        await _resolveTokenStorage(tokenStorage, activeConfig);
+
+    // step 0：firstLaunch 检测（合规 § F / § J）。
     // 「首次进入 Xboard 模块」= 无鉴权 token **且** 无 consent 记录（xb_consent_v1）。
-    // 两者都缺 → 用户从没用过「我的服务」→ firstLaunch=true（驱动首次离线提示页 §F）。
-    // 任一存在（有 token / 同意过）→ 非首次。tokenStorage 为 null（W1 早期/测试）时跳过检测。
-    if (tokenStorage != null) {
+    if (resolvedTokenStorage != null) {
       try {
-        final hasToken = (await tokenStorage.readToken()) != null;
+        final hasToken = (await resolvedTokenStorage.readToken()) != null;
         final prefs = await SharedPreferences.getInstance();
         final hasConsent = prefs.containsKey(kXbConsentKey);
         if (!hasToken && !hasConsent) {
@@ -195,13 +237,6 @@ class XboardModule {
         debugPrint('[XboardModule] firstLaunch detect failed: $e\n$s');
       }
     }
-
-    // step 1：加载 flavor 配置。生产由接缝点 #1 传 XboardConfig.fromEnvironment()（dart-define
-    // 编译期值，W8.5）→ 此处 bind；测试不传 config，沿用测试前 bind 的实例 / 占位默认。
-    if (config != null) {
-      XboardConfig.bind(config);
-    }
-    final activeConfig = XboardConfig.current;
 
     // DD-23：flavor.id + bootstrap 起始阶段 tag（W5.7 / λ-4）。
     SentryBootstrap.tagFlavor(activeConfig.flavorId);
@@ -234,8 +269,8 @@ class XboardModule {
     await instance.initialize(
       apiEndpoint,
       panelType: 'xboard',
-      customStorage: tokenStorage, // null → SDK 自带；测试注入 fake / W3.1 注入 SecureStorage
-      useMemoryStorage: tokenStorage == null && activeConfig.kIsTest,
+      customStorage: resolvedTokenStorage, // 生产 SecureStorage / 测试 fake；null → SDK 自带
+      useMemoryStorage: resolvedTokenStorage == null && activeConfig.kIsTest,
       userAgent: activeConfig.subscribeUserAgent,
       enableLogging: activeConfig.debug,
     );
@@ -264,6 +299,21 @@ class XboardModule {
     container.read(xboardSdkProvider.notifier).set(instance);
     container.read(bootstrapReadyProvider.notifier).set(true);
 
+    // R4.6 step2a：注入 TokenStorage（订阅服务 provider 据此取 userIdHash）+ 冷启动登录态恢复。
+    if (resolvedTokenStorage != null) {
+      container.read(injectedTokenStorageProvider.notifier).set(resolvedTokenStorage);
+      // 冷启动登录态恢复（v0.1 欠账补齐）：有持久化 token → 标记 authenticated，
+      // 驱动 T2「已登录冷启动」自动同步订阅（接线层 listen authState 触发）。永不抛。
+      try {
+        final hasToken = (await resolvedTokenStorage.readToken()) != null;
+        if (hasToken) {
+          container.read(authStateProvider.notifier).markAuthenticated();
+        }
+      } catch (e, s) {
+        debugPrint('[XboardModule] auth restore failed: $e\n$s');
+      }
+    }
+
     // step 7：XboardLifecycleObserver（W5.3）—— 自挂 observer + endpoint 竞速控制器。
     // 各子步骤独立 try/catch：一个失败（如 test 无 WidgetsBinding）不阻断其余（含 seam #7）。
     try {
@@ -281,6 +331,11 @@ class XboardModule {
       );
       _lifecycleObserver =
           XboardLifecycleObserver(raceController: _raceController!)..attach();
+
+      // R4.6 step2a：注入 race controller（订阅服务 provider 据此取 subscriptionCandidates）。
+      container
+          .read(injectedRaceControllerProvider.notifier)
+          .set(_raceController!);
 
       // R4.9：监听 VPN 开关（isStartProvider），变化时让 race controller 用新档位重竞速。
       // 用 fireImmediately 一次性拿初值 + 后续变化（避免单独 read 留挂起 dispose timer）；
