@@ -59,6 +59,10 @@ class RiverpodProfileSyncPort implements ProfileSyncPort {
   }) async {
     // file 型 profile：url 留空（ProfileType.file），明文 bytes 经 saveFile（validateConfig +
     // 写 $id.yaml）。core 从文件路径加载，不重拉 url（R4.5 查证）。
+    //
+    // **真机查证（2026-06-03）**：`saveFile` → `coreController.validateConfig` 走 Go 核心，
+    // **会阻塞直到 core 就绪**（不抛错、不丢配置）；冷启动早于 core 连接时本调用挂起等待，
+    // core 起来后自动返回完成（已实测：写出 file profile「我的套餐」并激活）。后台静默无害。
     final profiles = _ref.read(profilesProvider);
     final existing =
         profileId == null ? null : profiles.where((p) => p.id == profileId).firstOrNull;
