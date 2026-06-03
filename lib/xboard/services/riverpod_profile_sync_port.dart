@@ -7,8 +7,8 @@
 ///
 /// **R4.1 文件化订阅**（`putFileProfile`）：SDK 自拉密文 → 解密 → 明文 YAML 字节经
 /// `Profile.saveFile(bytes)`（现成公开方法：validateConfig 校验 + 写 `$id.yaml`）写 file 型
-/// profile（url=''）；新建走 putProfile first-win，覆写走 setProfileAndAutoApply（active 时
-/// applyProfileDebounce 通知 core 重载）。**零改上游**——saveFile/setProfileAndAutoApply 均现成。
+/// profile（url=''）；入库 → 设 currentProfileId → **仅在 initProvider==true 时** apply
+/// （核心未就绪时靠 initStatus 的 force:true 自然加载）。**零改上游**。
 ///
 /// **错误形态**（R7.9 / F278）：`Profile.update()` 失败抛本地化中文字符串（非结构化异常），
 /// 调用方（XboardSubscriptionService）catch 后归一为 XbSyncOutcome.failed。
@@ -21,7 +21,9 @@ import 'package:fl_clash/common/path.dart' show appPath;
 import 'package:fl_clash/models/profile.dart';
 import 'package:fl_clash/providers/database.dart' show profilesProvider;
 import 'package:fl_clash/providers/config.dart' show currentProfileIdProvider;
-import 'package:fl_clash/providers/action.dart' show profilesActionProvider;
+import 'package:fl_clash/providers/app.dart' show initProvider;
+import 'package:fl_clash/providers/action.dart'
+    show profilesActionProvider, setupActionProvider;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'profile_sync_port.dart';
@@ -69,17 +71,36 @@ class RiverpodProfileSyncPort implements ProfileSyncPort {
     final existing =
         profileId == null ? null : profiles.where((p) => p.id == profileId).firstOrNull;
 
+    final Profile saved;
     if (existing != null) {
-      // 原地覆写：保留 id + 选择态，写新明文文件 → 若是当前 active 则 applyProfileDebounce 重载。
-      final saved = await existing.copyWith(label: label).saveFile(yamlBytes);
-      _ref.read(profilesActionProvider.notifier).setProfileAndAutoApply(saved);
-      return saved.id;
+      // 原地覆写：保留 id + 选择态，写新明文文件。
+      saved = await existing.copyWith(label: label).saveFile(yamlBytes);
+      _ref.read(profilesProvider.notifier).put(saved);
+    } else {
+      // 新建 file 型 profile（url=''）→ saveFile → 入库。
+      saved = await Profile.normal(label: label).saveFile(yamlBytes);
+      _ref.read(profilesProvider.notifier).put(saved);
     }
 
-    // 新建 file 型 profile（url=''）→ saveFile → putProfile first-win 激活。
-    final profile = await Profile.normal(label: label).saveFile(yamlBytes);
-    _ref.read(profilesActionProvider.notifier).putProfile(profile);
-    return profile.id;
+    // 🔴 强制激活 + 时序安全（2026-06-04 二修）：
+    // 问题：`applyProfileDebounce` 触发的 setup 流程中 `getConfig` 需要 Go 核心响应。冷启动
+    // 早期核心 IPC 未连接时，`getConfig` 的 `_invoke` 10 秒超时返回 null → 上层把 null 当
+    // "空配置成功" → 写出空 config.yaml → 代理页 0 节点。
+    //
+    // 修复：
+    // 1. **立即**设 currentProfileId 指向本 profile（保证 FlClash 知道该用哪个 profile）。
+    // 2. 只在 `initProvider == true`（核心已连接 + 就绪）时才主动 `applyProfileDebounce`。
+    // 3. 若核心未就绪，**不主动 apply**——`_initApp` 末尾的 `initStatus` 会在核心 ready 后
+    //    自然触发 `applyProfile(force:true)` 加载当前 profile（此时我们已设好 currentProfileId）。
+    //
+    // 效果：文件照常写（saveFile 内部 validateConfig 本身会等核心），profile 入库 + 设 current
+    // 都不受核心影响；只有真正的 setup（需要 getConfig 完整解析）才等核心 ready 后跑。
+    _ref.read(currentProfileIdProvider.notifier).value = saved.id;
+    if (_ref.read(initProvider)) {
+      _ref.read(setupActionProvider.notifier).applyProfileDebounce(silence: true);
+    }
+    // else: 核心未就绪 → 不触发 setup。initStatus 会在核心 ready 后用 force:true 加载。
+    return saved.id;
   }
 
   @override
