@@ -2,6 +2,7 @@
 /// 拉密文→解密→putFileProfile + 候选 failOver + 错误分流 + logout/孤儿对账。
 library;
 
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
@@ -289,6 +290,22 @@ void main() {
     expect(port.fileCalls, 1); // 未再写文件
     final id = await db.findProfileId(flavorId: 'brandA', userIdHash: _hash('tokA'));
     expect(id, isNull); // 索引未被重建
+  });
+
+  test('clearForCurrentUser：不阻塞——在途 sync 慢也立即返回', () async {
+    // getSubscribeUrl 慢 1s 模拟在途 sync 卡住；clearForCurrentUser 不应 await 它。
+    when(() => service.getSubscribeUrl()).thenAnswer((_) async {
+      await Future<void>.delayed(const Duration(seconds: 1));
+      return XbResult.success('https://orig.com/thunder/tok');
+    });
+    final adapter = _StubAdapter((_) async => _plain(cipher));
+    final s = sut(encWith(adapter));
+    unawaited(s.sync(force: true)); // 启动慢 sync（不 await）
+    await Future<void>.delayed(const Duration(milliseconds: 20)); // 让它进 in-flight
+    final sw = Stopwatch()..start();
+    await s.clearForCurrentUser(); // 不应等 1s
+    sw.stop();
+    expect(sw.elapsedMilliseconds, lessThan(500)); // 立即返回（远小于 1s）
   });
 
   test('validateProfileIndex：孤儿索引清理', () async {

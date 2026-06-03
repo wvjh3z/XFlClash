@@ -124,6 +124,9 @@ class XboardSubscriptionService {
     }
 
     // 3. 写 file 型 profile（明文 YAML 字节）+ 维护外挂索引（去重：同用户同 flavor 一个 profile）。
+    // θ-8：写文件前再查一次登出 flag——若登出已发起，**不写**（避免删 profile 后又被本次 in-flight
+    // sync 重建孤儿）。logout 不 await 本 sync（slow validateConfig 可能数分钟），靠此 flag 收口。
+    if (_loggingOut) return XbSyncOutcome.skipped;
     final userIdHash = await _currentUserIdHash();
     final existingId =
         await _db.findProfileId(flavorId: _flavorId, userIdHash: userIdHash);
@@ -134,6 +137,13 @@ class XboardSubscriptionService {
         yamlBytes: result.yamlBytes!,
         label: '我的套餐',
       );
+      // putFileProfile 期间（validateConfig 可能数分钟）若登出已发起 → 撤销刚写的 profile + 不写索引。
+      if (_loggingOut) {
+        try {
+          await _port.deleteProfile(newId);
+        } catch (_) {}
+        return XbSyncOutcome.skipped;
+      }
       if (!live) {
         await _db.putIndex(
             profileId: newId, flavorId: _flavorId, userIdHash: userIdHash);
@@ -165,18 +175,13 @@ class XboardSubscriptionService {
   /// 退出登录便捷入口（数据一致性 § B step 4）：内部用**当前 token** 算 userIdHash 再删
   /// profile + 索引。**必须在反腐层 logout 清 token 之前调**（清 token 后 hash 变 null 找不到）。
   ///
-  /// **θ-8 race 防御**：先置 `_loggingOut`（挡新 sync）→ await 在途 sync 完成（避免它在删除
-  /// 后重建孤儿 profile）→ 再删。删完不复位 flag（本 service 实例随账号生命周期，下次登录
-  /// 新容器/新实例；若同实例复用，bootstrap 重新注入时为新实例）。
+  /// **θ-8 race 防御（不阻塞）**：先置 `_loggingOut`——挡新 sync + 让在途 sync 在写文件前/后
+  /// 自查 flag 跳过或自撤销（见 `_doSync`）。**不 await 在途 sync**（其 validateConfig 可能数分钟，
+  /// await 会让登出卡死）。立即删当前 userIdHash 的 profile + 索引；在途 sync 即便晚于此完成，
+  /// 也因 flag 不会重建（它会 deleteProfile 自己刚写的 + 不写索引）。删完不复位 flag——logout
+  /// 编排随后 invalidate `subscriptionServiceProvider` 重建实例，下次登录得干净的新实例。
   Future<void> clearForCurrentUser() async {
     _loggingOut = true;
-    // await 在途 sync 完成（single-flight 的 Completer），避免删后重建。
-    final inFlight = _inFlight;
-    if (inFlight != null) {
-      try {
-        await inFlight.future;
-      } catch (_) {}
-    }
     final userIdHash = await _currentUserIdHash();
     await clearForLogout(userIdHash);
   }

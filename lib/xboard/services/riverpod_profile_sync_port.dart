@@ -14,8 +14,10 @@
 /// 调用方（XboardSubscriptionService）catch 后归一为 XbSyncOutcome.failed。
 library;
 
+import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:fl_clash/common/path.dart' show appPath;
 import 'package:fl_clash/models/profile.dart';
 import 'package:fl_clash/providers/database.dart' show profilesProvider;
 import 'package:fl_clash/providers/config.dart' show currentProfileIdProvider;
@@ -86,6 +88,16 @@ class RiverpodProfileSyncPort implements ProfileSyncPort {
     _ref.read(profilesProvider.notifier).del(profileId);
     if (_ref.read(currentProfileIdProvider) == profileId) {
       _ref.read(currentProfileIdProvider.notifier).value = null;
+    }
+    // 🔴 隐私清理（2026-06-03）：FlClash `Profiles.del` 只删列表项 + DB 行，**不删磁盘上的
+    // `$id.yaml` 明文配置文件**（上游行为）。退出登录 / 切账号删 profile 后，上个账号的解密节点
+    // 配置（含订阅凭据）会残留磁盘。这里补一刀删文件（多租户隐私 + θ-2 残留收口）。永不抛。
+    try {
+      final path = await appPath.getProfilePath(profileId.toString());
+      final file = File(path);
+      if (await file.exists()) await file.delete();
+    } catch (_) {
+      // 删文件失败不阻塞登出（文件不存在 / IO 异常）—— Property 1 永不抛。
     }
   }
 
