@@ -49,6 +49,7 @@ void main() {
           useMemoryStorage: any(named: 'useMemoryStorage'),
           enableLogging: any(named: 'enableLogging'),
           usePrintLogger: any(named: 'usePrintLogger'),
+          allowNonFlclashUa: any(named: 'allowNonFlclashUa'),
         )).thenAnswer((_) async {});
     when(() => sdk.switchBaseUrl(any())).thenReturn(null);
   });
@@ -144,6 +145,7 @@ void main() {
           useMemoryStorage: any(named: 'useMemoryStorage'),
           enableLogging: any(named: 'enableLogging'),
           usePrintLogger: any(named: 'usePrintLogger'),
+          allowNonFlclashUa: any(named: 'allowNonFlclashUa'),
         )).thenThrow(StateError('init boom'));
     await XboardModule.bootstrap(container,
         tokenStorage: FakeTokenStorage(), sdk: sdk);

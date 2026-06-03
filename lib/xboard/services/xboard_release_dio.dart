@@ -15,9 +15,14 @@ import 'dart:io';
 import 'package:dio/dio.dart';
 import 'package:dio/io.dart';
 
+import '../config/xboard_user_agent.dart';
+
 /// 构造自建隔离放行 dio：直连（findProxy=DIRECT）+ 证书全放行 + bytes 响应。
 ///
 /// [timeout] 连接 / 接收超时（bootstrap 用 5s，加密订阅密文较大用 15s）。
+///
+/// **R4.4 UA 伪装**：默认 header 注入 [XboardUserAgent.current]（按平台真实浏览器 UA），
+/// 让 config.json 拉取 / 加密订阅拉取 / 未来软件更新都混入正常 HTTPS 流量躲 GFW 浅层 UA 检测。
 Dio buildReleasedIsolatedDio({required Duration timeout}) {
   final dio = Dio(BaseOptions(
     connectTimeout: timeout,
@@ -26,6 +31,8 @@ Dio buildReleasedIsolatedDio({required Duration timeout}) {
     responseType: ResponseType.bytes,
     followRedirects: true,
     maxRedirects: 5,
+    // R4.4：浏览器 UA 伪装（config / 订阅 / 更新全链路）。
+    headers: {'User-Agent': XboardUserAgent.current},
   ));
   dio.httpClientAdapter = IOHttpClientAdapter(createHttpClient: () {
     final client = HttpClient();

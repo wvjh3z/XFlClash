@@ -13,6 +13,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:fl_clash/xboard/config/bootstrap_constants.dart';
 import 'package:fl_clash/xboard/services/bootstrap_decryptor.dart';
 import 'package:fl_clash/xboard/services/encrypted_subscription_service.dart';
+import 'package:fl_clash/xboard/services/xboard_release_dio.dart';
 
 import '_bootstrap_crypto_helper.dart';
 
@@ -151,6 +152,28 @@ void main() {
       await svc.fetch('https://h.com/thunder/b012ef');
       expect(adapter.lastRequest!.uri.toString(),
           'https://h.com/thunder/encrypted/b012ef');
+    });
+
+    test('R4.4：订阅拉取 UA 是浏览器 UA（无 flclash 特征）', () async {
+      final cipher =
+          await encryptPayloadRaw(_sampleYaml, aad: kEncryptedSubscriptionAad);
+      final adapter = _StubAdapter((opts) async => ResponseBody.fromString(
+            cipher,
+            200,
+            headers: {
+              Headers.contentTypeHeader: ['text/plain']
+            },
+          ));
+      // 用放行 dio 工厂（带 UA 默认 header），不注入裸 Dio。
+      final svc = EncryptedSubscriptionService(
+        decryptor: decryptor,
+        dio: buildReleasedIsolatedDio(timeout: const Duration(seconds: 5))
+          ..httpClientAdapter = adapter,
+      );
+      await svc.fetch('https://h.com/thunder/b012ef');
+      final ua = adapter.lastRequest!.headers['User-Agent']?.toString() ?? '';
+      expect(ua.toLowerCase().contains('flclash'), isFalse);
+      expect(ua.startsWith('Mozilla/5.0'), isTrue);
     });
   });
 

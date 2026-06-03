@@ -32,7 +32,7 @@ void main() {
     SharedPreferences.setMockInitialValues({}); // W4.6 firstLaunch 读 consent key
     container = ProviderContainer();
     sdk = FakeXBoardSDK();
-    // initialize 默认成功（8 具名参，用 any/named 宽松匹配）。
+    // initialize 默认成功（具名参，用 any/named 宽松匹配）。
     when(() => sdk.initialize(
           any(),
           panelType: any(named: 'panelType'),
@@ -43,6 +43,7 @@ void main() {
           useMemoryStorage: any(named: 'useMemoryStorage'),
           enableLogging: any(named: 'enableLogging'),
           usePrintLogger: any(named: 'usePrintLogger'),
+          allowNonFlclashUa: any(named: 'allowNonFlclashUa'),
         )).thenAnswer((_) async {});
   });
 
@@ -78,6 +79,7 @@ void main() {
           useMemoryStorage: any(named: 'useMemoryStorage'),
           enableLogging: any(named: 'enableLogging'),
           usePrintLogger: any(named: 'usePrintLogger'),
+          allowNonFlclashUa: any(named: 'allowNonFlclashUa'),
         )).captured;
     expect(captured.single, XboardConfig.current.devApiEndpoint);
   });
@@ -113,6 +115,7 @@ void main() {
           useMemoryStorage: any(named: 'useMemoryStorage'),
           enableLogging: any(named: 'enableLogging'),
           usePrintLogger: any(named: 'usePrintLogger'),
+          allowNonFlclashUa: any(named: 'allowNonFlclashUa'),
         )).thenThrow(StateError('boom'));
 
     // 不抛（DD-2）

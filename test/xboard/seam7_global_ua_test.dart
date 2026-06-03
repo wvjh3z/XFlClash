@@ -37,6 +37,7 @@ void main() {
           useMemoryStorage: any(named: 'useMemoryStorage'),
           enableLogging: any(named: 'enableLogging'),
           usePrintLogger: any(named: 'usePrintLogger'),
+          allowNonFlclashUa: any(named: 'allowNonFlclashUa'),
         )).thenAnswer((_) async {});
   });
 
