@@ -19,8 +19,8 @@ import '../models/order_summary.dart';
 import '../models/xb_domain_error.dart';
 import '../models/xb_domain_types.dart';
 import '../models/xb_result.dart';
-import '../providers/user_profile_provider.dart';
 import '../providers/xboard_providers.dart';
+import '../services/subscription_triggers.dart';
 import '../util/error_text.dart';
 import '../util/period_label.dart';
 import '../widgets/xb_ui_kit.dart';
@@ -96,9 +96,9 @@ class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage> {
     if (orderRes case XbSuccess(:final data) when data != null && mounted) {
       final wasNonTerminal = _detail != null && !_isTerminal(_detail!.summary.status);
       setState(() => _detail = data);
-      // 刚变终态（支付成功 → completed）→ 刷新账号卡 + 停轮询。
+      // 刚变终态（支付成功 → completed）→ 刷新账号卡 + 订阅同步（T3）+ 停轮询。
       if (wasNonTerminal && _isTerminal(data.summary.status)) {
-        ref.invalidate(userProfileProvider);
+        SubscriptionTriggers.onOrderCompleted(ref);
         _pollTimer?.cancel();
       }
       _maybeStartPolling();
@@ -345,7 +345,7 @@ class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage> {
       case CheckoutQrCode(:final qrCodeUrl):
         if (mounted) await _showQrDialog(qrCodeUrl);
       case CheckoutPaid():
-        ref.invalidate(userProfileProvider);
+        SubscriptionTriggers.onOrderCompleted(ref); // T3：订阅同步 + 账号刷新
         _toast('支付成功');
         await _refreshStatus();
       case CheckoutCanceled(:final message):

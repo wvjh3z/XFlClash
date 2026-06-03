@@ -13,9 +13,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../providers/auth_state_provider.dart';
-import '../providers/user_profile_provider.dart';
 import '../providers/xboard_connectivity_provider.dart';
 import '../providers/xboard_providers.dart';
+import '../services/subscription_triggers.dart';
 import '../widgets/account_info_card.dart';
 import '../widgets/xb_ui_kit.dart';
 import '../widgets/xboard_consent_dialog.dart';
@@ -36,15 +36,38 @@ class XboardServiceHomePage extends ConsumerStatefulWidget {
   ConsumerState<XboardServiceHomePage> createState() => _XboardServiceHomePageState();
 }
 
-class _XboardServiceHomePageState extends ConsumerState<XboardServiceHomePage> {
+class _XboardServiceHomePageState extends ConsumerState<XboardServiceHomePage>
+    with WidgetsBindingObserver {
   bool _consentChecked = false;
   bool _consentGranted = false;
 
   @override
   void initState() {
     super.initState();
+    // R4.6 step2b：onResume 订阅 + 账号刷新（24h 节流，§A）。监听 app 生命周期。
+    WidgetsBinding.instance.addObserver(this);
     // 首帧后检查 consent（需 BuildContext，不能在 build 内弹 dialog）。
-    WidgetsBinding.instance.addPostFrameCallback((_) => _ensureConsent());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _ensureConsent();
+      // 冷启动若已是 authenticated（bootstrap 恢复登录态，T2）→ 首帧触发一次刷新。
+      if (ref.read(authStateProvider) == AuthState.authenticated) {
+        SubscriptionTriggers.onAuthenticated(ref);
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // R4.6 step2b：切回前台 → onResume 刷新（24h 节流内部判定）。
+    if (state == AppLifecycleState.resumed) {
+      SubscriptionTriggers.onResume(ref);
+    }
   }
 
   Future<void> _ensureConsent() async {
@@ -63,6 +86,14 @@ class _XboardServiceHomePageState extends ConsumerState<XboardServiceHomePage> {
     final firstLaunch = ref.watch(firstLaunchProvider);
     final offline = ref.watch(isOfflineProvider);
     final auth = ref.watch(authStateProvider);
+
+    // R4.6 step2b T1：登录成功（→ authenticated 跃迁）触发订阅 + 账号刷新。
+    ref.listen<AuthState>(authStateProvider, (prev, next) {
+      if (prev != AuthState.authenticated &&
+          next == AuthState.authenticated) {
+        SubscriptionTriggers.onAuthenticated(ref);
+      }
+    });
 
     return XbBrandTheme(
       brandColor: widget.brandColor,
@@ -121,7 +152,8 @@ class _LoggedInView extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     return RefreshIndicator(
-      onRefresh: () async => ref.invalidate(userProfileProvider), // R6.4 下拉刷新
+      onRefresh: () async =>
+          SubscriptionTriggers.onManualRefresh(ref), // R6.4 下拉刷新（T4：订阅 + 账号）
       child: ListView(
         padding: const EdgeInsets.all(16),
         children: [

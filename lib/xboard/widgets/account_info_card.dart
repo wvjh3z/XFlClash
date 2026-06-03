@@ -15,6 +15,7 @@ import '../models/xb_domain_error.dart';
 import '../models/xb_domain_subscription.dart';
 import '../pages/reset_traffic_page.dart';
 import '../providers/user_profile_provider.dart';
+import '../services/subscription_triggers.dart';
 
 /// 账号信息卡。需在已登录态下使用（调用方 gate authState，F14）。
 class AccountInfoCard extends ConsumerWidget {
@@ -31,7 +32,11 @@ class AccountInfoCard extends ConsumerWidget {
           onRetry: () => ref.invalidate(userProfileProvider),
         ),
       ),
-      data: (sub) => _CardShell(child: _SubscriptionView(sub: sub)),
+      data: (sub) => _CardShell(
+          child: _SubscriptionView(
+        sub: sub,
+        onRefresh: () => SubscriptionTriggers.onManualRefresh(ref), // T4 手动刷新
+      )),
     );
   }
 }
@@ -60,8 +65,9 @@ class _CardShell extends StatelessWidget {
 }
 
 class _SubscriptionView extends StatelessWidget {
-  const _SubscriptionView({required this.sub});
+  const _SubscriptionView({required this.sub, required this.onRefresh});
   final XbDomainSubscription sub;
+  final VoidCallback onRefresh;
 
   static const _gb = 1024 * 1024 * 1024;
 
@@ -104,6 +110,14 @@ class _SubscriptionView extends StatelessWidget {
                       style: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant)),
                 ],
               ),
+            ),
+            // T4 手动刷新用户信息（账号卡刷新按钮，用户 2026-06-02 需求）。
+            IconButton(
+              onPressed: onRefresh,
+              icon: const Icon(Icons.refresh_rounded),
+              tooltip: '刷新账号信息',
+              visualDensity: VisualDensity.compact,
+              color: scheme.onSurfaceVariant,
             ),
           ],
         ),
