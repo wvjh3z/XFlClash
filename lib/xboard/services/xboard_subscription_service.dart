@@ -1,11 +1,17 @@
-/// R7 订阅自动同步（数据一致性总章 § A / B5 single-flight / D62 复用 Profile.update）。
+/// R7/R4.6 订阅自动同步（数据一致性总章 § A / B5 single-flight / v0.2 R4 文件化加密订阅）。
 ///
-/// **核心约束**（D62 / F80）：复用 FlClash `Profile.update()`（经 [ProfileSyncPort]），**禁止**
-/// SDK dio 自拉订阅（直连出口 + Tun 出口立刻占满 IpAuth max_ip_count=2）。
+/// **v0.2 R4 重构**（取代 v0.1 的「复用 FlClash `Profile.update` 拉 URL」D62 方案）：SDK 自拉
+/// 加密订阅密文 → 解密 → 明文 ClashMeta YAML 字节 → 写 **file 型 profile** 喂 FlClash core。
+/// 链路：`getSubscribeUrl()`（拿带 token 的原订阅 URL）→ [EncryptedSubscriptionService.fetchWithFailOver]
+/// （按竞速候选 host 串行 failOver 拉 + 解密，R4.1/R4.2）→ [ProfileSyncPort.putFileProfile]
+/// （`Profile.saveFile` 写明文文件 + 通知 core 重载，零改上游）。
 ///
-/// **5 触发点**（§ A）：T1 登录成功（force，调 checkLogin 绑 IP）/ T2 已登录冷启动 / T3 订单完成
-/// （force）/ T4 主动刷新（force）/ T5 endpoint 切换（独立 [refreshUrl]，不调 checkLogin，仅重拼 url）。
-/// **优先级** T1>T3>T5>T4>T2。
+/// **不再调 checkLogin**（用户 2026-06-03 决策）：加密订阅 API 已完全绕过 IpAuth（后端插件坐实），
+/// checkLogin 的「绑出口 IP」对订阅链路失去意义 → 移除，省一次请求 + 一个 IP 名额。
+///
+/// **触发点**（§ A，由 R4.6 接线层驱动）：T1 登录成功（force）/ T2 已登录冷启动 / T3 订单完成
+/// （force）/ T4 主动刷新（force）/ T5 endpoint 切换 —— **文件化模型下 T5 等价再 sync 一次**
+/// （file profile 无 url，无需重拼，直接从新竞速候选重拉重写文件），不再有独立 refreshUrl 路径。
 ///
 /// **single-flight（B5）**：进行中复用同一 in-flight Future；force=true 在当前完成后补一次
 /// （force 队列上限 1，多个合并）。**永不抛**（Property 1）。
@@ -15,46 +21,56 @@ import 'dart:async';
 
 import 'package:flutter_xboard_sdk/flutter_xboard_sdk.dart' show TokenStorage;
 
-import '../config/xboard_config.dart';
 import '../data/xboard_database.dart';
 import '../models/xb_result.dart';
 import '../sdk/xboard_service.dart';
 import '../util/pii_mask.dart';
+import 'encrypted_subscription_service.dart';
 import 'profile_sync_port.dart';
-
-/// 订阅 path 缓存 key 前缀（DD-22 v1，含订阅 token，C7 退出登录清）。
-const String kSubscribePathPrefix = 'xb_subscribe_path_v1_';
 
 /// R7 同步结果（供 UI/调用方判定，error 静默不抛）。
 enum XbSyncOutcome { ok, noSubscription, authExpired, failed, skipped }
 
+/// 订阅 endpoint 竞速候选 host 列表的提供者（解耦 [EndpointRaceController]，决策 #14 风格）。
+/// 返回已排序去重的 host 串（首发在前 + 地区序替补，R4.2 `subscriptionCandidates()`）；
+/// 空列表 → [EncryptedSubscriptionService] 退回原 URL host 兜底。
+typedef SubscriptionCandidatesProvider = List<String> Function();
+
 class XboardSubscriptionService {
   XboardSubscriptionService({
     required XboardService service,
+    required EncryptedSubscriptionService encrypted,
     required ProfileSyncPort profilePort,
     required XboardDatabase db,
     required TokenStorage tokenStorage,
+    SubscriptionCandidatesProvider? subscriptionCandidates,
+    void Function(String winnerHost)? onWinnerHost,
     String flavorId = 'default',
   })  : _service = service,
+        _encrypted = encrypted,
         _port = profilePort,
         _db = db,
         _tokenStorage = tokenStorage,
+        _candidates = subscriptionCandidates ?? (() => const <String>[]),
+        _onWinnerHost = onWinnerHost,
         _flavorId = flavorId;
 
   final XboardService _service;
+  final EncryptedSubscriptionService _encrypted;
   final ProfileSyncPort _port;
   final XboardDatabase _db;
   final TokenStorage _tokenStorage;
+  final SubscriptionCandidatesProvider _candidates;
+
+  /// 成功拉取后回调命中的订阅 host（R4.6 接线层可据此更新竞速 current sub，下次从好地址起）。
+  final void Function(String winnerHost)? _onWinnerHost;
   final String _flavorId;
 
   Completer<XbSyncOutcome>? _inFlight;
   bool _pendingForce = false;
 
-  /// 当前订阅 path 缓存（内存镜像，refreshUrl 用）。
-  String? _cachedPath;
-
   /// R7 主同步（single-flight + force 队列，§ A）。
-  Future<XbSyncOutcome> sync({bool force = false, bool checkLogin = true}) async {
+  Future<XbSyncOutcome> sync({bool force = false}) async {
     final inFlight = _inFlight;
     if (inFlight != null) {
       if (force) _pendingForce = true; // 队列上限 1，多个 force 合并。
@@ -64,10 +80,10 @@ class XboardSubscriptionService {
     _inFlight = completer;
     var outcome = XbSyncOutcome.failed;
     try {
-      outcome = await _doSync(checkLogin: checkLogin);
+      outcome = await _doSync();
       if (_pendingForce) {
         _pendingForce = false;
-        outcome = await _doSync(checkLogin: checkLogin);
+        outcome = await _doSync();
       }
     } catch (_) {
       outcome = XbSyncOutcome.failed; // 永不抛。
@@ -78,11 +94,10 @@ class XboardSubscriptionService {
     return outcome;
   }
 
-  Future<XbSyncOutcome> _doSync({required bool checkLogin}) async {
-    // 1. 拉订阅信息（getSubscribe 单端点）。
+  Future<XbSyncOutcome> _doSync() async {
+    // 1. 拿订阅 URL（含 token）。失败 → 用 getSubscription 区分无套餐 / 鉴权过期。
     final subUrlResult = await _service.getSubscribeUrl();
     if (subUrlResult case XbFailure()) {
-      // 区分无套餐 / 鉴权过期。
       final sub = await _service.getSubscription();
       if (sub case XbFailure(:final error)) {
         if (_isUnauthorized(error)) return XbSyncOutcome.authExpired;
@@ -93,57 +108,45 @@ class XboardSubscriptionService {
       }
       return XbSyncOutcome.failed;
     }
+    final originalUrl = (subUrlResult as XbSuccess<String>).data;
 
-    final fullUrl = (subUrlResult as XbSuccess<String>).data;
-    // 2. 缓存 path（含 token，D41）+ 内存镜像。
-    _cachedPath = _extractPath(fullUrl);
-    await _writePathCache(_cachedPath!);
-
-    // 3. IpAuth 兜底（R7.4，登录首次 checkLogin 绑 IP；T5/T3 不调）。
-    if (checkLogin) {
-      await _service.checkLogin(); // 结果不阻塞（≤5s，超时继续）。
+    // 2. 按竞速候选 host 串行 failOver 拉密文 + 解密（R4.1/R4.2）。
+    final result = await _encrypted.fetchWithFailOver(
+      originalUrl,
+      candidateHosts: _candidates(),
+    );
+    if (!result.isSuccess) {
+      return _mapFetchFailure(result.failure!);
     }
 
-    // 4. 复用 FlClash Profile.update（D62）：去重 → 新建 / 更新。
+    // 3. 写 file 型 profile（明文 YAML 字节）+ 维护外挂索引（去重：同用户同 flavor 一个 profile）。
     final userIdHash = await _currentUserIdHash();
     final existingId =
         await _db.findProfileId(flavorId: _flavorId, userIdHash: userIdHash);
+    final live = existingId != null && _port.currentProfileIds().contains(existingId);
     try {
-      if (existingId != null && _port.currentProfileIds().contains(existingId)) {
-        await _port.updateProfileUrl(profileId: existingId, url: fullUrl);
-      } else {
-        final newId = await _port.createAndPutProfile(
-          url: fullUrl,
-          label: XboardConfig.current.subscribeUserAgent.isEmpty
-              ? '我的套餐'
-              : '我的套餐',
-        );
+      final newId = await _port.putFileProfile(
+        profileId: live ? existingId : null,
+        yamlBytes: result.yamlBytes!,
+        label: '我的套餐',
+      );
+      if (!live) {
         await _db.putIndex(
             profileId: newId, flavorId: _flavorId, userIdHash: userIdHash);
       }
     } catch (_) {
-      return XbSyncOutcome.failed; // Profile.update 失败（中文字符串异常，R7.9）。
+      // saveFile/validateConfig 失败（中文字符串异常，R7.9）→ failed。
+      return XbSyncOutcome.failed;
     }
+
+    // 4. 回馈命中 host（接线层可更新竞速 current sub；纯通知，失败无害）。
+    final host = _hostOf(result.winnerUrl);
+    if (host != null) _onWinnerHost?.call(host);
+
     return XbSyncOutcome.ok;
   }
 
-  /// T5：endpoint 切换后仅重拼 url + Profile.update（不调 checkLogin，§ A）。
-  Future<void> refreshUrl(String newSubscriptionEndpoint) async {
-    final path = _cachedPath ?? await _readPathCache();
-    if (path == null) return;
-    final newUrl = _composeUrl(newSubscriptionEndpoint, path);
-    final userIdHash = await _currentUserIdHash();
-    final id =
-        await _db.findProfileId(flavorId: _flavorId, userIdHash: userIdHash);
-    if (id == null) return;
-    try {
-      await _port.updateProfileUrl(profileId: id, url: newUrl);
-    } catch (_) {
-      // 静默（R7.9）。
-    }
-  }
-
-  /// R7.12 退出登录删 profile + 清 path 缓存（C7）。
+  /// R7.12 退出登录删 profile + 清索引（C7）。
   Future<void> clearForLogout(String userIdHash) async {
     final id =
         await _db.findProfileId(flavorId: _flavorId, userIdHash: userIdHash);
@@ -153,7 +156,6 @@ class XboardSubscriptionService {
       } catch (_) {}
       await _db.deleteByProfileId(id);
     }
-    _cachedPath = null;
   }
 
   /// §C 孤儿索引对账：FlClash 已删但索引仍存的 profileId → 清索引。
@@ -169,39 +171,33 @@ class XboardSubscriptionService {
 
   // ───────── helpers ─────────
 
+  /// 加密订阅拉取失败 → 同步结果（呼应错误透传：业务类各有语义，网络/解密类归 failed）。
+  XbSyncOutcome _mapFetchFailure(EncryptedSubscriptionFailure f) => switch (f) {
+        EncryptedSubscriptionFailure.unauthorized => XbSyncOutcome.authExpired,
+        EncryptedSubscriptionFailure.noActivePlan => XbSyncOutcome.noSubscription,
+        EncryptedSubscriptionFailure.noSubscribeUrl ||
+        EncryptedSubscriptionFailure.serverNotConfigured ||
+        EncryptedSubscriptionFailure.network ||
+        EncryptedSubscriptionFailure.decryptFailed ||
+        EncryptedSubscriptionFailure.unknown =>
+          XbSyncOutcome.failed,
+      };
+
   bool _isUnauthorized(Object error) =>
       error.runtimeType.toString().contains('XbUnauthorized');
 
-  String _extractPath(String url) {
+  /// 从命中的加密订阅 URL 还原候选 host（`scheme://host[:port]`，对齐竞速候选形态）。
+  String? _hostOf(String? url) {
+    if (url == null) return null;
     final uri = Uri.tryParse(url);
-    if (uri == null) return url;
-    return uri.hasQuery ? '${uri.path}?${uri.query}' : uri.path;
-  }
-
-  String _composeUrl(String endpoint, String path) {
-    final base = endpoint.endsWith('/')
-        ? endpoint.substring(0, endpoint.length - 1)
-        : endpoint;
-    final p = path.startsWith('/') ? path : '/$path';
-    return '$base$p';
+    if (uri == null || uri.host.isEmpty) return null;
+    return uri.hasPort
+        ? '${uri.scheme}://${uri.host}:${uri.port}'
+        : '${uri.scheme}://${uri.host}';
   }
 
   Future<String> _currentUserIdHash() async {
     final token = await _tokenStorage.readToken();
     return userIdHashFromToken(token);
   }
-
-  Future<void> _writePathCache(String path) async {
-    final userIdHash = await _currentUserIdHash();
-    // 复用注入的 secure TokenStorage 不合适（只存 token）；path 走同一 secure_storage key 体系，
-    // 这里用 TokenStorage 接口无法存任意 key，故 path 缓存交由调用层 secure storage。
-    // v0.1 简化：内存镜像已足够支撑 refreshUrl；持久化 path 在 W6.6 secure storage 注入时补。
-    _pathCacheKeyForTest = '$kSubscribePathPrefix$userIdHash';
-  }
-
-  Future<String?> _readPathCache() async => _cachedPath;
-
-  /// 测试可见：最近一次 path 缓存 key（验证 DD-22 + userIdHash 绑定）。
-  String? _pathCacheKeyForTest;
-  String? get debugPathCacheKey => _pathCacheKeyForTest;
 }
