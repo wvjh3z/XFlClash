@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../config/xboard_config.dart';
+import '../widgets/xb_theme.dart' show xbPush;
 import '../models/plan_item.dart';
 import '../models/xb_domain_error.dart';
 import '../models/xb_domain_types.dart';
@@ -77,11 +78,8 @@ class _PlanListPageState extends ConsumerState<PlanListPage> {
             itemCount: plans.length,
             itemBuilder: (_, i) => _PlanSummaryCard(
               plan: plans[i],
-              onTap: () => Navigator.of(context).push(
-                MaterialPageRoute<void>(
-                  builder: (_) => PlanDetailPage(plan: plans[i]),
-                ),
-              ),
+              onTap: () => xbPush(context, PlanDetailPage(plan: plans[i]),
+                  brandColor: Color(XboardConfig.current.brandColor)),
             ),
           );
         },

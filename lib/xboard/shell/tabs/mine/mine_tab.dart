@@ -11,12 +11,14 @@ library;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'package:fl_clash/xboard/config/xboard_config.dart';
 import 'package:fl_clash/xboard/models/xb_domain_subscription.dart';
 import 'package:fl_clash/xboard/pages/order_list_page.dart';
 import 'package:fl_clash/xboard/pages/plan_list_page.dart';
 import 'package:fl_clash/xboard/pages/reset_traffic_page.dart';
 import 'package:fl_clash/xboard/providers/auth_state_provider.dart';
 import 'package:fl_clash/xboard/providers/user_profile_provider.dart';
+import 'package:fl_clash/xboard/widgets/xb_theme.dart' show xbPush;
 
 import '../../adapters/xb_native_page_adapter.dart';
 
@@ -333,17 +335,15 @@ class _PlanActions extends StatelessWidget {
 
   // ◇ 复用形态 B 套餐页（不经 adapter）。
   void _openPlans(BuildContext context) {
-    Navigator.of(context).push(
-      MaterialPageRoute<void>(builder: (_) => const PlanListPage()),
-    );
+    xbPush(context, const PlanListPage(),
+        brandColor: Color(XboardConfig.current.brandColor));
   }
 
   void _openReset(BuildContext context, XbDomainSubscription sub) {
-    Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) =>
-            ResetTrafficPage(planId: sub.planId!, planName: sub.planName),
-      ),
+    xbPush(
+      context,
+      ResetTrafficPage(planId: sub.planId!, planName: sub.planName),
+      brandColor: Color(XboardConfig.current.brandColor),
     );
   }
 }
@@ -568,9 +568,8 @@ class _SettingsSection extends ConsumerWidget {
             _SettingsTile(
               icon: Icons.receipt_long,
               label: '我的订单',
-              onTap: () => Navigator.of(context).push(
-                MaterialPageRoute<void>(builder: (_) => const OrderListPage()),
-              ),
+              onTap: () => xbPush(context, const OrderListPage(),
+                  brandColor: Color(XboardConfig.current.brandColor)),
             ),
           // 设置 → 原生 ToolsView（R6.8，经 adapter）。
           _SettingsTile(

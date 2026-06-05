@@ -9,6 +9,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../config/xboard_config.dart';
+import '../widgets/xb_theme.dart' show xbPush;
 import '../models/plan_item.dart';
 import '../models/xb_domain_types.dart';
 import '../models/xb_result.dart';
@@ -254,10 +255,11 @@ class _ResetTrafficPageState extends ConsumerState<ResetTrafficPage> {
       switch (result) {
         case XbSuccess(:final data):
           if (!mounted) return;
-          Navigator.of(context).pushReplacement(
-            MaterialPageRoute<void>(
-              builder: (_) => OrderPaymentPage(tradeNo: data),
-            ),
+          xbPush(
+            context,
+            OrderPaymentPage(tradeNo: data),
+            brandColor: Color(XboardConfig.current.brandColor),
+            replace: true,
           );
         case XbFailure(:final error):
           _toast('提交订单失败：${error.message}');

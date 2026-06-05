@@ -140,6 +140,11 @@ jobs:
       - name: Seam import guard (adapter rule)
         run: dart run tool/check_seam_imports.dart
 
+      # 主题作用域守卫：lib/xboard 下禁止裸 showModalBottomSheet/showDialog/MaterialPageRoute
+      # （防「背景泛色/逃逸 formA 主题」回归，须走 showXbBottomSheet/xbShowDialog/xbPush）。
+      - name: Theme entrypoint guard (no escape)
+        run: dart run tool/check_xb_theme_entrypoints.dart
+
       - name: Analyze (xboard module, fatal-infos)
         run: flutter analyze lib/xboard
 

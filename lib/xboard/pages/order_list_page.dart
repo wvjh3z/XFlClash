@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../config/xboard_config.dart';
+import '../widgets/xb_theme.dart' show xbPush;
 import '../models/order_summary.dart';
 import '../models/xb_domain_error.dart';
 import '../models/xb_domain_types.dart';
@@ -84,10 +85,10 @@ class _OrderListPageState extends ConsumerState<OrderListPage> {
               separatorBuilder: (_, _) => const SizedBox(height: 8),
               itemBuilder: (_, i) => _OrderTile(
                 order: orders[i],
-                onTap: () => Navigator.of(context).push(
-                  MaterialPageRoute<void>(
-                    builder: (_) => OrderPaymentPage(tradeNo: orders[i].tradeNo),
-                  ),
+                onTap: () => xbPush(
+                  context,
+                  OrderPaymentPage(tradeNo: orders[i].tradeNo),
+                  brandColor: Color(XboardConfig.current.brandColor),
                 ),
               ),
             );
