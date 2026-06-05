@@ -10,6 +10,8 @@ import 'package:fl_clash/manager/manager.dart';
 import 'package:fl_clash/plugins/app.dart';
 import 'package:fl_clash/providers/providers.dart';
 import 'package:fl_clash/state.dart';
+import 'package:fl_clash/xboard/config/xboard_config.dart';
+import 'package:fl_clash/xboard/shell/xboard_app_shell.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -180,7 +182,13 @@ class ApplicationState extends ConsumerState<Application> {
           home: child!,
         );
       },
-      child: const HomePage(),
+      // === Xboard 接缝点 #9（form-a R1，加而不改：原 HomePage 包成 flavor 三元）===
+      // Manager 包裹链在 MaterialApp.builder: 内（不在 home:），故换 home 不损 VPN 内核
+      // （R1，PoC 已证）。仅 formA flavor 走自定义壳；形态 B（默认）走原 HomePage。
+      // W1.5 加 desktop gate（desktop 维持形态 B）。
+      child: XboardConfig.current.formA
+          ? const XboardAppShell()
+          : const HomePage(),
     );
   }
 

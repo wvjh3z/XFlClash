@@ -95,6 +95,13 @@ class FakeXboardService implements XboardService {
     return XbResult.success(null);
   }
 
+  @override
+  Future<XbResult<List<String>>> getEmailSuffixes() async {
+    await _delay;
+    // 预览样例白名单后缀（form-a 注册/忘记密码 sheet 下拉）。
+    return XbResult.success(const ['gmail.com', 'qq.com', '163.com']);
+  }
+
   // ───────── 账号 / 订阅（预览展示样例数据）─────────
 
   @override
