@@ -207,4 +207,28 @@ void main() {
       expect(r, isA<XbSuccess<void>>()); // θ-2：服务端失败不阻塞本地
     });
   });
+
+  group('getEmailSuffixes（form-a R5.6，throw 形态归一）', () {
+    test('返带后缀列表 → XbSuccess(suffixes)', () async {
+      when(() => apis.configApi.getConfig()).thenAnswer((_) async =>
+          const ConfigModel(emailWhitelistSuffix: ['gmail.com', 'qq.com']));
+      final r = await service.getEmailSuffixes();
+      expect(r, isA<XbSuccess<List<String>>>());
+      expect((r as XbSuccess<List<String>>).data, ['gmail.com', 'qq.com']);
+    });
+
+    test('空列表（白名单禁用 F208）→ XbSuccess([])', () async {
+      when(() => apis.configApi.getConfig())
+          .thenAnswer((_) async => const ConfigModel());
+      final r = await service.getEmailSuffixes();
+      expect((r as XbSuccess<List<String>>).data, isEmpty);
+    });
+
+    test('getConfig 抛异常 → XbFailure（永不抛，Property 1）', () async {
+      when(() => apis.configApi.getConfig()).thenThrow(TypeError());
+      final r = await service.getEmailSuffixes();
+      expect(r, isA<XbFailure<List<String>>>());
+      expect((r as XbFailure).error, isA<XbUnexpected>());
+    });
+  });
 }

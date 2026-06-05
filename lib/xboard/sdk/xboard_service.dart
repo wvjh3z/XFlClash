@@ -44,6 +44,16 @@ abstract interface class XboardService {
   /// 退出登录（清服务端 + 本地 token）。
   Future<XbResult<void>> logout();
 
+  // ───────── 站点配置（form-a R5.6，1 方法）─────────
+
+  /// 邮箱注册白名单后缀（form-a 注册/忘记密码 sheet 用，R5.6 / 决策 10）。
+  ///
+  /// 内部调 SDK `ConfigApi.getConfig().emailWhitelistSuffix`。**仅 v2.0（formA）启用**：
+  /// 形态 B 的 F240「v0.1 SHALL NOT 调 getConfig」约束在 v2.0 已解除（站点配置仍优先走
+  /// Bootstrap JSON，本入口仅为 form-a 注册流程取白名单后缀）。
+  /// 返回空列表 = 白名单禁用（任意后缀可注册，F208 语义）。
+  Future<XbResult<List<String>>> getEmailSuffixes();
+
   // ───────── 账号 / 订阅（R6/R7，3 方法）─────────
 
   /// 拉账号订阅信息（/getSubscribe 单端点，D27）。

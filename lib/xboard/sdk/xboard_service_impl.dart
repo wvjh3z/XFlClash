@@ -214,6 +214,15 @@ class XboardServiceImpl implements XboardService {
   }
 
   @override
+  Future<XbResult<List<String>>> getEmailSuffixes() async =>
+      // form-a R5.6：取注册白名单后缀。throw 形态（getConfig 抛异常）→ _guard 归一。
+      // 空列表 = 白名单禁用（F208 语义，UI 据此放开任意后缀输入）。
+      _guard('getEmailSuffixes', () async {
+        final cfg = await _sdk.config.getConfig();
+        return cfg.emailWhitelistSuffix;
+      });
+
+  @override
   Future<XbResult<XbDomainSubscription>> getSubscription() async {
     // throw 形态（_guard 归一）+ SubscriptionModel → XbDomainSubscription 映射（R6.8）。
     final result = await _guard('getSubscription', () async {
