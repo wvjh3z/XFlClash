@@ -27,6 +27,11 @@ void main() {
       expect(c.bootstrapAesKeyBytes, isNull);
     });
 
+    test('formA 默认 false（无 XB_FORM_A 注入 → 形态 B）', () {
+      // 单测环境无 dart-define 注入，formA 应取 fromEnvironment 默认 false。
+      expect(XboardConfig.fromEnvironment().formA, isFalse);
+    });
+
     test('合规字段默认值', () {
       final c = XboardConfig.fromEnvironment();
       expect(c.termsUrl, 'https://example.com/terms');
@@ -55,6 +60,19 @@ void main() {
       XboardConfig.bind(custom);
       expect(XboardConfig.current.flavorId, 'brand_x');
       expect(XboardConfig.current.devApiEndpoint, 'https://custom.api');
+    });
+
+    test('构造参数 formA=true 经 current 生效（flavor 决定形态）', () {
+      const formAConfig = XboardConfig(
+        subscribeUserAgent: 'Custom/1.0 flclash',
+        devApiEndpoint: 'https://custom.api',
+        devSubscriptionEndpoint: 'https://custom.sub',
+        debug: false,
+        kIsTest: true,
+        formA: true,
+      );
+      XboardConfig.bind(formAConfig);
+      expect(XboardConfig.current.formA, isTrue);
     });
 
     test('resetForTest 恢复占位默认', () {

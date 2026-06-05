@@ -31,7 +31,15 @@ class XboardConfig {
     this.bootstrapUrls = const <String>[],
     this.bootstrapAesKeyBytes,
     this.subscriptionAesKeyBytes,
+    this.formA = false,
   });
+
+  /// 形态 A 编译期开关（v2.0 自定义三 Tab 商业客户端外壳；spec `xboard-form-a-ui-revamp`）。
+  ///
+  /// `true` → `Application.home` 走 `XboardAppShell`（接缝点 #9，仅 mobile）；
+  /// `false`（默认）→ 形态 B（FlClash 原生壳 + 「我的服务」侧栏）。
+  /// flavor 注入（`XB_FORM_A` dart-define / flavor.yaml `form_a`），业务代码 0 硬编码（NFR-2）。
+  final bool formA;
 
   /// 订阅 UA（含且仅含一个 `flclash` 子串，F202/F203）。
   final String subscribeUserAgent;
@@ -114,6 +122,7 @@ class XboardConfig {
     const aesKeyB64 = String.fromEnvironment('XB_AES_KEY_B64', defaultValue: '');
     const subAesKeyB64 =
         String.fromEnvironment('XB_SUB_AES_KEY_B64', defaultValue: '');
+    const formA = bool.fromEnvironment('XB_FORM_A', defaultValue: false);
 
     final urls = urlsCsv.isEmpty
         ? const <String>[]
@@ -154,6 +163,7 @@ class XboardConfig {
       bootstrapUrls: urls,
       bootstrapAesKeyBytes: aesBytes,
       subscriptionAesKeyBytes: subAesBytes,
+      formA: formA,
     );
   }
 

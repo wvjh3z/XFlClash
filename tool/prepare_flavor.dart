@@ -127,6 +127,7 @@ String generateFlavorDefinesJson(YamlMap doc,
   })();
 
   // dart-define 值全为字符串（flutter --dart-define-from-file 约定）。
+  final formA = (doc['form_a'] as bool?) ?? false; // 形态 A 开关（可选，默认 false）
   final defines = <String, String>{
     'XB_FLAVOR_ID': flavorId,
     'XB_SUBSCRIBE_UA': s('subscribeUserAgent'),
@@ -142,6 +143,7 @@ String generateFlavorDefinesJson(YamlMap doc,
     'XB_SUPPORT_EMAIL': s('supportEmail'),
     'XB_BOOTSTRAP_URLS': urls,
     'XB_AES_KEY_B64': s('aesKey'), // CI secrets 注入；空→fromEnvironment 降级 null
+    'XB_FORM_A': formA ? 'true' : 'false', // 形态 A 外壳开关（flavor.yaml form_a，可选）
   };
 
   const encoder = JsonEncoder.withIndent('  ');
