@@ -18,9 +18,11 @@ const _seamAllowlist = <String>{
 bool _isOurFile(String path) {
   return path.startsWith('lib/xboard/') ||
       path.startsWith('test/') ||
+      path.startsWith('integration_test/') ||
       path.startsWith('tool/') ||
       path.startsWith('flavors/') ||
       path.startsWith('.kiro/') ||
+      path.startsWith('.github/') ||
       path.startsWith('.githooks/') ||
       path == 'flavor_defines.json';
 }
