@@ -14,6 +14,11 @@ const _seamAllowlist = <String>{
   'lib/application.dart', // 接缝点 #9（form-a R1）
 };
 
+/// FlClash upstream 基线 commit（flclash-anchors.md 基线 = v0.8.93）。
+/// 若某上游文件相对 base 有改动，但已与本基线**完全一致**，视为「回退到上游原貌」，合规
+/// （form-a 升级回退了形态 B 接缝点 #6/#6.bis，使 navigation/enum/home/app_manager 复原）。
+const _upstreamBaseline = 'ac2f6b9';
+
 /// 视为「我们的隔离层 / 工程文件」的前缀（不计入上游改动）。
 bool _isOurFile(String path) {
   return path.startsWith('lib/xboard/') ||
@@ -25,6 +30,16 @@ bool _isOurFile(String path) {
       path.startsWith('.github/') ||
       path.startsWith('.githooks/') ||
       path == 'flavor_defines.json';
+}
+
+/// 该文件当前是否已与 upstream 基线一致（= 回退到原貌，非侵入）。
+bool _matchesUpstream(String path) {
+  final r = Process.runSync(
+    'git',
+    ['diff', '--quiet', _upstreamBaseline, '--', path],
+  );
+  // exit 0 = 无差异（与基线一致）；exit 1 = 有差异。
+  return r.exitCode == 0;
 }
 
 void main(List<String> argv) {
@@ -46,6 +61,7 @@ void main(List<String> argv) {
   for (final path in changed) {
     if (_isOurFile(path)) continue; // 隔离层 / 工程文件，允许
     if (_seamAllowlist.contains(path)) continue; // 接缝点白名单
+    if (_matchesUpstream(path)) continue; // 已回退到上游原貌，非侵入
     violations.add(path);
   }
 

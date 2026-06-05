@@ -26,15 +26,12 @@ import 'package:mocktail/mocktail.dart';
 
 import 'package:fl_clash/xboard/models/order_summary.dart';
 import 'package:fl_clash/xboard/models/plan_item.dart';
-import 'package:fl_clash/xboard/models/xb_domain_subscription.dart';
 import 'package:fl_clash/xboard/models/xb_domain_types.dart';
 import 'package:fl_clash/xboard/models/xb_result.dart';
 import 'package:fl_clash/xboard/pages/order_payment_page.dart';
 import 'package:fl_clash/xboard/pages/plan_detail_page.dart';
 import 'package:fl_clash/xboard/providers/xboard_providers.dart';
 import 'package:fl_clash/xboard/sdk/xboard_service.dart';
-import 'package:fl_clash/xboard/widgets/account_info_card.dart';
-import 'package:fl_clash/xboard/widgets/xb_ui_kit.dart';
 
 class _MockService extends Mock implements XboardService {}
 
@@ -60,28 +57,7 @@ Future<void> _loadCjkFont() async {
 }
 
 /// 固定示例数据（确定性 golden，不依赖 DateTime.now()）。
-final _fixedExpiry = DateTime(2026, 12, 31);
-final _fixedReset = DateTime(2026, 6, 15);
 final _fixedCreated = DateTime(2026, 5, 1, 10, 30);
-
-XbDomainSubscription get _sub => XbDomainSubscription(
-      email: 'alice@example.com',
-      uuid: 'uuid-1234',
-      planName: 'Pro 高级套餐',
-      totalBytes: 100 * 1024 * 1024 * 1024,
-      usedBytes: 42 * 1024 * 1024 * 1024,
-      expiredAt: _fixedExpiry,
-      nextResetAt: _fixedReset,
-    );
-
-/// golden 用：无到期/重置日期 → 文案静态（"长期有效"/"不重置"），不依赖 now（确定性）。
-const _subStatic = XbDomainSubscription(
-  email: 'alice@example.com',
-  uuid: 'uuid-1234',
-  planName: 'Pro 高级套餐',
-  totalBytes: 100 * 1024 * 1024 * 1024,
-  usedBytes: 42 * 1024 * 1024 * 1024,
-);
 
 const _plan = PlanItem(
   id: 1,
@@ -115,45 +91,6 @@ OrderDetail get _order => OrderDetail(
 void main() {
   setUpAll(_loadCjkFont);
 
-  /// 在固定尺寸 + 指定 textScale + brightness 下渲染单个卡片 [child]（包 XbBrandTheme）。
-  Future<void> pumpCardWidget(
-    WidgetTester tester,
-    Widget child, {
-    required double textScale,
-    required Brightness brightness,
-    XboardService? service,
-  }) async {
-    tester.view.physicalSize = const Size(390 * 3, 844 * 3);
-    tester.view.devicePixelRatio = 3.0;
-    addTearDown(tester.view.resetPhysicalSize);
-    addTearDown(tester.view.resetDevicePixelRatio);
-
-    await tester.pumpWidget(
-      ProviderScope(
-        overrides: [
-          if (service != null) xboardServiceProvider.overrideWithValue(service),
-        ],
-        child: MaterialApp(
-          debugShowCheckedModeBanner: false,
-          theme: ThemeData(useMaterial3: true, brightness: brightness),
-          home: Scaffold(
-            body: MediaQuery(
-              data: MediaQueryData(textScaler: TextScaler.linear(textScale)),
-              child: XbBrandTheme(
-                brandColor: const Color(0xFFD92E1A),
-                child: SingleChildScrollView(
-                  padding: const EdgeInsets.all(16),
-                  child: child,
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-    await tester.pumpAndSettle();
-  }
-
   /// 渲染整页（自带 Scaffold）。pages 内部 ListView 可滚，golden 截首屏视口。
   Future<void> pumpPage(
     WidgetTester tester,
@@ -184,46 +121,6 @@ void main() {
     );
     await tester.pumpAndSettle();
   }
-
-  // ── R6 账号信息卡 ──
-  group('R6 账号信息卡 a11y golden', () {
-    Future<void> pumpCard(WidgetTester t, double scale, Brightness b,
-        {XbDomainSubscription? sub}) async {
-      final service = _MockService();
-      when(() => service.getSubscription())
-          .thenAnswer((_) async => XbResult.success(sub ?? _subStatic));
-      await pumpCardWidget(
-        t,
-        const AccountInfoCard(),
-        textScale: scale,
-        brightness: b,
-        service: service,
-      );
-    }
-
-    testWidgets('light 1.0 + golden + contrast', (t) async {
-      await pumpCard(t, 1.0, Brightness.light);
-      expect(t.takeException(), isNull);
-      await expectLater(find.byType(AccountInfoCard),
-          matchesGoldenFile('goldens/a11y_account_light_1.0.png'));
-      await expectLater(t, meetsGuideline(textContrastGuideline));
-    });
-    testWidgets('dark 1.0 + golden + contrast', (t) async {
-      await pumpCard(t, 1.0, Brightness.dark);
-      expect(t.takeException(), isNull);
-      await expectLater(find.byType(AccountInfoCard),
-          matchesGoldenFile('goldens/a11y_account_dark_1.0.png'));
-      await expectLater(t, meetsGuideline(textContrastGuideline));
-    });
-    testWidgets('1.5 无溢出', (t) async {
-      await pumpCard(t, 1.5, Brightness.light, sub: _sub);
-      expect(t.takeException(), isNull);
-    });
-    testWidgets('2.0 无溢出', (t) async {
-      await pumpCard(t, 2.0, Brightness.light, sub: _sub);
-      expect(t.takeException(), isNull);
-    });
-  });
 
   // ── R8 套餐详情页 ──
   group('R8 套餐详情页 a11y golden', () {

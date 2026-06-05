@@ -1,10 +1,10 @@
-/// W6.4 — 接缝点 #9 desktop gate 回归（R1.6 / NFR-5.2）。
+/// 接缝点 #9 形态选择回归（form-a 升级后：formA = 唯一 UI，mobile+desktop 统一）。
 ///
-/// 断言接缝点 #9 的形态选择逻辑：`formA && isMobileView` 才走 XboardAppShell；
-/// desktop（isMobileView=false）或 formB 走原 HomePage。
+/// 断言接缝点 #9 逻辑：`formA ? XboardAppShell : child`（无 isMobile gate，option a）。
+/// - formA=true → 永远走 XboardAppShell（mobile + desktop 统一）。
+/// - formA=false（兜底）→ 走原 child（FlClash 原生 HomePage）。
 ///
-/// 复刻 application.dart 接缝点表达式（不全量启动 Application，避免 Manager 链 / 原生依赖），
-/// 锁定 gate 真值表；真机 desktop 回归由 W6.4 集成在 linux 跑。
+/// 复刻 application.dart 接缝点表达式（不全量启动 Application，避免 Manager 链 / 原生依赖）。
 library;
 
 import 'package:flutter/material.dart';
@@ -31,25 +31,24 @@ class _Auth extends AuthStateNotifier {
   AuthState build() => AuthState.authenticated;
 }
 
-/// 复刻接缝点 #9：`home: (formA && isMobileView) ? XboardAppShell() : child`。
+/// 复刻接缝点 #9（option a）：`home: formA ? XboardAppShell() : child`。
 class _SeamProbe extends ConsumerWidget {
   const _SeamProbe();
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final useShell =
-        XboardConfig.current.formA && ref.watch(isMobileViewProvider);
+    final useShell = XboardConfig.current.formA;
     return MaterialApp(
-      home: useShell ? const XboardAppShell() : const _FakeHomePage(),
+      home: useShell ? const XboardAppShell() : const _FallbackHomePage(),
     );
   }
 }
 
-class _FakeHomePage extends StatelessWidget {
-  const _FakeHomePage();
+class _FallbackHomePage extends StatelessWidget {
+  const _FallbackHomePage();
   @override
   Widget build(BuildContext context) =>
-      const Scaffold(body: Center(child: Text('FORM_B_HOMEPAGE')));
+      const Scaffold(body: Center(child: Text('FLCLASH_HOMEPAGE')));
 }
 
 Future<void> pumpGate(
@@ -69,7 +68,7 @@ Future<void> pumpGate(
   final container = ProviderContainer(
     overrides: [
       isMobileViewProvider.overrideWith((ref) => isMobile),
-      // formA+mobile 会挂真 XboardAppShell（含 HomeTab 等），补其依赖的 FlClash + auth provider。
+      // formA 会挂真 XboardAppShell（含 HomeTab 等），补其依赖的 FlClash + auth provider。
       bootstrapReadyProvider.overrideWith(() => _Ready()),
       authStateProvider.overrideWith(() => _Auth()),
       isStartProvider.overrideWith((ref) => false),
@@ -99,25 +98,28 @@ void main() {
     final original = ErrorWidget.builder;
     await pumpGate(tester, formA: true, isMobile: true);
     expect(find.byType(XboardAppShell), findsOneWidget);
-    expect(find.text('FORM_B_HOMEPAGE'), findsNothing);
+    expect(find.text('FLCLASH_HOMEPAGE'), findsNothing);
     ErrorWidget.builder = original; // shell.initState 装了友好 builder，body 末还原
   });
 
-  testWidgets('formA + desktop → 形态 B HomePage（R1.6）', (tester) async {
+  testWidgets('formA + desktop → XboardAppShell（option a：desktop 也走形态 A 壳）',
+      (tester) async {
+    final original = ErrorWidget.builder;
     await pumpGate(tester, formA: true, isMobile: false);
-    expect(find.byType(XboardAppShell), findsNothing);
-    expect(find.text('FORM_B_HOMEPAGE'), findsOneWidget);
+    expect(find.byType(XboardAppShell), findsOneWidget);
+    expect(find.text('FLCLASH_HOMEPAGE'), findsNothing);
+    ErrorWidget.builder = original;
   });
 
-  testWidgets('formB + mobile → 形态 B HomePage（默认）', (tester) async {
+  testWidgets('formA=false + mobile → FlClash 原生 HomePage（兜底）', (tester) async {
     await pumpGate(tester, formA: false, isMobile: true);
     expect(find.byType(XboardAppShell), findsNothing);
-    expect(find.text('FORM_B_HOMEPAGE'), findsOneWidget);
+    expect(find.text('FLCLASH_HOMEPAGE'), findsOneWidget);
   });
 
-  testWidgets('formB + desktop → 形态 B HomePage', (tester) async {
+  testWidgets('formA=false + desktop → FlClash 原生 HomePage（兜底）', (tester) async {
     await pumpGate(tester, formA: false, isMobile: false);
     expect(find.byType(XboardAppShell), findsNothing);
-    expect(find.text('FORM_B_HOMEPAGE'), findsOneWidget);
+    expect(find.text('FLCLASH_HOMEPAGE'), findsOneWidget);
   });
 }

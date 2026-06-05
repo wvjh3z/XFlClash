@@ -6,7 +6,6 @@ import 'package:fl_clash/enum/enum.dart';
 import 'package:fl_clash/manager/window_manager.dart';
 import 'package:fl_clash/providers/providers.dart';
 import 'package:fl_clash/state.dart';
-import 'package:fl_clash/xboard/navigation/xboard_navigation.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -236,12 +235,7 @@ class AppSidebarContainer extends ConsumerWidget {
                                 .map(
                                   (e) => NavigationRailDestination(
                                     icon: e.icon,
-                                    // Xboard 接缝点 #6.bis：「我的服务」自渲染标题。
-                                    label: Text(
-                                      XboardNavigation.isXboardItem(e)
-                                          ? XboardNavigation.titleOf(e)
-                                          : Intl.message(e.label.name),
-                                    ),
+                                    label: Text(Intl.message(e.label.name)),
                                   ),
                                 )
                                 .toList(),

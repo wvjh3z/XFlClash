@@ -179,14 +179,11 @@ class ApplicationState extends ConsumerState<Application> {
               primaryColor: themeProps.primaryColor,
             ).toPureBlack(themeProps.pureBlack),
           ),
-          // === Xboard 接缝点 #9（form-a R1 + R1.6 desktop gate，加而不改）===
-          // formA flavor + mobile → 自定义壳 XboardAppShell；否则（form B 默认 / desktop）走原 child（HomePage）。
+          // === Xboard 接缝点 #9（form-a R1，加而不改：home 值包成 flavor 三元）===
+          // formA flavor → 自定义壳 XboardAppShell（mobile + desktop 统一，形态 A 为唯一 UI）；
+          // formA=false（兜底）→ 原 child（FlClash 原生 HomePage）。
           // Manager 包裹链在 MaterialApp.builder: 内（不在 home:），故换 home 不损 VPN 内核（R1，PoC 已证）。
-          // desktop 首版维持形态 B（R1.6 / NFR-5.2：自定义壳为移动优先）。
-          home: (XboardConfig.current.formA &&
-                  ref.watch(isMobileViewProvider))
-              ? const XboardAppShell()
-              : child!,
+          home: XboardConfig.current.formA ? const XboardAppShell() : child!,
         );
       },
       child: const HomePage(),
