@@ -75,6 +75,7 @@ void main() {
   }
 
   testWidgets('formA 外壳：首页 连接球/速度卡渲染 + 三 Tab 切换 + 保活', (t) async {
+    final original = ErrorWidget.builder; // shell.initState 装友好 builder，body 末还原
     final container = makeContainer(AuthState.authenticated);
     addTearDown(container.dispose);
     container.read(coreStatusProvider.notifier).value = CoreStatus.disconnected;
@@ -93,9 +94,11 @@ void main() {
 
     // 回首页后连接球仍在（IndexedStack 保活，R1.4）。
     expect(find.byType(XbConnectOrb), findsOneWidget);
+    ErrorWidget.builder = original;
   });
 
   testWidgets('formA 游客 → 我的 Tab 登录引导 → 弹登录 sheet（R5.3 渐进登录）', (t) async {
+    final original = ErrorWidget.builder;
     final container = makeContainer(AuthState.unauthenticated);
     addTearDown(container.dispose);
     container.read(coreStatusProvider.notifier).value = CoreStatus.disconnected;
@@ -111,6 +114,7 @@ void main() {
     await t.pumpAndSettle();
     expect(find.text('注册账号'), findsOneWidget);
     expect(find.text('忘记密码？'), findsOneWidget);
+    ErrorWidget.builder = original;
   });
 }
 
