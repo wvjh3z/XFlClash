@@ -23,6 +23,7 @@ import '../providers/xboard_providers.dart';
 import '../services/subscription_triggers.dart';
 import '../util/error_text.dart';
 import '../util/period_label.dart';
+import '../widgets/xb_theme.dart' show xbShowDialog;
 import '../widgets/xb_ui_kit.dart';
 
 /// 轮询间隔（pending/processing 时）。
@@ -356,8 +357,9 @@ class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage> {
   }
 
   Future<void> _showQrDialog(String qrUrl) async {
-    await showDialog<void>(
+    await xbShowDialog<void>(
       context: context,
+      brandColor: Color(XboardConfig.current.brandColor),
       builder: (ctx) => AlertDialog(
         title: const Text('扫码支付'),
         content: Column(
@@ -381,8 +383,9 @@ class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage> {
   }
 
   Future<void> _cancel() async {
-    final confirm = await showDialog<bool>(
+    final confirm = await xbShowDialog<bool>(
       context: context,
+      brandColor: Color(XboardConfig.current.brandColor),
       builder: (ctx) => AlertDialog(
         title: const Text('取消订单'),
         content: const Text('确定取消这笔订单吗？'),

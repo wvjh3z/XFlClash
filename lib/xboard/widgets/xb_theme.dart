@@ -143,6 +143,9 @@ ThemeData buildXbTheme({required Color brandColor, required Brightness brightnes
     outlineVariant: t.line,
     inverseSurface: t.on,
     onInverseSurface: t.sf,
+    // 🔴 全局根治「背景泛粉红」：M3 按 elevation 给所有 Material/Card/Sheet/Dialog/AppBar
+    // 叠一层 surfaceTint(=primary 品牌红)。设透明 → 全 App 任何 elevation 都不再叠色染红。
+    surfaceTint: Colors.transparent,
   );
 
   final base = ThemeData(useMaterial3: true, brightness: brightness, colorScheme: scheme);
@@ -237,6 +240,16 @@ ThemeData buildXbTheme({required Color brandColor, required Brightness brightnes
       titleTextStyle: TextStyle(
           color: t.on, fontSize: 19, fontWeight: FontWeight.w800, letterSpacing: -0.3),
     ),
+    // 对话框（.dialog）：白面 + 圆角 + 不叠色。
+    dialogTheme: DialogThemeData(
+      backgroundColor: t.sf2,
+      surfaceTintColor: Colors.transparent,
+      elevation: 0,
+      shape: rrect(20),
+      titleTextStyle: TextStyle(
+          color: t.on, fontSize: 18, fontWeight: FontWeight.w700),
+      contentTextStyle: TextStyle(color: t.onv, fontSize: 14, height: 1.5),
+    ),
     dividerTheme: DividerThemeData(color: t.hair, thickness: 1, space: 1),
     progressIndicatorTheme: ProgressIndicatorThemeData(
       color: brandColor,
@@ -293,4 +306,23 @@ class _XbBrandThemeHost extends StatelessWidget {
       child: child,
     );
   }
+}
+
+/// 形态 A 对话框 helper —— 自动用品牌主题包裹（dialog 挂根 Navigator，同样会逃逸主题）。
+///
+/// 用法：`xbShowDialog(context: context, brandColor: ..., builder: ...)` 代替裸 `showDialog`。
+Future<T?> xbShowDialog<T>({
+  required BuildContext context,
+  required Color brandColor,
+  required WidgetBuilder builder,
+  bool barrierDismissible = true,
+}) {
+  return showDialog<T>(
+    context: context,
+    barrierDismissible: barrierDismissible,
+    builder: (ctx) => _XbBrandThemeHost(
+      brandColor: brandColor,
+      child: Builder(builder: builder),
+    ),
+  );
 }

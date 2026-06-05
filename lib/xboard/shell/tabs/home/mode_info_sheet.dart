@@ -8,11 +8,12 @@ library;
 
 import 'package:flutter/material.dart';
 
-/// 弹出模式说明底部 sheet。
+import '../../sheets/sheet_scaffold.dart' show showXbBottomSheet;
+
+/// 弹出模式说明底部 sheet（走统一入口 showXbBottomSheet：自动套品牌主题 + 白底，不逃逸主题）。
 Future<void> showModeInfoSheet(BuildContext context) {
-  return showModalBottomSheet<void>(
+  return showXbBottomSheet<void>(
     context: context,
-    showDragHandle: true,
     builder: (context) => const _ModeInfoSheet(),
   );
 }

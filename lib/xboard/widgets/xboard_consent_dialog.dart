@@ -19,6 +19,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../config/xboard_config.dart';
+import 'xb_theme.dart' show xbShowDialog;
 
 /// consent 持久化 key（DD-22 v1；schema 升级时改 v2 重新弹）。
 const String kXbConsentKey = 'xb_consent_v1';
@@ -39,8 +40,9 @@ class XboardConsentDialog {
     if (await hasConsented()) return true;
     if (!context.mounted) return false;
 
-    final agreed = await showDialog<bool>(
+    final agreed = await xbShowDialog<bool>(
       context: context,
+      brandColor: Color(XboardConfig.current.brandColor),
       barrierDismissible: false,
       builder: (_) => const _ConsentDialogBody(),
     );
