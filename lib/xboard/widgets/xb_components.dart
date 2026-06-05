@@ -604,3 +604,35 @@ class XbBottomActionBar extends StatelessWidget {
     );
   }
 }
+
+/// 加载失败重试块（多页通用）：图标 + 文案 + 重试按钮。
+class XbErrorRetry extends StatelessWidget {
+  const XbErrorRetry({super.key, required this.message, required this.onRetry});
+
+  final String message;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = XbTokens.of(context);
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.cloud_off_rounded, size: 40, color: t.onv),
+          const SizedBox(height: 8),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 24),
+            child: Text(message, textAlign: TextAlign.center),
+          ),
+          const SizedBox(height: 12),
+          OutlinedButton.icon(
+            onPressed: onRetry,
+            icon: const Icon(Icons.refresh_rounded, size: 18),
+            label: const Text('重试'),
+          ),
+        ],
+      ),
+    );
+  }
+}

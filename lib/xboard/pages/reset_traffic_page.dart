@@ -102,28 +102,8 @@ class _ResetTrafficPageState extends ConsumerState<ResetTrafficPage> {
     );
   }
 
-  Widget _errorRetry() => Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(Icons.cloud_off_rounded, size: 40),
-            const SizedBox(height: 8),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 24),
-              child: Text(
-                _loadError ?? '加载失败',
-                textAlign: TextAlign.center,
-              ),
-            ),
-            const SizedBox(height: 12),
-            OutlinedButton.icon(
-              onPressed: _load,
-              icon: const Icon(Icons.refresh_rounded, size: 18),
-              label: const Text('重试'),
-            ),
-          ],
-        ),
-      );
+  Widget _errorRetry() =>
+      XbErrorRetry(message: _loadError ?? '加载失败', onRetry: _load);
 
   /// 当前套餐不提供单独的流量重置包（复用 XbEmptyState）。
   Widget _unavailable(BuildContext context) {

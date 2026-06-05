@@ -69,7 +69,7 @@ class _OrderListPageState extends ConsumerState<OrderListPage> {
               final msg = err is XbDomainError
                   ? resolveErrorText(err, fallback: '加载订单失败')
                   : '加载订单失败';
-              return _ErrorRetry(message: msg, onRetry: _reload);
+              return XbErrorRetry(message: msg, onRetry: _reload);
             }
             final orders = snap.data ?? const <OrderSummary>[];
             if (orders.isEmpty) {
@@ -143,31 +143,5 @@ class _StatusChip extends StatelessWidget {
       _ => scheme.onSurfaceVariant,
     };
     return XbTag(orderStatusLabel(status), color: color);
-  }
-}
-
-class _ErrorRetry extends StatelessWidget {
-  const _ErrorRetry({required this.message, required this.onRetry});
-  final String message;
-  final VoidCallback onRetry;
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const Icon(Icons.cloud_off_rounded, size: 40),
-          const SizedBox(height: 8),
-          Text(message),
-          const SizedBox(height: 12),
-          OutlinedButton.icon(
-            onPressed: onRetry,
-            icon: const Icon(Icons.refresh_rounded, size: 18),
-            label: const Text('重试'),
-          ),
-        ],
-      ),
-    );
   }
 }
