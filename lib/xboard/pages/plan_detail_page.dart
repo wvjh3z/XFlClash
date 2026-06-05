@@ -9,6 +9,7 @@ import 'package:flutter_html/flutter_html.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../config/xboard_config.dart';
+import '../widgets/xb_components.dart';
 import '../widgets/xb_theme.dart' show xbPush;
 import '../models/plan_item.dart';
 import '../models/xb_domain_types.dart';
@@ -304,52 +305,21 @@ class _PlanDetailPageState extends ConsumerState<PlanDetailPage> {
         Text('订单摘要',
             style: text.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
         const SizedBox(height: 12),
-        _summaryRow(context, '小计', '¥${_subtotal.toStringAsFixed(2)}'),
+        XbKeyValueRow(label: '小计', value: '¥${_subtotal.toStringAsFixed(2)}'),
         if (_coupon != null)
-          _summaryRow(context, '优惠（预估）', '-¥${_discount.toStringAsFixed(2)}',
+          XbKeyValueRow(
+              label: '优惠（预估）',
+              value: '-¥${_discount.toStringAsFixed(2)}',
               valueColor: scheme.primary),
-        const Divider(height: 20),
-        Row(
-          children: [
-            Expanded(
-              child: Text('总计',
-                  style:
-                      text.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
-            ),
-            const SizedBox(width: 8),
-            Text('¥${_total.toStringAsFixed(2)}',
-                style: text.titleLarge?.copyWith(
-                    color: scheme.primary, fontWeight: FontWeight.w800)),
-          ],
-        ),
+        const XbHairline(margin: 10),
+        XbKeyValueRow(
+            label: '总计', value: '¥${_total.toStringAsFixed(2)}', total: true),
         if (_coupon != null) ...[
           const SizedBox(height: 4),
           Text('* 最终金额以提交订单后为准',
               style: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant)),
         ],
       ],
-    );
-  }
-
-  Widget _summaryRow(BuildContext context, String label, String value,
-      {Color? valueColor}) {
-    final scheme = Theme.of(context).colorScheme;
-    final text = Theme.of(context).textTheme;
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 5),
-      child: Row(
-        children: [
-          Expanded(
-            child: Text(label,
-                style:
-                    text.bodyMedium?.copyWith(color: scheme.onSurfaceVariant)),
-          ),
-          const SizedBox(width: 8),
-          Text(value,
-              style: text.bodyMedium?.copyWith(
-                  color: valueColor, fontWeight: FontWeight.w600)),
-        ],
-      ),
     );
   }
 
