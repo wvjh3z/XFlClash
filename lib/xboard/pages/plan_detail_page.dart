@@ -137,7 +137,6 @@ class _PlanDetailPageState extends ConsumerState<PlanDetailPage> {
   }
 
   Widget _header(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
     final text = Theme.of(context).textTheme;
     return Row(
       children: [
