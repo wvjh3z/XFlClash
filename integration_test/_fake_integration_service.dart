@@ -62,6 +62,12 @@ class FakeIntegrationService implements XboardService {
   }
 
   @override
+  Future<XbResult<List<String>>> getEmailSuffixes() async {
+    await _delay;
+    return XbResult.success(const ['gmail.com', 'qq.com']);
+  }
+
+  @override
   Future<XbResult<XbDomainSubscription>> getSubscription() async {
     await _delay;
     return XbResult.success(XbDomainSubscription(
