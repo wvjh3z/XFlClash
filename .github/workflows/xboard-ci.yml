@@ -104,3 +104,53 @@ jobs:
       - name: Build ${{ matrix.platform }}
         run: flutter build ${{ matrix.platform }} --release
         continue-on-error: true # 原生工具链 / 签名未齐时不阻断（RC 前转 required）
+
+  # 形态 A（v2.0）专属防护（spec xboard-form-a-ui-revamp / W6）。
+  form-a-guards:
+    name: Form-A guards (flavor matrix + upstream diff + seam imports)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # diff 断言需完整历史
+      - name: Checkout Xboard_sdk (sibling)
+        uses: actions/checkout@v4
+        with:
+          repository: wvjh3z/Xboard_sdk
+          path: ../Xboard_sdk
+          token: ${{ secrets.SIBLING_SDK_TOKEN }}
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+      - name: SDK build_runner
+        working-directory: ../Xboard_sdk
+        run: dart pub get && dart run build_runner build --delete-conflicting-outputs
+      - name: Client deps + codegen
+        run: flutter pub get && dart run build_runner build --delete-conflicting-outputs
+
+      # W6.1 / Property 2：形态 A 上游零侵入（仅接缝点 #9 application.dart）。
+      - name: Form-A upstream diff assert (Property 2)
+        run: dart run tool/check_form_a_upstream_diff.dart origin/main
+
+      # W6.2 / 风险②a：复用符号锚点未漂移（含形态 A 复用符号）。
+      - name: Reuse-symbol anchors (DD-21)
+        run: dart run tool/check-line-anchors.dart
+
+      # W2.6 / NFR-1.6：适配层铁律（tabs 不直 import lib/views）。
+      - name: Seam import guard (adapter rule)
+        run: dart run tool/check_seam_imports.dart
+
+      - name: Analyze (xboard module, fatal-infos)
+        run: flutter analyze lib/xboard
+
+      - name: Form-A shell tests
+        run: flutter test test/xboard/shell/
+
+      # W6.1 / Property 3：formA 与 formB 双 flavor 均可 build（apk debug 冒烟）。
+      - name: Build formB (default)
+        run: flutter build apk --debug
+        continue-on-error: true # 原生工具链未齐时不阻断（RC 前转 required）
+      - name: Build formA (XB_FORM_A=true)
+        run: flutter build apk --debug --dart-define=XB_FORM_A=true
+        continue-on-error: true
+
