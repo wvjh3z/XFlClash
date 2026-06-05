@@ -60,7 +60,7 @@ class NodesTab extends ConsumerWidget {
   }
 }
 
-/// 顶部刷新条（R4.5）。
+/// 顶部刷新条（R4.5）—— 原型「选择线路」标题 + 「刷新节点」。
 class _NodesHeader extends StatelessWidget {
   const _NodesHeader({required this.onRefresh});
 
@@ -68,16 +68,22 @@ class _NodesHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 12, 8, 4),
       child: Row(
         children: [
-          Text('线路', style: Theme.of(context).textTheme.titleLarge),
+          Text(
+            '选择线路',
+            style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800)
+                .copyWith(color: scheme.onSurface),
+          ),
           const Spacer(),
           TextButton.icon(
             onPressed: onRefresh,
-            icon: const Icon(Icons.refresh, size: 18),
-            label: const Text('刷新'),
+            icon: const Icon(Icons.refresh, size: 16),
+            label: const Text('刷新节点'),
+            style: TextButton.styleFrom(foregroundColor: scheme.primary),
           ),
         ],
       ),
@@ -153,19 +159,36 @@ class _EmptyNodes extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.cloud_off, size: 56, color: scheme.onSurfaceVariant),
+            Container(
+              width: 80,
+              height: 80,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: scheme.surfaceContainer,
+                borderRadius: BorderRadius.circular(26),
+              ),
+              child: Icon(Icons.cloud_off, size: 36, color: scheme.primary),
+            ),
             const SizedBox(height: 16),
-            Text('暂无可用线路', style: Theme.of(context).textTheme.titleMedium),
+            Text('当前套餐无可用线路',
+                style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700)
+                    .copyWith(color: scheme.onSurface)),
             const SizedBox(height: 8),
             Text(
-              '订阅套餐后即可使用专属线路',
+              '套餐可能已到期或未生效，\n续费后线路将自动同步。',
               textAlign: TextAlign.center,
-              style: TextStyle(color: scheme.onSurfaceVariant),
+              style: TextStyle(color: scheme.onSurfaceVariant, height: 1.6),
             ),
-            const SizedBox(height: 20),
+            const SizedBox(height: 18),
             FilledButton(
               onPressed: onTapRenew,
-              child: const Text('查看套餐'),
+              style: FilledButton.styleFrom(
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(15)),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 38, vertical: 14),
+              ),
+              child: const Text('前往续费'),
             ),
           ],
         ),
@@ -189,13 +212,37 @@ class _GuestNodes extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.vpn_lock, size: 56, color: scheme.onSurfaceVariant),
+            Container(
+              width: 80,
+              height: 80,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: scheme.surfaceContainer,
+                borderRadius: BorderRadius.circular(26),
+              ),
+              child: Icon(Icons.public, size: 36, color: scheme.primary),
+            ),
             const SizedBox(height: 16),
-            Text('登录后查看专属线路', style: Theme.of(context).textTheme.titleMedium),
-            const SizedBox(height: 20),
-            FilledButton(
+            Text('登录后查看专属线路',
+                style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700)
+                    .copyWith(color: scheme.onSurface)),
+            const SizedBox(height: 8),
+            Text(
+              '高速节点由服务端下发，\n登录账号即可同步全部线路。',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: scheme.onSurfaceVariant, height: 1.6),
+            ),
+            const SizedBox(height: 18),
+            FilledButton.icon(
               onPressed: onTapLogin,
-              child: const Text('登录 / 注册'),
+              icon: const Icon(Icons.login, size: 18),
+              label: const Text('立即登录'),
+              style: FilledButton.styleFrom(
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(15)),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 30, vertical: 14),
+              ),
             ),
           ],
         ),

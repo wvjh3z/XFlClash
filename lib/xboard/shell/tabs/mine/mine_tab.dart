@@ -77,7 +77,7 @@ class _AccountSection extends ConsumerWidget {
   }
 }
 
-/// 账号卡（邮箱 + 套餐 + 用量% + 到期 + 重置日，R6.1/R6.2）。
+/// 账号卡（原型 .plan：品牌渐变卡 + 白字 + 大号流量数字 + 到期/重置两行，R6.1/R6.2）。
 class _AccountCard extends StatelessWidget {
   const _AccountCard({required this.sub});
 
@@ -89,88 +89,130 @@ class _AccountCard extends StatelessWidget {
     final usedPct = sub.totalBytes == 0
         ? 0.0
         : (sub.usedBytes / sub.totalBytes).clamp(0.0, 1.0);
+    final pctInt = (usedPct * 100).round();
+    final hot = usedPct >= _resetThreshold;
+    const white = Colors.white;
+    final white70 = Colors.white.withValues(alpha: 0.88);
 
-    return Card(
-      elevation: 0,
-      color: scheme.surfaceContainerHigh,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-      child: Padding(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                CircleAvatar(
-                  backgroundColor: scheme.primary.withValues(alpha: 0.12),
-                  child: Icon(Icons.person, color: scheme.primary),
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(24),
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            Color.alphaBlend(Colors.white.withValues(alpha: 0.18), scheme.primary),
+            scheme.primary,
+            Color.alphaBlend(Colors.black.withValues(alpha: 0.22), scheme.primary),
+          ],
+          stops: const [0, 0.55, 1],
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: scheme.primary.withValues(alpha: 0.45),
+            blurRadius: 40,
+            offset: const Offset(0, 20),
+            spreadRadius: -16,
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // 账号行：头像 + 邮箱(掩码) + 套餐名。
+          Row(
+            children: [
+              Container(
+                width: 50,
+                height: 50,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.22),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: Colors.white.withValues(alpha: 0.25)),
                 ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        _maskEmail(sub.email),
-                        style: const TextStyle(
-                            fontSize: 15, fontWeight: FontWeight.w700),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
+                child: const Icon(Icons.person, color: white, size: 24),
+              ),
+              const SizedBox(width: 13),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      _maskEmail(sub.email),
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700,
+                        color: white,
                       ),
-                      const SizedBox(height: 2),
-                      Text(
-                        sub.planName ?? '未订阅套餐',
-                        style: TextStyle(
-                            fontSize: 12.5, color: scheme.onSurfaceVariant),
-                      ),
-                    ],
-                  ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      sub.planName ?? '未订阅套餐',
+                      style: TextStyle(fontSize: 12, color: white70),
+                    ),
+                  ],
                 ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            // 用量进度（%，R6.2）。
-            ClipRRect(
-              borderRadius: BorderRadius.circular(6),
-              child: LinearProgressIndicator(
-                value: usedPct,
-                minHeight: 8,
-                backgroundColor: scheme.surfaceContainerHighest,
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          // 用量标签 + 大号数字。
+          Text(
+            '本月已用流量（已使用 $pctInt%）',
+            style: TextStyle(fontSize: 12, color: white70),
+          ),
+          const SizedBox(height: 4),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.baseline,
+            textBaseline: TextBaseline.alphabetic,
+            children: [
+              Text(
+                _gb(sub.usedBytes),
+                style: const TextStyle(
+                  fontSize: 30,
+                  fontWeight: FontWeight.w800,
+                  color: white,
+                  fontFeatures: [FontFeature.tabularFigures()],
+                ),
+              ),
+              const SizedBox(width: 6),
+              Text(
+                '/ ${_gb(sub.totalBytes)} GB',
+                style: TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w600,
+                  color: white70,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 11),
+          // 进度条（白色填充）。
+          ClipRRect(
+            borderRadius: BorderRadius.circular(6),
+            child: LinearProgressIndicator(
+              value: usedPct,
+              minHeight: 10,
+              backgroundColor: Colors.white.withValues(alpha: 0.25),
+              valueColor: AlwaysStoppedAnimation(
+                hot ? const Color(0xFFFFD9D2) : Colors.white,
               ),
             ),
-            const SizedBox(height: 8),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  '已用 ${_gb(sub.usedBytes)} / ${_gb(sub.totalBytes)} GB',
-                  style: TextStyle(fontSize: 12.5, color: scheme.onSurfaceVariant),
-                ),
-                Text(
-                  '${(usedPct * 100).toStringAsFixed(0)}%',
-                  style: TextStyle(
-                    fontSize: 12.5,
-                    fontWeight: FontWeight.w600,
-                    color: usedPct >= _resetThreshold
-                        ? scheme.error
-                        : scheme.onSurfaceVariant,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 6),
-            Row(
-              children: [
-                Icon(Icons.event, size: 15, color: scheme.onSurfaceVariant),
-                const SizedBox(width: 6),
-                Text(
-                  _expireText(sub),
-                  style: TextStyle(fontSize: 12.5, color: scheme.onSurfaceVariant),
-                ),
-              ],
-            ),
+          ),
+          const SizedBox(height: 11),
+          // 到期行。
+          _InfoRow(icon: Icons.event, text: _expireText(sub), color: white70),
+          // 流量重置行（有重置日才显示）。
+          if (_resetText(sub) != null) ...[
+            const SizedBox(height: 3),
+            _InfoRow(
+                icon: Icons.autorenew, text: _resetText(sub)!, color: white70),
           ],
-        ),
+        ],
       ),
     );
   }
@@ -193,6 +235,40 @@ class _AccountCard extends StatelessWidget {
     final d = sub.expiredAt!;
     return '到期 ${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
   }
+
+  /// 流量重置行：有重置日才显示（一次性套餐无）。
+  static String? _resetText(XbDomainSubscription sub) {
+    final d = sub.nextResetAt;
+    if (d != null) {
+      final base =
+          '流量重置 ${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+      return sub.resetDay != null ? '$base（每月 ${sub.resetDay} 日）' : base;
+    }
+    if (sub.resetDay != null) return '流量重置 每月 ${sub.resetDay} 日';
+    return null;
+  }
+}
+
+/// 账号卡内信息行（图标 + 文案，白字半透明）。
+class _InfoRow extends StatelessWidget {
+  const _InfoRow({required this.icon, required this.text, required this.color});
+
+  final IconData icon;
+  final String text;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Icon(icon, size: 15, color: color),
+        const SizedBox(width: 6),
+        Expanded(
+          child: Text(text, style: TextStyle(fontSize: 12, color: color)),
+        ),
+      ],
+    );
+  }
 }
 
 /// 续费/购买分流（R6.4/R6.5/R6.6）+ 流量重置入口（≥90%，R6.3）。
@@ -206,42 +282,50 @@ class _PlanActions extends StatelessWidget {
     final usedPct = sub.totalBytes == 0
         ? 0.0
         : (sub.usedBytes / sub.totalBytes).clamp(0.0, 1.0);
+    final pctInt = (usedPct * 100).round();
     final showReset = usedPct >= _resetThreshold && sub.planId != null;
+    final scheme = Theme.of(context).colorScheme;
 
     return Column(
       children: [
-        Row(
-          children: [
-            // 续费当前套餐（R6.4）：有套餐才显示。
-            if (!sub.hasNoPlan)
+        SizedBox(
+          height: 52,
+          child: Row(
+            children: [
+              // 续费当前套餐（R6.4）：有套餐才显示，实心品牌按钮。
+              if (!sub.hasNoPlan)
+                Expanded(
+                  child: FilledButton(
+                    onPressed: () => _openPlans(context),
+                    style: FilledButton.styleFrom(
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(15)),
+                    ),
+                    child: const Text('续费当前套餐'),
+                  ),
+                ),
+              if (!sub.hasNoPlan) const SizedBox(width: 12),
+              // 购买/更改套餐（R6.5/R6.6），描边品牌按钮。
               Expanded(
-                child: FilledButton.tonalIcon(
+                child: OutlinedButton(
                   onPressed: () => _openPlans(context),
-                  icon: const Icon(Icons.autorenew, size: 18),
-                  label: const Text('续费套餐'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: scheme.primary,
+                    side: BorderSide(
+                        color: scheme.primary.withValues(alpha: 0.4), width: 1.6),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(15)),
+                  ),
+                  child: Text(sub.hasNoPlan ? '购买套餐' : '购买 / 更改套餐'),
                 ),
               ),
-            if (!sub.hasNoPlan) const SizedBox(width: 12),
-            // 购买/更改套餐（R6.5/R6.6）。
-            Expanded(
-              child: FilledButton.icon(
-                onPressed: () => _openPlans(context),
-                icon: const Icon(Icons.shopping_cart_outlined, size: 18),
-                label: Text(sub.hasNoPlan ? '购买套餐' : '更改套餐'),
-              ),
-            ),
-          ],
+            ],
+          ),
         ),
+        // 流量重置告警卡（原型 .resetcard，仅 ≥90% 显示）。
         if (showReset) ...[
           const SizedBox(height: 12),
-          SizedBox(
-            width: double.infinity,
-            child: OutlinedButton.icon(
-              onPressed: () => _openReset(context, sub),
-              icon: const Icon(Icons.refresh, size: 18),
-              label: const Text('流量重置'),
-            ),
-          ),
+          _ResetCard(pctInt: pctInt, onTap: () => _openReset(context, sub)),
         ],
       ],
     );
@@ -259,6 +343,84 @@ class _PlanActions extends StatelessWidget {
       MaterialPageRoute<void>(
         builder: (_) =>
             ResetTrafficPage(planId: sub.planId!, planName: sub.planName),
+      ),
+    );
+  }
+}
+
+/// 流量重置告警卡（原型 .resetcard，仅用量 ≥90% 显示，R6.3）。
+class _ResetCard extends StatelessWidget {
+  const _ResetCard({required this.pctInt, required this.onTap});
+
+  final int pctInt;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    // 告警色：用主题 error 调和出柔和底（原型 --warn 系）。
+    final warn = scheme.error;
+    final cardBg = Color.alphaBlend(warn.withValues(alpha: 0.10), scheme.surfaceContainerLowest);
+    return Material(
+      color: cardBg,
+      borderRadius: BorderRadius.circular(18),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(18),
+        child: Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: warn.withValues(alpha: 0.32)),
+          ),
+          child: Row(
+            children: [
+              Icon(Icons.warning_rounded, color: warn, size: 24),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      '流量即将用尽（已用 $pctInt%）',
+                      style: TextStyle(
+                        fontSize: 13.5,
+                        fontWeight: FontWeight.w700,
+                        color: scheme.onSurface,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      '可购买流量重置包，立即恢复本月可用流量',
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: scheme.onSurfaceVariant,
+                        height: 1.45,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 10),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 9),
+                decoration: BoxDecoration(
+                  color: warn,
+                  borderRadius: BorderRadius.circular(11),
+                ),
+                child: const Text(
+                  '流量重置',
+                  style: TextStyle(
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w700,
+                    color: Colors.white,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

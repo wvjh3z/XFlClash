@@ -64,7 +64,8 @@ void main() {
         sub: _sub(total: 100 * gb, used: 37 * gb));
     expect(find.text('de***@example.com'), findsOneWidget);
     expect(find.text('专业版'), findsOneWidget);
-    expect(find.text('37%'), findsOneWidget);
+    // 用量% 现并入标签文案（原型 .lab）。
+    expect(find.text('本月已用流量（已使用 37%）'), findsOneWidget);
     expect(find.text('退出登录'), findsOneWidget);
   });
 
@@ -82,11 +83,11 @@ void main() {
     expect(find.text('流量重置'), findsOneWidget);
   });
 
-  testWidgets('已订阅 → 续费 + 更改套餐双入口（R6.4-R6.6）', (tester) async {
+  testWidgets('已订阅 → 续费 + 购买/更改套餐双入口（R6.4-R6.6）', (tester) async {
     await pumpMine(tester,
         auth: AuthState.authenticated,
         sub: _sub(total: 100 * gb, used: 10 * gb));
-    expect(find.text('续费套餐'), findsOneWidget);
-    expect(find.text('更改套餐'), findsOneWidget);
+    expect(find.text('续费当前套餐'), findsOneWidget);
+    expect(find.text('购买 / 更改套餐'), findsOneWidget);
   });
 }

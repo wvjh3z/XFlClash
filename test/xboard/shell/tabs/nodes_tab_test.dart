@@ -45,14 +45,14 @@ void main() {
   testWidgets('游客态 → 登录引导（R4.7）', (tester) async {
     await pumpNodes(tester, auth: AuthState.unauthenticated);
     expect(find.text('登录后查看专属线路'), findsOneWidget);
-    expect(find.text('登录 / 注册'), findsOneWidget);
+    expect(find.text('立即登录'), findsOneWidget);
   });
 
   testWidgets('已登录 + 无分组 → 空态引导续费（R4.6）', (tester) async {
     await pumpNodes(tester, auth: AuthState.authenticated);
-    expect(find.text('暂无可用线路'), findsOneWidget);
-    expect(find.text('查看套餐'), findsOneWidget);
+    expect(find.text('当前套餐无可用线路'), findsOneWidget);
+    expect(find.text('前往续费'), findsOneWidget);
     // 空态不显示搜索/分组标签（R4.6）。
-    expect(find.text('刷新'), findsNothing);
+    expect(find.text('刷新节点'), findsNothing);
   });
 }
