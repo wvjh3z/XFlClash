@@ -46,23 +46,56 @@ class _HomeTabState extends ConsumerState<HomeTab> {
   Widget build(BuildContext context) {
     final isGuest =
         ref.watch(authStateProvider) != AuthState.authenticated;
+    final scheme = Theme.of(context).colorScheme;
 
     return SafeArea(
       child: SingleChildScrollView(
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+        padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
+            // AppBar 标题「MyClient」（原型 abar，左对齐大标题）。
+            Padding(
+              padding: const EdgeInsets.fromLTRB(4, 8, 4, 14),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  'MyClient',
+                  style: TextStyle(
+                    fontSize: 22,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: -0.3,
+                    color: scheme.onSurface,
+                  ),
+                ),
+              ),
+            ),
             if (isGuest) ...[
               _GuestBanner(onTapLogin: widget.onTapLogin),
               const SizedBox(height: 12),
             ],
             const SizedBox(height: 8),
-            Center(child: XbConnectOrb(showLock: isGuest)),
-            const SizedBox(height: 20),
+            Center(child: XbConnectOrb(showLock: isGuest, guest: isGuest)),
+            // 游客态说明行（原型 subline）。
+            if (isGuest) ...[
+              const SizedBox(height: 15),
+              Text(
+                '登录后开启加密保护',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 13,
+                  color: scheme.onSurfaceVariant,
+                  height: 1.55,
+                ),
+              ),
+            ],
+            const SizedBox(height: 17),
             const XbSpeedCard(),
-            const SizedBox(height: 12),
-            XbLineCard(onTapToNodes: widget.onTapToNodes),
+            // 当前线路卡：仅已登录显示（原型 guest 态无线路卡）。
+            if (!isGuest) ...[
+              const SizedBox(height: 12),
+              XbLineCard(onTapToNodes: widget.onTapToNodes),
+            ],
             const SizedBox(height: 20),
             const XbModeSegment(),
           ],

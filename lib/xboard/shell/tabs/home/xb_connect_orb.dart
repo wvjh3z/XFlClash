@@ -22,13 +22,21 @@ import '../../adapters/xb_connect_adapter.dart';
 
 /// 连接球四态外形。
 class XbConnectOrb extends ConsumerWidget {
-  const XbConnectOrb({super.key, this.size = 208, this.showLock = false});
+  const XbConnectOrb({
+    super.key,
+    this.size = 208,
+    this.showLock = false,
+    this.guest = false,
+  });
 
   /// 连接球直径。
   final double size;
 
   /// 游客态：核心右下角显示锁徽章（原型 guest orb）。
   final bool showLock;
+
+  /// 游客态：未连接时文案显示「未登录 / 点击登录」（原型 guest orb）。
+  final bool guest;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -54,7 +62,12 @@ class XbConnectOrb extends ConsumerWidget {
               // 进度环（连接态主题色满环 / 连接中主题色弧转动）。
               _ProgressRing(size: size, state: state, color: scheme.primary),
               // 核心（留白 + 图标 + 状态文字）。
-              _OrbCore(size: size * 0.79, state: state, scheme: scheme),
+              _OrbCore(
+                size: size * 0.79,
+                state: state,
+                scheme: scheme,
+                guest: guest,
+              ),
               // 游客锁徽章（右下角，原型 guest orb）。
               if (showLock)
                 Positioned(
@@ -231,17 +244,25 @@ class _ProgressPainter extends CustomPainter {
 }
 
 class _OrbCore extends StatelessWidget {
-  const _OrbCore({required this.size, required this.state, required this.scheme});
+  const _OrbCore({
+    required this.size,
+    required this.state,
+    required this.scheme,
+    this.guest = false,
+  });
 
   final double size;
   final XbConnState state;
   final ColorScheme scheme;
+  final bool guest;
 
   @override
   Widget build(BuildContext context) {
     final connected = state == XbConnState.connected;
     final active = connected || state == XbConnState.connecting;
     final iconColor = active ? scheme.primary : scheme.onSurfaceVariant;
+    // 游客 + 未连接：文案「未登录 / 点击登录」（原型 guest orb）。
+    final guestIdle = guest && state == XbConnState.disconnected;
 
     return AnimatedContainer(
       duration: const Duration(milliseconds: 300),
@@ -274,7 +295,7 @@ class _OrbCore extends StatelessWidget {
           Icon(_icon(state), size: 52, color: iconColor),
           const SizedBox(height: 10),
           Text(
-            _statusText(state),
+            guestIdle ? '未登录' : _statusText(state),
             style: TextStyle(
               fontSize: 14,
               fontWeight: FontWeight.w800,
@@ -284,7 +305,7 @@ class _OrbCore extends StatelessWidget {
           ),
           const SizedBox(height: 4),
           Text(
-            _subText(state),
+            guestIdle ? '点击登录' : _subText(state),
             style: TextStyle(fontSize: 11.5, color: scheme.onSurfaceVariant),
           ),
         ],

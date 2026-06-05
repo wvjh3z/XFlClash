@@ -16,6 +16,7 @@ import 'package:fl_clash/xboard/providers/auth_state_provider.dart';
 import 'package:fl_clash/xboard/providers/xboard_providers.dart';
 import 'package:fl_clash/xboard/shell/tabs/home/home_tab.dart';
 import 'package:fl_clash/xboard/shell/tabs/home/xb_connect_orb.dart';
+import 'package:fl_clash/xboard/shell/tabs/home/xb_line_card.dart';
 import 'package:fl_clash/xboard/shell/tabs/home/xb_speed_card.dart';
 import 'package:fl_clash/xboard/shell/tabs/home/xb_mode_segment.dart';
 
@@ -70,9 +71,19 @@ void main() {
     expect(find.byType(XbModeSegment), findsOneWidget);
   });
 
-  testWidgets('已登录态：隐藏登录 banner', (tester) async {
+  testWidgets('游客态：显示 MyClient 标题 + 不显示线路卡（原型对齐）', (tester) async {
+    await pumpHome(tester, auth: AuthState.unauthenticated);
+    expect(find.text('MyClient'), findsOneWidget);
+    // 原型 guest 态无当前线路卡（curnode 仅 auth）。
+    expect(find.byType(XbLineCard), findsNothing);
+    // 游客说明行。
+    expect(find.text('登录后开启加密保护'), findsOneWidget);
+  });
+
+  testWidgets('已登录态：隐藏登录 banner + 显示线路卡', (tester) async {
     await pumpHome(tester, auth: AuthState.authenticated);
     expect(find.text('登录解锁全部功能'), findsNothing);
     expect(find.byType(XbConnectOrb), findsOneWidget);
+    expect(find.byType(XbLineCard), findsOneWidget);
   });
 }

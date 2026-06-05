@@ -62,7 +62,7 @@ class _Metric extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 13, horizontal: 6),
       decoration: BoxDecoration(
-        color: scheme.surfaceContainerLow,
+        color: scheme.surfaceContainerLowest,
         borderRadius: BorderRadius.circular(17),
         border: Border.all(color: scheme.outlineVariant.withValues(alpha: 0.5)),
         boxShadow: [
