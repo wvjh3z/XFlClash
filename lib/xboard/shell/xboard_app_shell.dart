@@ -12,6 +12,9 @@ library;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'package:fl_clash/xboard/config/xboard_config.dart';
+import 'package:fl_clash/xboard/widgets/xb_ui_kit.dart' show XbBrandTheme;
+
 import 'sheets/login_sheet.dart';
 import 'tabs/home/home_tab.dart';
 import 'tabs/mine/mine_tab.dart';
@@ -46,6 +49,16 @@ class _XboardAppShellState extends ConsumerState<XboardAppShell> {
 
   @override
   Widget build(BuildContext context) {
+    // 形态 A 品牌主题（W3 接线漏项修复）：用 flavor brandColor 锁死强调色族（primary=品牌红），
+    // 中性灰出底，让整个外壳呈现品牌视觉，而非 FlClash 顶层 M3 动态色。
+    // 不套则三 Tab 跟随 FlClash 主题 → 品牌红被冲淡成灰/暗粉（与原型差异的根因）。
+    return XbBrandTheme(
+      brandColor: Color(XboardConfig.current.brandColor),
+      child: _buildScaffold(context),
+    );
+  }
+
+  Widget _buildScaffold(BuildContext context) {
     // body 用 IndexedStack 保活（切 Tab 不重建，R1.4）。
     return Scaffold(
       body: SafeArea(

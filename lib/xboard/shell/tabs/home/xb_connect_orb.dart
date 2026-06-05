@@ -22,10 +22,13 @@ import '../../adapters/xb_connect_adapter.dart';
 
 /// 连接球四态外形。
 class XbConnectOrb extends ConsumerWidget {
-  const XbConnectOrb({super.key, this.size = 208});
+  const XbConnectOrb({super.key, this.size = 208, this.showLock = false});
 
   /// 连接球直径。
   final double size;
+
+  /// 游客态：核心右下角显示锁徽章（原型 guest orb）。
+  final bool showLock;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -52,6 +55,30 @@ class XbConnectOrb extends ConsumerWidget {
               _ProgressRing(size: size, state: state, color: scheme.primary),
               // 核心（留白 + 图标 + 状态文字）。
               _OrbCore(size: size * 0.79, state: state, scheme: scheme),
+              // 游客锁徽章（右下角，原型 guest orb）。
+              if (showLock)
+                Positioned(
+                  right: size * 0.08,
+                  bottom: size * 0.04,
+                  child: Container(
+                    width: 38,
+                    height: 38,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: scheme.surfaceContainerLow,
+                      border: Border.all(color: scheme.outlineVariant),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.18),
+                          blurRadius: 12,
+                          offset: const Offset(0, 5),
+                        ),
+                      ],
+                    ),
+                    child: Icon(Icons.lock,
+                        size: 17, color: scheme.onSurfaceVariant),
+                  ),
+                ),
             ],
           ),
         ),
@@ -222,13 +249,23 @@ class _OrbCore extends StatelessWidget {
       height: size,
       decoration: BoxDecoration(
         shape: BoxShape.circle,
-        color: scheme.surface,
+        color: scheme.surfaceContainerLowest,
         border: Border.all(
           color: active
               ? scheme.primary.withValues(alpha: 0.18)
               : scheme.outlineVariant,
           width: 1,
         ),
+        boxShadow: [
+          BoxShadow(
+            color: active
+                ? scheme.primary.withValues(alpha: 0.22)
+                : Colors.black.withValues(alpha: 0.12),
+            blurRadius: 30,
+            spreadRadius: -8,
+            offset: const Offset(0, 12),
+          ),
+        ],
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -256,7 +293,7 @@ class _OrbCore extends StatelessWidget {
   }
 
   IconData _icon(XbConnState state) => switch (state) {
-        XbConnState.connected => Icons.shield,
+        XbConnState.connected => Icons.verified_user,
         XbConnState.connecting => Icons.shield_outlined,
         XbConnState.booting => Icons.hourglass_empty,
         XbConnState.disconnected => Icons.power_settings_new,
@@ -270,9 +307,9 @@ class _OrbCore extends StatelessWidget {
       };
 
   String _subText(XbConnState state) => switch (state) {
-        XbConnState.connected => '点击断开',
-        XbConnState.connecting => '正在建立连接',
-        XbConnState.booting => '正在准备',
+        XbConnState.connected => '数据已加密保护',
+        XbConnState.connecting => '正在建立加密隧道…',
+        XbConnState.booting => '正在准备服务',
         XbConnState.disconnected => '点击连接',
       };
 }

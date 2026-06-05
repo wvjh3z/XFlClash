@@ -54,26 +54,94 @@ class XbModeSegment extends ConsumerWidget {
             ],
           ),
           const SizedBox(height: 8),
-          SegmentedButton<XbMode>(
-            segments: const [
-              ButtonSegment(
-                value: XbMode.smart,
-                label: Text('智能'),
-                icon: Icon(Icons.bolt),
-              ),
-              ButtonSegment(
-                value: XbMode.global,
-                label: Text('全局'),
-                icon: Icon(Icons.public),
-              ),
-            ],
-            selected: {mode},
-            onSelectionChanged: (sel) {
-              if (sel.isNotEmpty) adapter.setMode(ref, sel.first);
-            },
-            showSelectedIcon: false,
+          // 自定义胶囊段（原型 .modeseg）：圆角槽 + 选中态主题色高亮卡，替代原生 SegmentedButton。
+          Container(
+            padding: const EdgeInsets.all(5),
+            decoration: BoxDecoration(
+              color: scheme.surfaceContainerHighest,
+              borderRadius: BorderRadius.circular(15),
+            ),
+            child: Row(
+              children: [
+                _ModePill(
+                  icon: Icons.bolt,
+                  label: '智能',
+                  selected: mode == XbMode.smart,
+                  onTap: () => adapter.setMode(ref, XbMode.smart),
+                ),
+                const SizedBox(width: 5),
+                _ModePill(
+                  icon: Icons.public,
+                  label: '全局',
+                  selected: mode == XbMode.global,
+                  onTap: () => adapter.setMode(ref, XbMode.global),
+                ),
+              ],
+            ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// 代理模式胶囊单项（原型 .modeseg .s / .s.on）。
+class _ModePill extends StatelessWidget {
+  const _ModePill({
+    required this.icon,
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Expanded(
+      child: GestureDetector(
+        onTap: onTap,
+        behavior: HitTestBehavior.opaque,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          padding: const EdgeInsets.symmetric(vertical: 11),
+          decoration: BoxDecoration(
+            color: selected ? scheme.surfaceContainerLowest : Colors.transparent,
+            borderRadius: BorderRadius.circular(11),
+            boxShadow: selected
+                ? [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.10),
+                      blurRadius: 10,
+                      offset: const Offset(0, 4),
+                    ),
+                  ]
+                : null,
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                icon,
+                size: 16,
+                color: selected ? scheme.primary : scheme.onSurfaceVariant,
+              ),
+              const SizedBox(width: 5),
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 13.5,
+                  fontWeight: FontWeight.w600,
+                  color: selected ? scheme.primary : scheme.onSurfaceVariant,
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

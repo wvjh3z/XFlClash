@@ -56,7 +56,7 @@ void main() {
     await pumpOrb(tester,
         ready: true, core: CoreStatus.connected, isStart: true);
     expect(find.text('已连接'), findsOneWidget);
-    expect(find.text('点击断开'), findsOneWidget);
+    expect(find.text('数据已加密保护'), findsOneWidget);
   });
 
   testWidgets('文案不含技术词（节点/优选/线路/竞速）', (tester) async {

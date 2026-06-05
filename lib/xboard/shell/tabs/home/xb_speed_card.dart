@@ -25,35 +25,23 @@ class XbSpeedCard extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final adapter = ref.watch(xbTrafficAdapterProvider);
     final traffic = adapter.currentTraffic(ref);
-    final scheme = Theme.of(context).colorScheme;
 
-    return Card(
-      elevation: 0,
-      color: scheme.surfaceContainerLow,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 12),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-          children: [
-            _Metric(value: _toMbps(traffic.down), label: '下载 Mbps'),
-            _divider(scheme),
-            _Metric(value: _toMbps(traffic.up), label: '上传 Mbps'),
-            _divider(scheme),
-            _Metric(
-              value: latencyMs?.toString() ?? '--',
-              label: '延迟 ms',
-            ),
-          ],
+    // 原型：三张独立卡（各带圆角 + 细边 + 阴影），而非单卡竖线分隔。
+    return Row(
+      children: [
+        Expanded(child: _Metric(value: _toMbps(traffic.down), label: '下载 Mbps')),
+        const SizedBox(width: 11),
+        Expanded(child: _Metric(value: _toMbps(traffic.up), label: '上传 Mbps')),
+        const SizedBox(width: 11),
+        Expanded(
+          child: _Metric(
+            value: latencyMs?.toString() ?? '--',
+            label: '延迟 ms',
+          ),
         ),
-      ),
+      ],
     );
   }
-
-  Widget _divider(ColorScheme scheme) => Container(
-        width: 1,
-        height: 32,
-        color: scheme.outlineVariant,
-      );
 
   /// 字节/秒 → Mbps（× 8 bit / 1e6），保留 1 位小数。
   static String _toMbps(num bytesPerSec) {
@@ -71,25 +59,44 @@ class _Metric extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Text(
-          value,
-          style: TextStyle(
-            fontSize: 22,
-            fontWeight: FontWeight.w700,
-            // 上传不标绿（R2.7）：统一 onSurface；等宽数字（R8.4）。
-            color: scheme.onSurface,
-            fontFeatures: const [FontFeature.tabularFigures()],
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 13, horizontal: 6),
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(17),
+        border: Border.all(color: scheme.outlineVariant.withValues(alpha: 0.5)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.04),
+            blurRadius: 16,
+            offset: const Offset(0, 6),
           ),
-        ),
-        const SizedBox(height: 2),
-        Text(
-          label,
-          style: TextStyle(fontSize: 11.5, color: scheme.onSurfaceVariant),
-        ),
-      ],
+        ],
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 21,
+              fontWeight: FontWeight.w800,
+              // 上传不标绿（R2.7）：统一 onSurface；等宽数字（R8.4）。
+              color: scheme.onSurface,
+              fontFeatures: const [FontFeature.tabularFigures()],
+            ),
+          ),
+          const SizedBox(height: 3),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+              color: scheme.onSurfaceVariant,
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

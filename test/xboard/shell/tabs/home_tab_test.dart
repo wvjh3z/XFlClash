@@ -64,7 +64,7 @@ Future<void> pumpHome(WidgetTester tester, {required AuthState auth}) async {
 void main() {
   testWidgets('游客态：显示登录 banner + 连接球/速度卡/模式段齐全', (tester) async {
     await pumpHome(tester, auth: AuthState.unauthenticated);
-    expect(find.text('登录后开启加密保护'), findsOneWidget);
+    expect(find.text('登录解锁全部功能'), findsOneWidget);
     expect(find.byType(XbConnectOrb), findsOneWidget);
     expect(find.byType(XbSpeedCard), findsOneWidget);
     expect(find.byType(XbModeSegment), findsOneWidget);
@@ -72,7 +72,7 @@ void main() {
 
   testWidgets('已登录态：隐藏登录 banner', (tester) async {
     await pumpHome(tester, auth: AuthState.authenticated);
-    expect(find.text('登录后开启加密保护'), findsNothing);
+    expect(find.text('登录解锁全部功能'), findsNothing);
     expect(find.byType(XbConnectOrb), findsOneWidget);
   });
 }

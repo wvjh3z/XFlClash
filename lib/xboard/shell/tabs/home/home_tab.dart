@@ -58,7 +58,7 @@ class _HomeTabState extends ConsumerState<HomeTab> {
               const SizedBox(height: 12),
             ],
             const SizedBox(height: 8),
-            const Center(child: XbConnectOrb()),
+            Center(child: XbConnectOrb(showLock: isGuest)),
             const SizedBox(height: 20),
             const XbSpeedCard(),
             const SizedBox(height: 12),
@@ -72,7 +72,7 @@ class _HomeTabState extends ConsumerState<HomeTab> {
   }
 }
 
-/// 游客登录引导横幅（R5.4）。
+/// 游客登录引导横幅（R5.4）—— 原型红渐变卡 + 白图标 + 右侧实心「登录」按钮。
 class _GuestBanner extends StatelessWidget {
   const _GuestBanner({this.onTapLogin});
 
@@ -82,29 +82,99 @@ class _GuestBanner extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     return Material(
-      color: scheme.primaryContainer,
-      borderRadius: BorderRadius.circular(12),
+      color: Colors.transparent,
+      borderRadius: BorderRadius.circular(18),
       child: InkWell(
         onTap: onTapLogin,
-        borderRadius: BorderRadius.circular(12),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
-          child: Row(
-            children: [
-              Icon(Icons.lock_open, size: 20, color: scheme.onPrimaryContainer),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  '登录后开启加密保护',
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                    color: scheme.onPrimaryContainer,
+        borderRadius: BorderRadius.circular(18),
+        child: Ink(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(18),
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                Color.alphaBlend(
+                  scheme.primary.withValues(alpha: 0.10),
+                  scheme.surfaceContainerLow,
+                ),
+                scheme.surfaceContainerLow,
+              ],
+            ),
+            border: Border.all(
+              color: scheme.primary.withValues(alpha: 0.24),
+            ),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 14),
+            child: Row(
+              children: [
+                // 白图标 + 品牌红渐变方块。
+                Container(
+                  width: 40,
+                  height: 40,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(12),
+                    gradient: LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [
+                        Color.alphaBlend(
+                          Colors.white.withValues(alpha: 0.18),
+                          scheme.primary,
+                        ),
+                        scheme.primary,
+                      ],
+                    ),
+                  ),
+                  child: const Icon(Icons.person, size: 20, color: Colors.white),
+                ),
+                const SizedBox(width: 13),
+                // 主副文案。
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        '登录解锁全部功能',
+                        style: TextStyle(
+                          fontSize: 14.5,
+                          fontWeight: FontWeight.w700,
+                          color: scheme.onSurface,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        '未登录 · 登录后即可连接',
+                        style: TextStyle(
+                          fontSize: 11.5,
+                          color: scheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-              ),
-              Icon(Icons.chevron_right, color: scheme.onPrimaryContainer),
-            ],
+                const SizedBox(width: 10),
+                // 右侧实心品牌红「登录」按钮。
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 17, vertical: 9),
+                  decoration: BoxDecoration(
+                    color: scheme.primary,
+                    borderRadius: BorderRadius.circular(11),
+                  ),
+                  child: Text(
+                    '登录',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                      color: scheme.onPrimary,
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),
