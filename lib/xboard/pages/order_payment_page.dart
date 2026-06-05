@@ -23,7 +23,7 @@ import '../providers/xboard_providers.dart';
 import '../services/subscription_triggers.dart';
 import '../util/error_text.dart';
 import '../util/period_label.dart';
-import '../widgets/xb_theme.dart' show xbShowDialog;
+import '../widgets/xb_theme.dart' show xbShowDialog, XbTokens;
 import '../widgets/xb_ui_kit.dart';
 
 /// 轮询间隔（pending/processing 时）。
@@ -445,36 +445,37 @@ class _StatusCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final text = Theme.of(context).textTheme;
+    // 语义色统一取 XbTokens（原型 --warn/--info/--ok/--bad），不再各页硬编码。
     final (icon, title, desc, color) = switch (status) {
       XbOrderStatus.pending => (
           Icons.schedule_rounded,
           '待支付',
           '请选择您的支付方式完成订单',
-          const Color(0xFFE8920A),
+          XbTokens.warn,
         ),
       XbOrderStatus.processing => (
           Icons.hourglass_top_rounded,
           '处理中',
           '订单正在处理，请稍候…',
-          const Color(0xFF2E7DE8),
+          XbTokens.info,
         ),
       XbOrderStatus.completed => (
           Icons.check_circle_rounded,
           '已完成',
           '订单已支付完成',
-          const Color(0xFF1FA463),
+          XbTokens.ok,
         ),
       XbOrderStatus.discounted => (
           Icons.verified_rounded,
           '已抵扣',
           '订单已通过余额 / 优惠抵扣完成',
-          const Color(0xFF1FA463),
+          XbTokens.ok,
         ),
       XbOrderStatus.cancelled => (
           Icons.cancel_rounded,
           '已取消',
           '订单已取消',
-          scheme.error,
+          XbTokens.bad,
         ),
     };
     return Container(

@@ -19,7 +19,7 @@ import 'package:fl_clash/xboard/pages/reset_traffic_page.dart';
 import 'package:fl_clash/xboard/providers/auth_state_provider.dart';
 import 'package:fl_clash/xboard/providers/user_profile_provider.dart';
 import 'package:fl_clash/xboard/widgets/xb_components.dart';
-import 'package:fl_clash/xboard/widgets/xb_theme.dart' show xbPush;
+import 'package:fl_clash/xboard/widgets/xb_theme.dart' show xbPush, XbTokens;
 
 import '../../adapters/xb_native_page_adapter.dart';
 
@@ -359,8 +359,8 @@ class _ResetCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    // 告警色：用主题 error 调和出柔和底（原型 --warn 系）。
-    final warn = scheme.error;
+    // 告警色：原型 .resetcard 用 --warn 琥珀（非品牌红/error 红）。
+    const warn = XbTokens.warn;
     final cardBg = Color.alphaBlend(warn.withValues(alpha: 0.10), scheme.surfaceContainerLowest);
     return Material(
       color: cardBg,
@@ -376,7 +376,7 @@ class _ResetCard extends StatelessWidget {
           ),
           child: Row(
             children: [
-              Icon(Icons.warning_rounded, color: warn, size: 24),
+              const Icon(Icons.warning_rounded, color: warn, size: 24),
               const SizedBox(width: 12),
               Expanded(
                 child: Column(

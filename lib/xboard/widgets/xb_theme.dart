@@ -41,6 +41,14 @@ class XbTokens {
   final List<BoxShadow> shadow1;
   final List<BoxShadow> shadow2;
 
+  // —— 语义状态色（原型 --ok / --warn / --bad / --info / --conn）——
+  // 浅深通用（原型深色未单独覆盖语义色），统一定义于此。
+  static const Color ok = Color(0xFF16A34A); // 成功 / 已完成 / 已连接同族
+  static const Color warn = Color(0xFFE08A1E); // 告警 / 流量将尽 / 待支付
+  static const Color bad = Color(0xFFDC3B2C); // 错误 / 已取消 / 高延迟
+  static const Color info = Color(0xFF2563EB); // 信息
+  static const Color conn = Color(0xFF10B981); // 已连接绿（连接球语义，备用）
+
   // —— 圆角（--rb / --rc + 组件专用）——
   static const double rButton = 16; // .cta
   static const double rField = 15; // .field / .go
@@ -158,9 +166,26 @@ ThemeData buildXbTheme({required Color brandColor, required Brightness brightnes
         borderSide: w == 0 ? BorderSide.none : BorderSide(color: c, width: w),
       );
 
+  // 集中排版（原型字号/字重映射 M3 TextTheme）：页面/组件用 textTheme.* 取，不再手写魔法字号。
+  final textTheme = base.textTheme.apply(
+    bodyColor: t.on,
+    displayColor: t.on,
+  ).copyWith(
+    headlineSmall: TextStyle(
+        fontSize: 22, fontWeight: FontWeight.w800, letterSpacing: -0.3, color: t.on),
+    titleLarge: TextStyle(fontSize: 19, fontWeight: FontWeight.w800, color: t.on),
+    titleMedium: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: t.on),
+    titleSmall: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w700, color: t.on),
+    bodyMedium: TextStyle(fontSize: 14, color: t.on),
+    bodySmall: TextStyle(fontSize: 12.5, color: t.onv),
+    labelLarge: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: t.on),
+    labelMedium: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: t.onv),
+  );
+
   return base.copyWith(
     scaffoldBackgroundColor: t.sf,
     extensions: [_XbTokensExt(t)],
+    textTheme: textTheme,
 
     // 主按钮（.cta / .go）：品牌红实心 + 圆角16 + 高52 + 粗字。
     filledButtonTheme: FilledButtonThemeData(

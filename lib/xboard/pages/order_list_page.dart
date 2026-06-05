@@ -8,7 +8,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../config/xboard_config.dart';
 import '../widgets/xb_components.dart';
-import '../widgets/xb_theme.dart' show xbPush;
+import '../widgets/xb_theme.dart' show xbPush, XbTokens;
 import '../models/order_summary.dart';
 import '../models/xb_domain_error.dart';
 import '../models/xb_domain_types.dart';
@@ -136,11 +136,11 @@ class _StatusChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
     final color = switch (status) {
-      XbOrderStatus.completed || XbOrderStatus.discounted => scheme.primary,
-      XbOrderStatus.cancelled => scheme.error,
-      _ => scheme.onSurfaceVariant,
+      // 语义色（原型 --ok 绿 / --bad 红 / --warn 琥珀）：已完成=绿，非品牌红。
+      XbOrderStatus.completed || XbOrderStatus.discounted => XbTokens.ok,
+      XbOrderStatus.cancelled => XbTokens.bad,
+      XbOrderStatus.pending || XbOrderStatus.processing => XbTokens.warn,
     };
     return XbTag(orderStatusLabel(status), color: color);
   }
