@@ -2,6 +2,12 @@
 # 关联：design §E flavor.yaml schema / R14 多租户 / 决策 #4 / μ-6 μ-7。
 # prepare_flavor.dart 读本文件 → 校验 → 生成 lib/xboard/config/flavor_config.g.dart（gitignored）。
 
+# === 形态 A 开关（spec xboard-form-a-ui-revamp）===
+# 形态 A 自定义三 Tab 外壳为唯一 UI（接缝点 #9：home=formA?XboardAppShell:child!）。
+# prepare_flavor.dart 读本字段 → flavor_defines.json XB_FORM_A → fromEnvironment 编译期注入。
+# ⚠️ 缺此字段 → XB_FORM_A=false → home 走 upstream child!，形态 A 壳不挂载。
+form_a: true
+
 # === 基础品牌 ===
 appName: "MyClient"                         # 应用名（多平台显示用）
 appId: "com.example.myclient"               # Android applicationId / iOS Bundle ID 基础值
