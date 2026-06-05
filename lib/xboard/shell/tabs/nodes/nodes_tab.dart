@@ -11,6 +11,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:fl_clash/xboard/providers/auth_state_provider.dart';
+import 'package:fl_clash/xboard/widgets/xb_components.dart';
 
 import '../../adapters/xb_nodes_adapter.dart';
 
@@ -70,22 +71,15 @@ class _NodesHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 12, 8, 4),
-      child: Row(
-        children: [
-          Text(
-            '选择线路',
-            style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800)
-                .copyWith(color: scheme.onSurface),
-          ),
-          const Spacer(),
-          TextButton.icon(
-            onPressed: onRefresh,
-            icon: const Icon(Icons.refresh, size: 16),
-            label: const Text('刷新节点'),
-            style: TextButton.styleFrom(foregroundColor: scheme.primary),
-          ),
-        ],
+      padding: const EdgeInsets.fromLTRB(12, 4, 12, 0),
+      child: XbScreenTitle(
+        '选择线路',
+        trailing: TextButton.icon(
+          onPressed: onRefresh,
+          icon: const Icon(Icons.refresh, size: 16),
+          label: const Text('刷新节点'),
+          style: TextButton.styleFrom(foregroundColor: scheme.primary),
+        ),
       ),
     );
   }
@@ -114,21 +108,7 @@ class _GroupSection extends StatelessWidget {
               ),
               if (summary.isUrlTest) ...[
                 const SizedBox(width: 8),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                  decoration: BoxDecoration(
-                    color: scheme.primary.withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(6),
-                  ),
-                  child: Text(
-                    '自动',
-                    style: TextStyle(
-                      fontSize: 11,
-                      color: scheme.primary,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ),
+                const XbTag('自动'),
               ],
               const Spacer(),
               Text(
@@ -144,7 +124,7 @@ class _GroupSection extends StatelessWidget {
   }
 }
 
-/// 空态：无可用分组 → 引导续费（R4.6，不显示搜索/分组标签）。
+/// 空态：无可用分组 → 引导续费（R4.6，复用 XbEmptyState）。
 class _EmptyNodes extends StatelessWidget {
   const _EmptyNodes({this.onTapRenew});
 
@@ -152,52 +132,17 @@ class _EmptyNodes extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(32),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 80,
-              height: 80,
-              alignment: Alignment.center,
-              decoration: BoxDecoration(
-                color: scheme.surfaceContainer,
-                borderRadius: BorderRadius.circular(26),
-              ),
-              child: Icon(Icons.cloud_off, size: 36, color: scheme.primary),
-            ),
-            const SizedBox(height: 16),
-            Text('当前套餐无可用线路',
-                style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700)
-                    .copyWith(color: scheme.onSurface)),
-            const SizedBox(height: 8),
-            Text(
-              '套餐可能已到期或未生效，\n续费后线路将自动同步。',
-              textAlign: TextAlign.center,
-              style: TextStyle(color: scheme.onSurfaceVariant, height: 1.6),
-            ),
-            const SizedBox(height: 18),
-            FilledButton(
-              onPressed: onTapRenew,
-              style: FilledButton.styleFrom(
-                shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(15)),
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 38, vertical: 14),
-              ),
-              child: const Text('前往续费'),
-            ),
-          ],
-        ),
-      ),
+    return XbEmptyState(
+      icon: Icons.cloud_off,
+      title: '当前套餐无可用线路',
+      description: '套餐可能已到期或未生效，\n续费后线路将自动同步。',
+      actionLabel: '前往续费',
+      onAction: onTapRenew,
     );
   }
 }
 
-/// 游客态：登录后查看专属线路（R4.7）。
+/// 游客态：登录后查看专属线路（R4.7，复用 XbEmptyState）。
 class _GuestNodes extends StatelessWidget {
   const _GuestNodes({this.onTapLogin});
 
@@ -205,48 +150,13 @@ class _GuestNodes extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(32),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 80,
-              height: 80,
-              alignment: Alignment.center,
-              decoration: BoxDecoration(
-                color: scheme.surfaceContainer,
-                borderRadius: BorderRadius.circular(26),
-              ),
-              child: Icon(Icons.public, size: 36, color: scheme.primary),
-            ),
-            const SizedBox(height: 16),
-            Text('登录后查看专属线路',
-                style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700)
-                    .copyWith(color: scheme.onSurface)),
-            const SizedBox(height: 8),
-            Text(
-              '高速节点由服务端下发，\n登录账号即可同步全部线路。',
-              textAlign: TextAlign.center,
-              style: TextStyle(color: scheme.onSurfaceVariant, height: 1.6),
-            ),
-            const SizedBox(height: 18),
-            FilledButton.icon(
-              onPressed: onTapLogin,
-              icon: const Icon(Icons.login, size: 18),
-              label: const Text('立即登录'),
-              style: FilledButton.styleFrom(
-                shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(15)),
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 30, vertical: 14),
-              ),
-            ),
-          ],
-        ),
-      ),
+    return XbEmptyState(
+      icon: Icons.public,
+      title: '登录后查看专属线路',
+      description: '高速节点由服务端下发，\n登录账号即可同步全部线路。',
+      actionLabel: '立即登录',
+      actionIcon: Icons.login,
+      onAction: onTapLogin,
     );
   }
 }

@@ -18,6 +18,7 @@ import 'package:fl_clash/xboard/pages/plan_list_page.dart';
 import 'package:fl_clash/xboard/pages/reset_traffic_page.dart';
 import 'package:fl_clash/xboard/providers/auth_state_provider.dart';
 import 'package:fl_clash/xboard/providers/user_profile_provider.dart';
+import 'package:fl_clash/xboard/widgets/xb_components.dart';
 import 'package:fl_clash/xboard/widgets/xb_theme.dart' show xbPush;
 
 import '../../adapters/xb_native_page_adapter.dart';
@@ -550,7 +551,7 @@ class _GuestCard extends StatelessWidget {
   }
 }
 
-/// 设置入口区（设置 / 订单 / 退出登录，R6.8/R6.11）。
+/// 设置入口区（原型分「账户 / 应用」两组，R6.8/R6.11）。
 class _SettingsSection extends ConsumerWidget {
   const _SettingsSection({required this.isGuest});
 
@@ -558,62 +559,53 @@ class _SettingsSection extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final scheme = Theme.of(context).colorScheme;
-    return Card(
-      elevation: 0,
-      color: scheme.surfaceContainerLow,
-      child: Column(
-        children: [
-          if (!isGuest)
-            _SettingsTile(
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        // ── 账户组 ──
+        const XbGroupLabel('账户'),
+        XbListCard(
+          rows: [
+            XbListRow(
               icon: Icons.receipt_long,
               label: '我的订单',
-              onTap: () => xbPush(context, const OrderListPage(),
-                  brandColor: Color(XboardConfig.current.brandColor)),
+              badge: isGuest ? '登录后可见' : null,
+              showChevron: !isGuest,
+              onTap: isGuest
+                  ? null
+                  : () => xbPush(context, const OrderListPage(),
+                      brandColor: Color(XboardConfig.current.brandColor)),
             ),
-          // 设置 → 原生 ToolsView（R6.8，经 adapter）。
-          _SettingsTile(
-            icon: Icons.settings,
-            label: '设置',
-            onTap: () =>
-                ref.read(xbNativePageAdapterProvider).openTools(context),
-          ),
-          if (!isGuest)
-            _SettingsTile(
-              icon: Icons.logout,
-              label: '退出登录',
-              danger: true,
-              // ◇ 复用形态 B 登出编排（R6.11）。
-              onTap: () => ref.read(authStateProvider.notifier).logout(),
+          ],
+        ),
+        // ── 应用组 ──
+        const XbGroupLabel('应用'),
+        XbListCard(
+          rows: [
+            XbListRow(
+              icon: Icons.settings,
+              label: '设置',
+              // 设置 → 原生 ToolsView（R6.8，经 adapter）。
+              onTap: () =>
+                  ref.read(xbNativePageAdapterProvider).openTools(context),
             ),
-        ],
-      ),
-    );
-  }
-}
-
-class _SettingsTile extends StatelessWidget {
-  const _SettingsTile({
-    required this.icon,
-    required this.label,
-    required this.onTap,
-    this.danger = false,
-  });
-
-  final IconData icon;
-  final String label;
-  final VoidCallback onTap;
-  final bool danger;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final color = danger ? scheme.error : scheme.onSurface;
-    return ListTile(
-      leading: Icon(icon, color: danger ? scheme.error : scheme.onSurfaceVariant),
-      title: Text(label, style: TextStyle(color: color)),
-      trailing: Icon(Icons.chevron_right, color: scheme.onSurfaceVariant),
-      onTap: onTap,
+            const XbListRow(
+              icon: Icons.info_outline,
+              label: '关于',
+              badge: 'v0.1.0',
+            ),
+            if (!isGuest)
+              XbListRow(
+                icon: Icons.logout,
+                label: '退出登录',
+                danger: true,
+                showChevron: false,
+                // ◇ 复用形态 B 登出编排（R6.11）。
+                onTap: () => ref.read(authStateProvider.notifier).logout(),
+              ),
+          ],
+        ),
+      ],
     );
   }
 }
