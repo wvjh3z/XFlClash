@@ -179,16 +179,17 @@ class ApplicationState extends ConsumerState<Application> {
               primaryColor: themeProps.primaryColor,
             ).toPureBlack(themeProps.pureBlack),
           ),
-          home: child!,
+          // === Xboard 接缝点 #9（form-a R1 + R1.6 desktop gate，加而不改）===
+          // formA flavor + mobile → 自定义壳 XboardAppShell；否则（form B 默认 / desktop）走原 child（HomePage）。
+          // Manager 包裹链在 MaterialApp.builder: 内（不在 home:），故换 home 不损 VPN 内核（R1，PoC 已证）。
+          // desktop 首版维持形态 B（R1.6 / NFR-5.2：自定义壳为移动优先）。
+          home: (XboardConfig.current.formA &&
+                  ref.watch(isMobileViewProvider))
+              ? const XboardAppShell()
+              : child!,
         );
       },
-      // === Xboard 接缝点 #9（form-a R1，加而不改：原 HomePage 包成 flavor 三元）===
-      // Manager 包裹链在 MaterialApp.builder: 内（不在 home:），故换 home 不损 VPN 内核
-      // （R1，PoC 已证）。仅 formA flavor 走自定义壳；形态 B（默认）走原 HomePage。
-      // W1.5 加 desktop gate（desktop 维持形态 B）。
-      child: XboardConfig.current.formA
-          ? const XboardAppShell()
-          : const HomePage(),
+      child: const HomePage(),
     );
   }
 
