@@ -145,16 +145,7 @@ class _PlanDetailPageState extends ConsumerState<PlanDetailPage> {
           child: Text(plan.name,
               style: text.headlineSmall?.copyWith(fontWeight: FontWeight.w800)),
         ),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-          decoration: BoxDecoration(
-            color: scheme.primary.withValues(alpha: 0.12),
-            borderRadius: BorderRadius.circular(10),
-          ),
-          child: Text('${plan.transferEnableGb} GB',
-              style: text.titleSmall?.copyWith(
-                  color: scheme.primary, fontWeight: FontWeight.w700)),
-        ),
+        XbTag('${plan.transferEnableGb} GB'),
       ],
     );
   }

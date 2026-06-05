@@ -9,6 +9,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../config/xboard_config.dart';
+import '../widgets/xb_components.dart';
 import '../widgets/xb_theme.dart' show xbPush;
 import '../models/plan_item.dart';
 import '../models/xb_domain_types.dart';
@@ -124,35 +125,14 @@ class _ResetTrafficPageState extends ConsumerState<ResetTrafficPage> {
         ),
       );
 
-  /// 当前套餐不提供单独的流量重置包。
+  /// 当前套餐不提供单独的流量重置包（复用 XbEmptyState）。
   Widget _unavailable(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final text = Theme.of(context).textTheme;
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(32),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.info_outline_rounded,
-                size: 48, color: scheme.onSurfaceVariant),
-            const SizedBox(height: 16),
-            Text('当前套餐不支持单独购买流量重置包',
-                textAlign: TextAlign.center,
-                style: text.titleMedium?.copyWith(fontWeight: FontWeight.w600)),
-            const SizedBox(height: 8),
-            Text('你可以前往「购买套餐」续费或升级套餐以恢复流量。',
-                textAlign: TextAlign.center,
-                style:
-                    text.bodyMedium?.copyWith(color: scheme.onSurfaceVariant)),
-            const SizedBox(height: 20),
-            OutlinedButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text('返回'),
-            ),
-          ],
-        ),
-      ),
+    return XbEmptyState(
+      icon: Icons.info_outline_rounded,
+      title: '当前套餐不支持单独购买流量重置包',
+      description: '你可以前往「购买套餐」续费或升级套餐以恢复流量。',
+      actionLabel: '返回',
+      onAction: () => Navigator.of(context).pop(),
     );
   }
 
@@ -162,59 +142,36 @@ class _ResetTrafficPageState extends ConsumerState<ResetTrafficPage> {
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
       children: [
-        // 说明卡
-        Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: scheme.primary.withValues(alpha: 0.08),
-            borderRadius: BorderRadius.circular(16),
-          ),
-          child: Row(
-            children: [
-              Icon(Icons.refresh_rounded, color: scheme.primary, size: 32),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Text(
-                  '购买后立即重置当前套餐「${widget.planName ?? plan.name}」的已用流量，'
-                  '恢复至 ${plan.transferEnableGb} GB（套餐到期时间不变）。',
-                  style: text.bodyMedium,
-                ),
-              ),
-            ],
-          ),
+        // 说明卡（复用 XbInfoCard）。
+        XbInfoCard(
+          icon: Icons.refresh_rounded,
+          text: '购买后立即重置当前套餐「${widget.planName ?? plan.name}」的已用流量，'
+              '恢复至 ${plan.transferEnableGb} GB（套餐到期时间不变）。',
         ),
         const SizedBox(height: 16),
-        // 价格卡
-        Card(
-          elevation: 0,
-          margin: EdgeInsets.zero,
-          color: scheme.surfaceContainerHigh,
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text('流量重置包',
-                          style: text.titleMedium
-                              ?.copyWith(fontWeight: FontWeight.w700)),
-                      const SizedBox(height: 4),
-                      Text('一次性恢复 ${plan.transferEnableGb} GB 流量',
-                          style: text.bodySmall
-                              ?.copyWith(color: scheme.onSurfaceVariant)),
-                    ],
-                  ),
+        // 价格卡（复用 XbCard）。
+        XbCard(
+          child: Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('流量重置包',
+                        style: text.titleMedium
+                            ?.copyWith(fontWeight: FontWeight.w700)),
+                    const SizedBox(height: 4),
+                    Text('一次性恢复 ${plan.transferEnableGb} GB 流量',
+                        style: text.bodySmall
+                            ?.copyWith(color: scheme.onSurfaceVariant)),
+                  ],
                 ),
-                const SizedBox(width: 12),
-                Text('¥${reset.amountYuan.toStringAsFixed(2)}',
-                    style: text.titleLarge?.copyWith(
-                        color: scheme.primary, fontWeight: FontWeight.w800)),
-              ],
-            ),
+              ),
+              const SizedBox(width: 12),
+              Text('¥${reset.amountYuan.toStringAsFixed(2)}',
+                  style: text.titleLarge?.copyWith(
+                      color: scheme.primary, fontWeight: FontWeight.w800)),
+            ],
           ),
         ),
       ],
@@ -223,26 +180,11 @@ class _ResetTrafficPageState extends ConsumerState<ResetTrafficPage> {
 
   Widget? _bottomBar(BuildContext context) {
     if (_loading || _loadError != null || _resetPrice == null) return null;
-    final scheme = Theme.of(context).colorScheme;
-    return SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
-        child: FilledButton.icon(
-          onPressed: _submitting ? null : _submitOrder,
-          icon: _submitting
-              ? const SizedBox(
-                  width: 18,
-                  height: 18,
-                  child: CircularProgressIndicator(
-                      strokeWidth: 2.2, color: Colors.white))
-              : const Icon(Icons.shopping_cart_checkout_rounded),
-          style: FilledButton.styleFrom(
-            backgroundColor: scheme.primary,
-            minimumSize: const Size.fromHeight(50),
-          ),
-          label: const Text('提交订单'),
-        ),
-      ),
+    return XbBottomActionBar(
+      primaryLabel: '提交订单',
+      primaryIcon: Icons.shopping_cart_checkout_rounded,
+      primaryLoading: _submitting,
+      onPrimary: _submitOrder,
     );
   }
 

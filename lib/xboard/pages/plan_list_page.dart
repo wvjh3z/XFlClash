@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../config/xboard_config.dart';
+import '../widgets/xb_components.dart';
 import '../widgets/xb_theme.dart' show xbPush;
 import '../models/plan_item.dart';
 import '../models/xb_domain_error.dart';
@@ -140,18 +141,7 @@ class _PlanSummaryCard extends StatelessWidget {
                                   ?.copyWith(fontWeight: FontWeight.w700),
                               overflow: TextOverflow.ellipsis),
                         ),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 8, vertical: 3),
-                          decoration: BoxDecoration(
-                            color: scheme.primary.withValues(alpha: 0.12),
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: Text('${plan.transferEnableGb} GB',
-                              style: text.labelMedium?.copyWith(
-                                  color: scheme.primary,
-                                  fontWeight: FontWeight.w600)),
-                        ),
+                        XbTag('${plan.transferEnableGb} GB'),
                       ],
                     ),
                     if (summary.isNotEmpty) ...[

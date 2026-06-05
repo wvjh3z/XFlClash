@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../config/xboard_config.dart';
+import '../widgets/xb_components.dart';
 import '../widgets/xb_theme.dart' show xbPush;
 import '../models/order_summary.dart';
 import '../models/xb_domain_error.dart';
@@ -136,24 +137,12 @@ class _StatusChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final (bg, fg) = switch (status) {
-      XbOrderStatus.completed ||
-      XbOrderStatus.discounted =>
-        (scheme.primary.withValues(alpha: 0.14), scheme.primary),
-      XbOrderStatus.cancelled =>
-        (scheme.error.withValues(alpha: 0.14), scheme.error),
-      _ => (scheme.tertiary.withValues(alpha: 0.16), scheme.onSurfaceVariant),
+    final color = switch (status) {
+      XbOrderStatus.completed || XbOrderStatus.discounted => scheme.primary,
+      XbOrderStatus.cancelled => scheme.error,
+      _ => scheme.onSurfaceVariant,
     };
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-      decoration:
-          BoxDecoration(color: bg, borderRadius: BorderRadius.circular(8)),
-      child: Text(orderStatusLabel(status),
-          style: Theme.of(context)
-              .textTheme
-              .labelSmall
-              ?.copyWith(color: fg, fontWeight: FontWeight.w700)),
-    );
+    return XbTag(orderStatusLabel(status), color: color);
   }
 }
 
