@@ -25,12 +25,20 @@ class XbSheetScaffold extends StatelessWidget {
     super.key,
     required this.title,
     required this.children,
+    this.subtitle,
+    this.badge,
     this.banner,
     this.footer,
   });
 
   final String title;
   final List<Widget> children;
+
+  /// 可选副标题（标题下方居中小字，原型 .s2）。
+  final String? subtitle;
+
+  /// 可选品牌徽标（标题上方居中，原型 .lg）。
+  final Widget? badge;
 
   /// 可选错误/提示 banner（非空显示）。
   final String? banner;
@@ -42,6 +50,8 @@ class XbSheetScaffold extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final bottomInset = MediaQuery.of(context).viewInsets.bottom;
+    // 标题/副标题：有徽标时整体居中（原型登录/注册风格）。
+    final centered = badge != null;
     return Padding(
       padding: EdgeInsets.only(bottom: bottomInset),
       child: SingleChildScrollView(
@@ -51,10 +61,28 @@ class XbSheetScaffold extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
+              if (badge != null) ...[
+                Center(child: badge!),
+                const SizedBox(height: 13),
+              ],
               Text(
                 title,
-                style: Theme.of(context).textTheme.titleLarge,
+                textAlign: centered ? TextAlign.center : TextAlign.start,
+                style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.w800,
+                    ),
               ),
+              if (subtitle != null) ...[
+                const SizedBox(height: 5),
+                Text(
+                  subtitle!,
+                  textAlign: centered ? TextAlign.center : TextAlign.start,
+                  style: TextStyle(
+                    fontSize: 13.5,
+                    color: scheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
               if (banner != null) ...[
                 const SizedBox(height: 12),
                 Container(
@@ -80,7 +108,7 @@ class XbSheetScaffold extends StatelessWidget {
                   ),
                 ),
               ],
-              const SizedBox(height: 16),
+              const SizedBox(height: 18),
               ...children,
               if (footer != null) ...[
                 const SizedBox(height: 12),
@@ -90,6 +118,55 @@ class XbSheetScaffold extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+/// 品牌徽标（原型 .lg：渐变圆角方块 + 居中字母/图标）。登录/注册用「M」，找回密码用图标。
+class XbSheetBadge extends StatelessWidget {
+  const XbSheetBadge({super.key, this.letter, this.icon})
+      : assert(letter != null || icon != null);
+
+  final String? letter;
+  final IconData? icon;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      width: 70,
+      height: 70,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(22),
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            Color.alphaBlend(Colors.white.withValues(alpha: 0.2), scheme.primary),
+            scheme.primary,
+            Color.alphaBlend(Colors.black.withValues(alpha: 0.2), scheme.primary),
+          ],
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: scheme.primary.withValues(alpha: 0.5),
+            blurRadius: 30,
+            offset: const Offset(0, 14),
+            spreadRadius: -10,
+          ),
+        ],
+      ),
+      child: letter != null
+          ? Text(
+              letter!,
+              style: const TextStyle(
+                fontSize: 34,
+                fontWeight: FontWeight.w800,
+                color: Colors.white,
+              ),
+            )
+          : Icon(icon, size: 34, color: Colors.white),
     );
   }
 }
