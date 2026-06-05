@@ -6,7 +6,14 @@ library;
 
 import 'package:flutter/material.dart';
 
+import 'package:fl_clash/xboard/config/xboard_config.dart';
+
+import '../../widgets/xb_ui_kit.dart' show XbBrandTheme;
+
 /// 弹出形态 A 风格底部 sheet（圆角 + 拖拽手柄 + 随键盘抬升 + 可滚动）。
+///
+/// **关键**：builder 自动包 [XbBrandTheme] —— sheet 挂根 Navigator（FlClash MaterialApp 下），
+/// 不在 shell 子树内，不包则拿不到品牌主题 → 徽标/按钮退回 FlClash 灰褐色。
 Future<T?> showXbBottomSheet<T>({
   required BuildContext context,
   required WidgetBuilder builder,
@@ -14,8 +21,10 @@ Future<T?> showXbBottomSheet<T>({
   return showModalBottomSheet<T>(
     context: context,
     isScrollControlled: true, // 随键盘抬升 + 内容可超过半屏
-    showDragHandle: true,
-    builder: builder,
+    builder: (ctx) => XbBrandTheme(
+      brandColor: Color(XboardConfig.current.brandColor),
+      child: Builder(builder: builder),
+    ),
   );
 }
 

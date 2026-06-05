@@ -9,18 +9,15 @@ library;
 
 import 'package:flutter/material.dart';
 
-/// 品牌色叠加：在 Xboard 页面树根部用 flavor brandColor 局部覆盖 seedColor，
-/// 让「我的服务」区域呈现品牌色但组件仍是 M3（与 FlClash 底座视觉协调）。
+import 'xb_theme.dart';
+
+/// 形态 A 品牌主题注入点（薄封装，真源 = [buildXbTheme]）。
 ///
-/// **🔴 配色策略（品牌强调 + 中性底）**：
-/// M3 `fromSeed` 会把**所有**色（含表面/文字/填充）按种子色调和——品牌红会把输入框填充染成
-/// 粉红 `#fbdcd6`、次要文字染成浑浊棕 `#5c403b`，整体「发脏」。
-/// 解法：**双 scheme 合并**——
-/// - 品牌色（fidelity）只供「强调色族」：primary / onPrimary / secondary / tertiary / error 等；
-/// - 中性灰（neutral 变体，灰种子）供「中性色族」：surface* / onSurface* / outline* 等。
-/// 结果：按钮/徽标/链接/焦点框是品牌红，输入框填充与正文/次要文字是干净的中性灰。
+/// **唯一职责**：在子树根部注入 [buildXbTheme] 生成的完整 ThemeData（品牌强调 + 原型中性底
+/// + 全组件子主题）。设计语言改动只动 `xb_theme.dart`，本类不变。
 ///
-/// 关键交互元素（主按钮、徽标）再由 [XbPrimaryButton]/[XbBrandBadge] 用品牌本色直出。
+/// **作用域三处**：① shell body（`XboardAppShell`）② sheet 入口（`showXbBottomSheet` 内部）
+/// ③ 页面 push 入口（`xbPush`）—— 确保挂根 Navigator 的 sheet/页面也吃到主题。
 class XbBrandTheme extends StatelessWidget {
   const XbBrandTheme({
     super.key,
@@ -33,108 +30,17 @@ class XbBrandTheme extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final base = Theme.of(context);
-    final brightness = base.brightness;
-    final isLight = brightness == Brightness.light;
-
-    // 强调色族：忠于品牌色。
-    final brand = ColorScheme.fromSeed(
-      seedColor: brandColor,
-      brightness: brightness,
-      dynamicSchemeVariant: DynamicSchemeVariant.fidelity,
-    );
-
-    // 🔴 中性底色族：**硬钉原型 token**（不走 M3 算法，避免掺入品牌红色相导致背景泛暖粉）。
-    // 原型 full.html CSS 变量（:root 浅色 / .screen.dark 深色），1:1 映射到 M3 surface 角色。
-    final n = isLight ? _XbNeutral.light : _XbNeutral.dark;
-
-    // 合并：品牌出强调，中性出底。primary 锁品牌本色（#d92e1a 配白字 4.82:1 过 WCAG AA）。
-    final scheme = brand.copyWith(
-      primary: brandColor,
-      onPrimary: Colors.white,
-      // 中性色族整体硬钉（原型固定值，无品牌色相）。
-      surface: n.sf, // --sf：页面/scaffold 背景
-      onSurface: n.on, // --on：正文
-      onSurfaceVariant: n.onv, // --onv：次要文字
-      surfaceContainerLowest: n.card, // --card/--sf2：卡片/orb核心/sheet（最白）
-      surfaceContainerLow: n.card, // 卡片底
-      surfaceContainer: n.sfc, // --sfc：分段槽/chip
-      surfaceContainerHigh: n.sfc, // 输入框填充
-      surfaceContainerHighest: n.sfc, // 轨道环底
-      outline: n.line, // --line：边框
-      outlineVariant: n.line, // --line：细分隔
-      inverseSurface: n.on,
-      onInverseSurface: n.sf,
-    );
-
-    // 链接文字色：用品牌的**较深色调**（fidelity primary，浅色 #b50e00 对比度 6.58:1），
-    // 既明显是「品牌可点链接」，又比纯亮红 #d92e1a（4.57:1）更耐看不刺眼。
-    final linkColor = brand.primary;
-
     return Theme(
-      data: base.copyWith(
-        colorScheme: scheme,
-        scaffoldBackgroundColor: scheme.surface,
-        // 链接/文字按钮：用较深品牌色，清晰可点且不刺眼。
-        textButtonTheme: TextButtonThemeData(
-          style: TextButton.styleFrom(
-            foregroundColor: linkColor,
-            textStyle: const TextStyle(fontWeight: FontWeight.w600),
-          ),
-        ),
+      data: buildXbTheme(
+        brandColor: brandColor,
+        brightness: Theme.of(context).brightness,
       ),
       child: child,
     );
   }
 }
 
-/// 原型中性底色 token（full.html CSS `:root` / `.screen.dark`）。
-/// 硬钉值（不走 M3 算法），保证背景是干净中性灰、不泛品牌色相。
-class _XbNeutral {
-  const _XbNeutral({
-    required this.sf,
-    required this.sf2,
-    required this.card,
-    required this.sfc,
-    required this.on,
-    required this.onv,
-    required this.line,
-    required this.hair,
-  });
-
-  final Color sf; // 页面背景 --sf
-  final Color sf2; // 纯白面 --sf2
-  final Color card; // 卡片 --card
-  final Color sfc; // 容器/分段槽 --sfc
-  final Color on; // 正文 --on
-  final Color onv; // 次要文字 --onv
-  final Color line; // 边框 --line
-  final Color hair; // 细线 --hair
-
-  static const light = _XbNeutral(
-    sf: Color(0xFFF5F6F8),
-    sf2: Color(0xFFFFFFFF),
-    card: Color(0xFFFFFFFF),
-    sfc: Color(0xFFEEF0F4),
-    on: Color(0xFF11141B),
-    onv: Color(0xFF6A7180),
-    line: Color(0xFFE9ECF1),
-    hair: Color(0xFFF0F2F5),
-  );
-
-  static const dark = _XbNeutral(
-    sf: Color(0xFF0A0C11),
-    sf2: Color(0xFF13161D),
-    card: Color(0xFF13161D),
-    sfc: Color(0xFF171A22),
-    on: Color(0xFFF1F3F8),
-    onv: Color(0xFF8990A2),
-    line: Color(0xFF23262F),
-    hair: Color(0xFF1A1D25),
-  );
-}
-
-/// 主按钮 —— loading 态内嵌 spinner（R1.7/R2.7 复用），M3 FilledButton。
+/// 主按钮 —— loading 态内嵌 spinner。样式全吃主题 `filledButtonTheme`（品牌红/圆角/高52）。
 class XbPrimaryButton extends StatelessWidget {
   const XbPrimaryButton({
     super.key,
@@ -156,13 +62,8 @@ class XbPrimaryButton extends StatelessWidget {
     final cs = Theme.of(context).colorScheme;
     return SizedBox(
       width: double.infinity,
-      height: 52,
       child: FilledButton(
         onPressed: loading ? null : onPressed,
-        style: FilledButton.styleFrom(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-          textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-        ),
         child: loading
             ? SizedBox(
                 width: 22,
@@ -187,7 +88,7 @@ class XbPrimaryButton extends StatelessWidget {
   }
 }
 
-/// 文本输入 —— 带 errorText 红框（复用 validationErrors 渲染）、圆角填充、前置图标。
+/// 文本输入 —— 样式全吃主题 `inputDecorationTheme`（填充/圆角/聚焦品牌边）。
 class XbTextField extends StatelessWidget {
   const XbTextField({
     super.key,
@@ -218,7 +119,6 @@ class XbTextField extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
     return TextField(
       controller: controller,
       obscureText: obscureText,
@@ -227,32 +127,11 @@ class XbTextField extends StatelessWidget {
       onSubmitted: onSubmitted,
       enabled: enabled,
       autofillHints: autofillHints,
-      style: TextStyle(color: cs.onSurface, fontSize: 15),
       decoration: InputDecoration(
         labelText: label,
-        labelStyle: TextStyle(color: cs.onSurfaceVariant),
-        floatingLabelStyle: TextStyle(color: cs.primary),
         errorText: errorText,
-        prefixIcon: prefixIcon != null
-            ? Icon(prefixIcon, color: cs.onSurfaceVariant, size: 22)
-            : null,
+        prefixIcon: prefixIcon != null ? Icon(prefixIcon, size: 22) : null,
         suffixIcon: suffix,
-        filled: true,
-        // 干净中性灰填充（中性 scheme 提供，不带品牌色调）。
-        fillColor: cs.surfaceContainerHigh,
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(14),
-          borderSide: BorderSide.none,
-        ),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(14),
-          borderSide: BorderSide.none,
-        ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(14),
-          borderSide: BorderSide(color: cs.primary, width: 1.8),
-        ),
       ),
     );
   }
