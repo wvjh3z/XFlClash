@@ -69,7 +69,7 @@ class _LoginSheetState extends ConsumerState<LoginSheet> {
         Navigator.of(context).pop();
       case XbFailure(:final error):
         ref.read(authStateProvider.notifier).markUnauthenticated();
-        setState(() => _banner = error.toString());
+        setState(() => _banner = error.message);
     }
   }
 

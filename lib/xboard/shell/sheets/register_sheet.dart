@@ -80,7 +80,7 @@ class _RegisterSheetState extends ConsumerState<RegisterSheet> {
     final result = await ref.read(xboardServiceProvider).sendEmailVerifyCode(email);
     if (!mounted) return;
     if (result is XbFailure) {
-      setState(() => _banner = (result as XbFailure).error.toString());
+      setState(() => _banner = (result as XbFailure).error.message);
     }
   }
 
@@ -114,7 +114,7 @@ class _RegisterSheetState extends ConsumerState<RegisterSheet> {
           setState(() => _banner = '注册成功，请手动登录');
         }
       case XbFailure(:final error):
-        setState(() => _banner = error.toString());
+        setState(() => _banner = error.message);
     }
   }
 

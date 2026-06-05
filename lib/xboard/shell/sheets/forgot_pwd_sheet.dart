@@ -77,7 +77,7 @@ class _ForgotPwdSheetState extends ConsumerState<ForgotPwdSheet> {
     final result = await ref.read(xboardServiceProvider).sendEmailVerifyCode(email);
     if (!mounted) return;
     if (result is XbFailure) {
-      setState(() => _banner = (result as XbFailure).error.toString());
+      setState(() => _banner = (result as XbFailure).error.message);
     }
   }
 
@@ -105,7 +105,7 @@ class _ForgotPwdSheetState extends ConsumerState<ForgotPwdSheet> {
           const SnackBar(content: Text('密码已重置，请用新密码登录')),
         );
       case XbFailure(:final error):
-        setState(() => _banner = error.toString());
+        setState(() => _banner = error.message);
     }
   }
 
