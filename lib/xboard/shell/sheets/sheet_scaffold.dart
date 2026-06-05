@@ -8,19 +8,30 @@ import 'package:flutter/material.dart';
 
 import 'package:fl_clash/xboard/config/xboard_config.dart';
 
+import '../../widgets/xb_theme.dart' show XbTokens;
 import '../../widgets/xb_ui_kit.dart' show XbBrandTheme;
 
 /// 弹出形态 A 风格底部 sheet（圆角 + 拖拽手柄 + 随键盘抬升 + 可滚动）。
 ///
 /// **关键**：builder 自动包 [XbBrandTheme] —— sheet 挂根 Navigator（FlClash MaterialApp 下），
 /// 不在 shell 子树内，不包则拿不到品牌主题 → 徽标/按钮退回 FlClash 灰褐色。
+///
+/// **背景显式钉死**：M3 modal sheet 默认按 surfaceTint(品牌红) 做高度叠色 → 白底被染粉红。
+/// 这里直接传 backgroundColor=纯白(sf2) + surfaceTintColor=transparent + elevation=0，
+/// 不依赖主题 bottomSheetTheme（modal 路径不完全吃 tint 设置）。
 Future<T?> showXbBottomSheet<T>({
   required BuildContext context,
   required WidgetBuilder builder,
 }) {
+  final t = Theme.of(context).brightness == Brightness.dark
+      ? XbTokens.dark
+      : XbTokens.light;
   return showModalBottomSheet<T>(
     context: context,
     isScrollControlled: true, // 随键盘抬升 + 内容可超过半屏
+    backgroundColor: t.sf2, // 纯白面（原型 --sf2），不透明 → 无高度叠色泛粉红
+    elevation: 0,
+    showDragHandle: true,
     builder: (ctx) => XbBrandTheme(
       brandColor: Color(XboardConfig.current.brandColor),
       child: Builder(builder: builder),
