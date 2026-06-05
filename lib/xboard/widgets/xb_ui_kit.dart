@@ -31,13 +31,11 @@ class XbBrandTheme extends StatelessWidget {
   final Color brandColor;
   final Widget child;
 
-  /// 中性灰种子（生成干净的 surface/text/outline，不带品牌色调）。
-  static const _neutralSeed = Color(0xFF6B7280);
-
   @override
   Widget build(BuildContext context) {
     final base = Theme.of(context);
     final brightness = base.brightness;
+    final isLight = brightness == Brightness.light;
 
     // 强调色族：忠于品牌色。
     final brand = ColorScheme.fromSeed(
@@ -45,30 +43,28 @@ class XbBrandTheme extends StatelessWidget {
       brightness: brightness,
       dynamicSchemeVariant: DynamicSchemeVariant.fidelity,
     );
-    // 中性色族：干净灰，不染品牌色。
-    final neutral = ColorScheme.fromSeed(
-      seedColor: _neutralSeed,
-      brightness: brightness,
-      dynamicSchemeVariant: DynamicSchemeVariant.neutral,
-    );
+
+    // 🔴 中性底色族：**硬钉原型 token**（不走 M3 算法，避免掺入品牌红色相导致背景泛暖粉）。
+    // 原型 full.html CSS 变量（:root 浅色 / .screen.dark 深色），1:1 映射到 M3 surface 角色。
+    final n = isLight ? _XbNeutral.light : _XbNeutral.dark;
 
     // 合并：品牌出强调，中性出底。primary 锁品牌本色（#d92e1a 配白字 4.82:1 过 WCAG AA）。
     final scheme = brand.copyWith(
       primary: brandColor,
       onPrimary: Colors.white,
-      // 中性色族整体替换（去掉品牌红染色）。
-      surface: neutral.surface,
-      onSurface: neutral.onSurface,
-      onSurfaceVariant: neutral.onSurfaceVariant,
-      surfaceContainerLowest: neutral.surfaceContainerLowest,
-      surfaceContainerLow: neutral.surfaceContainerLow,
-      surfaceContainer: neutral.surfaceContainer,
-      surfaceContainerHigh: neutral.surfaceContainerHigh,
-      surfaceContainerHighest: neutral.surfaceContainerHighest,
-      outline: neutral.outline,
-      outlineVariant: neutral.outlineVariant,
-      inverseSurface: neutral.inverseSurface,
-      onInverseSurface: neutral.onInverseSurface,
+      // 中性色族整体硬钉（原型固定值，无品牌色相）。
+      surface: n.sf, // --sf：页面/scaffold 背景
+      onSurface: n.on, // --on：正文
+      onSurfaceVariant: n.onv, // --onv：次要文字
+      surfaceContainerLowest: n.card, // --card/--sf2：卡片/orb核心/sheet（最白）
+      surfaceContainerLow: n.card, // 卡片底
+      surfaceContainer: n.sfc, // --sfc：分段槽/chip
+      surfaceContainerHigh: n.sfc, // 输入框填充
+      surfaceContainerHighest: n.sfc, // 轨道环底
+      outline: n.line, // --line：边框
+      outlineVariant: n.line, // --line：细分隔
+      inverseSurface: n.on,
+      onInverseSurface: n.sf,
     );
 
     // 链接文字色：用品牌的**较深色调**（fidelity primary，浅色 #b50e00 对比度 6.58:1），
@@ -90,6 +86,52 @@ class XbBrandTheme extends StatelessWidget {
       child: child,
     );
   }
+}
+
+/// 原型中性底色 token（full.html CSS `:root` / `.screen.dark`）。
+/// 硬钉值（不走 M3 算法），保证背景是干净中性灰、不泛品牌色相。
+class _XbNeutral {
+  const _XbNeutral({
+    required this.sf,
+    required this.sf2,
+    required this.card,
+    required this.sfc,
+    required this.on,
+    required this.onv,
+    required this.line,
+    required this.hair,
+  });
+
+  final Color sf; // 页面背景 --sf
+  final Color sf2; // 纯白面 --sf2
+  final Color card; // 卡片 --card
+  final Color sfc; // 容器/分段槽 --sfc
+  final Color on; // 正文 --on
+  final Color onv; // 次要文字 --onv
+  final Color line; // 边框 --line
+  final Color hair; // 细线 --hair
+
+  static const light = _XbNeutral(
+    sf: Color(0xFFF5F6F8),
+    sf2: Color(0xFFFFFFFF),
+    card: Color(0xFFFFFFFF),
+    sfc: Color(0xFFEEF0F4),
+    on: Color(0xFF11141B),
+    onv: Color(0xFF6A7180),
+    line: Color(0xFFE9ECF1),
+    hair: Color(0xFFF0F2F5),
+  );
+
+  static const dark = _XbNeutral(
+    sf: Color(0xFF0A0C11),
+    sf2: Color(0xFF13161D),
+    card: Color(0xFF13161D),
+    sfc: Color(0xFF171A22),
+    on: Color(0xFFF1F3F8),
+    onv: Color(0xFF8990A2),
+    line: Color(0xFF23262F),
+    hair: Color(0xFF1A1D25),
+  );
 }
 
 /// 主按钮 —— loading 态内嵌 spinner（R1.7/R2.7 复用），M3 FilledButton。
