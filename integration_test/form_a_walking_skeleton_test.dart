@@ -15,7 +15,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import 'package:fl_clash/enum/enum.dart' show CoreStatus, ProxyCardType;
+import 'package:fl_clash/enum/enum.dart' show CoreStatus, ProxyCardType, Mode;
 import 'package:fl_clash/models/models.dart' show PatchClashConfig, ProxiesTabState;
 import 'package:fl_clash/providers/app.dart';
 import 'package:fl_clash/providers/config.dart';
@@ -114,6 +114,95 @@ void main() {
     await t.pumpAndSettle();
     expect(find.text('注册账号'), findsOneWidget);
     expect(find.text('忘记密码？'), findsOneWidget);
+    ErrorWidget.builder = original;
+  });
+  /// 不 override patchClashConfigProvider 的容器（写穿真内核 config）。
+  /// 设备上 core/DB 可用，changeMode/normalize 可真跑（headless 单测因 path_provider 跑不了）。
+  ProviderContainer makeContainerRealConfig(AuthState auth, {Mode? initialMode}) {
+    final c = ProviderContainer(
+      overrides: [
+        xboardServiceProvider.overrideWithValue(service),
+        bootstrapReadyProvider.overrideWith(() => _Ready()),
+        authStateProvider.overrideWith(() => _Auth(auth)),
+        isStartProvider.overrideWith((ref) => false),
+        proxiesTabStateProvider.overrideWith((ref) => _emptyTab()),
+        // ⚠️ 不 override patchClashConfigProvider —— 让 setMode 写穿真实内核 config（Property 4）。
+      ],
+    );
+    c.read(coreStatusProvider.notifier).value = CoreStatus.disconnected;
+    if (initialMode != null) {
+      c
+          .read(patchClashConfigProvider.notifier)
+          .update((s) => s.copyWith(mode: initialMode));
+    }
+    return c;
+  }
+
+  testWidgets('内核写穿（设备）：点「全局」段 → 写穿真内核 patchClashConfig（Property 4）',
+      (t) async {
+    final original = ErrorWidget.builder;
+    final container = makeContainerRealConfig(AuthState.authenticated,
+        initialMode: Mode.rule);
+    addTearDown(container.dispose);
+
+    await t.pumpWidget(app(container));
+    await t.pumpAndSettle();
+
+    // 初始：内核 rule。
+    expect(container.read(patchClashConfigProvider).mode, Mode.rule);
+
+    // 通过 UI 点「全局」段（真实用户路径）→ XbModeSegment → adapter.setMode → changeMode。
+    // 设备上 core 可用，changeMode（含 global→GLOBAL 组联动）真跑不崩。
+    await t.tap(find.text('全局'));
+    await t.pumpAndSettle();
+
+    // ① 内核真值已变 global（无影子状态，写穿到 FlClash provider，Property 4）。
+    expect(container.read(patchClashConfigProvider).mode, Mode.global);
+
+    // ② 切回「智能」→ 内核回 rule。
+    await t.tap(find.text('智能'));
+    await t.pumpAndSettle();
+    expect(container.read(patchClashConfigProvider).mode, Mode.rule);
+    ErrorWidget.builder = original;
+  });
+
+  testWidgets('内核写穿（设备）：进首页 direct → 归一纠正为 rule（design 风险② direct 坑）',
+      (t) async {
+    final original = ErrorWidget.builder;
+    // 内核初始 = direct（formA 二选一无法表达）。
+    final container = makeContainerRealConfig(AuthState.authenticated,
+        initialMode: Mode.direct);
+    addTearDown(container.dispose);
+
+    await t.pumpWidget(app(container));
+    await t.pumpAndSettle(); // HomeTab.initState postFrame 触发 normalizeDirectIfNeeded
+
+    // 进首页后 direct 被纠正为 rule（写穿真内核）。
+    expect(container.read(patchClashConfigProvider).mode, Mode.rule);
+    ErrorWidget.builder = original;
+  });
+
+  testWidgets('注册 sheet（设备）：邮箱后缀下拉 + 验证码字段渲染（R5.5-R5.8）', (t) async {
+    final original = ErrorWidget.builder;
+    final container = makeContainer(AuthState.unauthenticated);
+    addTearDown(container.dispose);
+    container.read(coreStatusProvider.notifier).value = CoreStatus.disconnected;
+
+    await t.pumpWidget(app(container));
+    await t.pumpAndSettle();
+
+    // 我的 Tab → 登录 sheet → 注册账号。
+    await tapTab(t, '我的');
+    await t.tap(find.widgetWithText(FilledButton, '登录 / 注册'));
+    await t.pumpAndSettle();
+    await t.tap(find.text('注册账号'));
+    await t.pumpAndSettle();
+
+    // 注册 sheet：邮箱账号 + 验证码 + 密码字段（FakeIntegrationService 给 gmail.com/qq.com 后缀）。
+    expect(find.text('注册'), findsWidgets);
+    expect(find.text('验证码'), findsOneWidget);
+    expect(find.text('获取'), findsOneWidget);
+    expect(find.textContaining('@gmail.com'), findsWidgets);
     ErrorWidget.builder = original;
   });
 }
