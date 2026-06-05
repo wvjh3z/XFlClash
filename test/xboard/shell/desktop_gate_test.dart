@@ -11,9 +11,25 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:fl_clash/enum/enum.dart' show CoreStatus, ProxyCardType;
+import 'package:fl_clash/models/models.dart' show PatchClashConfig, ProxiesTabState;
 import 'package:fl_clash/providers/app.dart';
+import 'package:fl_clash/providers/config.dart';
+import 'package:fl_clash/providers/state.dart';
 import 'package:fl_clash/xboard/config/xboard_config.dart';
+import 'package:fl_clash/xboard/providers/auth_state_provider.dart';
+import 'package:fl_clash/xboard/providers/xboard_providers.dart';
 import 'package:fl_clash/xboard/shell/xboard_app_shell.dart';
+
+class _Ready extends BootstrapReady {
+  @override
+  bool build() => true;
+}
+
+class _Auth extends AuthStateNotifier {
+  @override
+  AuthState build() => AuthState.authenticated;
+}
 
 /// 复刻接缝点 #9：`home: (formA && isMobileView) ? XboardAppShell() : child`。
 class _SeamProbe extends ConsumerWidget {
@@ -50,9 +66,28 @@ Future<void> pumpGate(
     formA: formA,
   ));
   addTearDown(XboardConfig.resetForTest);
+  final container = ProviderContainer(
+    overrides: [
+      isMobileViewProvider.overrideWith((ref) => isMobile),
+      // formA+mobile 会挂真 XboardAppShell（含 HomeTab 等），补其依赖的 FlClash + auth provider。
+      bootstrapReadyProvider.overrideWith(() => _Ready()),
+      authStateProvider.overrideWith(() => _Auth()),
+      isStartProvider.overrideWith((ref) => false),
+      proxiesTabStateProvider.overrideWith((ref) => const ProxiesTabState(
+            groups: [],
+            currentGroupName: null,
+            proxyCardType: ProxyCardType.expand,
+            columns: 2,
+          )),
+      patchClashConfigProvider
+          .overrideWithBuild((ref, _) => const PatchClashConfig()),
+    ],
+  );
+  addTearDown(container.dispose);
+  container.read(coreStatusProvider.notifier).value = CoreStatus.disconnected;
   await tester.pumpWidget(
-    ProviderScope(
-      overrides: [isMobileViewProvider.overrideWith((ref) => isMobile)],
+    UncontrolledProviderScope(
+      container: container,
       child: const _SeamProbe(),
     ),
   );

@@ -4,17 +4,18 @@
 /// 自定义三 Tab（首页 / 节点 / 我的）+ 自定义底栏。VPN 内核（Manager 链）在
 /// `MaterialApp.builder:` 内，不在 `home:`，故换 home 不受影响（R1，PoC 已证）。
 ///
-/// **W1（骨架）**：三 Tab 占位（W3/W4 填实）；底栏 = `XbBottomBar`（W1.3）；
-/// 每个 Tab body 外包 `XbErrorBoundary`（W1.4 / R1.7）。
-///
 /// **🔴 适配层铁律**：本文件及 `tabs/` 下子 widget **禁止**直接 import
 /// `package:fl_clash/views/**` 或 FlClash internal provider —— 一切 FlClash 内部复用
-/// 必须经 `lib/xboard/shell/adapters/`（W2）收口。PoC 直接 import `lib/views/**` 是反面教材。
+/// 必须经 `lib/xboard/shell/adapters/`（W2）收口。
 library;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'sheets/login_sheet.dart';
+import 'tabs/home/home_tab.dart';
+import 'tabs/mine/mine_tab.dart';
+import 'tabs/nodes/nodes_tab.dart';
 import 'widgets/xb_bottom_bar.dart';
 import 'widgets/xb_error_boundary.dart';
 
@@ -51,11 +52,26 @@ class _XboardAppShellState extends ConsumerState<XboardAppShell> {
         bottom: false,
         child: IndexedStack(
           index: _tabIndex,
-          children: const [
+          children: [
             // 每个 Tab body 外包 XbErrorBoundary（R1.7：单 Tab 崩不波及内核 / 其它 Tab）。
-            XbErrorBoundary(label: '首页', child: _HomeTabStub()),
-            XbErrorBoundary(label: '节点', child: _NodesTabStub()),
-            XbErrorBoundary(label: '我的', child: _MineTabStub()),
+            XbErrorBoundary(
+              label: '首页',
+              child: HomeTab(
+                onTapToNodes: () => _onTabSelected(1),
+                onTapLogin: () => showLoginSheet(context),
+              ),
+            ),
+            XbErrorBoundary(
+              label: '节点',
+              child: NodesTab(
+                onTapRenew: () => _onTabSelected(2),
+                onTapLogin: () => showLoginSheet(context),
+              ),
+            ),
+            XbErrorBoundary(
+              label: '我的',
+              child: MineTab(onTapLogin: () => showLoginSheet(context)),
+            ),
           ],
         ),
       ),
@@ -63,56 +79,6 @@ class _XboardAppShellState extends ConsumerState<XboardAppShell> {
       bottomNavigationBar: XbBottomBar(
         currentIndex: _tabIndex,
         onTap: _onTabSelected,
-      ),
-    );
-  }
-}
-
-/// 首页 Tab 占位（W3 填实：连接球四态 + 速度卡 + 代理模式）。
-class _HomeTabStub extends StatelessWidget {
-  const _HomeTabStub();
-
-  @override
-  Widget build(BuildContext context) =>
-      const _TabPlaceholder(icon: Icons.home, label: '首页');
-}
-
-/// 节点 Tab 占位（W4 填实：分组 / 单节点 / 空态 / 游客）。
-class _NodesTabStub extends StatelessWidget {
-  const _NodesTabStub();
-
-  @override
-  Widget build(BuildContext context) =>
-      const _TabPlaceholder(icon: Icons.public, label: '节点');
-}
-
-/// 我的 Tab 占位（W4 填实：账号卡 / 续费购买 / 设置入口）。
-class _MineTabStub extends StatelessWidget {
-  const _MineTabStub();
-
-  @override
-  Widget build(BuildContext context) =>
-      const _TabPlaceholder(icon: Icons.person, label: '我的');
-}
-
-/// 占位 Tab 视图（W1 骨架期；后续 wave 各自替换）。
-class _TabPlaceholder extends StatelessWidget {
-  const _TabPlaceholder({required this.icon, required this.label});
-
-  final IconData icon;
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 48, color: scheme.primary),
-          const SizedBox(height: 12),
-          Text(label, style: Theme.of(context).textTheme.titleMedium),
-        ],
       ),
     );
   }
