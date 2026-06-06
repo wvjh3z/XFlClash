@@ -11,6 +11,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:fl_clash/xboard/providers/auth_state_provider.dart';
+import 'package:fl_clash/xboard/services/subscription_triggers.dart';
 import 'package:fl_clash/xboard/widgets/xb_components.dart';
 
 import '../../adapters/xb_nodes_adapter.dart';
@@ -39,7 +40,9 @@ class NodesTab extends ConsumerWidget {
     if (view.isEmpty) {
       return _EmptyNodes(
         onTapRenew: onTapRenew,
-        onRefresh: () => adapter.refresh(ref),
+        // 空态：一个节点都没有 → 「刷新重试」应**重新拉订阅**（按 config 竞速候选 failOver
+        // 重拉 + 解密 + 重写 profile），而非对空列表做延迟竞速（那是有节点时顶部按钮的事）。
+        onRefresh: () => SubscriptionTriggers.onManualRefresh(ref),
       );
     }
 
