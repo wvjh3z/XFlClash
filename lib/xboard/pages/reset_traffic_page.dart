@@ -18,6 +18,7 @@ import '../providers/xboard_providers.dart';
 import '../util/error_text.dart';
 import '../widgets/xb_ui_kit.dart';
 import 'order_payment_page.dart';
+import 'pending_order_section.dart';
 
 class ResetTrafficPage extends ConsumerStatefulWidget {
   const ResetTrafficPage({super.key, required this.planId, this.planName});
@@ -122,6 +123,7 @@ class _ResetTrafficPageState extends ConsumerState<ResetTrafficPage> {
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
       children: [
+        const PendingOrderSection(),
         // 说明卡（复用 XbInfoCard）。
         XbInfoCard(
           icon: Icons.refresh_rounded,

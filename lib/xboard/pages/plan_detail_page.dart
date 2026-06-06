@@ -18,6 +18,7 @@ import '../providers/xboard_providers.dart';
 import '../util/period_label.dart';
 import '../widgets/xb_ui_kit.dart';
 import 'order_payment_page.dart';
+import 'pending_order_section.dart';
 
 class PlanDetailPage extends ConsumerStatefulWidget {
   const PlanDetailPage({super.key, required this.plan});
@@ -86,6 +87,7 @@ class _PlanDetailPageState extends ConsumerState<PlanDetailPage> {
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
         children: [
+          const PendingOrderSection(),
           _headerCard(context),
           const SizedBox(height: 14),
           XbSectionCard(

@@ -14,6 +14,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:fl_clash/xboard/config/xboard_config.dart';
 import 'package:fl_clash/xboard/models/xb_domain_subscription.dart';
 import 'package:fl_clash/xboard/pages/order_list_page.dart';
+import 'package:fl_clash/xboard/pages/pending_order_section.dart';
 import 'package:fl_clash/xboard/pages/plan_list_page.dart';
 import 'package:fl_clash/xboard/pages/reset_traffic_page.dart';
 import 'package:fl_clash/xboard/providers/auth_state_provider.dart';
@@ -328,6 +329,12 @@ class _PlanActions extends StatelessWidget {
           const SizedBox(height: 12),
           _ResetCard(pctInt: pctInt, onTap: () => _openReset(context, sub)),
         ],
+        // 待支付订单横幅（原型 12b：放流量重置卡下方，有 pending 订单才显示；
+        // 无订单时 PendingOrderSection 自收起为零高度）。
+        const Padding(
+          padding: EdgeInsets.only(top: 12),
+          child: PendingOrderSection(),
+        ),
       ],
     );
   }
@@ -482,7 +489,54 @@ class _AccountSkeleton extends StatelessWidget {
             ],
           ),
         ),
+        // 续费/购买按钮行（加载态禁用，原型 .brow.dis 半透明）。
+        const SizedBox(height: 12),
+        const _DisabledPlanActions(),
       ],
+    );
+  }
+}
+
+/// 加载态禁用按钮行（原型 booting `.brow.dis`：续费/购买都置灰禁用）。
+class _DisabledPlanActions extends StatelessWidget {
+  const _DisabledPlanActions();
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return SizedBox(
+      height: 52,
+      child: Opacity(
+        opacity: 0.5,
+        child: Row(
+          children: [
+            Expanded(
+              child: FilledButton(
+                onPressed: null,
+                style: FilledButton.styleFrom(
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(15)),
+                ),
+                child: const Text('续费当前套餐'),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: OutlinedButton(
+                onPressed: null,
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: scheme.primary,
+                  side: BorderSide(
+                      color: scheme.primary.withValues(alpha: 0.4), width: 1.6),
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(15)),
+                ),
+                child: const Text('购买 / 更改套餐'),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

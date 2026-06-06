@@ -480,6 +480,120 @@ class XbStatusCard extends StatelessWidget {
   }
 }
 
+/// 待支付订单横幅（原型 `.pendcard`）：黄色框 + 订单概要 + 「取消订单 / 立即支付」两按钮。
+///
+/// 用于"我的 / 续费 / 购买 / 流量重置"四处顶部（有 pending 订单时显示），风格参考流量重置卡
+/// （warn 琥珀），但带两个操作。文案：「有待支付订单」+「套餐名 · 周期」+ 金额。
+class XbPendingOrderBanner extends StatelessWidget {
+  const XbPendingOrderBanner({
+    super.key,
+    required this.subtitle,
+    required this.amountText,
+    required this.onCancel,
+    required this.onPay,
+    this.cancelling = false,
+  });
+
+  /// 副标题（原型「标准套餐 · 季付」，不含订单号）。
+  final String subtitle;
+
+  /// 金额文案（如 `¥40.00`）。
+  final String amountText;
+  final VoidCallback? onCancel;
+  final VoidCallback? onPay;
+
+  /// 取消进行中（按钮 loading）。
+  final bool cancelling;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = XbTokens.of(context);
+    const warn = XbTokens.warn;
+    return Container(
+      padding: const EdgeInsets.all(15),
+      decoration: BoxDecoration(
+        color: Color.alphaBlend(warn.withValues(alpha: 0.11), t.card),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: warn.withValues(alpha: 0.32)),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.schedule, color: warn, size: 22),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text('有待支付订单',
+                        style: TextStyle(
+                            fontSize: 13.5,
+                            fontWeight: FontWeight.w700,
+                            color: t.on)),
+                    const SizedBox(height: 2),
+                    Text(subtitle,
+                        style: TextStyle(
+                            fontSize: 11, height: 1.45, color: t.onv)),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 10),
+              Text(amountText,
+                  style: const TextStyle(
+                      fontSize: 17, fontWeight: FontWeight.w800, color: warn)),
+            ],
+          ),
+          const SizedBox(height: 13),
+          Row(
+            children: [
+              // 取消订单（描边）。
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: cancelling ? null : onCancel,
+                  icon: cancelling
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(
+                              strokeWidth: 2, color: warn))
+                      : const Icon(Icons.close, size: 18),
+                  label: const Text('取消订单'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: t.onv,
+                    side: BorderSide(color: warn.withValues(alpha: 0.30), width: 1.5),
+                    minimumSize: const Size.fromHeight(42),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12)),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              // 立即支付（实心 warn 黄）。
+              Expanded(
+                child: FilledButton.icon(
+                  onPressed: onPay,
+                  icon: const Icon(Icons.payment, size: 18),
+                  label: const Text('立即支付'),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: warn,
+                    foregroundColor: Colors.white,
+                    minimumSize: const Size.fromHeight(42),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12)),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 /// 信息提示卡（原型 .infocard）：图标 + 多行说明，淡品牌底。
 class XbInfoCard extends StatelessWidget {
   const XbInfoCard({super.key, required this.icon, required this.text});
