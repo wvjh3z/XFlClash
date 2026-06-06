@@ -13,6 +13,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:fl_clash/xboard/config/xboard_config.dart';
+import 'package:fl_clash/xboard/util/app_version.dart';
 import 'package:fl_clash/xboard/widgets/xb_ui_kit.dart' show XbBrandTheme;
 
 import 'sheets/login_sheet.dart';
@@ -43,6 +44,9 @@ class _XboardAppShellState extends ConsumerState<XboardAppShell> {
     // 形态 A 专属：把默认全屏红屏换成有界友好错误卡（W1.4 / R1.7）。
     // 仅 formA 路径执行（form B 不进 shell，保留 FlClash 默认错误处理，"加而不改"）。
     XbErrorBoundary.install();
+    // 启动即记录版本(排查"装的是不是新版";print 在 debug logcat 可见)。
+    // ignore: avoid_print
+    loadVersionLabel().then((v) => print('[XB-VERSION] $v'));
   }
 
   void _onTabSelected(int index) => setState(() => _tabIndex = index);
