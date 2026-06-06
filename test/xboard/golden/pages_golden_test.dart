@@ -19,6 +19,7 @@ import 'package:fl_clash/xboard/models/xb_domain_types.dart';
 import 'package:fl_clash/xboard/models/xb_result.dart';
 import 'package:fl_clash/xboard/pages/order_list_page.dart';
 import 'package:fl_clash/xboard/pages/plan_list_page.dart';
+import 'package:fl_clash/xboard/pages/reset_traffic_page.dart';
 import 'package:fl_clash/xboard/providers/auth_state_provider.dart';
 import 'package:fl_clash/xboard/providers/user_profile_provider.dart';
 import 'package:fl_clash/xboard/providers/xboard_providers.dart';
@@ -121,6 +122,17 @@ List<OrderSummary> get _orders => [
       ),
     ];
 
+const _resetPlan = PlanItem(
+  id: 1,
+  name: '标准套餐',
+  description: '<p>250 GB/月</p>',
+  transferEnableGb: 250,
+  prices: [
+    PricePlan(period: XbPlanPeriod.monthly, amountYuan: 15.00),
+    PricePlan(period: XbPlanPeriod.resetTraffic, amountYuan: 8.00),
+  ],
+);
+
 class _FakeAuth extends AuthStateNotifier {
   @override
   AuthState build() => AuthState.authenticated;
@@ -197,5 +209,20 @@ void main() {
     expect(t.takeException(), isNull);
     await expectLater(find.byType(MineTab),
         matchesGoldenFile('goldens/page_mine_auth.png'));
+  });
+
+  testWidgets('流量重置包页 golden', (t) async {
+    final svc = _MockService();
+    when(svc.getPlans).thenAnswer((_) async => XbResult.success([_resetPlan]));
+    await pump(
+      t,
+      ProviderScope(
+        overrides: [xboardServiceProvider.overrideWithValue(svc)],
+        child: app(const ResetTrafficPage(planId: 1, planName: '标准套餐')),
+      ),
+    );
+    expect(t.takeException(), isNull);
+    await expectLater(find.byType(ResetTrafficPage),
+        matchesGoldenFile('goldens/page_reset_traffic.png'));
   });
 }
