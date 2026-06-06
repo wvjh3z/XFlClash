@@ -19,6 +19,7 @@ import 'package:fl_clash/xboard/pages/plan_list_page.dart';
 import 'package:fl_clash/xboard/pages/reset_traffic_page.dart';
 import 'package:fl_clash/xboard/providers/auth_state_provider.dart';
 import 'package:fl_clash/xboard/providers/user_profile_provider.dart';
+import 'package:fl_clash/xboard/util/app_version.dart';
 import 'package:fl_clash/xboard/widgets/xb_components.dart';
 import 'package:fl_clash/xboard/widgets/xb_theme.dart' show xbPush, XbTokens;
 
@@ -692,11 +693,7 @@ class _SettingsSection extends ConsumerWidget {
               onTap: () => xbPush(context, const XbSettingsPage(),
                   brandColor: Color(XboardConfig.current.brandColor)),
             ),
-            const XbListRow(
-              icon: Icons.info_outline,
-              label: '关于',
-              badge: 'v0.1.0',
-            ),
+            const _AboutRow(),
             if (!isGuest)
               XbListRow(
                 icon: Icons.logout,
@@ -709,6 +706,23 @@ class _SettingsSection extends ConsumerWidget {
           ],
         ),
       ],
+    );
+  }
+}
+
+/// 「关于」条目：动态显示真实版本号 + 构建标识（确认安装的是否最新包）。
+class _AboutRow extends StatelessWidget {
+  const _AboutRow();
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<String>(
+      future: loadVersionLabel(),
+      builder: (context, snap) => XbListRow(
+        icon: Icons.info_outline,
+        label: '关于',
+        badge: snap.data ?? '…',
+      ),
     );
   }
 }
