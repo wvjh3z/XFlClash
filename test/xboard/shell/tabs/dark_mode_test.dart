@@ -63,7 +63,7 @@ void main() {
       await pumpThemed(tester, const MineTab(),
           brightness: brightness, auth: AuthState.unauthenticated);
       expect(tester.takeException(), isNull);
-      expect(find.text('登录后管理你的套餐与流量'), findsOneWidget);
+      expect(find.text('登录后同步专属节点与套餐'), findsOneWidget);
     });
   }
 }

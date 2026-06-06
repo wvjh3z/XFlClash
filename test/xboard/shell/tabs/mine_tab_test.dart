@@ -51,7 +51,8 @@ void main() {
 
   testWidgets('游客态 → 登录引导卡（R6.10）', (tester) async {
     await pumpMine(tester, auth: AuthState.unauthenticated);
-    expect(find.text('登录后管理你的套餐与流量'), findsOneWidget);
+    expect(find.text('未登录'), findsOneWidget);
+    expect(find.text('登录后同步专属节点与套餐'), findsOneWidget);
     expect(find.text('登录 / 注册'), findsOneWidget);
     // 游客态设置区只有「设置」，无订单/退出。
     expect(find.text('设置'), findsOneWidget);

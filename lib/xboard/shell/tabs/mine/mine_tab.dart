@@ -514,7 +514,7 @@ class _AccountErrorCard extends StatelessWidget {
   }
 }
 
-/// 游客引导卡（R6.10）。
+/// 游客引导卡（R6.10）—— 原型灰渐变卡（与账号卡同布局，未登录用灰色，白字 + 白登录按钮）。
 class _GuestCard extends StatelessWidget {
   const _GuestCard({this.onTapLogin});
 
@@ -523,29 +523,77 @@ class _GuestCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    return Card(
-      elevation: 0,
-      color: scheme.surfaceContainerHigh,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          children: [
-            Icon(Icons.account_circle_outlined,
-                size: 48, color: scheme.primary),
-            const SizedBox(height: 12),
-            const Text('登录后管理你的套餐与流量',
-                style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
-            const SizedBox(height: 16),
-            SizedBox(
-              width: double.infinity,
-              child: FilledButton(
-                onPressed: onTapLogin,
-                child: const Text('登录 / 注册'),
+    final white70 = Colors.white.withValues(alpha: 0.88);
+    return Container(
+      padding: const EdgeInsets.all(21),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(24),
+        // 原型 mineGuest 灰渐变（#8a909e → #5a606e）。
+        gradient: const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [Color(0xFF8A909E), Color(0xFF5A606E)],
+        ),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x4D3C4250),
+            blurRadius: 44,
+            offset: Offset(0, 22),
+            spreadRadius: -16,
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // 账号行：头像 + 未登录 + 副标题。
+          Row(
+            children: [
+              Container(
+                width: 50,
+                height: 50,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.22),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: Colors.white.withValues(alpha: 0.25)),
+                ),
+                child: const Icon(Icons.person, color: Colors.white, size: 24),
+              ),
+              const SizedBox(width: 13),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Text('未登录',
+                        style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w700,
+                            color: Colors.white)),
+                    const SizedBox(height: 2),
+                    Text('登录后同步专属节点与套餐',
+                        style: TextStyle(fontSize: 12, color: white70)),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          // 白底登录按钮（灰卡上的高对比 CTA）。
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton.icon(
+              onPressed: onTapLogin,
+              icon: const Icon(Icons.login, size: 18),
+              label: const Text('登录 / 注册'),
+              style: FilledButton.styleFrom(
+                backgroundColor: Colors.white,
+                foregroundColor: scheme.primary,
               ),
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
