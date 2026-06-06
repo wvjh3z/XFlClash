@@ -1,6 +1,6 @@
-/// W2.5 — XbNativePageAdapter.openTools 单测。
+/// W2.5 — XbNativePageAdapter.openNativeTools 单测。
 ///
-/// 验证 openTools 触发一次 Navigator.push（route 推入）。不全量渲染 ToolsView（依赖大量
+/// 验证 openNativeTools 触发一次 Navigator.push（route 推入）。不全量渲染 ToolsView（依赖大量
 /// provider + core），仅断言导航行为发生 —— 渲染不崩由 W6.4 集成冒烟覆盖。
 library;
 
@@ -20,7 +20,7 @@ class _PushObserver extends NavigatorObserver {
 }
 
 void main() {
-  testWidgets('openTools → 触发一次 Navigator.push', (tester) async {
+  testWidgets('openNativeTools → 触发一次 Navigator.push', (tester) async {
     final observer = _PushObserver();
     const adapter = XbNativePageAdapter();
 
@@ -31,7 +31,7 @@ void main() {
           builder: (context) => Scaffold(
             body: Center(
               child: ElevatedButton(
-                onPressed: () => adapter.openTools(context),
+                onPressed: () => adapter.openNativeTools(context),
                 child: const Text('open'),
               ),
             ),

@@ -21,7 +21,7 @@ import 'package:fl_clash/xboard/providers/user_profile_provider.dart';
 import 'package:fl_clash/xboard/widgets/xb_components.dart';
 import 'package:fl_clash/xboard/widgets/xb_theme.dart' show xbPush, XbTokens;
 
-import '../../adapters/xb_native_page_adapter.dart';
+import 'xb_settings_page.dart';
 
 /// 用量达此比例才显示「流量重置」入口（R6.3）。
 const _resetThreshold = 0.90;
@@ -633,9 +633,9 @@ class _SettingsSection extends ConsumerWidget {
             XbListRow(
               icon: Icons.settings,
               label: '设置',
-              // 设置 → 原生 ToolsView（R6.8，经 adapter）。
-              onTap: () =>
-                  ref.read(xbNativePageAdapterProvider).openTools(context),
+              // 设置 → 形态 A 风格设置页（组件库列表 → FlClash 原生子页，R6.8）。
+              onTap: () => xbPush(context, const XbSettingsPage(),
+                  brandColor: Color(XboardConfig.current.brandColor)),
             ),
             const XbListRow(
               icon: Icons.info_outline,
