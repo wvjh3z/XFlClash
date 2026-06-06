@@ -143,7 +143,7 @@ class _AccountCard extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      _maskEmail(sub.email),
+                      sub.email,
                       style: const TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.w700,
@@ -223,20 +223,18 @@ class _AccountCard extends StatelessWidget {
   static String _gb(int bytes) =>
       (bytes / (1024 * 1024 * 1024)).toStringAsFixed(1);
 
-  static String _maskEmail(String email) {
-    final at = email.indexOf('@');
-    if (at <= 1) return email;
-    final name = email.substring(0, at);
-    final masked = name.length <= 2
-        ? '${name[0]}*'
-        : '${name.substring(0, 2)}***';
-    return '$masked${email.substring(at)}';
-  }
-
   static String _expireText(XbDomainSubscription sub) {
     if (sub.expiredAt == null) return '长期有效';
     final d = sub.expiredAt!;
-    return '到期 ${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+    final ymd =
+        '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+    // 剩余天数（原型：到期 YYYY-MM-DD（剩 N 天））。
+    final days = d
+        .difference(DateTime(
+            DateTime.now().year, DateTime.now().month, DateTime.now().day))
+        .inDays;
+    if (days < 0) return '已到期 $ymd';
+    return '到期 $ymd（剩 $days 天）';
   }
 
   /// 流量重置行：有重置日才显示（一次性套餐无）。

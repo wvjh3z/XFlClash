@@ -63,7 +63,7 @@ void main() {
     await pumpMine(tester,
         auth: AuthState.authenticated,
         sub: _sub(total: 100 * gb, used: 37 * gb));
-    expect(find.text('de***@example.com'), findsOneWidget);
+    expect(find.text('demo@example.com'), findsOneWidget);
     expect(find.text('专业版'), findsOneWidget);
     // 用量% 现并入标签文案（原型 .lab）。
     expect(find.text('本月已用流量（已使用 37%）'), findsOneWidget);
