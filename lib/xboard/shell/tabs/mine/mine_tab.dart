@@ -425,61 +425,64 @@ class _ResetCard extends StatelessWidget {
   }
 }
 
-/// 加载骨架（已登录未就绪，R6.9）。
+/// 加载骨架（已登录未就绪，R6.9）—— 原型：顶部琥珀同步条 + 白底骨架卡（shimmer）。
 class _AccountSkeleton extends StatelessWidget {
   const _AccountSkeleton();
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return Card(
-      elevation: 0,
-      color: scheme.surfaceContainerHigh,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-      child: const Padding(
-        padding: EdgeInsets.all(20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _SkeletonBar(widthFactor: 0.5, height: 16),
-            SizedBox(height: 12),
-            _SkeletonBar(widthFactor: 1, height: 8),
-            SizedBox(height: 10),
-            _SkeletonBar(widthFactor: 0.7, height: 12),
-            SizedBox(height: 12),
-            Row(
-              children: [
-                Icon(Icons.sync, size: 16),
-                SizedBox(width: 8),
-                Text('正在同步账号信息…', style: TextStyle(fontSize: 12.5)),
-              ],
-            ),
-          ],
+    final t = XbTokens.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        // 顶部同步条（原型 .syncbar）。
+        const XbSyncBanner(),
+        const SizedBox(height: 12),
+        // 白底骨架卡（原型 .plan-skel）。
+        Container(
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            color: t.card,
+            borderRadius: BorderRadius.circular(XbTokens.rCard),
+            border: Border.all(color: t.line),
+            boxShadow: t.shadow1,
+          ),
+          child: const Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // 头像方块 + 两行。
+              Row(
+                children: [
+                  SizedBox(
+                    width: 48,
+                    child: XbSkeletonBar(
+                        widthFactor: 1, height: 48, radius: 14),
+                  ),
+                  SizedBox(width: 13),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        XbSkeletonBar(widthFactor: 0.6, height: 13),
+                        SizedBox(height: 7),
+                        XbSkeletonBar(widthFactor: 0.4, height: 13),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              SizedBox(height: 14),
+              XbSkeletonBar(widthFactor: 0.5, height: 13),
+              SizedBox(height: 8),
+              XbSkeletonBar(widthFactor: 0.8, height: 24),
+              SizedBox(height: 10),
+              XbSkeletonBar(widthFactor: 1, height: 10, radius: 6),
+              SizedBox(height: 10),
+              XbSkeletonBar(widthFactor: 0.7, height: 13),
+            ],
+          ),
         ),
-      ),
-    );
-  }
-}
-
-class _SkeletonBar extends StatelessWidget {
-  const _SkeletonBar({required this.widthFactor, required this.height});
-
-  final double widthFactor;
-  final double height;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return FractionallySizedBox(
-      alignment: Alignment.centerLeft,
-      widthFactor: widthFactor,
-      child: Container(
-        height: height,
-        decoration: BoxDecoration(
-          color: scheme.surfaceContainerHighest,
-          borderRadius: BorderRadius.circular(6),
-        ),
-      ),
+      ],
     );
   }
 }

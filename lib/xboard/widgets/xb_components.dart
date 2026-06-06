@@ -13,6 +13,104 @@ import 'package:flutter/material.dart';
 
 import 'xb_theme.dart';
 
+/// 顶部同步横幅（原型 `.syncbar`）：琥珀柔底 + 旋转 spinner + 文案。
+/// 用于"已登录但订阅/账号数据竞速未完成"的过渡态。
+class XbSyncBanner extends StatelessWidget {
+  const XbSyncBanner({super.key, this.text = '正在同步账号与套餐信息…'});
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = XbTokens.of(context);
+    const warn = XbTokens.warn;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+      decoration: BoxDecoration(
+        color: Color.alphaBlend(warn.withValues(alpha: 0.11), t.card),
+        borderRadius: BorderRadius.circular(13),
+        border: Border.all(color: warn.withValues(alpha: 0.30)),
+      ),
+      child: Row(
+        children: [
+          const SizedBox(
+            width: 14,
+            height: 14,
+            child: CircularProgressIndicator(strokeWidth: 2.2, color: warn),
+          ),
+          const SizedBox(width: 9),
+          Expanded(
+            child: Text(
+              text,
+              style: const TextStyle(fontSize: 12.5, color: Color(0xFF8A6321)),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Shimmer 占位条（原型 `.sk`）：左→右流光动画，用于骨架屏。
+class XbSkeletonBar extends StatefulWidget {
+  const XbSkeletonBar({
+    super.key,
+    this.widthFactor = 1,
+    this.height = 13,
+    this.radius = 8,
+  });
+
+  final double widthFactor;
+  final double height;
+  final double radius;
+
+  @override
+  State<XbSkeletonBar> createState() => _XbSkeletonBarState();
+}
+
+class _XbSkeletonBarState extends State<XbSkeletonBar>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _c = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 1400),
+  )..repeat();
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final t = XbTokens.of(context);
+    return FractionallySizedBox(
+      alignment: Alignment.centerLeft,
+      widthFactor: widget.widthFactor.clamp(0.0, 1.0),
+      child: AnimatedBuilder(
+        animation: _c,
+        builder: (context, _) {
+          final dx = (_c.value * 2 - 1); // -1 → 1
+          return Container(
+            height: widget.height,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(widget.radius),
+              gradient: LinearGradient(
+                begin: Alignment(dx - 1, 0),
+                end: Alignment(dx + 1, 0),
+                colors: [t.sfc, t.hair, t.sfc],
+                stops: const [0.25, 0.5, 0.75],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  double get widthFactor => widget.widthFactor;
+}
+
 // ═══════════════════════════════ 容器 ═══════════════════════════════
 
 /// 通用卡片（原型 .card / .dcard）：白底 + 圆角 + 细边 + sd1 阴影。

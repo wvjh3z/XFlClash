@@ -43,7 +43,11 @@ Future<void> pumpMine(
       child: const MaterialApp(home: Scaffold(body: MineTab())),
     ),
   );
-  await tester.pumpAndSettle();
+  // 注：账号卡加载骨架（XbSkeletonBar）含无限 shimmer 动画，pumpAndSettle 会永不收敛。
+  // 用固定多次 pump 让 async provider 落地 + skeleton 被真实卡片替换。
+  await tester.pump(); // 触发 provider future
+  await tester.pump(const Duration(milliseconds: 50));
+  await tester.pump(const Duration(milliseconds: 50));
 }
 
 void main() {
