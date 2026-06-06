@@ -29,7 +29,8 @@ bool _isOurFile(String path) {
       path.startsWith('.kiro/') ||
       path.startsWith('.github/') ||
       path.startsWith('.githooks/') ||
-      path == 'flavor_defines.json';
+      path == 'flavor_defines.json' ||
+      path == '.gitignore'; // 工程配置（如新增 .secrets/ 忽略规则），非上游 UI 侵入
 }
 
 /// 该文件当前是否已与 upstream 基线一致（= 回退到原貌，非侵入）。
