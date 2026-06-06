@@ -10,7 +10,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../config/xboard_config.dart';
 import '../widgets/xb_components.dart';
-import '../widgets/xb_theme.dart' show xbPush;
+import '../widgets/xb_theme.dart' show xbPush, XbTokens;
 import '../models/plan_item.dart';
 import '../models/xb_domain_types.dart';
 import '../models/xb_result.dart';
@@ -81,71 +81,58 @@ class _PlanDetailPageState extends ConsumerState<PlanDetailPage> {
   }
 
   Widget _buildScaffold(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
     return Scaffold(
       appBar: AppBar(title: Text(plan.name)),
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
         children: [
-          _header(context),
-          const SizedBox(height: 16),
-          if (plan.description != null && plan.description!.isNotEmpty)
-            _DetailCard(child: _htmlContent(context)),
-          const SizedBox(height: 16),
-          _DetailCard(child: _periodSection(context)),
-          const SizedBox(height: 16),
-          _DetailCard(child: _couponSection(context)),
-          const SizedBox(height: 16),
-          _DetailCard(child: _summarySection(context)),
+          _headerCard(context),
+          const SizedBox(height: 14),
+          XbSectionCard(
+              title: '选择计费周期', child: _periodSection(context)),
+          const SizedBox(height: 14),
+          XbSectionCard(title: '优惠码', child: _couponSection(context)),
+          const SizedBox(height: 14),
+          XbSectionCard(title: '订单摘要', child: _summarySection(context)),
         ],
       ),
-      bottomNavigationBar: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
-          child: Row(
-            children: [
-              OutlinedButton(
-                onPressed: () => Navigator.of(context).pop(),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: scheme.onSurfaceVariant,
-                ),
-                child: const Text('返回'),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: FilledButton.icon(
-                  onPressed: _submitting ? null : _submitOrder,
-                  icon: _submitting
-                      ? const SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(
-                              strokeWidth: 2.2, color: Colors.white))
-                      : const Icon(Icons.shopping_cart_checkout_rounded),
-                  style: FilledButton.styleFrom(
-                    backgroundColor: scheme.primary,
-                    minimumSize: const Size.fromHeight(48),
-                  ),
-                  label: const Text('提交订单'),
-                ),
-              ),
-            ],
-          ),
-        ),
+      bottomNavigationBar: XbBottomActionBar(
+        secondaryLabel: '返回',
+        primaryLabel: '提交订单',
+        primaryIcon: Icons.shopping_cart_checkout_rounded,
+        primaryLoading: _submitting,
+        onPrimary: _submitOrder,
       ),
     );
   }
 
-  Widget _header(BuildContext context) {
-    final text = Theme.of(context).textTheme;
-    return Row(
-      children: [
-        Expanded(
-          child: Text(plan.name,
-              style: text.headlineSmall?.copyWith(fontWeight: FontWeight.w800)),
-        ),
-        XbTag('${plan.transferEnableGb} GB'),
-      ],
+  /// 头部卡（原型 .dcard：.dhd 名+GB角标 + .dhtml 详情）。
+  Widget _headerCard(BuildContext context) {
+    final t = XbTokens.of(context);
+    final hasHtml = plan.description != null && plan.description!.isNotEmpty;
+    return XbCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(plan.name,
+                    style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w800,
+                        color: t.on)),
+              ),
+              const SizedBox(width: 8),
+              XbTag('${plan.transferEnableGb} GB'),
+            ],
+          ),
+          if (hasHtml) ...[
+            const SizedBox(height: 10),
+            _htmlContent(context),
+          ],
+        ],
+      ),
     );
   }
 
@@ -160,38 +147,30 @@ class _PlanDetailPageState extends ConsumerState<PlanDetailPage> {
   }
 
   Widget _periodSection(BuildContext context) {
-    final text = Theme.of(context).textTheme;
     final sorted = _purchasablePrices;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text('选择计费周期',
-            style: text.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
-        const SizedBox(height: 12),
-        // Wrap + 半宽卡片：内容撑高，任何 textScale 都不溢出（不用固定 aspectRatio）。
-        LayoutBuilder(builder: (context, constraints) {
-          const spacing = 10.0;
-          final cardWidth = (constraints.maxWidth - spacing) / 2;
-          return Wrap(
-            spacing: spacing,
-            runSpacing: spacing,
-            children: sorted
-                .map((p) => SizedBox(
-                      width: cardWidth,
-                      child: _periodCard(context, p),
-                    ))
-                .toList(),
-          );
-        }),
-      ],
-    );
+    // Wrap + 半宽卡片：内容撑高，任何 textScale 都不溢出（不用固定 aspectRatio）。
+    return LayoutBuilder(builder: (context, constraints) {
+      const spacing = 10.0;
+      final cardWidth = (constraints.maxWidth - spacing) / 2;
+      return Wrap(
+        spacing: spacing,
+        runSpacing: spacing,
+        children: sorted
+            .map((p) => SizedBox(
+                  width: cardWidth,
+                  child: _periodCard(context, p),
+                ))
+            .toList(),
+      );
+    });
   }
 
   Widget _periodCard(BuildContext context, PricePlan p) {
+    final t = XbTokens.of(context);
     final scheme = Theme.of(context).colorScheme;
-    final text = Theme.of(context).textTheme;
     final selected = p.period == _selected.period;
-    return InkWell(
+    return XbSelectableOption(
+      selected: selected,
       onTap: () {
         setState(() {
           _selected = p;
@@ -200,35 +179,23 @@ class _PlanDetailPageState extends ConsumerState<PlanDetailPage> {
           _couponError = null;
         });
       },
-      borderRadius: BorderRadius.circular(12),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-        decoration: BoxDecoration(
-          color: selected
-              ? scheme.primary.withValues(alpha: 0.10)
-              : scheme.surfaceContainerHighest,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(
-            color: selected ? scheme.primary : Colors.transparent,
-            width: 1.6,
-          ),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(planPeriodLabel(p.period),
-                textAlign: TextAlign.center,
-                style: text.bodyMedium?.copyWith(
-                    color: selected ? scheme.primary : scheme.onSurface,
-                    fontWeight: FontWeight.w600)),
-            const SizedBox(height: 2),
-            Text('¥${p.amountYuan.toStringAsFixed(2)}',
-                textAlign: TextAlign.center,
-                style: text.titleMedium?.copyWith(
-                    color: selected ? scheme.primary : scheme.onSurface,
-                    fontWeight: FontWeight.w800)),
-          ],
-        ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(planPeriodLabel(p.period),
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                  fontSize: 14,
+                  color: selected ? scheme.primary : t.on,
+                  fontWeight: FontWeight.w600)),
+          const SizedBox(height: 4),
+          Text('¥${p.amountYuan.toStringAsFixed(2)}',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                  fontSize: 19,
+                  color: selected ? scheme.primary : t.on,
+                  fontWeight: FontWeight.w900)),
+        ],
       ),
     );
   }
@@ -239,9 +206,6 @@ class _PlanDetailPageState extends ConsumerState<PlanDetailPage> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text('优惠码',
-            style: text.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
-        const SizedBox(height: 10),
         Row(
           children: [
             Expanded(
@@ -292,9 +256,6 @@ class _PlanDetailPageState extends ConsumerState<PlanDetailPage> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text('订单摘要',
-            style: text.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
-        const SizedBox(height: 12),
         XbKeyValueRow(label: '小计', value: '¥${_subtotal.toStringAsFixed(2)}'),
         if (_coupon != null)
           XbKeyValueRow(
@@ -371,23 +332,5 @@ class _PlanDetailPageState extends ConsumerState<PlanDetailPage> {
   void _toast(String msg) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
-  }
-}
-
-/// 详情区卡片外壳。
-class _DetailCard extends StatelessWidget {
-  const _DetailCard({required this.child});
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return Card(
-      elevation: 0,
-      margin: EdgeInsets.zero,
-      color: scheme.surfaceContainerHigh,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      child: Padding(padding: const EdgeInsets.all(16), child: child),
-    );
   }
 }

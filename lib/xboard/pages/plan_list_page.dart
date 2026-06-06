@@ -8,7 +8,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../config/xboard_config.dart';
 import '../widgets/xb_components.dart';
-import '../widgets/xb_theme.dart' show xbPush;
+import '../widgets/xb_theme.dart' show xbPush, XbTokens;
 import '../models/plan_item.dart';
 import '../models/xb_domain_error.dart';
 import '../models/xb_domain_types.dart';
@@ -75,13 +75,20 @@ class _PlanListPageState extends ConsumerState<PlanListPage> {
             return const Center(child: Text('暂无可购买套餐'));
           }
           return ListView.builder(
-            padding: const EdgeInsets.all(16),
-            itemCount: plans.length,
-            itemBuilder: (_, i) => _PlanSummaryCard(
-              plan: plans[i],
-              onTap: () => xbPush(context, PlanDetailPage(plan: plans[i]),
-                  brandColor: Color(XboardConfig.current.brandColor)),
-            ),
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+            itemCount: plans.length + 1,
+            itemBuilder: (_, i) {
+              if (i == 0) return const XbGroupLabel('选择套餐');
+              final plan = plans[i - 1];
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 11),
+                child: _PlanOptCard(
+                  plan: plan,
+                  onTap: () => xbPush(context, PlanDetailPage(plan: plan),
+                      brandColor: Color(XboardConfig.current.brandColor)),
+                ),
+              );
+            },
           );
         },
       ),
@@ -89,9 +96,9 @@ class _PlanListPageState extends ConsumerState<PlanListPage> {
   }
 }
 
-/// 瘦身套餐卡：名 + 一行摘要（HTML 首段纯文本）+ 最小周期价「¥X/周期 起」+ 箭头。
-class _PlanSummaryCard extends StatelessWidget {
-  const _PlanSummaryCard({required this.plan, required this.onTap});
+/// 套餐选项卡（原型 `.planopt`）：名 + 流量/特性摘要 + 大号品牌价「¥X/周期 起」+ GB 角标。
+class _PlanOptCard extends StatelessWidget {
+  const _PlanOptCard({required this.plan, required this.onTap});
   final PlanItem plan;
   final VoidCallback onTap;
 
@@ -107,77 +114,84 @@ class _PlanSummaryCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final t = XbTokens.of(context);
     final scheme = Theme.of(context).colorScheme;
-    final text = Theme.of(context).textTheme;
     final min = _minPeriodPrice;
-    // 摘要：HTML content 转纯文本取首行非空。
-    final summary = plan.description == null
+    // 特性摘要（原型 .ft）：HTML content 转纯文本取首行非空。
+    final feature = plan.description == null
         ? ''
         : htmlToPlainText(plan.description!)
             .split('\n')
             .firstWhere((l) => l.trim().isNotEmpty, orElse: () => '');
 
-    return Card(
-      elevation: 0,
-      margin: const EdgeInsets.only(bottom: 12),
-      color: scheme.surfaceContainerHigh,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(16),
-        child: Padding(
-          padding: const EdgeInsets.all(18),
-          child: Row(
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Text(plan.name,
-                              style: text.titleMedium
-                                  ?.copyWith(fontWeight: FontWeight.w700),
-                              overflow: TextOverflow.ellipsis),
-                        ),
-                        XbTag('${plan.transferEnableGb} GB'),
-                      ],
-                    ),
-                    if (summary.isNotEmpty) ...[
-                      const SizedBox(height: 6),
-                      Text(summary,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: text.bodySmall
-                              ?.copyWith(color: scheme.onSurfaceVariant)),
-                    ],
-                    const SizedBox(height: 10),
-                    if (min != null)
-                      RichText(
-                        text: TextSpan(
-                          style: text.titleMedium?.copyWith(
-                              color: scheme.primary,
-                              fontWeight: FontWeight.w800),
-                          children: [
-                            TextSpan(
-                                text: '¥${min.amountYuan.toStringAsFixed(2)}'),
-                            TextSpan(
-                              text: '/${planPeriodLabel(min.period)} 起',
-                              style: text.bodySmall?.copyWith(
-                                  color: scheme.onSurfaceVariant,
-                                  fontWeight: FontWeight.w400),
-                            ),
-                          ],
-                        ),
+    return GestureDetector(
+      onTap: onTap,
+      behavior: HitTestBehavior.opaque,
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: t.card,
+          borderRadius: BorderRadius.circular(17),
+          border: Border.all(color: t.line, width: 1.6),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(plan.name,
+                            style: TextStyle(
+                                fontSize: 15.5,
+                                fontWeight: FontWeight.w800,
+                                color: t.on),
+                            overflow: TextOverflow.ellipsis),
                       ),
+                      const SizedBox(width: 8),
+                      XbTag('${plan.transferEnableGb} GB'),
+                    ],
+                  ),
+                  if (feature.isNotEmpty) ...[
+                    const SizedBox(height: 5),
+                    Text(feature,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                            fontSize: 12, height: 1.5, color: t.onv)),
                   ],
-                ),
+                  if (min != null) ...[
+                    const SizedBox(height: 10),
+                    RichText(
+                      text: TextSpan(
+                        children: [
+                          TextSpan(
+                            text: '¥${min.amountYuan.toStringAsFixed(2)}',
+                            style: TextStyle(
+                                fontSize: 22,
+                                fontWeight: FontWeight.w900,
+                                color: scheme.primary),
+                          ),
+                          TextSpan(
+                            text: ' /${planPeriodLabel(min.period)} 起',
+                            style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                                color: t.onv),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ],
               ),
-              const SizedBox(width: 8),
-              Icon(Icons.chevron_right_rounded, color: scheme.onSurfaceVariant),
-            ],
-          ),
+            ),
+            const SizedBox(width: 8),
+            Icon(Icons.chevron_right_rounded, color: t.onv),
+          ],
         ),
       ),
     );
