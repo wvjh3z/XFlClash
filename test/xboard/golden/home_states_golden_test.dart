@@ -1,0 +1,138 @@
+/// 形态 A 首页连接态 golden 核对（游客 / 未连接 / 连接中 / 已连接）。
+///
+/// 用 CoreStatus + isStart 驱动连接球四态，渲染 golden 跟原型 home(state) 对比。不依赖模拟器。
+library;
+
+import 'dart:io';
+
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_test/flutter_test.dart';
+
+import 'package:fl_clash/enum/enum.dart';
+import 'package:fl_clash/models/models.dart'
+    show PatchClashConfig, Group, Proxy, ProxiesTabState;
+import 'package:fl_clash/providers/app.dart';
+import 'package:fl_clash/providers/config.dart';
+import 'package:fl_clash/providers/state.dart';
+import 'package:fl_clash/xboard/providers/auth_state_provider.dart';
+import 'package:fl_clash/xboard/providers/xboard_providers.dart';
+import 'package:fl_clash/xboard/shell/tabs/home/home_tab.dart';
+import 'package:fl_clash/xboard/widgets/xb_ui_kit.dart' show XbBrandTheme;
+
+class _FakeAuth extends AuthStateNotifier {
+  _FakeAuth(this._initial);
+  final AuthState _initial;
+  @override
+  AuthState build() => _initial;
+}
+
+const _cjkFontPaths = [
+  '/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc',
+  '/System/Library/Fonts/PingFang.ttc',
+];
+
+Future<void> _loadCjkFont() async {
+  for (final path in _cjkFontPaths) {
+    final f = File(path);
+    if (!f.existsSync()) continue;
+    try {
+      final bytes = await f.readAsBytes();
+      final loader = FontLoader('Roboto')
+        ..addFont(Future.value(ByteData.view(bytes.buffer)));
+      await loader.load();
+      return;
+    } catch (_) {}
+  }
+}
+
+ProxiesTabState _tab() => const ProxiesTabState(
+      groups: [
+        Group(
+          type: GroupType.Selector,
+          name: '智能优选',
+          all: [Proxy(name: '香港01', type: 'ss')],
+        ),
+      ],
+      currentGroupName: '智能优选',
+      proxyCardType: ProxyCardType.expand,
+      columns: 2,
+    );
+
+Future<void> pumpHome(
+  WidgetTester tester, {
+  required AuthState auth,
+  required CoreStatus core,
+  required bool isStart,
+}) async {
+  tester.view.physicalSize = const Size(390 * 3, 844 * 3);
+  tester.view.devicePixelRatio = 3.0;
+  addTearDown(tester.view.resetPhysicalSize);
+  addTearDown(tester.view.resetDevicePixelRatio);
+
+  final container = ProviderContainer(
+    overrides: [
+      authStateProvider.overrideWith(() => _FakeAuth(auth)),
+      isStartProvider.overrideWith((ref) => isStart),
+      proxiesTabStateProvider.overrideWith((ref) => _tab()),
+      patchClashConfigProvider
+          .overrideWithBuild((ref, _) => const PatchClashConfig(mode: Mode.rule)),
+    ],
+  );
+  addTearDown(container.dispose);
+  container.read(bootstrapReadyProvider.notifier).set(true);
+  container.read(coreStatusProvider.notifier).value = core;
+
+  await tester.pumpWidget(
+    UncontrolledProviderScope(
+      container: container,
+      child: MaterialApp(
+        debugShowCheckedModeBanner: false,
+        theme: ThemeData(useMaterial3: true, brightness: Brightness.light),
+        home: const Scaffold(
+          body: XbBrandTheme(
+            brandColor: Color(0xFFD92E1A),
+            child: HomeTab(),
+          ),
+        ),
+      ),
+    ),
+  );
+  await tester.pump();
+  await tester.pump(const Duration(milliseconds: 400));
+}
+
+void main() {
+  setUpAll(_loadCjkFont);
+
+  testWidgets('首页 · 游客 golden', (t) async {
+    await pumpHome(t,
+        auth: AuthState.unauthenticated,
+        core: CoreStatus.disconnected,
+        isStart: false);
+    expect(t.takeException(), isNull);
+    await expectLater(
+        find.byType(HomeTab), matchesGoldenFile('goldens/home_guest.png'));
+  });
+
+  testWidgets('首页 · 已登录未连接 golden', (t) async {
+    await pumpHome(t,
+        auth: AuthState.authenticated,
+        core: CoreStatus.disconnected,
+        isStart: false);
+    expect(t.takeException(), isNull);
+    await expectLater(
+        find.byType(HomeTab), matchesGoldenFile('goldens/home_ready.png'));
+  });
+
+  testWidgets('首页 · 已连接 golden', (t) async {
+    await pumpHome(t,
+        auth: AuthState.authenticated,
+        core: CoreStatus.connected,
+        isStart: true);
+    expect(t.takeException(), isNull);
+    await expectLater(
+        find.byType(HomeTab), matchesGoldenFile('goldens/home_connected.png'));
+  });
+}
