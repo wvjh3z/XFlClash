@@ -5,6 +5,8 @@
 ///   未注入时为空 —— 这样每次重新构建只要带上 tag，App 里就能一眼看出是不是新包。
 library;
 
+import 'dart:developer' as developer;
+
 import 'package:package_info_plus/package_info_plus.dart';
 
 /// 编译期注入的构建标识（构建脚本传 `--dart-define=XB_BUILD_TAG=20260607-0530`）。
@@ -15,8 +17,12 @@ Future<String> loadVersionLabel() async {
   try {
     final info = await PackageInfo.fromPlatform();
     final base = 'v${info.version}+${info.buildNumber}';
-    return kBuildTag.isEmpty ? base : '$base · $kBuildTag';
-  } catch (_) {
+    final out = kBuildTag.isEmpty ? base : '$base · $kBuildTag';
+    // dart:developer.log 在 release 模式也会输出到 logcat（print 会被裁剪）。
+    developer.log(out, name: 'XbVersion');
+    return out;
+  } catch (e) {
+    developer.log('package_info failed: $e tag=$kBuildTag', name: 'XbVersion');
     // package_info 不可用（极少见）→ 至少给出构建 tag。
     return kBuildTag.isEmpty ? 'v—' : kBuildTag;
   }
