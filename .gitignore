@@ -78,3 +78,7 @@ devtools_options.yaml
 
 # Xboard flavor 生成产物（含 CI 注入的 aesKey / sentryDsn，绝不入 git，D58/conventions §7.1）
 /flavor_defines.json
+
+# Xboard 本地密钥/凭据记录（开发自测用，绝不入 git）
+/.secrets/
+*.secrets.md
