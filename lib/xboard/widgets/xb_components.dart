@@ -426,6 +426,8 @@ class XbEmptyState extends StatelessWidget {
     this.actionLabel,
     this.actionIcon,
     this.onAction,
+    this.secondaryLabel,
+    this.onSecondary,
   });
 
   final IconData icon;
@@ -434,6 +436,10 @@ class XbEmptyState extends StatelessWidget {
   final String? actionLabel;
   final IconData? actionIcon;
   final VoidCallback? onAction;
+
+  /// 次要文字链接（原型空态的「刷新重试」），显示在主按钮下方。
+  final String? secondaryLabel;
+  final VoidCallback? onSecondary;
 
   @override
   Widget build(BuildContext context) {
@@ -484,6 +490,15 @@ class XbEmptyState extends StatelessWidget {
                               horizontal: 38, vertical: 14)),
                       child: Text(actionLabel!),
                     ),
+            ],
+            if (secondaryLabel != null) ...[
+              const SizedBox(height: 10),
+              TextButton.icon(
+                onPressed: onSecondary,
+                icon: const Icon(Icons.refresh, size: 16),
+                label: Text(secondaryLabel!),
+                style: TextButton.styleFrom(foregroundColor: scheme.primary),
+              ),
             ],
           ],
         ),

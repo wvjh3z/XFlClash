@@ -52,6 +52,8 @@ void main() {
     await pumpNodes(tester, auth: AuthState.authenticated);
     expect(find.text('当前套餐无可用线路'), findsOneWidget);
     expect(find.text('前往续费'), findsOneWidget);
+    // 空态提供「刷新重试」次要链接（原型一致）。
+    expect(find.text('刷新重试'), findsOneWidget);
     // 空态不显示搜索/分组标签（R4.6）。
     expect(find.text('刷新节点'), findsNothing);
   });

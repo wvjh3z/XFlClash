@@ -37,7 +37,10 @@ class NodesTab extends ConsumerWidget {
     final view = adapter.nodesView(ref);
 
     if (view.isEmpty) {
-      return _EmptyNodes(onTapRenew: onTapRenew);
+      return _EmptyNodes(
+        onTapRenew: onTapRenew,
+        onRefresh: () => adapter.refresh(ref),
+      );
     }
 
     return Column(
@@ -124,11 +127,12 @@ class _GroupSection extends StatelessWidget {
   }
 }
 
-/// 空态：无可用分组 → 引导续费（R4.6，复用 XbEmptyState）。
+/// 空态：无可用分组 → 引导续费 + 刷新重试（R4.6，复用 XbEmptyState）。
 class _EmptyNodes extends StatelessWidget {
-  const _EmptyNodes({this.onTapRenew});
+  const _EmptyNodes({this.onTapRenew, this.onRefresh});
 
   final VoidCallback? onTapRenew;
+  final VoidCallback? onRefresh;
 
   @override
   Widget build(BuildContext context) {
@@ -138,6 +142,8 @@ class _EmptyNodes extends StatelessWidget {
       description: '套餐可能已到期或未生效，\n续费后线路将自动同步。',
       actionLabel: '前往续费',
       onAction: onTapRenew,
+      secondaryLabel: '刷新重试',
+      onSecondary: onRefresh,
     );
   }
 }
