@@ -41,7 +41,10 @@ Future<void> pump(WidgetTester tester, XboardService svc) async {
 void main() {
   testWidgets('有 pending 订单 → 显示横幅 + 取消/立即支付', (tester) async {
     final svc = _MockService();
-    when(() => svc.getOrders()).thenAnswer((_) async => XbResult.success(
+    when(() => svc.getOrders(
+        page: any(named: 'page'),
+        pageSize: any(named: 'pageSize'),
+        forceRefresh: any(named: 'forceRefresh'))).thenAnswer((_) async => XbResult.success(
           XbPagedList(items: [_order(XbOrderStatus.pending)], page: 1, pageSize: 20, total: 1),
         ));
     await pump(tester, svc);
@@ -54,7 +57,10 @@ void main() {
 
   testWidgets('无 pending 订单 → 横幅收起', (tester) async {
     final svc = _MockService();
-    when(() => svc.getOrders()).thenAnswer((_) async => XbResult.success(
+    when(() => svc.getOrders(
+        page: any(named: 'page'),
+        pageSize: any(named: 'pageSize'),
+        forceRefresh: any(named: 'forceRefresh'))).thenAnswer((_) async => XbResult.success(
           XbPagedList(items: [_order(XbOrderStatus.completed)], page: 1, pageSize: 20, total: 1),
         ));
     await pump(tester, svc);
@@ -63,7 +69,10 @@ void main() {
 
   testWidgets('订单查询失败 → 横幅不显示（永不打断）', (tester) async {
     final svc = _MockService();
-    when(() => svc.getOrders())
+    when(() => svc.getOrders(
+        page: any(named: 'page'),
+        pageSize: any(named: 'pageSize'),
+        forceRefresh: any(named: 'forceRefresh')))
         .thenAnswer((_) async => XbResult.failure(const XbServer(500, 'x')));
     await pump(tester, svc);
     expect(find.text('有待支付订单'), findsNothing);

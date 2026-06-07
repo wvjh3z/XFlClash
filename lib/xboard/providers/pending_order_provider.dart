@@ -14,8 +14,11 @@ import '../models/xb_result.dart';
 import 'xboard_providers.dart';
 
 /// 当前待支付订单（最近一个 pending；无则 null）。autoDispose：进页拉、离页回收。
+///
+/// **forceRefresh=true**：SDK adapter 把订单全量缓存在内存（`_cachedAllOrders`），不强刷则
+/// 取消/支付后仍返旧缓存（须冷启动才更新）。本 provider 每次执行都强刷,保证待支付状态实时。
 final pendingOrderProvider = FutureProvider.autoDispose<OrderSummary?>((ref) async {
-  final result = await ref.read(xboardServiceProvider).getOrders();
+  final result = await ref.read(xboardServiceProvider).getOrders(forceRefresh: true);
   return switch (result) {
     XbSuccess(:final data) => _firstPending(data.items),
     XbFailure() => null, // 失败静默，横幅不显示

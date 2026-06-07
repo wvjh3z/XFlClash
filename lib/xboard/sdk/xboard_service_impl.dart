@@ -300,9 +300,11 @@ class XboardServiceImpl implements XboardService {
   Future<XbResult<XbPagedList<OrderSummary>>> getOrders({
     int page = 1,
     int pageSize = 20,
+    bool forceRefresh = false,
   }) async =>
       _guard('getOrders', () async {
-        final paged = await _sdk.order.getOrders(page: page, pageSize: pageSize);
+        final paged = await _sdk.order
+            .getOrders(page: page, pageSize: pageSize, forceRefresh: forceRefresh);
         return XbPagedList<OrderSummary>(
           items: paged.data.map(_mapOrderSummary).toList(), // PaginatedList.data（第12轮）
           page: page,

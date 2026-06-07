@@ -81,9 +81,11 @@ abstract interface class XboardService {
   Future<XbResult<CheckoutOutcomeUi>> checkout(String tradeNo, String method);
 
   /// 订单列表（SDK PaginatedList.data → items，第 12 轮）。
+  /// [forceRefresh] true 绕过 SDK 客户端缓存强制重拉（取消/支付后刷新待支付状态用）。
   Future<XbResult<XbPagedList<OrderSummary>>> getOrders({
     int page = 1,
     int pageSize = 20,
+    bool forceRefresh = false,
   });
 
   /// 订单详情。
