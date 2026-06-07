@@ -155,7 +155,7 @@ class _TypeChip extends StatelessWidget {
   void _showInfo(BuildContext context) {
     showXbBottomSheet<void>(
       context: context,
-      builder: (_) => const XbGroupTypeInfoSheet(),
+      builder: (_) => XbGroupTypeInfoSheet(kind: kind),
     );
   }
 
@@ -367,37 +367,45 @@ class _DelayText extends ConsumerWidget {
 }
 
 /// 线路分组类型说明 sheet（节点页类型标签 ? 触发；复用代理模式说明 modeexp 风格）。
+/// 点哪个分组的 ? 就只显示该类型的说明（不一次列全 5 种）。
 class XbGroupTypeInfoSheet extends StatelessWidget {
-  const XbGroupTypeInfoSheet({super.key});
+  const XbGroupTypeInfoSheet({super.key, required this.kind});
 
-  static const _items = <(IconData, String, String)>[
-    (
-      Icons.bolt,
-      'url-test',
-      '自动测速选择延迟最低的节点；也可手动锁定某个节点（锁定后不再自动切换，再次点击该节点可恢复自动）。日常推荐。',
-    ),
-    (Icons.touch_app, 'selector', '完全手动选择，点哪个用哪个，不会自动切换。'),
-    (
-      Icons.swap_horiz,
-      'fallback',
-      '故障转移：按顺序使用，当前节点不可用时自动切换到下一个可用节点；也可手动锁定。',
-    ),
-    (
-      Icons.hub,
-      'load-balance',
-      '负载均衡：组内多个节点由系统自动分流承载流量，无需也无法手动选择单个节点。',
-    ),
-    (
-      Icons.link,
-      'relay',
-      '链式中转：多个节点串联成固定链路（入口→中转→出口），链路固定，无法手动选择单个节点。',
-    ),
-  ];
+  final XbGroupKind kind;
+
+  static (IconData, String, String) _entry(XbGroupKind k) => switch (k) {
+        XbGroupKind.urlTest => (
+            Icons.bolt,
+            'url-test',
+            '自动测速选择延迟最低的节点；也可手动锁定某个节点（锁定后不再自动切换，再次点击该节点可恢复自动）。日常推荐。',
+          ),
+        XbGroupKind.selector => (
+            Icons.touch_app,
+            'selector',
+            '完全手动选择，点哪个用哪个，不会自动切换。',
+          ),
+        XbGroupKind.fallback => (
+            Icons.swap_horiz,
+            'fallback',
+            '故障转移：按顺序使用，当前节点不可用时自动切换到下一个可用节点；也可手动锁定。',
+          ),
+        XbGroupKind.loadBalance => (
+            Icons.hub,
+            'load-balance',
+            '负载均衡：组内多个节点由系统自动分流承载流量，无需也无法手动选择单个节点。',
+          ),
+        XbGroupKind.relay => (
+            Icons.link,
+            'relay',
+            '链式中转：多个节点串联成固定链路（入口→中转→出口），链路固定，无法手动选择单个节点。',
+          ),
+      };
 
   @override
   Widget build(BuildContext context) {
     final t = XbTokens.of(context);
     final scheme = Theme.of(context).colorScheme;
+    final (icon, title, desc) = _entry(kind);
     return SafeArea(
       child: SingleChildScrollView(
         child: Padding(
@@ -410,55 +418,48 @@ class XbGroupTypeInfoSheet extends StatelessWidget {
                   style: TextStyle(
                       fontSize: 20, fontWeight: FontWeight.w800, color: t.on)),
               const SizedBox(height: 4),
-              Text('不同分组类型的选择方式不同',
-                  style: TextStyle(fontSize: 13.5, color: t.onv)),
+              Text(title, style: TextStyle(fontSize: 13.5, color: t.onv)),
               const SizedBox(height: 16),
-              for (final (icon, title, desc) in _items)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 11),
-                  child: Container(
-                    padding: const EdgeInsets.all(15),
-                    decoration: BoxDecoration(
-                      color: t.sfc,
-                      borderRadius: BorderRadius.circular(16),
-                    ),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Container(
-                          width: 42,
-                          height: 42,
-                          alignment: Alignment.center,
-                          decoration: BoxDecoration(
-                            color: scheme.primary.withValues(alpha: 0.12),
-                            borderRadius: BorderRadius.circular(13),
-                          ),
-                          child: Icon(icon, size: 22, color: scheme.primary),
-                        ),
-                        const SizedBox(width: 13),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(title,
-                                  style: TextStyle(
-                                      fontSize: 15,
-                                      fontWeight: FontWeight.w800,
-                                      color: t.on)),
-                              const SizedBox(height: 4),
-                              Text(desc,
-                                  style: TextStyle(
-                                      fontSize: 12.5,
-                                      height: 1.6,
-                                      color: t.onv)),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
+              Container(
+                padding: const EdgeInsets.all(15),
+                decoration: BoxDecoration(
+                  color: t.sfc,
+                  borderRadius: BorderRadius.circular(16),
                 ),
-              const SizedBox(height: 6),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      width: 42,
+                      height: 42,
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(
+                        color: scheme.primary.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(13),
+                      ),
+                      child: Icon(icon, size: 22, color: scheme.primary),
+                    ),
+                    const SizedBox(width: 13),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(title,
+                              style: TextStyle(
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.w800,
+                                  color: t.on)),
+                          const SizedBox(height: 4),
+                          Text(desc,
+                              style: TextStyle(
+                                  fontSize: 12.5, height: 1.6, color: t.onv)),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
               SizedBox(
                 width: double.infinity,
                 child: FilledButton.tonal(

@@ -73,13 +73,14 @@ void main() {
     expect(find.text('测延迟'), findsOneWidget);
   });
 
-  testWidgets('点类型标签 ? → 弹分组类型说明 sheet', (tester) async {
+  testWidgets('点 url-test 标签 ? → 只弹该类型说明（不列其它类型）', (tester) async {
     await pump(tester, _group(XbGroupKind.urlTest));
     await tester.tap(find.byIcon(Icons.help_outline));
     await tester.pumpAndSettle();
     expect(find.text('线路分组类型说明'), findsOneWidget);
-    // sheet 内含 5 种类型说明。
-    expect(find.text('load-balance'), findsOneWidget);
-    expect(find.text('relay'), findsOneWidget);
+    // 只显示被点的 url-test，不列其它类型。
+    expect(find.textContaining('自动测速选择延迟最低'), findsOneWidget);
+    expect(find.text('load-balance'), findsNothing);
+    expect(find.text('relay'), findsNothing);
   });
 }
