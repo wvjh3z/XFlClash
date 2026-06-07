@@ -11,7 +11,7 @@ form_a: true
 # === 基础品牌 ===
 appName: "MyClient"                         # 应用名（多平台显示用）
 appId: "com.example.myclient"               # Android applicationId / iOS Bundle ID 基础值
-versionName: "0.1.0"                        # pubspec.yaml version 来源
+versionName: "0.0.1"                        # pubspec.yaml version 来源
 brandColor: "#d92e1a"                       # 主题色（D3 锁定）
 
 # === Bootstrap（R15）===

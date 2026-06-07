@@ -34,7 +34,9 @@ if [ "$MODE" = "release" ]; then
 fi
 
 SHA="$(git rev-parse --short HEAD 2>/dev/null || echo nogit)"
-TAG="v${VERSION_NAME}-build${BUILD_NUMBER}-${SHA}"
+# buildTag = 构建时间戳（YYYYMMDDHHMM）。关于页显示 v{versionName}-{时间戳}，简洁有意义、
+# 每次构建必变（核对编译产物是否最新）。versionCode(整数)仍由 build_number.txt 维护,内部用。
+TAG="$(date +%Y%m%d%H%M)"
 
 COMMON_DEFINES=(
   --dart-define-from-file=flavor_defines.json

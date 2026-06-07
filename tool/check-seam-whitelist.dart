@@ -42,6 +42,7 @@ const _ourAdditions = <String>[
   'scripts/', // 形态 A 本地构建脚本（新增「加而不改」，build_local.sh 等）
   '.github/workflows/xboard-ci.yml', // W9.8 Xboard 专属 CI（新增文件，不改 upstream workflow）
   '.github/BUILD_AND_RELEASE.md', // 构建/版本管理规范文档（新增）
+  '.github/UPDATE_MECHANISM.md', // 更新机制说明文档（新增,屏蔽上游更新+自更新系统设计参考）
   'CHANGELOG_XBOARD.md',
   'SECURITY.md', // Xboard 模块安全说明（新增根级文档，记录 TLS 全放行等风险决策）
   // W8.4（θ-10）新增的 backup 规则资源（新增文件，非改 upstream；AndroidManifest 引用已登记 #4.bis）。

@@ -10,15 +10,13 @@ import 'package:package_info_plus/package_info_plus.dart';
 /// 编译期注入的构建标识（构建脚本传 `--dart-define=XB_BUILD_TAG=20260607-0530`）。
 const String kBuildTag = String.fromEnvironment('XB_BUILD_TAG');
 
-/// 取展示用版本串：`v{version} (build {build})`，若有构建 tag 追加 ` · {tag}`。
-/// version/build 来自 `--build-name`/`--build-number`（MyClient 自有产品版本，非 FlClash 底座）。
+/// 取展示用版本串：`v{version}-{buildTag}`（如 `v0.0.1-202606071230`），简洁有意义。
+/// buildTag = 构建时间戳（`--dart-define=XB_BUILD_TAG`）；version 来自 `--build-name`。
+/// versionCode（buildNumber，Android 升级判定用）不在此展示，仅内部维护。
 Future<String> loadVersionLabel() async {
   try {
     final info = await PackageInfo.fromPlatform();
-    final base = info.buildNumber.isEmpty
-        ? 'v${info.version}'
-        : 'v${info.version} (build ${info.buildNumber})';
-    return kBuildTag.isEmpty ? base : '$base · $kBuildTag';
+    return kBuildTag.isEmpty ? 'v${info.version}' : 'v${info.version}-$kBuildTag';
   } catch (_) {
     // package_info 不可用（极少见）→ 至少给出构建 tag。
     return kBuildTag.isEmpty ? 'v—' : kBuildTag;
