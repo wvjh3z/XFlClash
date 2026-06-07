@@ -69,26 +69,28 @@ class _AccountSection extends ConsumerStatefulWidget {
 }
 
 class _AccountSectionState extends ConsumerState<_AccountSection> {
-  /// 重试中（点失败卡「重新加载」后到结果返回前）：显示黄色「正在刷新服务」横幅，
-  /// 告知用户后台在重发（含反腐层 failOver 切域名）。与套餐/订单页重试横幅一致。
+  /// 重试中（点失败卡「重新加载」后到本次重拉落定前）：显示黄色「正在刷新服务」横幅。
+  ///
+  /// **不靠 `await provider.future` 撤横幅**——keepAlive FutureProvider 在 body 抛错且
+  /// 当前无 widget watch 时 `.future` 不会完成（横幅永久卡住，已实测）。改为与套餐/订单页
+  /// 一致：直接 await 反腐层 `getSubscription()`（返 XbResult 永不抛，必落定），完成后
+  /// invalidate provider 刷新卡片 + 撤横幅。彻底绕开 `.future` 坑。
   bool _retrying = false;
 
   Future<void> _retry() async {
     if (_retrying) return;
     setState(() => _retrying = true);
+    // 直接调反腐层（永不抛；含反腐层 failOver 切域名 + 5s 超时），无论成功失败都会落定。
+    await ref.read(xboardServiceProvider).getSubscription();
+    if (!mounted) return;
+    // 用最新结果刷新账号卡 provider（成功 → 渲染卡片；失败 → 失败卡）+ 撤横幅。
     ref.invalidate(userProfileProvider);
-    try {
-      // 等这次重拉落定（成功/失败都行）再撤横幅。读 .future 拿重建后的结果。
-      await ref.read(userProfileProvider.future);
-    } catch (_) {
-      // 失败由 error 分支渲染失败卡；这里只负责撤横幅，不抛。
-    }
-    if (mounted) setState(() => _retrying = false);
+    setState(() => _retrying = false);
   }
 
   @override
   Widget build(BuildContext context) {
-    // 重试中：黄色横幅占位（不再闪骨架卡），让用户清楚看到「正在刷新服务」。
+    // 重试中：黄色横幅占位（不闪骨架卡），让用户清楚看到「正在刷新服务」。
     if (_retrying) {
       return const Padding(
         padding: EdgeInsets.symmetric(vertical: 4),

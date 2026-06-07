@@ -4,11 +4,18 @@ library;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:mocktail/mocktail.dart';
 
+import 'package:fl_clash/xboard/models/xb_domain_error.dart';
 import 'package:fl_clash/xboard/models/xb_domain_subscription.dart';
+import 'package:fl_clash/xboard/models/xb_result.dart';
 import 'package:fl_clash/xboard/providers/auth_state_provider.dart';
 import 'package:fl_clash/xboard/providers/user_profile_provider.dart';
+import 'package:fl_clash/xboard/providers/xboard_providers.dart';
+import 'package:fl_clash/xboard/sdk/xboard_service.dart';
 import 'package:fl_clash/xboard/shell/tabs/mine/mine_tab.dart';
+
+class _MockService extends Mock implements XboardService {}
 
 class _FakeAuth extends AuthStateNotifier {
   _FakeAuth(this._initial);
@@ -95,4 +102,44 @@ void main() {
     expect(find.text('续费当前套餐'), findsOneWidget);
     expect(find.text('购买 / 更改套餐'), findsOneWidget);
   });
+
+  testWidgets('账号加载失败 → 点重新加载 → 黄横幅出现，重试落定后横幅消失（不卡死）',
+      (tester) async {
+    final svc = _MockService();
+    // 重试调反腐层 getSubscription：延迟后返失败（XbResult 永不抛、必落定）→ 横幅应能正常撤除。
+    when(svc.getSubscription).thenAnswer((_) async {
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+      return XbResult.failure(const XbNetwork(XbNetworkKind.unknown, 'down'));
+    });
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          authStateProvider.overrideWith(() => _FakeAuth(AuthState.authenticated)),
+          xboardServiceProvider.overrideWithValue(svc),
+          userProfileProvider.overrideWith((ref) async => throw Exception('down')),
+        ],
+        child: const MaterialApp(home: Scaffold(body: MineTab())),
+      ),
+    );
+    // keepAlive 首次错误经 AsyncLoading(error:)→AsyncError，pumpAndSettle 落定到失败卡。
+    try {
+      await tester.pumpAndSettle(const Duration(milliseconds: 100));
+    } catch (_) {}
+    expect(find.text('账号信息加载失败'), findsOneWidget);
+
+    // 点重新加载 → 同步 setState(_retrying=true) → 黄横幅出现。
+    await tester.tap(find.text('重新加载'));
+    await tester.pump();
+    expect(find.text('正在刷新服务，请稍候…'), findsOneWidget);
+
+    // 等 getSubscription 落定 + invalidate + setState(_retrying=false)。
+    // _retry await 的是反腐层（必返回），故横幅一定撤除（验证不卡死）。
+    try {
+      await tester.pumpAndSettle(const Duration(milliseconds: 100));
+    } catch (_) {}
+    expect(find.text('正在刷新服务，请稍候…'), findsNothing,
+        reason: '重试落定后横幅必须消失（不卡死）');
+    expect(find.text('账号信息加载失败'), findsOneWidget, reason: '重试仍失败 → 回到失败卡');
+  }, timeout: const Timeout(Duration(seconds: 30)));
 }
