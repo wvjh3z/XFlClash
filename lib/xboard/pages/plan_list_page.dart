@@ -31,6 +31,9 @@ class PlanListPage extends ConsumerStatefulWidget {
 class _PlanListPageState extends ConsumerState<PlanListPage> {
   late Future<List<PlanItem>> _plansFuture;
 
+  /// 重试中（点「重试」后到结果返回前）：顶部显示「正在刷新服务」黄条，告知用户后台在切域名重拉。
+  bool _retrying = false;
+
   @override
   void initState() {
     super.initState();
@@ -45,7 +48,15 @@ class _PlanListPageState extends ConsumerState<PlanListPage> {
     };
   }
 
-  void _reload() => setState(() => _plansFuture = _loadPlans());
+  void _reload() {
+    setState(() {
+      _retrying = true;
+      _plansFuture = _loadPlans();
+    });
+    _plansFuture.whenComplete(() {
+      if (mounted) setState(() => _retrying = false);
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -62,6 +73,16 @@ class _PlanListPageState extends ConsumerState<PlanListPage> {
         future: _plansFuture,
         builder: (context, snap) {
           if (snap.connectionState != ConnectionState.done) {
+            // 重试中 → 顶部「正在刷新服务」黄条（复用 XbSyncBanner），让用户知道在后台切域名重拉；
+            // 首次加载 → 居中 spinner。
+            if (_retrying) {
+              return ListView(
+                padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+                children: const [
+                  XbSyncBanner(text: '正在刷新服务，请稍候…'),
+                ],
+              );
+            }
             return const Center(child: CircularProgressIndicator());
           }
           if (snap.hasError) {

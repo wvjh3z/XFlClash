@@ -29,6 +29,9 @@ class OrderListPage extends ConsumerStatefulWidget {
 class _OrderListPageState extends ConsumerState<OrderListPage> {
   late Future<List<OrderSummary>> _ordersFuture;
 
+  /// 重试中：顶部「正在刷新服务」黄条（后台切域名重拉）。
+  bool _retrying = false;
+
   @override
   void initState() {
     super.initState();
@@ -43,7 +46,15 @@ class _OrderListPageState extends ConsumerState<OrderListPage> {
     };
   }
 
-  void _reload() => setState(() => _ordersFuture = _loadOrders());
+  void _reload() {
+    setState(() {
+      _retrying = true;
+      _ordersFuture = _loadOrders();
+    });
+    _ordersFuture.whenComplete(() {
+      if (mounted) setState(() => _retrying = false);
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -62,6 +73,12 @@ class _OrderListPageState extends ConsumerState<OrderListPage> {
           future: _ordersFuture,
           builder: (context, snap) {
             if (snap.connectionState != ConnectionState.done) {
+              if (_retrying) {
+                return ListView(
+                  padding: const EdgeInsets.all(16),
+                  children: const [XbSyncBanner(text: '正在刷新服务，请稍候…')],
+                );
+              }
               return const Center(child: CircularProgressIndicator());
             }
             if (snap.hasError) {

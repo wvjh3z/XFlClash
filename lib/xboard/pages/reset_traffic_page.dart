@@ -38,6 +38,7 @@ class _ResetTrafficPageState extends ConsumerState<ResetTrafficPage> {
   PricePlan? _resetPrice; // 当前套餐的流量重置包价（period == resetTraffic）
   String? _loadError; // 已解析的错误文案（resolveErrorText）
   bool _loading = true;
+  bool _retrying = false; // 重试中 → 顶部「正在刷新服务」黄条
   bool _submitting = false;
 
   @override
@@ -46,8 +47,11 @@ class _ResetTrafficPageState extends ConsumerState<ResetTrafficPage> {
     _load();
   }
 
-  Future<void> _load() async {
-    setState(() => _loading = true);
+  Future<void> _load({bool retry = false}) async {
+    setState(() {
+      _loading = true;
+      _retrying = retry;
+    });
     final result = await ref.read(xboardServiceProvider).getPlans();
     if (!mounted) return;
     switch (result) {
@@ -72,11 +76,13 @@ class _ResetTrafficPageState extends ConsumerState<ResetTrafficPage> {
           _plan = plan;
           _resetPrice = reset;
           _loading = false;
+          _retrying = false;
         });
       case XbFailure(:final error):
         setState(() {
           _loadError = resolveErrorText(error, fallback: '加载失败');
           _loading = false;
+          _retrying = false;
         });
     }
   }
@@ -93,7 +99,12 @@ class _ResetTrafficPageState extends ConsumerState<ResetTrafficPage> {
     return Scaffold(
       appBar: AppBar(title: const Text('购买流量重置包')),
       body: _loading
-          ? const Center(child: CircularProgressIndicator())
+          ? (_retrying
+              ? ListView(
+                  padding: const EdgeInsets.all(16),
+                  children: const [XbSyncBanner(text: '正在刷新服务，请稍候…')],
+                )
+              : const Center(child: CircularProgressIndicator()))
           : _loadError != null
               ? _errorRetry()
               : _resetPrice == null
@@ -104,7 +115,7 @@ class _ResetTrafficPageState extends ConsumerState<ResetTrafficPage> {
   }
 
   Widget _errorRetry() =>
-      XbErrorRetry(message: _loadError ?? '加载失败', onRetry: _load);
+      XbErrorRetry(message: _loadError ?? '加载失败', onRetry: () => _load(retry: true));
 
   /// 当前套餐不提供单独的流量重置包（复用 XbEmptyState）。
   Widget _unavailable(BuildContext context) {

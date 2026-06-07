@@ -64,20 +64,10 @@ class MineTab extends ConsumerWidget {
 class _AccountSection extends ConsumerWidget {
   const _AccountSection();
 
-  /// 账号信息重试：**先重新竞速/故障转移 API 域名**（当前域名可能被墙/故障，原地重试无意义），
-  /// 切到候选里第一个可达的 baseUrl 后再重发 getSubscription。永不抛（failOver 内部吞错），
-  /// 即便无候选/全挂也至少退回原域名重试一次（不比之前差）。
-  ///
-  /// 只动账号信息链路：不触发启动竞速、不重拉节点订阅（与「连接/节点」解耦，对齐失败卡文案）。
+  /// 账号信息重试：直接重发 getSubscription。**域名故障转移已由反腐层统一收口**
+  /// （API 遇网络/服务端错误自动 failOver 切域名重试一次），故此处只需 invalidate，
+  /// 不必再手动 failOver。横幅在调用期间由 [_AccountErrorCard] 自身的 loading 态显示。
   Future<void> _retry(WidgetRef ref) async {
-    final race = ref.read(injectedRaceControllerProvider);
-    if (race != null) {
-      try {
-        await race.failOverApi(); // 探测候选域名，切到第一个可达者（串行锁防抖）。
-      } catch (_) {
-        // 永不抛：竞速失败沿用当前域名，仍重发一次请求。
-      }
-    }
     ref.invalidate(userProfileProvider);
   }
 

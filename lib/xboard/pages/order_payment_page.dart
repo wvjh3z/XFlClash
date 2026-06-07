@@ -24,6 +24,7 @@ import '../services/subscription_triggers.dart';
 import '../util/error_text.dart';
 import '../util/period_label.dart';
 import '../widgets/xb_theme.dart' show xbShowDialog, XbTokens;
+import '../widgets/xb_components.dart' show XbSyncBanner;
 import '../widgets/xb_ui_kit.dart';
 
 /// 轮询间隔（pending/processing 时）。
@@ -43,6 +44,7 @@ class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage> {
   String? _selectedMethodId;
   Object? _loadError;
   bool _loading = true;
+  bool _retrying = false; // 重试中 → 顶部「正在刷新服务」黄条
   bool _busy = false; // 支付/取消进行中
   Timer? _pollTimer;
 
@@ -58,8 +60,11 @@ class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage> {
     super.dispose();
   }
 
-  Future<void> _initialLoad() async {
-    setState(() => _loading = true);
+  Future<void> _initialLoad({bool retry = false}) async {
+    setState(() {
+      _loading = true;
+      _retrying = retry;
+    });
     final service = ref.read(xboardServiceProvider);
     try {
       final orderRes = await service.getOrder(widget.tradeNo);
@@ -79,6 +84,7 @@ class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage> {
         _methods = methods;
         _selectedMethodId = methods.isNotEmpty ? methods.first.id : null;
         _loading = false;
+        _retrying = false;
       });
       _maybeStartPolling();
     } catch (e) {
@@ -86,6 +92,7 @@ class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage> {
       setState(() {
         _loadError = e;
         _loading = false;
+        _retrying = false;
       });
     }
   }
@@ -135,7 +142,12 @@ class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage> {
     return Scaffold(
       appBar: AppBar(title: const Text('支付订单')),
       body: _loading
-          ? const Center(child: CircularProgressIndicator())
+          ? (_retrying
+              ? ListView(
+                  padding: const EdgeInsets.all(16),
+                  children: const [XbSyncBanner(text: '正在刷新服务，请稍候…')],
+                )
+              : const Center(child: CircularProgressIndicator()))
           : _loadError != null
               ? _errorRetry()
               : _detail == null
@@ -161,7 +173,7 @@ class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage> {
           ),
           const SizedBox(height: 12),
           OutlinedButton.icon(
-            onPressed: _initialLoad,
+            onPressed: () => _initialLoad(retry: true),
             icon: const Icon(Icons.refresh_rounded, size: 18),
             label: const Text('重试'),
           ),

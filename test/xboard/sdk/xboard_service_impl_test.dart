@@ -150,6 +150,68 @@ void main() {
     });
   });
 
+  group('API 域名故障转移重试（apiFailover）', () {
+    test('网络错误 → 调 failover + 重试一次，重试成功则返回成功', () async {
+      var failoverCalls = 0;
+      var attempt = 0;
+      final svc = XboardServiceImpl(
+        sdk: sdk,
+        apiFailover: () async => failoverCalls++,
+      );
+      when(() => apis.subscriptionApi.getSubscription()).thenAnswer((_) async {
+        attempt++;
+        if (attempt == 1) throw NetworkException('timeout'); // 首次网络失败
+        return const SubscriptionModel(
+            email: 'a@b.com', uuid: 'uid', u: 1, d: 2, transferEnable: 100);
+      });
+      final r = await svc.getSubscription();
+      expect(r, isA<XbSuccess>(), reason: '换域名重试后成功');
+      expect(failoverCalls, 1, reason: 'failover 恰好调一次');
+      expect(attempt, 2, reason: 'body 执行两次（首次+重试）');
+    });
+
+    test('业务/鉴权错误 → 不 failover、不重试（换域名也救不了）', () async {
+      var failoverCalls = 0;
+      var attempt = 0;
+      final svc = XboardServiceImpl(
+        sdk: sdk,
+        apiFailover: () async => failoverCalls++,
+      );
+      when(() => apis.subscriptionApi.getSubscription()).thenAnswer((_) async {
+        attempt++;
+        throw AuthException('过期');
+      });
+      final r = await svc.getSubscription();
+      expect((r as XbFailure).error, isA<XbUnauthorized>());
+      expect(failoverCalls, 0, reason: '鉴权错误不换域名');
+      expect(attempt, 1, reason: 'body 只执行一次');
+    });
+
+    test('无 failover 钩子（未注入）→ 网络错误原地返回失败，不崩', () async {
+      when(() => apis.subscriptionApi.getSubscription())
+          .thenThrow(NetworkException('down'));
+      final r = await service.getSubscription(); // service 无 apiFailover
+      expect((r as XbFailure).error, isA<XbNetwork>());
+    });
+
+    test('重试仍失败 → 返回重试后的失败（failover 只调一次，不无限重试）', () async {
+      var failoverCalls = 0;
+      var attempt = 0;
+      final svc = XboardServiceImpl(
+        sdk: sdk,
+        apiFailover: () async => failoverCalls++,
+      );
+      when(() => apis.subscriptionApi.getSubscription()).thenAnswer((_) async {
+        attempt++;
+        throw NetworkException('still down');
+      });
+      final r = await svc.getSubscription();
+      expect((r as XbFailure).error, isA<XbNetwork>());
+      expect(failoverCalls, 1, reason: 'failover 只调一次');
+      expect(attempt, 2, reason: 'body 执行两次后放弃');
+    });
+  });
+
   group('未填实方法', () {
     test('fireAllMirrors void 不抛（Property 1 例外）', () {
       expect(() => service.fireAllMirrors(['https://m1', 'https://m2']),

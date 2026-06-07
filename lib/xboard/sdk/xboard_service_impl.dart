@@ -29,14 +29,24 @@ import '../util/subscription_cache.dart';
 import 'xboard_service.dart';
 
 class XboardServiceImpl implements XboardService {
-  XboardServiceImpl({required XBoardSDK sdk, SubscriptionCache? subscriptionCache})
-      : _sdk = sdk,
-        _subscriptionCache = subscriptionCache ?? SubscriptionCache();
+  XboardServiceImpl({
+    required XBoardSDK sdk,
+    SubscriptionCache? subscriptionCache,
+    Future<void> Function()? apiFailover,
+  })  : _sdk = sdk,
+        _subscriptionCache = subscriptionCache ?? SubscriptionCache(),
+        _apiFailover = apiFailover;
 
   final XBoardSDK _sdk;
 
   /// R6 离线缓存（决策 #11 success-write，W4.4）。
   final SubscriptionCache _subscriptionCache;
+
+  /// API 域名故障转移钩子（注入 `EndpointRaceController.failOverApi`）：
+  /// API 请求遇网络/服务端错误时调一次，切到候选里可达的域名，再重试一次（统一收口，
+  /// 所有 17 个 API 方法自动受益，UI 的「重新加载」天然走到换域名重试）。null = 未注入
+  /// （测试 / SDK 未就绪）→ 退化为不重试（行为同旧版）。
+  final Future<void> Function()? _apiFailover;
 
   /// θ-8：logout 期间为 true，反腐层 success 回调写 cache 前先查（W3.6 填实清理链时置位）。
   // ignore: prefer_final_fields  (W3.6 logout 会写 true/false，非 final)
@@ -73,6 +83,27 @@ class XboardServiceImpl implements XboardService {
     String operation,
     Future<T> Function() body,
   ) async {
+    final first = await _runGuarded(operation, body);
+    // 失败且可换域名挽救（网络/服务端类）→ failOver 切域名后重试一次。业务/鉴权类换域名无用，不重试。
+    if (first case XbFailure(:final error) when _shouldFailover(error)) {
+      final hook = _apiFailover;
+      if (hook != null) {
+        try {
+          await hook();
+        } catch (_) {
+          // failOver 内部永不抛；保险吞错。
+        }
+        return _runGuarded(operation, body); // 用（可能已切换的）新域名重试一次。
+      }
+    }
+    return first;
+  }
+
+  /// 单次执行 + 异常归一（原 _guard 主体，拆出来供 failover 重试复用）。
+  Future<XbResult<T>> _runGuarded<T>(
+    String operation,
+    Future<T> Function() body,
+  ) async {
     try {
       return XbResult.success(await body());
     } on AuthException catch (e) {
@@ -88,6 +119,14 @@ class XboardServiceImpl implements XboardService {
     }
   }
 
+  /// 该错误是否值得「换域名重试」：仅网络不可达 / 服务端故障（当前域名被墙或挂了，换一个可能通）。
+  /// 鉴权失效、业务错误（如优惠码无效）、安全错误换域名也救不了 → 不重试，避免无谓延迟。
+  static bool _shouldFailover(XbDomainError error) => switch (error) {
+        XbNetwork() => true,
+        XbServer() => true,
+        _ => false,
+      };
+
   /// SdkResult 形态归一（switch 解构，Success/Failure 非 Ok/Err，F410）。
   XbResult<R> _fromSdkResult<S, R>(SdkResult<S> r, R Function(S data) map) =>
       switch (r) {
@@ -98,6 +137,24 @@ class XboardServiceImpl implements XboardService {
   /// SdkResult 形态 + 异常防御（Property 1）：SDK adapter 理论上返 SdkResult 不抛，但若意外
   /// 抛（panel TypeError / 未预期）也归一为 XbUnexpected，绝不向 UI 抛（θ-11）。
   Future<XbResult<R>> _guardSdkResult<S, R>(
+    String operation,
+    Future<SdkResult<S>> Function() body,
+    R Function(S data) map,
+  ) async {
+    final first = await _runGuardedSdk(operation, body, map);
+    if (first case XbFailure(:final error) when _shouldFailover(error)) {
+      final hook = _apiFailover;
+      if (hook != null) {
+        try {
+          await hook();
+        } catch (_) {}
+        return _runGuardedSdk(operation, body, map);
+      }
+    }
+    return first;
+  }
+
+  Future<XbResult<R>> _runGuardedSdk<S, R>(
     String operation,
     Future<SdkResult<S>> Function() body,
     R Function(S data) map,

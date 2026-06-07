@@ -105,7 +105,10 @@ XboardService xboardService(Ref ref) {
       'XboardService 在 SDK initialize 前被访问 —— UI 应先 gate bootstrapReadyProvider',
     );
   }
-  return XboardServiceImpl(sdk: sdk);
+  // API 域名故障转移钩子：API 请求遇网络/服务端错误时，反腐层自动 failOver 切域名重试一次
+  // （统一收口，所有页面的「重新加载」天然受益）。controller 未就绪 → null（退化为不重试）。
+  final race = ref.watch(injectedRaceControllerProvider);
+  return XboardServiceImpl(sdk: sdk, apiFailover: race?.failOverApi);
 }
 
 // ───────── R4.6 step2a：订阅同步地基 provider ─────────
