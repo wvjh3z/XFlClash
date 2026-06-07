@@ -10,11 +10,14 @@ import 'package:package_info_plus/package_info_plus.dart';
 /// 编译期注入的构建标识（构建脚本传 `--dart-define=XB_BUILD_TAG=20260607-0530`）。
 const String kBuildTag = String.fromEnvironment('XB_BUILD_TAG');
 
-/// 取展示用版本串：`v{version}+{build}`，若有构建 tag 追加 ` · {tag}`。
+/// 取展示用版本串：`v{version} (build {build})`，若有构建 tag 追加 ` · {tag}`。
+/// version/build 来自 `--build-name`/`--build-number`（MyClient 自有产品版本，非 FlClash 底座）。
 Future<String> loadVersionLabel() async {
   try {
     final info = await PackageInfo.fromPlatform();
-    final base = 'v${info.version}+${info.buildNumber}';
+    final base = info.buildNumber.isEmpty
+        ? 'v${info.version}'
+        : 'v${info.version} (build ${info.buildNumber})';
     return kBuildTag.isEmpty ? base : '$base · $kBuildTag';
   } catch (_) {
     // package_info 不可用（极少见）→ 至少给出构建 tag。

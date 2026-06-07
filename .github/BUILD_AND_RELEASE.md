@@ -1,78 +1,63 @@
-# 构建与版本管理规范（形态 A / brand_a）
+# 构建与版本管理（形态 A / MyClient / brand_a）
 
-本文档定义 **MyClient（XFlClash formA）** 的版本号规则、debug / release 构建方式、
-以及 GitHub Actions 自动构建发布流程。目标：**任何人、任何时候构建出的包，版本可追溯、
-能正确覆盖更新、debug 与 release 不混淆。**
-
----
-
-## 1. 版本号规则（单一事实来源）
-
-版本号唯一来源：**`pubspec.yaml` 的 `version:` 字段**，格式 `versionName+versionCode`。
-
-```yaml
-version: 0.8.93+100        # versionName=0.8.93  versionCode=100
-```
-
-- **versionName**（`0.8.93`）：展示版本名，语义化（主.次.补丁）。功能发布时手动递增。
-- **versionCode**（`100`）：整数，**每次发布必须比上一次大**（Android 靠它判定升级/降级）。
-  由 CI 用 **GitHub run number** 自动注入（`--build-number`），开发者不手填，保证单调递增。
-
-> ⚠️ Android versionCode 上限 2,100,000,000。用 run number（从小整数起）永不触顶。
-
-### 历史遗留说明
-早期 `version: 0.8.93+2026052901`（日期串当 versionCode，畸大）。已改为小整数基线，
-**从该畸大值升级的旧包需卸载一次**；此后所有版本 versionCode 由 CI 递增，正常覆盖。
+MyClient 的版本号、debug/release 构建方式。**当前为本地构建**（开发期，本地服务器够快，
+暂不上 GitHub CI）。目标：版本可追溯、能正确覆盖更新、debug 与 release 不混淆。
 
 ---
 
-## 2. 构建标识（build tag）
+## 1. 版本号（与 FlClash 底座脱钩，MyClient 自有）
 
-每个包在「我的 → 关于」显示 `v{versionName}+{versionCode} · {buildTag}`。
+| 项 | 来源 | 说明 |
+|---|---|---|
+| **versionName** | `flavors/brand_a/flavor.yaml` 的 `versionName`（如 `0.1.0`） | MyClient 产品版本，语义化，功能发布手动递增。**不再用 FlClash 的 0.8.93** |
+| **versionCode** | `scripts/build_number.txt` | 整数，每次 **release** 构建脚本自动 +1（单调递增，Android 靠它判定升级/覆盖） |
+| **buildTag** | 构建时自动生成 `v{versionName}-build{N}-{短SHA}` | 关于页显示，一眼核对安装的是不是目标构建 |
 
-- `buildTag` 由 `--dart-define=XB_BUILD_TAG=...` 注入，CI 用 `git短SHA + 时间` 生成。
-- 作用：一眼确认安装的是不是目标构建（解决"装的是不是新版"的困惑）。
-- 本地未注入时为空，关于页只显示 `v{versionName}+{versionCode}`。
+关于页（我的 → 关于 / 设置 → 关于）显示：`v0.1.0 (build 7) · v0.1.0-build7-ab12cd`
+
+> `pubspec.yaml` 的 `version:` 仅作 plain `flutter build` 的兜底默认（已设 `0.1.0+1`）；
+> 正式构建一律走 `scripts/build_local.sh`，用 `--build-name`/`--build-number` 覆盖。
+
+### 发布新版本
+1. 改 `flavors/brand_a/flavor.yaml` 的 `versionName`（如 `0.1.0` → `0.2.0`）。
+2. `bash scripts/build_local.sh release arm64` —— versionCode 自动 +1。
 
 ---
 
-## 3. Debug vs Release
+## 2. Debug vs Release
 
 | 维度 | Debug | Release |
 |---|---|---|
-| 用途 | 开发自测、模拟器、看日志 | 真机分发、正式发布 |
-| 命令 | `flutter build apk --debug` | `flutter build apk --release` |
-| 签名 | debug 签名（`.dev` 后缀包名） | release keystore（CI secrets 注入） |
+| 用途 | 开发自测、模拟器、看日志 | 真机分发 |
+| 命令 | `bash scripts/build_local.sh debug` | `bash scripts/build_local.sh release arm64` |
 | 包名 | `com.follow.clash.dev` | `com.follow.clash` |
-| 日志 | `print`/`debugPrint` 可见 | 裁剪（仅 commonPrint 等保留） |
-| ABI | 全 ABI（模拟器可跑） | split-per-abi（arm64 真机） |
+| 签名 | debug 签名 | release keystore（缺则回退 debug 签名 + `.dev` 后缀） |
+| 日志 | `print`/`debugPrint` 可见 | 裁剪 |
+| ABI | 全 ABI（模拟器可跑） | split-per-abi（arm64 真机 / x64 模拟器） |
+| versionCode | 沿用当前计数（不自增） | 自增 +1 |
 
 > Debug 与 Release **包名不同**（`.dev` 后缀），可在同一台手机共存，互不覆盖。
-> 测真机功能装 release；看日志/快速迭代用 debug。
 
 ---
 
-## 4. ⚠️ 构建缓存铁律（曾踩坑）
+## 3. ⚠️ 构建缓存铁律
 
-Flutter 增量构建缓存（`.dart_tool/flutter_build`）在 **release AOT 构建时可能复用陈旧
-`app.dill`**，导致**代码改动未编译进包**（表现：改了 UI 但 release 包仍是旧界面/旧版本号）。
-
-**规范：release 正式构建前必须清缓存**（CI 在干净 runner 上天然满足；本地脚本已内置）：
-```bash
-flutter clean    # 或至少 rm -rf .dart_tool/flutter_build build/
-```
+Flutter 增量缓存（`.dart_tool/flutter_build`）在 release AOT 构建时可能复用陈旧 `app.dill`，
+导致**代码改动未编译进包**（表现：改了 UI/版本但 release 包仍是旧的）。
+`scripts/build_local.sh` 已内置每次 `flutter clean`（彻底,比只删 flutter_build 可靠），无需手动处理。
 
 ---
 
-## 5. 本地构建（开发自测）
-
-统一用 `scripts/build_local.sh`（已内置清缓存 + buildTag 注入 + flavor）：
+## 4. 本地构建
 
 ```bash
-# Release arm64（真机分发）
+# Release（真机，arm64；versionCode 自增）
 bash scripts/build_local.sh release arm64
 
-# Debug 全 ABI（模拟器）
+# Release x64（模拟器跑 release）
+bash scripts/build_local.sh release x64
+
+# Debug（全 ABI，模拟器自测，versionCode 不变）
 bash scripts/build_local.sh debug
 ```
 
@@ -80,33 +65,16 @@ bash scripts/build_local.sh debug
 
 ---
 
-## 6. CI 自动构建发布（GitHub Actions）
+## 5. 分发与覆盖更新
 
-### 6.1 正式发布 `release.yml`（tag 触发）
-推一个 `v*` tag 即触发：
-```bash
-git tag v0.8.94 && git push origin v0.8.94
-```
-流程：测试 → prepare_flavor（注入 secrets）→ 清缓存 release 构建（versionCode=run_number，
-签名）→ 上传 APK 到 GitHub Release。
-
-### 6.2 测试包 `debug-build.yml`（手动 / PR 触发）
-手动触发或 PR 时构建 debug APK，传 artifact 供测试，不发 Release。
-
-### 6.3 所需 Secrets
-| Secret | 用途 |
-|---|---|
-| `KEYSTORE` | release 签名 keystore（base64） |
-| `KEY_ALIAS` / `STORE_PASSWORD` / `KEY_PASSWORD` | 签名凭据 |
-| `XBOARD_BOOTSTRAP_AES_KEY` | bootstrap/订阅 AES key |
-| `SIBLING_SDK_TOKEN` | clone sibling Xboard_sdk |
-| `SERVICE_JSON` | google-services.json（base64，可选） |
+- 本地构建产物拷到下载服务（`/root/projects/.tmp/apk_download/`）供真机下载。
+- versionCode 单调递增 → 新版可直接覆盖旧版（无需卸载），**除非**装过早期 versionCode
+  畸大的历史包（`2026052901` 那批），那种需卸载一次。
+- 真机装后「我的 → 关于」核对 buildTag 是否与本次构建一致。
 
 ---
 
-## 7. 发版 checklist
-1. 改 `pubspec.yaml` versionName（如 `0.8.94`），versionCode 留给 CI。
-2. 更新 CHANGELOG。
-3. `git tag vX.Y.Z && git push origin vX.Y.Z`。
-4. CI 自动构建签名 release + 发 GitHub Release。
-5. 装真机，「我的→关于」核对 `vX.Y.Z+{run} · {buildTag}`。
+## 6. 上 GitHub CI（v0.x 开发完成后再启用）
+
+开发稳定后可加 `release.yml`（tag 触发签名 release）。届时 versionCode 可改用
+`github.run_number`，versionName 仍取 flavor.yaml。当前**不启用**。

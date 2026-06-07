@@ -41,8 +41,6 @@ const _ourAdditions = <String>[
   '.githooks/',
   'scripts/', // 形态 A 本地构建脚本（新增「加而不改」，build_local.sh 等）
   '.github/workflows/xboard-ci.yml', // W9.8 Xboard 专属 CI（新增文件，不改 upstream workflow）
-  '.github/workflows/release.yml', // 形态 A 正式发布 workflow（新增，不改 upstream build.yaml）
-  '.github/workflows/debug-build.yml', // 形态 A 测试包 workflow（新增）
   '.github/BUILD_AND_RELEASE.md', // 构建/版本管理规范文档（新增）
   'CHANGELOG_XBOARD.md',
   'SECURITY.md', // Xboard 模块安全说明（新增根级文档，记录 TLS 全放行等风险决策）
