@@ -422,7 +422,7 @@ class XbGroupTypeInfoSheet extends StatelessWidget {
                       alignment: Alignment.center,
                       decoration: BoxDecoration(
                         color: scheme.primary.withValues(alpha: 0.12),
-                        borderRadius: BorderRadius.circular(13),
+                        borderRadius: BorderRadius.circular(16),
                       ),
                       child: Icon(icon, size: 22, color: scheme.primary),
                     ),
@@ -449,7 +449,7 @@ class XbGroupTypeInfoSheet extends StatelessWidget {
               const SizedBox(height: 16),
               SizedBox(
                 width: double.infinity,
-                child: FilledButton.tonal(
+                child: FilledButton(
                   onPressed: () => Navigator.of(context).pop(),
                   child: const Text('知道了'),
                 ),

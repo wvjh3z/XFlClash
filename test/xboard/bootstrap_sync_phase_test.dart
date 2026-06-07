@@ -84,6 +84,32 @@ void main() {
     expect(captured.single, XboardConfig.current.devApiEndpoint);
   });
 
+  test('SDK initialize 传 httpConfig：超时 5s + 保留 UA 伪装（perf + R4.4）', () async {
+    final storage = FakeTokenStorage();
+    await XboardModule.bootstrap(container, tokenStorage: storage, sdk: sdk);
+
+    final captured = verify(() => sdk.initialize(
+          any(),
+          panelType: any(named: 'panelType'),
+          customStorage: any(named: 'customStorage'),
+          proxyUrl: any(named: 'proxyUrl'),
+          userAgent: any(named: 'userAgent'),
+          httpConfig: captureAny(named: 'httpConfig'),
+          useMemoryStorage: any(named: 'useMemoryStorage'),
+          enableLogging: any(named: 'enableLogging'),
+          usePrintLogger: any(named: 'usePrintLogger'),
+          allowNonFlclashUa: any(named: 'allowNonFlclashUa'),
+        )).captured;
+    final cfg = captured.single as HttpConfig;
+    // 超时全部 5s（默认 30s 偏长）。
+    expect(cfg.connectTimeoutSeconds, 5);
+    expect(cfg.receiveTimeoutSeconds, 5);
+    expect(cfg.sendTimeoutSeconds, 5);
+    // UA 伪装保留（传 httpConfig 会覆盖直参，必须在 config 内带上，否则丢 R4.4 伪装）。
+    expect(cfg.userAgent, isNotNull);
+    expect(cfg.allowNonFlclashUa, isTrue);
+  });
+
   test('step 0 firstLaunch：无 token + 无 consent → true', () async {
     final storage = FakeTokenStorage(); // 无 token
     await XboardModule.bootstrap(container, tokenStorage: storage, sdk: sdk);

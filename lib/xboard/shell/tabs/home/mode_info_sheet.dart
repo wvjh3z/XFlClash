@@ -65,7 +65,7 @@ class _ModeInfoSheet extends StatelessWidget {
             const SizedBox(height: 16),
             SizedBox(
               width: double.infinity,
-              child: FilledButton.tonal(
+              child: FilledButton(
                 onPressed: () => Navigator.of(context).pop(),
                 child: const Text('知道了'),
               ),
@@ -93,40 +93,49 @@ class _ModeExplain extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Container(
-          width: 36,
-          height: 36,
-          decoration: BoxDecoration(
-            color: scheme.primary.withValues(alpha: 0.10),
-            borderRadius: BorderRadius.circular(10),
+    // 原型 .modeexp：整行浅灰底卡（sfc）+ 42×42 品牌淡底图标块（填充图标）+ 标题/说明。
+    return Container(
+      padding: const EdgeInsets.all(15),
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 42,
+            height: 42,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: scheme.primary.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Icon(icon, size: 22, color: scheme.primary),
           ),
-          child: Icon(icon, size: 20, color: scheme.primary),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                title,
-                style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w500),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                desc,
-                style: TextStyle(
-                  fontSize: 13,
-                  height: 1.5,
-                  color: scheme.onSurfaceVariant,
+          const SizedBox(width: 13),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w500),
                 ),
-              ),
-            ],
+                const SizedBox(height: 4),
+                Text(
+                  desc,
+                  style: TextStyle(
+                    fontSize: 12.5,
+                    height: 1.6,
+                    color: scheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
+            ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }

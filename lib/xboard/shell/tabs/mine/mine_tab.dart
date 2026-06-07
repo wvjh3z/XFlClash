@@ -61,25 +61,45 @@ class MineTab extends ConsumerWidget {
 }
 
 /// 已登录账号区：账号卡（loading 骨架 / data）+ 续费购买分流 + 重置入口。
-class _AccountSection extends ConsumerWidget {
+class _AccountSection extends ConsumerStatefulWidget {
   const _AccountSection();
 
-  /// 账号信息重试：直接重发 getSubscription。**域名故障转移已由反腐层统一收口**
-  /// （API 遇网络/服务端错误自动 failOver 切域名重试一次），故此处只需 invalidate，
-  /// 不必再手动 failOver。横幅在调用期间由 [_AccountErrorCard] 自身的 loading 态显示。
-  Future<void> _retry(WidgetRef ref) async {
+  @override
+  ConsumerState<_AccountSection> createState() => _AccountSectionState();
+}
+
+class _AccountSectionState extends ConsumerState<_AccountSection> {
+  /// 重试中（点失败卡「重新加载」后到结果返回前）：显示黄色「正在刷新服务」横幅，
+  /// 告知用户后台在重发（含反腐层 failOver 切域名）。与套餐/订单页重试横幅一致。
+  bool _retrying = false;
+
+  Future<void> _retry() async {
+    if (_retrying) return;
+    setState(() => _retrying = true);
     ref.invalidate(userProfileProvider);
+    try {
+      // 等这次重拉落定（成功/失败都行）再撤横幅。读 .future 拿重建后的结果。
+      await ref.read(userProfileProvider.future);
+    } catch (_) {
+      // 失败由 error 分支渲染失败卡；这里只负责撤横幅，不抛。
+    }
+    if (mounted) setState(() => _retrying = false);
   }
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
+    // 重试中：黄色横幅占位（不再闪骨架卡），让用户清楚看到「正在刷新服务」。
+    if (_retrying) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(vertical: 4),
+        child: XbSyncBanner(text: '正在刷新服务，请稍候…'),
+      );
+    }
     // F14：已 gate authenticated（MineTab 已判 isGuest），可安全 watch。
     final async = ref.watch(userProfileProvider);
     return async.when(
       loading: () => const _AccountSkeleton(),
-      error: (e, _) => _AccountErrorCard(
-        onRetry: () => _retry(ref),
-      ),
+      error: (e, _) => _AccountErrorCard(onRetry: _retry),
       data: (sub) => Column(
         children: [
           _AccountCard(sub: sub),
