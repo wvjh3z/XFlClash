@@ -50,7 +50,6 @@ class _XbNodeGroupState extends ConsumerState<XbNodeGroup> {
 
   @override
   Widget build(BuildContext context) {
-    final t = XbTokens.of(context);
     final adapter = ref.watch(xbNodesAdapterProvider);
     final selected = adapter.selectedName(ref, group.name);
 
@@ -63,28 +62,19 @@ class _XbNodeGroupState extends ConsumerState<XbNodeGroup> {
       }
     }
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+    // 选中分组的节点列表（可滚动）；头部为「类型标签 + 测延迟」行（分组名已由顶部 tab 显示）。
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(16, 6, 16, 24),
       children: [
-        // 分组头：名 + 类型标签（带 ? 说明）+ 测延迟（所有分组都可测）。
+        // 分组头：类型标签（带 ? 说明）左、测延迟右（所有分组都可测）。
         Padding(
-          padding: const EdgeInsets.fromLTRB(4, 14, 4, 9),
+          padding: const EdgeInsets.fromLTRB(0, 2, 0, 11),
           child: Row(
             children: [
-              Flexible(
-                child: Text(
-                  group.name,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: 13.5,
-                    fontWeight: FontWeight.w800,
-                    color: t.onv,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 8),
-              _TypeChip(kind: group.kind),
-              const Spacer(),
+              Expanded(child: Align(
+                alignment: Alignment.centerLeft,
+                child: _TypeChip(kind: group.kind),
+              )),
               _DelayTestButton(
                 testing: _testing,
                 tested: tested,
@@ -272,7 +262,8 @@ class _NodeRow extends ConsumerWidget {
               padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 15),
               child: Row(
                 children: [
-                  Flexible(
+                  // 节点名占据剩余空间（Expanded，单独 ellipsis），右侧依次「自动」/延迟/勾。
+                  Expanded(
                     child: Text(
                       node.name,
                       maxLines: 1,
@@ -290,7 +281,7 @@ class _NodeRow extends ConsumerWidget {
                     const SizedBox(width: 8),
                     const XbTag('自动'),
                   ],
-                  const Spacer(),
+                  const SizedBox(width: 10),
                   _DelayText(
                     proxyName: node.name,
                     type: node.type,

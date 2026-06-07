@@ -40,7 +40,7 @@ Future<void> pump(WidgetTester tester, XbGroupSummary group) async {
       ],
       child: MaterialApp(
         home: Scaffold(
-          body: ListView(children: [XbNodeGroup(group: group)]),
+          body: XbNodeGroup(group: group),
         ),
       ),
     ),

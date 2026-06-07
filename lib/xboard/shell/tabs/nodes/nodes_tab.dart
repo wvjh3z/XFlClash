@@ -14,6 +14,7 @@ import 'package:fl_clash/xboard/providers/auth_state_provider.dart';
 import 'package:fl_clash/xboard/providers/xboard_providers.dart';
 import 'package:fl_clash/xboard/services/xboard_subscription_service.dart';
 import 'package:fl_clash/xboard/widgets/xb_components.dart';
+import 'package:fl_clash/xboard/widgets/xb_theme.dart' show XbTokens;
 
 import '../../adapters/xb_nodes_adapter.dart';
 import 'xb_node_group.dart';
@@ -36,6 +37,9 @@ class _NodesTabState extends ConsumerState<NodesTab> {
   /// 正在刷新节点（重拉订阅 + 解密 + 写入新 profile）。期间刷新按钮禁用 + 顶部横幅；
   /// 旧节点保留显示（不清空），写入成功后 profile 重载自动覆盖。
   bool _refreshing = false;
+
+  /// 当前选中的分组名（顶部 tab）。null = 用首个可见分组。
+  String? _selectedGroup;
 
   /// 刷新 = 重拉订阅并解密写入新节点（2-A）。await sync(force) 拿 `ok`（新 profile 写入成功）
   /// 才算完成；期间按钮禁用、显示横幅，完成后恢复。旧节点在写入成功前保持不变。
@@ -78,10 +82,7 @@ class _NodesTabState extends ConsumerState<NodesTab> {
     if (view.isEmpty) {
       return Column(
         children: [
-          _NodesHeader(
-            onRefresh: _refreshNodes,
-            refreshing: _refreshing,
-          ),
+          _NodesHeader(onRefresh: _refreshNodes, refreshing: _refreshing),
           if (_refreshing)
             const Padding(
               padding: EdgeInsets.fromLTRB(16, 4, 16, 0),
@@ -98,8 +99,16 @@ class _NodesTabState extends ConsumerState<NodesTab> {
       );
     }
 
-    // 有节点：刷新中保留旧节点列表（不清空），仅顶部加横幅 + 禁用按钮，写入成功后 profile 重载覆盖。
+    // 选中分组：选中名不在当前可见分组里（刷新后分组变化）→ 回退首个。
+    final groups = view.groups;
+    final current = groups.firstWhere(
+      (g) => g.name == _selectedGroup,
+      orElse: () => groups.first,
+    );
+
+    // 顶部分组 tab（横向滚动）+ 只显示选中分组的节点（不再所有组堆叠）。
     return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         _NodesHeader(onRefresh: _refreshNodes, refreshing: _refreshing),
         if (_refreshing)
@@ -107,14 +116,82 @@ class _NodesTabState extends ConsumerState<NodesTab> {
             padding: EdgeInsets.fromLTRB(16, 4, 16, 0),
             child: XbSyncBanner(text: '正在刷新节点，请稍候…'),
           ),
+        _GroupTabBar(
+          groups: groups,
+          selected: current.name,
+          onSelect: (name) => setState(() => _selectedGroup = name),
+        ),
         Expanded(
-          child: ListView.builder(
-            padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
-            itemCount: view.groups.length,
-            itemBuilder: (context, i) => XbNodeGroup(group: view.groups[i]),
+          child: XbNodeGroup(
+            // key 让切换分组时重建状态（测速态不串组）。
+            key: ValueKey(current.name),
+            group: current,
           ),
         ),
       ],
+    );
+  }
+}
+
+/// 顶部分组 tab（横向滚动 chips，原型 `.gtabs`）。选中高亮品牌色。
+class _GroupTabBar extends StatelessWidget {
+  const _GroupTabBar({
+    required this.groups,
+    required this.selected,
+    required this.onSelect,
+  });
+
+  final List<XbGroupSummary> groups;
+  final String selected;
+  final ValueChanged<String> onSelect;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = XbTokens.of(context);
+    final scheme = Theme.of(context).colorScheme;
+    return SizedBox(
+      height: 52,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 6),
+        itemCount: groups.length,
+        separatorBuilder: (_, _) => const SizedBox(width: 9),
+        itemBuilder: (context, i) {
+          final g = groups[i];
+          final on = g.name == selected;
+          return GestureDetector(
+            onTap: () => onSelect(g.name),
+            child: Container(
+              alignment: Alignment.center,
+              padding: const EdgeInsets.symmetric(horizontal: 17),
+              decoration: BoxDecoration(
+                gradient: on
+                    ? LinearGradient(
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                        colors: [
+                          Color.alphaBlend(
+                              Colors.white.withValues(alpha: 0.12),
+                              scheme.primary),
+                          scheme.primary,
+                        ],
+                      )
+                    : null,
+                color: on ? null : t.sfc,
+                borderRadius: BorderRadius.circular(30),
+              ),
+              child: Text(
+                g.name,
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w700,
+                  color: on ? Colors.white : t.onv,
+                ),
+              ),
+            ),
+          );
+        },
+      ),
     );
   }
 }
