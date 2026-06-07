@@ -234,26 +234,23 @@ class _NodeRow extends ConsumerWidget {
     final t = XbTokens.of(context);
     final scheme = Theme.of(context).colorScheme;
     final adapter = ref.watch(xbNodesAdapterProvider);
-    final readOnly = !group.isSelectable;
     // 首项「自动」标记：计算选择组（url-test/fallback）第一项。
     final isAutoFirst = group.isComputed && group.nodes.isNotEmpty &&
         group.nodes.first.name == node.name;
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 11),
-      child: Opacity(
-        opacity: readOnly ? 0.78 : 1,
-        child: Material(
+      child: Material(
           color: isSelected
               ? Color.alphaBlend(scheme.primary.withValues(alpha: 0.07), t.card)
               : t.card,
-          borderRadius: BorderRadius.circular(18),
+          borderRadius: BorderRadius.circular(XbTokens.rMd),
           child: InkWell(
             onTap: onTap,
-            borderRadius: BorderRadius.circular(18),
+            borderRadius: BorderRadius.circular(XbTokens.rMd),
             child: Ink(
               decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(18),
+                borderRadius: BorderRadius.circular(XbTokens.rMd),
                 border: Border.all(
                   color: isSelected ? scheme.primary : t.line,
                   width: isSelected ? 1.4 : 1,
@@ -269,10 +266,10 @@ class _NodeRow extends ConsumerWidget {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
-                        fontSize: 15,
+                        fontSize: 14,
                         fontWeight: isSelected
-                            ? FontWeight.w800
-                            : FontWeight.w700,
+                            ? FontWeight.w600
+                            : FontWeight.w500,
                         color: t.on,
                       ),
                     ),
@@ -297,7 +294,6 @@ class _NodeRow extends ConsumerWidget {
             ),
           ),
         ),
-      ),
     );
   }
 }
@@ -348,7 +344,7 @@ class _DelayText extends ConsumerWidget {
         delay > 0 ? '$delay ms' : '超时',
         style: TextStyle(
           fontSize: 13.5,
-          fontWeight: FontWeight.w800,
+          fontWeight: FontWeight.w500,
           color: adapter.delayColor(delay) ?? scheme.onSurfaceVariant,
           fontFeatures: const [FontFeature.tabularFigures()],
         ),
@@ -407,7 +403,7 @@ class XbGroupTypeInfoSheet extends StatelessWidget {
             children: [
               Text('线路分组类型说明',
                   style: TextStyle(
-                      fontSize: 20, fontWeight: FontWeight.w800, color: t.on)),
+                      fontSize: 20, fontWeight: FontWeight.w700, color: t.on)),
               const SizedBox(height: 4),
               Text(title, style: TextStyle(fontSize: 13.5, color: t.onv)),
               const SizedBox(height: 16),
@@ -438,7 +434,7 @@ class XbGroupTypeInfoSheet extends StatelessWidget {
                           Text(title,
                               style: TextStyle(
                                   fontSize: 15,
-                                  fontWeight: FontWeight.w800,
+                                  fontWeight: FontWeight.w700,
                                   color: t.on)),
                           const SizedBox(height: 4),
                           Text(desc,

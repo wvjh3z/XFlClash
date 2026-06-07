@@ -494,7 +494,7 @@ class _StatusCard extends StatelessWidget {
               children: [
                 Text(title,
                     style: text.titleMedium
-                        ?.copyWith(color: color, fontWeight: FontWeight.w800)),
+                        ?.copyWith(color: color, fontWeight: FontWeight.w700)),
                 const SizedBox(height: 4),
                 Text(desc,
                     style: text.bodySmall
@@ -634,9 +634,19 @@ class _TotalRow extends StatelessWidget {
                 style: text.bodyLarge?.copyWith(fontWeight: FontWeight.w600)),
           ),
           const SizedBox(width: 8),
-          Text('¥${yuan.toStringAsFixed(2)}',
-              style: text.titleLarge?.copyWith(
-                  color: scheme.primary, fontWeight: FontWeight.w800)),
+          // 行内合计金额：显式 21px（不用 titleLarge=屏幕大标题 24，避免大字号缩放溢出）；
+          // 用 Flexible+FittedBox 让超大缩放时金额自适应收缩而非撑破布局。
+          Flexible(
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerRight,
+              child: Text('¥${yuan.toStringAsFixed(2)}',
+                  style: TextStyle(
+                      fontSize: 21,
+                      fontWeight: FontWeight.w700,
+                      color: scheme.primary)),
+            ),
+          ),
         ],
       ),
     );

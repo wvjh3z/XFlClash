@@ -49,14 +49,27 @@ class XbTokens {
   static const Color info = Color(0xFF2563EB); // 信息
   static const Color conn = Color(0xFF10B981); // 已连接绿（连接球语义，备用）
 
-  // —— 圆角（--rb / --rc + 组件专用）——
-  static const double rButton = 15; // .cta（精致化：16→15，与原型对齐）
-  static const double rField = 15; // .field / .go
-  static const double rCard = 24; // --rc / .card
-  static const double rCardSmall = 17; // .metric
-  static const double rChip = 11; // .loginbar .lb / .modeseg .s
-  static const double rSheet = 30; // .sheet 顶圆角
-  static const double rPill = 12; // .guestlogin
+  // —— 间距（原型 8pt grid：--s1..--s6）——
+  static const double s1 = 4;
+  static const double s2 = 8;
+  static const double s3 = 12;
+  static const double s4 = 16;
+  static const double s5 = 20;
+  static const double s6 = 24;
+
+  // —— 圆角（原型收敛 3 档：--r-sm 控件内/标签 / --r-md 卡片·按钮·输入 / --r-lg 大卡·sheet）——
+  static const double rSm = 10; // --r-sm chip / tag / 小图标块
+  static const double rMd = 16; // --r-md 卡片 / 按钮 / 输入框 / 列表卡
+  static const double rLg = 22; // --r-lg 大卡 / 套餐卡 / sheet / 弹窗
+
+  // 组件别名（统一指向 3 档 token，改一处全改）。
+  static const double rButton = rMd; // .cta / .go（原型 --r-md:16）
+  static const double rField = rMd; // .field / .go
+  static const double rCard = rMd; // --rc:16 / .card
+  static const double rCardSmall = rMd; // .metric（--r-md:16）
+  static const double rChip = rSm; // .loginbar .lb / .modeseg .s（--r-sm:10）
+  static const double rSheet = 30; // .sheet 顶圆角（原型保持 30）
+  static const double rPill = rMd; // .guestlogin（原型 --r-md:16）
 
   // —— 尺寸 ——
   static const double hButton = 54; // .go / .b
@@ -171,15 +184,17 @@ ThemeData buildXbTheme({required Color brandColor, required Brightness brightnes
     bodyColor: t.on,
     displayColor: t.on,
   ).copyWith(
+    // 大标题（原型 .abar .t / .backbar .t）：字号 24，字重收敛到 w700（不再 w800）。
     headlineSmall: TextStyle(
-        fontSize: 22, fontWeight: FontWeight.w800, letterSpacing: -0.3, color: t.on),
-    titleLarge: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, letterSpacing: -0.2, color: t.on),
-    titleMedium: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: t.on),
-    titleSmall: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w700, color: t.on),
+        fontSize: 24, fontWeight: FontWeight.w700, letterSpacing: -0.5, color: t.on),
+    titleLarge: TextStyle(fontSize: 24, fontWeight: FontWeight.w700, letterSpacing: -0.5, color: t.on),
+    // 卡内项名 / 小标题：字重收敛 w700→w600（原型字重降一档，克制粗体）。
+    titleMedium: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: t.on),
+    titleSmall: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w600, color: t.on),
     bodyMedium: TextStyle(fontSize: 14, color: t.on),
     bodySmall: TextStyle(fontSize: 12.5, color: t.onv),
-    labelLarge: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: t.on),
-    labelMedium: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: t.onv),
+    labelLarge: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: t.on),
+    labelMedium: TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: t.onv),
   );
 
   return base.copyWith(
@@ -196,11 +211,12 @@ ThemeData buildXbTheme({required Color brandColor, required Brightness brightnes
         // 不用 Size.fromHeight 以免最小宽=∞ 在无界 Row 里崩）。
         minimumSize: const Size(0, XbTokens.hButton),
         shape: rrect(XbTokens.rButton),
-        textStyle: const TextStyle(fontSize: 15.5, fontWeight: FontWeight.w700),
+        textStyle: const TextStyle(fontSize: 15.5, fontWeight: FontWeight.w600),
         elevation: 0,
       ),
     ),
-    // 次按钮（.b.ghost / .cta.out）：品牌描边。
+    // 次按钮（.b.ghost / .cta.out）：品牌描边。字重保持 w700：品牌红描边按钮在浅底上
+    // 属小号红字，w700 满足 WCAG「大/粗文本」对比阈值（红 #d92e1a 14px 普通字重仅 4.46<4.5）。
     outlinedButtonTheme: OutlinedButtonThemeData(
       style: OutlinedButton.styleFrom(
         foregroundColor: brandColor,
@@ -210,11 +226,11 @@ ThemeData buildXbTheme({required Color brandColor, required Brightness brightnes
         textStyle: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
       ),
     ),
-    // 链接/文字按钮（.alt b）：品牌色粗字。
+    // 链接/文字按钮（.alt b）：品牌色，w700 同理（小号红字需粗体满足对比）。
     textButtonTheme: TextButtonThemeData(
       style: TextButton.styleFrom(
         foregroundColor: brandColor,
-        textStyle: const TextStyle(fontWeight: FontWeight.w600),
+        textStyle: const TextStyle(fontWeight: FontWeight.w700),
       ),
     ),
     // 卡片（.card）：白底 + 圆角24 + sd1 阴影（用 surfaceTint 关掉 M3 染色）。
@@ -263,7 +279,7 @@ ThemeData buildXbTheme({required Color brandColor, required Brightness brightnes
       scrolledUnderElevation: 0,
       centerTitle: false,
       titleTextStyle: TextStyle(
-          color: t.on, fontSize: 20, fontWeight: FontWeight.w800, letterSpacing: -0.2),
+          color: t.on, fontSize: 24, fontWeight: FontWeight.w700, letterSpacing: -0.5),
     ),
     // 对话框（.dialog）：白面 + 圆角 + 不叠色。
     dialogTheme: DialogThemeData(

@@ -79,12 +79,8 @@ class XbLineCard extends ConsumerWidget {
     );
   }
 
-  /// 当前线路名：取第一个有选中节点的可见分组的 currentSelected。
+  /// 当前线路名：沿 now 链下钻到实际生效的叶子节点（主组→子组→…→节点）。
   String? _currentLineName(XbNodesAdapter adapter, WidgetRef ref) {
-    final view = adapter.nodesView(ref);
-    for (final g in view.groups) {
-      if (g.currentSelected.isNotEmpty) return g.currentSelected;
-    }
-    return null;
+    return adapter.currentNodeName(ref);
   }
 }

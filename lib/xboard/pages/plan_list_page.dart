@@ -152,7 +152,7 @@ class _PlanOptCard extends StatelessWidget {
                         child: Text(plan.name,
                             style: TextStyle(
                                 fontSize: 15.5,
-                                fontWeight: FontWeight.w800,
+                                fontWeight: FontWeight.w600,
                                 color: t.on),
                             overflow: TextOverflow.ellipsis),
                       ),
@@ -177,7 +177,7 @@ class _PlanOptCard extends StatelessWidget {
                             text: '¥${min.amountYuan.toStringAsFixed(2)}',
                             style: TextStyle(
                                 fontSize: 22,
-                                fontWeight: FontWeight.w900,
+                                fontWeight: FontWeight.w700,
                                 color: scheme.primary),
                           ),
                           TextSpan(

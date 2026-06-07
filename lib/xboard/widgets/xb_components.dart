@@ -171,7 +171,7 @@ class XbSectionCard extends StatelessWidget {
         children: [
           Text(title,
               style: TextStyle(
-                  fontSize: 15, fontWeight: FontWeight.w700, color: t.on)),
+                  fontSize: 15, fontWeight: FontWeight.w600, color: t.on)),
           const SizedBox(height: 12),
           child,
         ],
@@ -182,7 +182,7 @@ class XbSectionCard extends StatelessWidget {
 
 // ═══════════════════════════════ 标题 / 标签 ═══════════════════════════════
 
-/// 分组小标题（原型 .grp）：全大写、字距、灰、小字。
+/// 分组小标题（原型 .grp）：普通灰、13px、w600（去大写/字距，组间距加大）。
 class XbGroupLabel extends StatelessWidget {
   const XbGroupLabel(this.text, {super.key});
 
@@ -192,13 +192,12 @@ class XbGroupLabel extends StatelessWidget {
   Widget build(BuildContext context) {
     final t = XbTokens.of(context);
     return Padding(
-      padding: const EdgeInsets.fromLTRB(4, 12, 4, 9),
+      padding: const EdgeInsets.fromLTRB(6, 22, 6, 8),
       child: Text(
         text,
         style: TextStyle(
-          fontSize: 12,
-          fontWeight: FontWeight.w700,
-          letterSpacing: 0.7,
+          fontSize: 13,
+          fontWeight: FontWeight.w600,
           color: t.onv,
         ),
       ),
@@ -222,9 +221,9 @@ class XbScreenTitle extends StatelessWidget {
         children: [
           Text(title,
               style: TextStyle(
-                  fontSize: 22,
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: -0.3,
+                  fontSize: 24,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: -0.5,
                   color: t.on)),
           if (trailing != null) ...[const Spacer(), trailing!],
         ],
@@ -277,7 +276,7 @@ class XbTag extends StatelessWidget {
         style: TextStyle(
           fontSize: elevated ? 11.5 : 11,
           height: 1,
-          fontWeight: FontWeight.w700,
+          fontWeight: FontWeight.w600,
           color: solid ? Colors.white : c,
         ),
       ),
@@ -426,7 +425,7 @@ class XbKeyValueRow extends StatelessWidget {
           Text(value,
               style: TextStyle(
                   fontSize: total ? 21 : 14,
-                  fontWeight: total ? FontWeight.w800 : FontWeight.w600,
+                  fontWeight: total ? FontWeight.w700 : FontWeight.w600,
                   color: valueColor ?? (total ? scheme.primary : t.on))),
         ],
       ),
@@ -485,7 +484,7 @@ class XbStatusCard extends StatelessWidget {
               children: [
                 Text(title,
                     style: TextStyle(
-                        fontSize: 17, fontWeight: FontWeight.w800, color: color)),
+                        fontSize: 17, fontWeight: FontWeight.w700, color: color)),
                 const SizedBox(height: 3),
                 Text(subtitle,
                     style: TextStyle(fontSize: 12.5, color: t.onv)),
@@ -549,7 +548,7 @@ class XbPendingOrderBanner extends StatelessWidget {
                     Text('有待支付订单',
                         style: TextStyle(
                             fontSize: 13.5,
-                            fontWeight: FontWeight.w700,
+                            fontWeight: FontWeight.w600,
                             color: t.on)),
                     const SizedBox(height: 2),
                     Text(subtitle,
@@ -561,7 +560,7 @@ class XbPendingOrderBanner extends StatelessWidget {
               const SizedBox(width: 10),
               Text(amountText,
                   style: const TextStyle(
-                      fontSize: 17, fontWeight: FontWeight.w800, color: warn)),
+                      fontSize: 17, fontWeight: FontWeight.w700, color: warn)),
             ],
           ),
           const SizedBox(height: 13),

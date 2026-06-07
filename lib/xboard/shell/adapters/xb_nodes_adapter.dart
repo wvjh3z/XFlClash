@@ -122,6 +122,41 @@ class XbNodesAdapter {
     return XbNodesView(groups: summaries);
   }
 
+  /// 当前实际生效的「叶子节点名」（首页线路卡用）：从主组沿 `now` 链一路下钻，
+  /// 直到某个 `now` 不再是分组名（即真实节点）。例如 主组「香港」→ now=「香港 BGP 02」（叶子）。
+  ///
+  /// 主组优先取 `proxiesTabState.currentGroupName`，否则第一个非 hidden 组。
+  /// 链断/空 → 返回起点组的 now（退化，至少给个名字）；全空 → null。
+  String? currentNodeName(WidgetRef ref) {
+    final tabState = ref.watch(proxiesTabStateProvider);
+    final groups = tabState.groups;
+    if (groups.isEmpty) return null;
+    Group? byName(String name) {
+      for (final g in groups) {
+        if (g.name == name) return g;
+      }
+      return null;
+    }
+
+    // 起点主组。
+    Group? cur = (tabState.currentGroupName != null
+            ? byName(tabState.currentGroupName!)
+            : null) ??
+        groups.firstWhere((g) => g.hidden != true, orElse: () => groups.first);
+
+    String? leaf;
+    final seen = <String>{}; // 防环。
+    while (cur != null && seen.add(cur.name)) {
+      final now = cur.now;
+      if (now == null || now.isEmpty) break;
+      leaf = now;
+      final next = byName(now); // now 仍是分组 → 继续下钻；否则就是叶子节点。
+      if (next == null) break;
+      cur = next;
+    }
+    return leaf;
+  }
+
   XbGroupSummary _toSummary(Group group) {
     final kind = _kindOf(group.type);
     return XbGroupSummary(

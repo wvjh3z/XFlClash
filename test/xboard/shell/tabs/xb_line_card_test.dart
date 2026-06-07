@@ -60,6 +60,49 @@ void main() {
     expect(find.text('当前线路'), findsOneWidget);
   });
 
+  testWidgets('已连接 → 沿 now 链下钻显示叶子节点（主组→子组→节点）', (tester) async {
+    final container = ProviderContainer(
+      overrides: [
+        isStartProvider.overrideWith((ref) => true),
+        proxiesTabStateProvider.overrideWith(
+          (ref) => ProxiesTabState(
+            currentGroupName: '智能优选',
+            proxyCardType: ProxyCardType.expand,
+            columns: 2,
+            groups: [
+              // 主组指向子组「香港」。
+              Group(
+                type: GroupType.Selector,
+                name: '智能优选',
+                now: '香港',
+                all: const [Proxy(name: '香港', type: 'Selector')],
+              ),
+              // 子组「香港」指向叶子节点。
+              Group(
+                type: GroupType.Selector,
+                name: '香港',
+                now: '🇭🇰 香港 BGP 02',
+                all: const [Proxy(name: '🇭🇰 香港 BGP 02', type: 'ss')],
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    container.read(bootstrapReadyProvider.notifier).set(true);
+    container.read(coreStatusProvider.notifier).value = CoreStatus.connected;
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: Scaffold(body: XbLineCard())),
+      ),
+    );
+    await tester.pump();
+    // 下钻到叶子节点，而非停在子组名「香港」。
+    expect(find.text('🇭🇰 香港 BGP 02'), findsOneWidget);
+  });
+
   testWidgets('未连接 → 连接后自动优选', (tester) async {
     await pumpCard(tester, isStart: false);
     expect(find.text('未选择线路'), findsOneWidget);
