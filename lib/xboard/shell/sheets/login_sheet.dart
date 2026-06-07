@@ -13,6 +13,7 @@ import 'package:fl_clash/xboard/models/xb_result.dart';
 import 'package:fl_clash/xboard/providers/auth_state_provider.dart';
 import 'package:fl_clash/xboard/providers/xboard_providers.dart';
 import 'package:fl_clash/xboard/util/error_text.dart';
+import 'package:fl_clash/xboard/widgets/xb_submit_guard.dart';
 
 import 'forgot_pwd_sheet.dart';
 import 'register_sheet.dart';
@@ -34,11 +35,11 @@ class LoginSheet extends ConsumerStatefulWidget {
   ConsumerState<LoginSheet> createState() => _LoginSheetState();
 }
 
-class _LoginSheetState extends ConsumerState<LoginSheet> {
+class _LoginSheetState extends ConsumerState<LoginSheet>
+    with XbSubmitGuard<LoginSheet> {
   final _emailCtrl = TextEditingController();
   final _pwCtrl = TextEditingController();
   bool _obscure = true;
-  bool _inFlight = false;
   String? _banner;
 
   @override
@@ -49,29 +50,26 @@ class _LoginSheetState extends ConsumerState<LoginSheet> {
   }
 
   Future<void> _submit() async {
-    if (_inFlight) return;
     final email = _emailCtrl.text.trim();
     final pw = _pwCtrl.text;
     if (email.isEmpty || pw.isEmpty) {
       setState(() => _banner = '请输入邮箱和密码');
       return;
     }
-    setState(() {
-      _inFlight = true;
-      _banner = null;
+    setState(() => _banner = null);
+    await runSubmit(() async {
+      ref.read(authStateProvider.notifier).startAuthenticating();
+      final result = await ref.read(xboardServiceProvider).login(email, pw);
+      if (!mounted) return;
+      switch (result) {
+        case XbSuccess():
+          ref.read(authStateProvider.notifier).markAuthenticated();
+          Navigator.of(context).pop();
+        case XbFailure(:final error):
+          ref.read(authStateProvider.notifier).markUnauthenticated();
+          setState(() => _banner = resolveErrorText(error, fallback: '登录失败，请重试'));
+      }
     });
-    ref.read(authStateProvider.notifier).startAuthenticating();
-    final result = await ref.read(xboardServiceProvider).login(email, pw);
-    if (!mounted) return;
-    setState(() => _inFlight = false);
-    switch (result) {
-      case XbSuccess():
-        ref.read(authStateProvider.notifier).markAuthenticated();
-        Navigator.of(context).pop();
-      case XbFailure(:final error):
-        ref.read(authStateProvider.notifier).markUnauthenticated();
-        setState(() => _banner = resolveErrorText(error, fallback: '登录失败，请重试'));
-    }
   }
 
   @override
@@ -131,8 +129,8 @@ class _LoginSheetState extends ConsumerState<LoginSheet> {
         SizedBox(
           width: double.infinity,
           child: FilledButton(
-            onPressed: (!ready || _inFlight) ? null : _submit,
-            child: _inFlight
+            onPressed: (!ready || submitting) ? null : _submit,
+            child: submitting
                 ? const SizedBox(
                     width: 20,
                     height: 20,

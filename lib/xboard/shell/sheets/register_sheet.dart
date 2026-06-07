@@ -5,8 +5,6 @@
 /// 验证码短框 + 获取按钮 + 冷却倒计时（R5.8）。认证 ◇ 复用形态 B 反腐层（R5.10）。
 library;
 
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -15,6 +13,8 @@ import 'package:fl_clash/xboard/providers/auth_state_provider.dart';
 import 'package:fl_clash/xboard/providers/email_suffixes_provider.dart';
 import 'package:fl_clash/xboard/providers/xboard_providers.dart';
 import 'package:fl_clash/xboard/util/error_text.dart';
+import 'package:fl_clash/xboard/widgets/xb_cooldown_guard.dart';
+import 'package:fl_clash/xboard/widgets/xb_submit_guard.dart';
 
 import 'sheet_scaffold.dart';
 
@@ -34,20 +34,17 @@ class RegisterSheet extends ConsumerStatefulWidget {
   ConsumerState<RegisterSheet> createState() => _RegisterSheetState();
 }
 
-class _RegisterSheetState extends ConsumerState<RegisterSheet> {
+class _RegisterSheetState extends ConsumerState<RegisterSheet>
+    with XbSubmitGuard<RegisterSheet>, XbCooldownGuard<RegisterSheet> {
   final _prefixCtrl = TextEditingController();
   final _codeCtrl = TextEditingController();
   final _pwCtrl = TextEditingController();
   String? _suffix;
   bool _obscure = true;
-  bool _inFlight = false;
   String? _banner;
-  int _cooldown = 0;
-  Timer? _timer;
 
   @override
   void dispose() {
-    _timer?.cancel();
     _prefixCtrl.dispose();
     _codeCtrl.dispose();
     _pwCtrl.dispose();
@@ -61,37 +58,24 @@ class _RegisterSheetState extends ConsumerState<RegisterSheet> {
     return '$prefix@$suffix';
   }
 
-  void _startCooldown() {
-    setState(() => _cooldown = 60);
-    _timer?.cancel();
-    _timer = Timer.periodic(const Duration(seconds: 1), (t) {
-      if (!mounted) return;
-      setState(() => _cooldown--);
-      if (_cooldown <= 0) t.cancel();
-    });
-  }
-
   Future<void> _sendCode(List<String> suffixes) async {
     final email = _composeEmail(suffixes);
     if (email.isEmpty || !email.contains('@')) {
       setState(() => _banner = '请先填写邮箱账号');
       return;
     }
-    _startCooldown();
+    startCooldown();
     final result = await ref.read(xboardServiceProvider).sendEmailVerifyCode(email);
     if (!mounted) return;
     if (result is XbFailure) {
       // 发送失败 → 重置冷却（让用户可立即重发，不被无谓锁 60s）。
-      _timer?.cancel();
-      setState(() {
-        _cooldown = 0;
-        _banner = resolveErrorText((result as XbFailure).error, fallback: '发送失败，请重试');
-      });
+      resetCooldown();
+      setState(() =>
+          _banner = resolveErrorText((result as XbFailure).error, fallback: '发送失败，请重试'));
     }
   }
 
   Future<void> _submit(List<String> suffixes) async {
-    if (_inFlight) return;
     final email = _composeEmail(suffixes);
     final code = _codeCtrl.text.trim();
     final pw = _pwCtrl.text;
@@ -103,29 +87,27 @@ class _RegisterSheetState extends ConsumerState<RegisterSheet> {
       setState(() => _banner = '密码至少需要 8 位');
       return;
     }
-    setState(() {
-      _inFlight = true;
-      _banner = null;
+    setState(() => _banner = null);
+    await runSubmit(() async {
+      final result = await ref
+          .read(xboardServiceProvider)
+          .register(email, pw, emailCode: code);
+      if (!mounted) return;
+      switch (result) {
+        case XbSuccess():
+          // 注册成功 → 二步登录（form B DD-9 同款：register 不返 token）。
+          final login = await ref.read(xboardServiceProvider).login(email, pw);
+          if (!mounted) return;
+          if (login is XbSuccess) {
+            ref.read(authStateProvider.notifier).markAuthenticated();
+            Navigator.of(context).pop();
+          } else {
+            setState(() => _banner = '注册成功，请手动登录');
+          }
+        case XbFailure(:final error):
+          setState(() => _banner = resolveErrorText(error, fallback: '注册失败，请重试'));
+      }
     });
-    final result = await ref
-        .read(xboardServiceProvider)
-        .register(email, pw, emailCode: code);
-    if (!mounted) return;
-    setState(() => _inFlight = false);
-    switch (result) {
-      case XbSuccess():
-        // 注册成功 → 二步登录（form B DD-9 同款：register 不返 token）。
-        final login = await ref.read(xboardServiceProvider).login(email, pw);
-        if (!mounted) return;
-        if (login is XbSuccess) {
-          ref.read(authStateProvider.notifier).markAuthenticated();
-          Navigator.of(context).pop();
-        } else {
-          setState(() => _banner = '注册成功，请手动登录');
-        }
-      case XbFailure(:final error):
-        setState(() => _banner = resolveErrorText(error, fallback: '注册失败，请重试'));
-    }
   }
 
   @override
@@ -149,7 +131,7 @@ class _RegisterSheetState extends ConsumerState<RegisterSheet> {
         // 验证码在密码上方（R5.7），短框 + 获取按钮（R5.8）。
         XbVerifyCodeField(
           controller: _codeCtrl,
-          cooldownSeconds: _cooldown,
+          cooldownSeconds: cooldownSeconds,
           onSend: () => _sendCode(suffixes),
         ),
         const SizedBox(height: 12),
@@ -169,8 +151,8 @@ class _RegisterSheetState extends ConsumerState<RegisterSheet> {
         SizedBox(
           width: double.infinity,
           child: FilledButton(
-            onPressed: (!ready || _inFlight) ? null : () => _submit(suffixes),
-            child: _inFlight
+            onPressed: (!ready || submitting) ? null : () => _submit(suffixes),
+            child: submitting
                 ? const SizedBox(
                     width: 20,
                     height: 20,
