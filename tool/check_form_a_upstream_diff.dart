@@ -15,6 +15,7 @@ const _seamAllowlist = <String>{
   'lib/providers/action.dart', // 接缝点 #10（form-a：屏蔽 FlClash 上游更新检查）
   'lib/main.dart', // 接缝点 #1（XboardModule bootstrap + config bind）
   'pubspec.yaml', // 接缝点 #3（Xboard 依赖 + 产品版本号）
+  'pubspec.lock', // 接缝点 #3 衍生（加 Xboard SDK 依赖后 pub get 自动重算，非 UI 侵入）
 };
 
 /// FlClash upstream 基线 commit（flclash-anchors.md 基线 = v0.8.93）。

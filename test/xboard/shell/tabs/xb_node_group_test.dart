@@ -1,0 +1,85 @@
+/// 自绘节点分组 [XbNodeGroup] 单测：类型标签 + 「自动」标记 + 只读组 + 类型说明 sheet。
+library;
+
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_test/flutter_test.dart';
+
+import 'package:fl_clash/providers/state.dart'
+    show selectedProxyNameProvider, delayProvider;
+import 'package:fl_clash/xboard/shell/adapters/xb_nodes_adapter.dart';
+import 'package:fl_clash/xboard/shell/tabs/nodes/xb_node_group.dart';
+
+XbGroupSummary _group(
+  XbGroupKind kind, {
+  String name = '测试分组',
+  List<String> nodeNames = const ['🇭🇰 香港 01', '🇯🇵 东京 02'],
+}) {
+  return XbGroupSummary(
+    name: name,
+    nodeCount: nodeNames.length,
+    currentSelected: nodeNames.isNotEmpty ? nodeNames.first : '',
+    isUrlTest: kind == XbGroupKind.urlTest,
+    kind: kind,
+    nodes: [
+      for (final n in nodeNames) XbNodeItem(name: n, type: 'ss'),
+    ],
+  );
+}
+
+Future<void> pump(WidgetTester tester, XbGroupSummary group) async {
+  await tester.pumpWidget(
+    ProviderScope(
+      overrides: [
+        // 隔离 FlClash 内核 provider（避免触达真实 DB/profile）：选中态 + 延迟给固定值。
+        selectedProxyNameProvider(group.name).overrideWithValue(
+          group.nodes.isNotEmpty ? group.nodes.first.name : null,
+        ),
+        for (final n in group.nodes)
+          delayProvider(proxyName: n.name, testUrl: null).overrideWithValue(38),
+      ],
+      child: MaterialApp(
+        home: Scaffold(
+          body: ListView(children: [XbNodeGroup(group: group)]),
+        ),
+      ),
+    ),
+  );
+  await tester.pump();
+}
+
+void main() {
+  testWidgets('url-test：显示类型标签（含简短说明）+ 首项「自动」+ 测延迟', (tester) async {
+    await pump(tester, _group(XbGroupKind.urlTest));
+    expect(find.textContaining('url-test'), findsOneWidget);
+    expect(find.textContaining('自动选择低延迟节点'), findsOneWidget);
+    // 计算选择组首项标「自动」。
+    expect(find.text('自动'), findsOneWidget);
+    // 可选组显示「测延迟」。
+    expect(find.text('测延迟'), findsOneWidget);
+  });
+
+  testWidgets('selector：类型标签 + 无「自动」标记', (tester) async {
+    await pump(tester, _group(XbGroupKind.selector));
+    expect(find.textContaining('selector'), findsOneWidget);
+    expect(find.textContaining('手动选择节点'), findsOneWidget);
+    expect(find.text('自动'), findsNothing);
+  });
+
+  testWidgets('load-balance：只读组不显示「测延迟」', (tester) async {
+    await pump(tester, _group(XbGroupKind.loadBalance));
+    expect(find.textContaining('load-balance'), findsOneWidget);
+    // 只读组（不可手选）不渲染测延迟按钮。
+    expect(find.text('测延迟'), findsNothing);
+  });
+
+  testWidgets('点类型标签 ? → 弹分组类型说明 sheet', (tester) async {
+    await pump(tester, _group(XbGroupKind.urlTest));
+    await tester.tap(find.byIcon(Icons.help_outline));
+    await tester.pumpAndSettle();
+    expect(find.text('线路分组类型说明'), findsOneWidget);
+    // sheet 内含 5 种类型说明。
+    expect(find.text('load-balance'), findsOneWidget);
+    expect(find.text('relay'), findsOneWidget);
+  });
+}

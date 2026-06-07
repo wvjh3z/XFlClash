@@ -1,10 +1,10 @@
 /// 形态 A 节点 Tab（spec `xboard-form-a-ui-revamp` / W4.1·W4.2 / R4.1-R4.7）。
 ///
-/// 组装：刷新按钮（R4.5）+ 分组/单节点（复用 `ProxyGroupView`，R4.1/R4.2）+ 空态引导续费
-/// （R4.6）+ 游客引导（R4.7）。
+/// 组装：刷新按钮（R4.5，重拉订阅）+ 自绘分组/节点行（[XbNodeGroup]，原型 `.node` 列表行）+
+/// 空态引导续费（R4.6）+ 游客引导（R4.7）。
 ///
-/// **适配层铁律**：全部经 `XbNodesAdapter`（W2.4）；游客态读形态 B `authStateProvider`（◇）。
-/// 节点行渲染（国旗/名/延迟着色 R4.4）由复用的 `ProxyCard` 提供，不自绘。
+/// **加而不改**：不再复用 FlClash `ProxyGroupView`/`ProxyCard`（网格卡），改自绘列表行；
+/// 内核数据（延迟/选中/选择/测速）经 [XbNodesAdapter] 收口（适配层铁律），不直接碰 `lib/views/**`。
 library;
 
 import 'package:flutter/material.dart';
@@ -16,6 +16,7 @@ import 'package:fl_clash/xboard/services/xboard_subscription_service.dart';
 import 'package:fl_clash/xboard/widgets/xb_components.dart';
 
 import '../../adapters/xb_nodes_adapter.dart';
+import 'xb_node_group.dart';
 
 /// 节点 Tab。
 class NodesTab extends ConsumerStatefulWidget {
@@ -108,15 +109,9 @@ class _NodesTabState extends ConsumerState<NodesTab> {
           ),
         Expanded(
           child: ListView.builder(
-            padding: const EdgeInsets.fromLTRB(12, 4, 12, 24),
+            padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
             itemCount: view.groups.length,
-            itemBuilder: (context, i) {
-              final g = view.groups[i];
-              return _GroupSection(
-                summary: g,
-                child: adapter.groupView(ref, g.name),
-              );
-            },
+            itemBuilder: (context, i) => XbNodeGroup(group: view.groups[i]),
           ),
         ),
       ],
@@ -152,45 +147,6 @@ class _NodesHeader extends StatelessWidget {
           style: TextButton.styleFrom(foregroundColor: scheme.primary),
         ),
       ),
-    );
-  }
-}
-
-/// 单个分组区块：分组名（url-test 标「自动」R4.3）+ 复用的节点网格。
-class _GroupSection extends StatelessWidget {
-  const _GroupSection({required this.summary, required this.child});
-
-  final XbGroupSummary summary;
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(4, 12, 4, 6),
-          child: Row(
-            children: [
-              Text(
-                summary.name,
-                style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
-              ),
-              if (summary.isUrlTest) ...[
-                const SizedBox(width: 8),
-                const XbTag('自动'),
-              ],
-              const Spacer(),
-              Text(
-                '${summary.nodeCount} 个节点',
-                style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
-              ),
-            ],
-          ),
-        ),
-        child,
-      ],
     );
   }
 }
