@@ -13,11 +13,14 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:fl_clash/xboard/config/xboard_config.dart';
 import 'package:fl_clash/xboard/models/xb_domain_subscription.dart';
+import 'package:fl_clash/xboard/models/xb_result.dart';
 import 'package:fl_clash/xboard/pages/order_list_page.dart';
+import 'package:fl_clash/xboard/pages/plan_detail_page.dart';
 import 'package:fl_clash/xboard/pages/plan_list_page.dart';
 import 'package:fl_clash/xboard/pages/reset_traffic_page.dart';
 import 'package:fl_clash/xboard/providers/auth_state_provider.dart';
 import 'package:fl_clash/xboard/providers/user_profile_provider.dart';
+import 'package:fl_clash/xboard/providers/xboard_providers.dart';
 import 'package:fl_clash/xboard/util/app_version.dart';
 import 'package:fl_clash/xboard/widgets/xb_components.dart';
 import 'package:fl_clash/xboard/widgets/xb_theme.dart' show xbPush, XbTokens;
@@ -274,13 +277,13 @@ class _InfoRow extends StatelessWidget {
 }
 
 /// 续费/购买分流（R6.4/R6.5/R6.6）+ 流量重置入口（≥90%，R6.3）。
-class _PlanActions extends StatelessWidget {
+class _PlanActions extends ConsumerWidget {
   const _PlanActions({required this.sub});
 
   final XbDomainSubscription sub;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final usedPct = sub.totalBytes == 0
         ? 0.0
         : (sub.usedBytes / sub.totalBytes).clamp(0.0, 1.0);
@@ -298,7 +301,7 @@ class _PlanActions extends StatelessWidget {
               if (!sub.hasNoPlan)
                 Expanded(
                   child: FilledButton(
-                    onPressed: () => _openPlans(context),
+                    onPressed: () => _openRenew(context, ref),
                     style: FilledButton.styleFrom(
                       shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(15)),
@@ -337,6 +340,26 @@ class _PlanActions extends StatelessWidget {
   void _openPlans(BuildContext context) {
     xbPush(context, const PlanListPage(),
         brandColor: Color(XboardConfig.current.brandColor));
+  }
+
+  /// 续费当前套餐（R6.4，原型图13）：拉套餐列表 → 锁定当前 planId 的套餐 → 续费模式详情页。
+  /// 找不到当前套餐（已下架等）→ 回退到购买/更改套餐列表。
+  Future<void> _openRenew(BuildContext context, WidgetRef ref) async {
+    final brand = Color(XboardConfig.current.brandColor);
+    final result = await ref.read(xboardServiceProvider).getPlans();
+    if (!context.mounted) return;
+    final current = switch (result) {
+      XbSuccess(:final data) =>
+        data.where((p) => p.id == sub.planId).firstOrNull,
+      XbFailure() => null,
+    };
+    if (current != null) {
+      xbPush(context, PlanDetailPage(plan: current, renew: true),
+          brandColor: brand);
+    } else {
+      // 当前套餐查不到 → 退回购买/更改列表（不阻断续费意图）。
+      xbPush(context, const PlanListPage(), brandColor: brand);
+    }
   }
 
   void _openReset(BuildContext context, XbDomainSubscription sub) {

@@ -23,3 +23,17 @@ String orderStatusLabel(XbOrderStatus status) => switch (status) {
       XbOrderStatus.completed => '已完成',
       XbOrderStatus.discounted => '已抵扣',
     };
+
+/// 周期对应月数（续费折扣计算用：省 = 1 - 实付/(月单价×月数)）。
+/// 非按月周期（onetime/resetTraffic）返回 null（不参与折扣计算）。
+int? planPeriodMonths(XbPlanPeriod period) => switch (period) {
+      XbPlanPeriod.monthly => 1,
+      XbPlanPeriod.quarterly => 3,
+      XbPlanPeriod.halfYearly => 6,
+      XbPlanPeriod.yearly => 12,
+      XbPlanPeriod.twoYearly => 24,
+      XbPlanPeriod.threeYearly => 36,
+      XbPlanPeriod.onetime => null,
+      XbPlanPeriod.resetTraffic => null,
+    };
+

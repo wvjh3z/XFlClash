@@ -119,12 +119,15 @@ class _PlanOptCard extends StatelessWidget {
     final t = XbTokens.of(context);
     final scheme = Theme.of(context).colorScheme;
     final min = _minPeriodPrice;
-    // 特性摘要（原型 .ft）：HTML content 转纯文本取首行非空。
+    // 特性摘要（原型 .ft）：HTML content 转纯文本，取前 3 行非空（用 · 连接，显示更多套餐详情）。
     final feature = plan.description == null
         ? ''
         : htmlToPlainText(plan.description!)
             .split('\n')
-            .firstWhere((l) => l.trim().isNotEmpty, orElse: () => '');
+            .map((l) => l.trim())
+            .where((l) => l.isNotEmpty)
+            .take(3)
+            .join(' · ');
 
     return GestureDetector(
       onTap: onTap,
@@ -160,7 +163,7 @@ class _PlanOptCard extends StatelessWidget {
                   if (feature.isNotEmpty) ...[
                     const SizedBox(height: 5),
                     Text(feature,
-                        maxLines: 2,
+                        maxLines: 3,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
                             fontSize: 12, height: 1.5, color: t.onv)),

@@ -21,8 +21,12 @@ import 'order_payment_page.dart';
 import 'pending_order_section.dart';
 
 class PlanDetailPage extends ConsumerStatefulWidget {
-  const PlanDetailPage({super.key, required this.plan});
+  const PlanDetailPage({super.key, required this.plan, this.renew = false});
   final PlanItem plan;
+
+  /// 续费模式（原型图 13）：锁定当前套餐只选周期，标题/文案/按钮换续费语义,
+  /// 周期卡显示基于月付单价的折扣（套餐无月付则不显示折扣）。
+  final bool renew;
 
   @override
   ConsumerState<PlanDetailPage> createState() => _PlanDetailPageState();
@@ -37,6 +41,26 @@ class _PlanDetailPageState extends ConsumerState<PlanDetailPage> {
   bool _submitting = false;
 
   PlanItem get plan => widget.plan;
+
+  /// 月付单价（元）—— 续费折扣基数；套餐无月付则 null（不计算折扣）。
+  double? get _monthlyUnitPrice {
+    for (final p in plan.prices) {
+      if (p.period == XbPlanPeriod.monthly) return p.amountYuan;
+    }
+    return null;
+  }
+
+  /// 某周期相对月付的折扣百分比（省 N%）；无月付基数 / 非按月周期 / 无优惠 → null。
+  int? _discountPercent(PricePlan p) {
+    final monthly = _monthlyUnitPrice;
+    if (monthly == null || monthly <= 0) return null;
+    final months = planPeriodMonths(p.period);
+    if (months == null || months <= 1) return null; // 月付本身不标
+    final full = monthly * months;
+    if (full <= 0) return null;
+    final save = ((1 - p.amountYuan / full) * 100).round();
+    return save > 0 ? save : null;
+  }
 
   /// 可购买周期（排除流量重置包 resetTraffic —— 重置包只在账号卡按需购买，不在下单页选）。
   List<PricePlan> get _purchasablePrices => plan.prices
@@ -83,7 +107,7 @@ class _PlanDetailPageState extends ConsumerState<PlanDetailPage> {
 
   Widget _buildScaffold(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text(plan.name)),
+      appBar: AppBar(title: Text(widget.renew ? '续费当前套餐' : plan.name)),
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
         children: [
@@ -91,7 +115,8 @@ class _PlanDetailPageState extends ConsumerState<PlanDetailPage> {
           _headerCard(context),
           const SizedBox(height: 14),
           XbSectionCard(
-              title: '选择计费周期', child: _periodSection(context)),
+              title: widget.renew ? '选择续费时长' : '选择计费周期',
+              child: _periodSection(context)),
           const SizedBox(height: 14),
           XbSectionCard(title: '优惠码', child: _couponSection(context)),
           const SizedBox(height: 14),
@@ -100,7 +125,7 @@ class _PlanDetailPageState extends ConsumerState<PlanDetailPage> {
       ),
       bottomNavigationBar: XbBottomActionBar(
         secondaryLabel: '返回',
-        primaryLabel: '提交订单',
+        primaryLabel: widget.renew ? '确认续费' : '提交订单',
         primaryIcon: Icons.shopping_cart_checkout_rounded,
         primaryLoading: _submitting,
         onPrimary: _submitOrder,
@@ -108,9 +133,46 @@ class _PlanDetailPageState extends ConsumerState<PlanDetailPage> {
     );
   }
 
-  /// 头部卡（原型 .dcard：.dhd 名+GB角标 + .dhtml 详情）。
+  /// 头部卡：购买=套餐名+GB角标+HTML详情；续费=当前套餐条（锁定,只延期不改内容,原型图13）。
   Widget _headerCard(BuildContext context) {
     final t = XbTokens.of(context);
+    if (widget.renew) {
+      final scheme = Theme.of(context).colorScheme;
+      return XbCard(
+        child: Row(
+          children: [
+            Container(
+              width: 42,
+              height: 42,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: scheme.primary.withValues(alpha: 0.14),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Icon(Icons.confirmation_number_outlined,
+                  color: scheme.primary, size: 21),
+            ),
+            const SizedBox(width: 13),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text('${plan.name} · ${plan.transferEnableGb} GB',
+                      style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w800,
+                          color: t.on)),
+                  const SizedBox(height: 2),
+                  Text('续费不改变套餐内容，仅延长有效期',
+                      style: TextStyle(fontSize: 11, color: t.onv)),
+                ],
+              ),
+            ),
+          ],
+        ),
+      );
+    }
     final hasHtml = plan.description != null && plan.description!.isNotEmpty;
     return XbCard(
       child: Column(
@@ -171,8 +233,11 @@ class _PlanDetailPageState extends ConsumerState<PlanDetailPage> {
     final t = XbTokens.of(context);
     final scheme = Theme.of(context).colorScheme;
     final selected = p.period == _selected.period;
+    // 续费模式：基于月付单价算折扣「省 N%」（套餐无月付/无优惠则不显示）。
+    final savePct = widget.renew ? _discountPercent(p) : null;
     return XbSelectableOption(
       selected: selected,
+      tag: savePct != null ? '省 $savePct%' : null,
       onTap: () {
         setState(() {
           _selected = p;
