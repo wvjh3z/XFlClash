@@ -50,7 +50,7 @@ class XbTokens {
   static const Color conn = Color(0xFF10B981); // 已连接绿（连接球语义，备用）
 
   // —— 圆角（--rb / --rc + 组件专用）——
-  static const double rButton = 16; // .cta
+  static const double rButton = 15; // .cta（精致化：16→15，与原型对齐）
   static const double rField = 15; // .field / .go
   static const double rCard = 24; // --rc / .card
   static const double rCardSmall = 17; // .metric
@@ -60,7 +60,7 @@ class XbTokens {
 
   // —— 尺寸 ——
   static const double hButton = 54; // .go / .b
-  static const double hCta = 56; // .cta
+  static const double hCta = 54; // .cta（精致化：56→54，按钮规格统一）
 
   static const light = XbTokens(
     sf: Color(0xFFF5F6F8),
@@ -68,7 +68,7 @@ class XbTokens {
     card: Color(0xFFFFFFFF),
     sfc: Color(0xFFEEF0F4),
     on: Color(0xFF11141B),
-    onv: Color(0xFF6A7180),
+    onv: Color(0xFF565D6B), // 次要文字（精致化：6A7180→565D6B，白底对比度 ~4.6→~6:1）
     line: Color(0xFFE9ECF1),
     hair: Color(0xFFF0F2F5),
     shadow1: [
@@ -87,7 +87,7 @@ class XbTokens {
     card: Color(0xFF13161D),
     sfc: Color(0xFF171A22),
     on: Color(0xFFF1F3F8),
-    onv: Color(0xFF8990A2),
+    onv: Color(0xFF9BA3B5), // 次要文字（精致化：8990A2→9BA3B5，深底对比度提升）
     line: Color(0xFF23262F),
     hair: Color(0xFF1A1D25),
     shadow1: [
@@ -173,7 +173,7 @@ ThemeData buildXbTheme({required Color brandColor, required Brightness brightnes
   ).copyWith(
     headlineSmall: TextStyle(
         fontSize: 22, fontWeight: FontWeight.w800, letterSpacing: -0.3, color: t.on),
-    titleLarge: TextStyle(fontSize: 19, fontWeight: FontWeight.w800, color: t.on),
+    titleLarge: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, letterSpacing: -0.2, color: t.on),
     titleMedium: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: t.on),
     titleSmall: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w700, color: t.on),
     bodyMedium: TextStyle(fontSize: 14, color: t.on),
@@ -263,7 +263,7 @@ ThemeData buildXbTheme({required Color brandColor, required Brightness brightnes
       scrolledUnderElevation: 0,
       centerTitle: false,
       titleTextStyle: TextStyle(
-          color: t.on, fontSize: 19, fontWeight: FontWeight.w800, letterSpacing: -0.3),
+          color: t.on, fontSize: 20, fontWeight: FontWeight.w800, letterSpacing: -0.2),
     ),
     // 对话框（.dialog）：白面 + 圆角 + 不叠色。
     dialogTheme: DialogThemeData(

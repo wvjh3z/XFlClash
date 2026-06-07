@@ -235,7 +235,8 @@ class XbScreenTitle extends StatelessWidget {
 
 /// 标签徽章（原型 .tag / .gbtag / .ty）：小圆角彩底标签。
 class XbTag extends StatelessWidget {
-  const XbTag(this.text, {super.key, this.color, this.filled = false});
+  const XbTag(this.text,
+      {super.key, this.color, this.filled = false, this.elevated = false});
 
   final String text;
 
@@ -245,22 +246,39 @@ class XbTag extends StatelessWidget {
   /// true = 实心彩底白字；false = 淡彩底彩字。
   final bool filled;
 
+  /// true = 浮起态（实心 + 投影 + 字号微增）：用于浮在卡片角的「省 N%」折扣标签，
+  /// 让小号白字从底色上清晰浮起、不被裁切（原型 `.pcell .tag.save` 精致化）。
+  final bool elevated;
+
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final c = color ?? scheme.primary;
+    final solid = filled || elevated;
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
+      padding: EdgeInsets.symmetric(
+          horizontal: elevated ? 9 : 9, vertical: elevated ? 4 : 3),
       decoration: BoxDecoration(
-        color: filled ? c : c.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(8),
+        color: solid ? c : c.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(elevated ? 9 : 8),
+        boxShadow: elevated
+            ? [
+                BoxShadow(
+                  color: c.withValues(alpha: 0.45),
+                  blurRadius: 10,
+                  offset: const Offset(0, 4),
+                  spreadRadius: -3,
+                ),
+              ]
+            : null,
       ),
       child: Text(
         text,
         style: TextStyle(
-          fontSize: 11,
+          fontSize: elevated ? 11.5 : 11,
+          height: 1,
           fontWeight: FontWeight.w700,
-          color: filled ? Colors.white : c,
+          color: solid ? Colors.white : c,
         ),
       ),
     );
@@ -765,9 +783,9 @@ class XbSelectableOption extends StatelessWidget {
               children: [
                 option,
                 Positioned(
-                  top: -8,
-                  right: 15,
-                  child: XbTag(tag!, color: tagColor, filled: true),
+                  top: -9,
+                  right: 8,
+                  child: XbTag(tag!, color: tagColor, elevated: true),
                 ),
               ],
             ),
