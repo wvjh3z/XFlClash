@@ -21,21 +21,52 @@ import '../../adapters/xb_nodes_adapter.dart';
 import '../../sheets/sheet_scaffold.dart' show showXbBottomSheet;
 
 /// 自绘分组区块：分组名 + 类型标签(含「?」说明) + 测延迟按钮 + 节点行列表。
-class XbNodeGroup extends ConsumerWidget {
+class XbNodeGroup extends ConsumerStatefulWidget {
   const XbNodeGroup({super.key, required this.group});
 
   final XbGroupSummary group;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<XbNodeGroup> createState() => _XbNodeGroupState();
+}
+
+class _XbNodeGroupState extends ConsumerState<XbNodeGroup> {
+  /// 本组「测延迟」进行中（点测延迟 → true，本组全部节点拿到结果 → false）。
+  bool _testing = false;
+
+  XbGroupSummary get group => widget.group;
+
+  /// 测延迟：只测本组节点（不波及其它组）。await 完成后清测速态。
+  Future<void> _testGroup() async {
+    if (_testing) return;
+    setState(() => _testing = true);
+    try {
+      await ref.read(xbNodesAdapterProvider).testGroupDelay(ref, group.name);
+    } catch (_) {
+      // 永不抛。
+    }
+    if (mounted) setState(() => _testing = false);
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final t = XbTokens.of(context);
     final adapter = ref.watch(xbNodesAdapterProvider);
     final selected = adapter.selectedName(ref, group.name);
 
+    // 测速进度（N/M）：测速中时统计本组已拿到结果（delay 非 null 非 0）的节点数。
+    int tested = 0;
+    if (_testing) {
+      for (final n in group.nodes) {
+        final d = adapter.nodeDelay(ref, proxyName: n.name, testUrl: n.testUrl);
+        if (d != null && d != 0) tested++;
+      }
+    }
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // 分组头：名 + 类型标签（带 ? 说明）+ 测延迟。
+        // 分组头：名 + 类型标签（带 ? 说明）+ 测延迟（所有分组都可测）。
         Padding(
           padding: const EdgeInsets.fromLTRB(4, 14, 4, 9),
           child: Row(
@@ -53,12 +84,13 @@ class XbNodeGroup extends ConsumerWidget {
               ),
               const SizedBox(width: 8),
               _TypeChip(kind: group.kind),
-              if (group.isSelectable) ...[
-                const Spacer(),
-                _DelayTestButton(
-                  onTap: () => _testAll(ref),
-                ),
-              ],
+              const Spacer(),
+              _DelayTestButton(
+                testing: _testing,
+                tested: tested,
+                total: group.nodes.length,
+                onTap: _testGroup,
+              ),
             ],
           ),
         ),
@@ -81,16 +113,6 @@ class XbNodeGroup extends ConsumerWidget {
         ),
       ],
     );
-  }
-
-  Future<void> _testAll(WidgetRef ref) async {
-    final adapter = ref.read(xbNodesAdapterProvider);
-    for (final n in group.nodes) {
-      // fire-and-forget 批量触发（每节点独立测速，延迟着色自动更新）。
-      // ignore: discarded_futures
-      adapter.testNode(ref,
-          proxyName: n.name, type: n.type, testUrl: n.testUrl);
-    }
   }
 }
 
@@ -154,15 +176,41 @@ class _TypeChip extends StatelessWidget {
       };
 }
 
-/// 测延迟按钮（分组头右侧）。
+/// 测延迟按钮（分组头右侧）。测速中显示「测速中 N/M」+ 转圈。
 class _DelayTestButton extends StatelessWidget {
-  const _DelayTestButton({required this.onTap});
+  const _DelayTestButton({
+    required this.onTap,
+    this.testing = false,
+    this.tested = 0,
+    this.total = 0,
+  });
 
   final VoidCallback onTap;
+  final bool testing;
+  final int tested;
+  final int total;
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    if (testing) {
+      return TextButton.icon(
+        onPressed: null, // 测速中禁用。
+        icon: const SizedBox(
+          width: 13,
+          height: 13,
+          child: CircularProgressIndicator(strokeWidth: 2),
+        ),
+        label: Text('测速中 $tested/$total'),
+        style: TextButton.styleFrom(
+          foregroundColor: scheme.primary,
+          disabledForegroundColor: scheme.primary.withValues(alpha: 0.7),
+          padding: const EdgeInsets.symmetric(horizontal: 8),
+          minimumSize: Size.zero,
+          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        ),
+      );
+    }
     return TextButton.icon(
       onPressed: onTap,
       icon: const Icon(Icons.bolt, size: 16),

@@ -66,11 +66,11 @@ void main() {
     expect(find.text('自动'), findsNothing);
   });
 
-  testWidgets('load-balance：只读组不显示「测延迟」', (tester) async {
+  testWidgets('load-balance：只读组仍可测延迟（与能否手选无关）', (tester) async {
     await pump(tester, _group(XbGroupKind.loadBalance));
     expect(find.textContaining('load-balance'), findsOneWidget);
-    // 只读组（不可手选）不渲染测延迟按钮。
-    expect(find.text('测延迟'), findsNothing);
+    // 所有分组都可测延迟（看节点健康度），即便只读组。
+    expect(find.text('测延迟'), findsOneWidget);
   });
 
   testWidgets('点类型标签 ? → 弹分组类型说明 sheet', (tester) async {

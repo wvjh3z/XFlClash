@@ -158,6 +158,17 @@ class XbNodesAdapter {
   /// 延迟着色（复用 FlClash `utils.getDelayColor`，口径一致）。
   Color? delayColor(int? delay) => utils.getDelayColor(delay);
 
+  /// 测速本分组所有节点（点分组头「测延迟」触发，只测该组，不波及其它组）。
+  /// 复用 `delayTest`（批量竞速）；await 完成后各节点延迟着色经 delayProvider 自动更新。
+  Future<void> testGroupDelay(WidgetRef ref, String groupName) async {
+    final tabState = ref.read(proxiesTabStateProvider);
+    final group = tabState.groups.firstWhere(
+      (g) => g.name == groupName,
+      orElse: () => throw ArgumentError('group not found: $groupName'),
+    );
+    await proxies_common.delayTest(group.all, group.testUrl);
+  }
+
   /// 单节点测速（点击节点行延迟数字触发）。复用 `proxyDelayTest`。
   Future<void> testNode(
     WidgetRef ref, {
