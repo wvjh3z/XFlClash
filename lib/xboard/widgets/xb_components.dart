@@ -880,3 +880,131 @@ class XbErrorRetry extends StatelessWidget {
     );
   }
 }
+
+// ═══════════════════════════════ 说明弹窗（共用） ═══════════════════════════════
+
+/// 说明弹窗的单条解释项数据（原型 `.modeexp`：图标 + 标题 + 说明）。
+class XbInfoItem {
+  const XbInfoItem({required this.icon, required this.title, required this.desc});
+
+  final IconData icon;
+  final String title;
+  final String desc;
+}
+
+/// 通用说明底部 sheet（原型 modeInfoSheet / groupTypeInfoSheet 统一抽象）。
+///
+/// **统一**：标题**居中**（原型 `.sheet h3{text-align:center}`）+ 居中副标题 + 一组 `.modeexp`
+/// 解释卡（浅灰底 + 42 品牌淡底图标块）+ 品牌实心「知道了」。代理模式说明、线路分组类型说明
+/// 都用它，改一处全改、风格一致（不再各写一份导致标题对齐/按钮样式飘）。
+///
+/// 用法：`showXbInfoSheet(context, title: '代理模式说明', subtitle: '两种模式按需切换', items: [...])`
+class XbInfoSheet extends StatelessWidget {
+  const XbInfoSheet({
+    super.key,
+    required this.title,
+    required this.items,
+    this.subtitle,
+    this.confirmLabel = '知道了',
+  });
+
+  final String title;
+  final String? subtitle;
+  final List<XbInfoItem> items;
+  final String confirmLabel;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = XbTokens.of(context);
+    return SafeArea(
+      child: SingleChildScrollView(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 4, 20, 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // 标题居中（对齐原型 .sheet h3）。
+              Text(
+                title,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                    fontSize: 20, fontWeight: FontWeight.w700, color: t.on),
+              ),
+              if (subtitle != null) ...[
+                const SizedBox(height: 4),
+                Text(
+                  subtitle!,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 13.5, color: t.onv),
+                ),
+              ],
+              const SizedBox(height: 16),
+              for (var i = 0; i < items.length; i++) ...[
+                if (i > 0) const SizedBox(height: 11),
+                _XbInfoItemCard(item: items[i]),
+              ],
+              const SizedBox(height: 16),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: Text(confirmLabel),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 说明项卡（原型 `.modeexp`）：浅灰底 + 42×42 品牌淡底图标块 + 标题(w500) + 说明。
+class _XbInfoItemCard extends StatelessWidget {
+  const _XbInfoItemCard({required this.item});
+
+  final XbInfoItem item;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = XbTokens.of(context);
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.all(15),
+      decoration: BoxDecoration(
+        color: t.sfc,
+        borderRadius: BorderRadius.circular(XbTokens.rMd),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 42,
+            height: 42,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: scheme.primary.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(XbTokens.rMd),
+            ),
+            child: Icon(item.icon, size: 22, color: scheme.primary),
+          ),
+          const SizedBox(width: 13),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(item.title,
+                    style: TextStyle(
+                        fontSize: 15, fontWeight: FontWeight.w500, color: t.on)),
+                const SizedBox(height: 4),
+                Text(item.desc,
+                    style: TextStyle(fontSize: 12.5, height: 1.6, color: t.onv)),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}

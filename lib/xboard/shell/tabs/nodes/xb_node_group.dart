@@ -14,7 +14,8 @@ library;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import 'package:fl_clash/xboard/widgets/xb_components.dart' show XbTag;
+import 'package:fl_clash/xboard/widgets/xb_components.dart'
+    show XbTag, XbInfoSheet, XbInfoItem;
 import 'package:fl_clash/xboard/widgets/xb_theme.dart' show XbTokens;
 
 import '../../adapters/xb_nodes_adapter.dart';
@@ -390,74 +391,12 @@ class XbGroupTypeInfoSheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final t = XbTokens.of(context);
-    final scheme = Theme.of(context).colorScheme;
     final (icon, title, desc) = _entry(kind);
-    return SafeArea(
-      child: SingleChildScrollView(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(20, 4, 20, 20),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('线路分组类型说明',
-                  style: TextStyle(
-                      fontSize: 20, fontWeight: FontWeight.w700, color: t.on)),
-              const SizedBox(height: 4),
-              Text(title, style: TextStyle(fontSize: 13.5, color: t.onv)),
-              const SizedBox(height: 16),
-              Container(
-                padding: const EdgeInsets.all(15),
-                decoration: BoxDecoration(
-                  color: t.sfc,
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Container(
-                      width: 42,
-                      height: 42,
-                      alignment: Alignment.center,
-                      decoration: BoxDecoration(
-                        color: scheme.primary.withValues(alpha: 0.12),
-                        borderRadius: BorderRadius.circular(16),
-                      ),
-                      child: Icon(icon, size: 22, color: scheme.primary),
-                    ),
-                    const SizedBox(width: 13),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(title,
-                              style: TextStyle(
-                                  fontSize: 15,
-                                  fontWeight: FontWeight.w500,
-                                  color: t.on)),
-                          const SizedBox(height: 4),
-                          Text(desc,
-                              style: TextStyle(
-                                  fontSize: 12.5, height: 1.6, color: t.onv)),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 16),
-              SizedBox(
-                width: double.infinity,
-                child: FilledButton(
-                  onPressed: () => Navigator.of(context).pop(),
-                  child: const Text('知道了'),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
+    // 共用说明弹窗（标题居中 + modeexp 解释卡 + 品牌「知道了」，与代理模式说明同源）。
+    return XbInfoSheet(
+      title: '线路分组类型说明',
+      subtitle: title, // 副标题 = 该类型名（如 url-test）
+      items: [XbInfoItem(icon: icon, title: title, desc: desc)],
     );
   }
 }

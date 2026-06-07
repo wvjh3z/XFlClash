@@ -3,139 +3,37 @@
 /// 模式标题右侧 ⓘ 点击 → 底部 sheet：智能模式（国内直连 / 海外走 VPN，R3.4）+
 /// 全局模式（全走 VPN、国内 App 绕经海外体验差非必要不用，R3.5）。
 ///
-/// 纯 UI，无 provider 依赖。
+/// **共用组件**：标题居中 + modeexp 解释卡 + 品牌「知道了」全部由 [XbInfoSheet] 统一表达
+/// （与线路分组类型说明同源，改一处全改）。纯 UI，无 provider 依赖。
 library;
 
 import 'package:flutter/material.dart';
 
+import '../../../widgets/xb_components.dart' show XbInfoSheet, XbInfoItem;
 import '../../sheets/sheet_scaffold.dart' show showXbBottomSheet;
 
 /// 弹出模式说明底部 sheet（走统一入口 showXbBottomSheet：自动套品牌主题 + 白底，不逃逸主题）。
 Future<void> showModeInfoSheet(BuildContext context) {
   return showXbBottomSheet<void>(
     context: context,
-    builder: (context) => const _ModeInfoSheet(),
+    builder: (context) => const XbInfoSheet(
+      title: '代理模式说明',
+      subtitle: '两种模式按需切换',
+      items: [
+        XbInfoItem(
+          icon: Icons.bolt,
+          title: '智能模式',
+          desc: '自动识别流量去向：国内 App 与网站走直连、不经过 VPN，访问更快更省流量；'
+              '海外 App 与网站自动通过 VPN 加密访问。日常推荐。',
+        ),
+        XbInfoItem(
+          icon: Icons.public,
+          title: '全局模式',
+          desc: '所有流量都通过 VPN 加密传输，包括国内访问。该模式下中国 App 的流量也会'
+              '绕经海外，网络体验较差、延迟更高，非必要不建议使用。适合需要全程加密或'
+              '排查网络问题时临时开启。',
+        ),
+      ],
+    ),
   );
-}
-
-class _ModeInfoSheet extends StatelessWidget {
-  const _ModeInfoSheet();
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return SafeArea(
-      child: SingleChildScrollView(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(20, 4, 20, 20),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-            Text(
-              '代理模式说明',
-              style: TextStyle(
-                  fontSize: 20, fontWeight: FontWeight.w700, color: scheme.onSurface),
-            ),
-            const SizedBox(height: 2),
-            Text(
-              '两种模式按需切换',
-              style: Theme.of(context)
-                  .textTheme
-                  .bodySmall
-                  ?.copyWith(color: scheme.onSurfaceVariant),
-            ),
-            const SizedBox(height: 16),
-            _ModeExplain(
-              icon: Icons.bolt,
-              title: '智能模式',
-              desc: '自动识别流量去向：国内 App 与网站走直连、不经过 VPN，访问更快更省流量；'
-                  '海外 App 与网站自动通过 VPN 加密访问。日常推荐。',
-              scheme: scheme,
-            ),
-            const SizedBox(height: 12),
-            _ModeExplain(
-              icon: Icons.public,
-              title: '全局模式',
-              desc: '所有流量都通过 VPN 加密传输，包括国内访问。该模式下中国 App 的流量也会'
-                  '绕经海外，网络体验较差、延迟更高，非必要不建议使用。适合需要全程加密或'
-                  '排查网络问题时临时开启。',
-              scheme: scheme,
-            ),
-            const SizedBox(height: 16),
-            SizedBox(
-              width: double.infinity,
-              child: FilledButton(
-                onPressed: () => Navigator.of(context).pop(),
-                child: const Text('知道了'),
-              ),
-            ),
-          ],
-        ),
-        ),
-      ),
-    );
-  }
-}
-
-class _ModeExplain extends StatelessWidget {
-  const _ModeExplain({
-    required this.icon,
-    required this.title,
-    required this.desc,
-    required this.scheme,
-  });
-
-  final IconData icon;
-  final String title;
-  final String desc;
-  final ColorScheme scheme;
-
-  @override
-  Widget build(BuildContext context) {
-    // 原型 .modeexp：整行浅灰底卡（sfc）+ 42×42 品牌淡底图标块（填充图标）+ 标题/说明。
-    return Container(
-      padding: const EdgeInsets.all(15),
-      decoration: BoxDecoration(
-        color: scheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            width: 42,
-            height: 42,
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-              color: scheme.primary.withValues(alpha: 0.12),
-              borderRadius: BorderRadius.circular(16),
-            ),
-            child: Icon(icon, size: 22, color: scheme.primary),
-          ),
-          const SizedBox(width: 13),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w500),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  desc,
-                  style: TextStyle(
-                    fontSize: 12.5,
-                    height: 1.6,
-                    color: scheme.onSurfaceVariant,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
 }
