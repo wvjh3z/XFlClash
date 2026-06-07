@@ -6,15 +6,14 @@ library;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../widgets/xb_async_view.dart';
 import '../widgets/xb_components.dart';
 import '../widgets/xb_feedback.dart' show xbBrandColor;
 import '../widgets/xb_theme.dart' show xbPush, XbTokens;
 import '../models/order_summary.dart';
-import '../models/xb_domain_error.dart';
 import '../models/xb_domain_types.dart';
 import '../models/xb_result.dart';
 import '../providers/xboard_providers.dart';
-import '../util/error_text.dart';
 import '../util/format.dart';
 import '../util/period_label.dart';
 import '../widgets/xb_ui_kit.dart';
@@ -66,43 +65,37 @@ class _OrderListPageState extends ConsumerState<OrderListPage> {
         child: FutureBuilder<List<OrderSummary>>(
           future: _ordersFuture,
           builder: (context, snap) {
-            if (snap.connectionState != ConnectionState.done) {
-              if (_retrying) {
-                return ListView(
+            final done = snap.connectionState == ConnectionState.done;
+            return XbAsyncView(
+              loading: !done && !_retrying,
+              retrying: _retrying,
+              error: done ? snap.error : null,
+              errorFallback: '加载订单失败',
+              onRetry: _reload,
+              builder: (context) {
+                final orders = snap.data ?? const <OrderSummary>[];
+                if (orders.isEmpty) {
+                  return ListView(
+                    children: const [
+                      SizedBox(height: 120),
+                      Center(child: Text('暂无订单记录')),
+                    ],
+                  );
+                }
+                return ListView.separated(
                   padding: const EdgeInsets.all(16),
-                  children: const [XbSyncBanner(text: '正在刷新服务，请稍候…')],
+                  itemCount: orders.length,
+                  separatorBuilder: (_, _) => const SizedBox(height: 8),
+                  itemBuilder: (_, i) => _OrderTile(
+                    order: orders[i],
+                    onTap: () => xbPush(
+                      context,
+                      OrderPaymentPage(tradeNo: orders[i].tradeNo),
+                      brandColor: xbBrandColor(),
+                    ),
+                  ),
                 );
-              }
-              return const Center(child: CircularProgressIndicator());
-            }
-            if (snap.hasError) {
-              final err = snap.error;
-              final msg = err is XbDomainError
-                  ? resolveErrorText(err, fallback: '加载订单失败')
-                  : '加载订单失败';
-              return XbErrorRetry(message: msg, onRetry: _reload);
-            }
-            final orders = snap.data ?? const <OrderSummary>[];
-            if (orders.isEmpty) {
-              return ListView(
-                children: const [
-                  SizedBox(height: 120),
-                  Center(child: Text('暂无订单记录')),
-                ],
-              );
-            }
-            return ListView.separated(
-              padding: const EdgeInsets.all(16),
-              itemCount: orders.length,
-              separatorBuilder: (_, _) => const SizedBox(height: 8),
-              itemBuilder: (_, i) => _OrderTile(
-                order: orders[i],
-                onTap: () => xbPush(
-                  context,
-                  OrderPaymentPage(tradeNo: orders[i].tradeNo),
-                  brandColor: xbBrandColor(),
-                ),
-              ),
+              },
             );
           },
         ),

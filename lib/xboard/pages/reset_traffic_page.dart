@@ -8,6 +8,7 @@ library;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../widgets/xb_async_view.dart';
 import '../widgets/xb_components.dart';
 import '../widgets/xb_feedback.dart' show xbToast, xbBrandColor;
 import '../widgets/xb_theme.dart' show xbPush;
@@ -37,7 +38,7 @@ class ResetTrafficPage extends ConsumerStatefulWidget {
 class _ResetTrafficPageState extends ConsumerState<ResetTrafficPage> {
   PlanItem? _plan;
   PricePlan? _resetPrice; // 当前套餐的流量重置包价（period == resetTraffic）
-  String? _loadError; // 已解析的错误文案（resolveErrorText）
+  Object? _loadError; // 领域错误对象（交由 XbAsyncView 经 resolveErrorText 解析）
   bool _loading = true;
   bool _retrying = false; // 重试中 → 顶部「正在刷新服务」黄条
   bool _submitting = false;
@@ -81,7 +82,7 @@ class _ResetTrafficPageState extends ConsumerState<ResetTrafficPage> {
         });
       case XbFailure(:final error):
         setState(() {
-          _loadError = resolveErrorText(error, fallback: '加载失败');
+          _loadError = error;
           _loading = false;
           _retrying = false;
         });
@@ -93,23 +94,18 @@ class _ResetTrafficPageState extends ConsumerState<ResetTrafficPage> {
     return XbBrandScaffold(
       title: '购买流量重置包',
       bottomNavigationBar: _bottomBar(context),
-      body: _loading
-          ? (_retrying
-              ? ListView(
-                  padding: const EdgeInsets.all(16),
-                  children: const [XbSyncBanner(text: '正在刷新服务，请稍候…')],
-                )
-              : const Center(child: CircularProgressIndicator()))
-          : _loadError != null
-              ? _errorRetry()
-              : _resetPrice == null
-                  ? _unavailable(context)
-                  : _content(context, _plan!, _resetPrice!),
+      body: XbAsyncView(
+        loading: _loading && !_retrying,
+        retrying: _retrying,
+        error: _loadError,
+        errorFallback: '加载失败',
+        onRetry: () => _load(retry: true),
+        builder: (context) => _resetPrice == null
+            ? _unavailable(context)
+            : _content(context, _plan!, _resetPrice!),
+      ),
     );
   }
-
-  Widget _errorRetry() =>
-      XbErrorRetry(message: _loadError ?? '加载失败', onRetry: () => _load(retry: true));
 
   /// 当前套餐不提供单独的流量重置包（复用 XbEmptyState）。
   Widget _unavailable(BuildContext context) {

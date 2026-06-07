@@ -6,15 +6,14 @@ library;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../widgets/xb_async_view.dart';
 import '../widgets/xb_components.dart';
 import '../widgets/xb_feedback.dart' show xbBrandColor;
 import '../widgets/xb_theme.dart' show xbPush, XbTokens;
 import '../models/plan_item.dart';
-import '../models/xb_domain_error.dart';
 import '../models/xb_domain_types.dart';
 import '../models/xb_result.dart';
 import '../providers/xboard_providers.dart';
-import '../util/error_text.dart';
 import '../util/format.dart';
 import '../util/html_text.dart';
 import '../util/period_label.dart';
@@ -66,44 +65,34 @@ class _PlanListPageState extends ConsumerState<PlanListPage> {
       body: FutureBuilder<List<PlanItem>>(
         future: _plansFuture,
         builder: (context, snap) {
-          if (snap.connectionState != ConnectionState.done) {
-            // 重试中 → 顶部「正在刷新服务」黄条（复用 XbSyncBanner），让用户知道在后台切域名重拉；
-            // 首次加载 → 居中 spinner。
-            if (_retrying) {
-              return ListView(
-                padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
-                children: const [
-                  XbSyncBanner(text: '正在刷新服务，请稍候…'),
-                ],
-              );
-            }
-            return const Center(child: CircularProgressIndicator());
-          }
-          if (snap.hasError) {
-            final err = snap.error;
-            final msg = err is XbDomainError
-                ? resolveErrorText(err, fallback: '加载套餐失败')
-                : '加载套餐失败';
-            return XbErrorRetry(message: msg, onRetry: _reload);
-          }
-          final plans = snap.data ?? const <PlanItem>[];
-          if (plans.isEmpty) {
-            return const Center(child: Text('暂无可购买套餐'));
-          }
-          return ListView.builder(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
-            itemCount: plans.length + 2,
-            itemBuilder: (_, i) {
-              if (i == 0) return const PendingOrderSection();
-              if (i == 1) return const XbGroupLabel('选择套餐');
-              final plan = plans[i - 2];
-              return Padding(
-                padding: const EdgeInsets.only(bottom: 11),
-                child: _PlanOptCard(
-                  plan: plan,
-                  onTap: () => xbPush(context, PlanDetailPage(plan: plan),
-                      brandColor: xbBrandColor()),
-                ),
+          final done = snap.connectionState == ConnectionState.done;
+          return XbAsyncView(
+            loading: !done && !_retrying,
+            retrying: _retrying,
+            error: done ? snap.error : null,
+            errorFallback: '加载套餐失败',
+            onRetry: _reload,
+            builder: (context) {
+              final plans = snap.data ?? const <PlanItem>[];
+              if (plans.isEmpty) {
+                return const Center(child: Text('暂无可购买套餐'));
+              }
+              return ListView.builder(
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+                itemCount: plans.length + 2,
+                itemBuilder: (_, i) {
+                  if (i == 0) return const PendingOrderSection();
+                  if (i == 1) return const XbGroupLabel('选择套餐');
+                  final plan = plans[i - 2];
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 11),
+                    child: _PlanOptCard(
+                      plan: plan,
+                      onTap: () => xbPush(context, PlanDetailPage(plan: plan),
+                          brandColor: xbBrandColor()),
+                    ),
+                  );
+                },
               );
             },
           );

@@ -15,7 +15,6 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../models/checkout_outcome_ui.dart';
 import '../models/order_summary.dart';
-import '../models/xb_domain_error.dart';
 import '../models/xb_domain_types.dart';
 import '../models/xb_result.dart';
 import '../providers/xboard_providers.dart';
@@ -26,7 +25,7 @@ import '../util/period_label.dart';
 import '../widgets/xb_feedback.dart' show xbToast, xbConfirm, xbBrandColor;
 import '../widgets/xb_submit_guard.dart';
 import '../widgets/xb_theme.dart' show xbShowDialog, XbTokens;
-import '../widgets/xb_components.dart' show XbSyncBanner;
+import '../widgets/xb_async_view.dart';
 import '../widgets/xb_ui_kit.dart';
 
 /// 轮询间隔（pending/processing 时）。
@@ -169,43 +168,15 @@ class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage>
   Widget _buildScaffold(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('支付订单')),
-      body: _loading
-          ? (_retrying
-              ? ListView(
-                  padding: const EdgeInsets.all(16),
-                  children: const [XbSyncBanner(text: '正在刷新服务，请稍候…')],
-                )
-              : const Center(child: CircularProgressIndicator()))
-          : _loadError != null
-              ? _errorRetry()
-              : _detail == null
-                  ? const Center(child: Text('订单不存在'))
-                  : _content(context, _detail!),
-    );
-  }
-
-  Widget _errorRetry() {
-    final err = _loadError;
-    final msg = err is XbDomainError
-        ? resolveErrorText(err, fallback: '加载订单失败')
-        : '加载订单失败';
-    return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const Icon(Icons.cloud_off_rounded, size: 40),
-          const SizedBox(height: 8),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 24),
-            child: Text(msg, textAlign: TextAlign.center),
-          ),
-          const SizedBox(height: 12),
-          OutlinedButton.icon(
-            onPressed: () => _initialLoad(retry: true),
-            icon: const Icon(Icons.refresh_rounded, size: 18),
-            label: const Text('重试'),
-          ),
-        ],
+      body: XbAsyncView(
+        loading: _loading && !_retrying,
+        retrying: _retrying,
+        error: _loadError,
+        errorFallback: '加载订单失败',
+        onRetry: () => _initialLoad(retry: true),
+        builder: (context) => _detail == null
+            ? const Center(child: Text('订单不存在'))
+            : _content(context, _detail!),
       ),
     );
   }
