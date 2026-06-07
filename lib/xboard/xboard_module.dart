@@ -16,7 +16,7 @@ library;
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_xboard_sdk/flutter_xboard_sdk.dart'
-    show TokenStorage, XBoardSDK;
+    show HttpConfig, TokenStorage, XBoardSDK;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../providers/config.dart' show patchClashConfigProvider;
@@ -273,14 +273,22 @@ class XboardModule {
     // step 4：SDK initialize（用本地 endpoint 作初始 baseUrl，远端拉到后 W5 热替换）。
     // R4.4：API UA 伪装成真实浏览器（allowNonFlclashUa）—— 加密订阅走独立端点强制 ClashMeta、
     // 不看 UA，故 API UA 与订阅协议判定解耦，可自由伪装躲 GFW 浅层 UA 检测。
+    // 超时：显式 5s（SDK 默认 30s 偏长——域名被墙时单请求最坏 30s×3重试 + failover 太久）。
+    // 必须用 HttpConfig 主构造一并带上 UA + allowNonFlclashUa（传 httpConfig 会整体覆盖
+    // userAgent/allowNonFlclashUa 直参，不能只传超时否则丢 UA 伪装）。
     final instance = sdk ?? XBoardSDK.instance;
     await instance.initialize(
       apiEndpoint,
       panelType: 'xboard',
       customStorage: resolvedTokenStorage, // 生产 SecureStorage / 测试 fake；null → SDK 自带
       useMemoryStorage: resolvedTokenStorage == null && activeConfig.kIsTest,
-      userAgent: XboardUserAgent.current, // R4.4 浏览器 UA（按平台固定真实串）
-      allowNonFlclashUa: true, // R4.4 opt-out：解除 flclash 强校验（订阅协议已解耦）
+      httpConfig: HttpConfig(
+        userAgent: XboardUserAgent.current, // R4.4 浏览器 UA（按平台固定真实串）
+        allowNonFlclashUa: true, // R4.4 opt-out：解除 flclash 强校验（订阅协议已解耦）
+        connectTimeoutSeconds: 5, // 连接超时 5s（默认 30s 偏长）
+        receiveTimeoutSeconds: 5, // 接收超时 5s
+        sendTimeoutSeconds: 5, // 发送超时 5s
+      ),
       enableLogging: activeConfig.debug,
     );
 
