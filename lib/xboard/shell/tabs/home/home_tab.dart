@@ -12,6 +12,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:fl_clash/xboard/providers/auth_state_provider.dart';
 import 'package:fl_clash/xboard/providers/xboard_providers.dart';
 import 'package:fl_clash/xboard/widgets/xb_center_toast.dart';
+import 'package:fl_clash/xboard/widgets/xb_theme.dart' show XbTokens;
 
 import '../../adapters/xb_mode_adapter.dart';
 import '../../adapters/xb_nodes_adapter.dart';
@@ -86,19 +87,14 @@ class _HomeTabState extends ConsumerState<HomeTab> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // AppBar 标题「MyClient」（原型 abar，左对齐大标题）。
+            // AppBar 标题「MyClient」（原型 abar，左对齐大标题 24/w700，与节点/我的页一致）。
             Padding(
               padding: const EdgeInsets.fromLTRB(4, 8, 4, 14),
               child: Align(
                 alignment: Alignment.centerLeft,
                 child: Text(
                   'MyClient',
-                  style: TextStyle(
-                    fontSize: 22,
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: -0.3,
-                    color: scheme.onSurface,
-                  ),
+                  style: Theme.of(context).textTheme.headlineSmall,
                 ),
               ),
             ),
@@ -154,13 +150,13 @@ class _GuestBanner extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     return Material(
       color: Colors.transparent,
-      borderRadius: BorderRadius.circular(18),
+      borderRadius: BorderRadius.circular(XbTokens.rMd),
       child: InkWell(
         onTap: onTapLogin,
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(XbTokens.rMd),
         child: Ink(
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(18),
+            borderRadius: BorderRadius.circular(XbTokens.rMd),
             gradient: LinearGradient(
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
@@ -185,7 +181,7 @@ class _GuestBanner extends StatelessWidget {
                   width: 40,
                   height: 40,
                   decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(12),
+                    borderRadius: BorderRadius.circular(XbTokens.rMd),
                     gradient: LinearGradient(
                       begin: Alignment.topLeft,
                       end: Alignment.bottomRight,
@@ -211,7 +207,7 @@ class _GuestBanner extends StatelessWidget {
                         '登录解锁全部功能',
                         style: TextStyle(
                           fontSize: 14.5,
-                          fontWeight: FontWeight.w700,
+                          fontWeight: FontWeight.w500,
                           color: scheme.onSurface,
                         ),
                       ),
@@ -233,13 +229,13 @@ class _GuestBanner extends StatelessWidget {
                       const EdgeInsets.symmetric(horizontal: 17, vertical: 9),
                   decoration: BoxDecoration(
                     color: scheme.primary,
-                    borderRadius: BorderRadius.circular(11),
+                    borderRadius: BorderRadius.circular(XbTokens.rSm),
                   ),
                   child: Text(
                     '登录',
                     style: TextStyle(
                       fontSize: 13,
-                      fontWeight: FontWeight.w700,
+                      fontWeight: FontWeight.w600,
                       color: scheme.onPrimary,
                     ),
                   ),

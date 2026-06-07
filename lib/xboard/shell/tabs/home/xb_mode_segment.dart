@@ -59,7 +59,7 @@ class XbModeSegment extends ConsumerWidget {
             padding: const EdgeInsets.all(5),
             decoration: BoxDecoration(
               color: scheme.surfaceContainerHighest,
-              borderRadius: BorderRadius.circular(15),
+              borderRadius: BorderRadius.circular(16),
             ),
             child: Row(
               children: [
@@ -111,7 +111,7 @@ class _ModePill extends StatelessWidget {
           padding: const EdgeInsets.symmetric(vertical: 11),
           decoration: BoxDecoration(
             color: selected ? scheme.surfaceContainerLowest : Colors.transparent,
-            borderRadius: BorderRadius.circular(11),
+            borderRadius: BorderRadius.circular(10),
             boxShadow: selected
                 ? [
                     BoxShadow(
@@ -135,7 +135,7 @@ class _ModePill extends StatelessWidget {
                 label,
                 style: TextStyle(
                   fontSize: 13.5,
-                  fontWeight: FontWeight.w600,
+                  fontWeight: FontWeight.w500,
                   color: selected ? scheme.primary : scheme.onSurfaceVariant,
                 ),
               ),

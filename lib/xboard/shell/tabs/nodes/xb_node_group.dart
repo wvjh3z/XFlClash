@@ -434,7 +434,7 @@ class XbGroupTypeInfoSheet extends StatelessWidget {
                           Text(title,
                               style: TextStyle(
                                   fontSize: 15,
-                                  fontWeight: FontWeight.w700,
+                                  fontWeight: FontWeight.w500,
                                   color: t.on)),
                           const SizedBox(height: 4),
                           Text(desc,

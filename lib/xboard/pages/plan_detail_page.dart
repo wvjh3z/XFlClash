@@ -162,7 +162,7 @@ class _PlanDetailPageState extends ConsumerState<PlanDetailPage> {
                   Text('${plan.name} · ${plan.transferEnableGb} GB',
                       style: TextStyle(
                           fontSize: 14,
-                          fontWeight: FontWeight.w800,
+                          fontWeight: FontWeight.w500,
                           color: t.on)),
                   const SizedBox(height: 2),
                   Text('续费不改变套餐内容，仅延长有效期',
@@ -184,8 +184,8 @@ class _PlanDetailPageState extends ConsumerState<PlanDetailPage> {
               Expanded(
                 child: Text(plan.name,
                     style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w800,
+                        fontSize: 17,
+                        fontWeight: FontWeight.w700,
                         color: t.on)),
               ),
               const SizedBox(width: 8),
@@ -253,16 +253,16 @@ class _PlanDetailPageState extends ConsumerState<PlanDetailPage> {
           Text(planPeriodLabel(p.period),
               textAlign: TextAlign.center,
               style: TextStyle(
-                  fontSize: 14,
+                  fontSize: 13.5,
                   color: selected ? scheme.primary : t.on,
-                  fontWeight: FontWeight.w600)),
+                  fontWeight: FontWeight.w500)),
           const SizedBox(height: 4),
           Text('¥${p.amountYuan.toStringAsFixed(2)}',
               textAlign: TextAlign.center,
               style: TextStyle(
-                  fontSize: 19,
+                  fontSize: 18,
                   color: selected ? scheme.primary : t.on,
-                  fontWeight: FontWeight.w900)),
+                  fontWeight: FontWeight.w700)),
         ],
       ),
     );

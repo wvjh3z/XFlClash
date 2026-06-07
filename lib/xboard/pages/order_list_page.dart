@@ -115,9 +115,9 @@ class _OrderTile extends StatelessWidget {
     return Card(
       elevation: 0,
       color: scheme.surfaceContainerHigh,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       child: ListTile(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: Text(order.planName ?? '套餐订单',
             style: text.titleSmall?.copyWith(fontWeight: FontWeight.w600)),
         subtitle: Text(

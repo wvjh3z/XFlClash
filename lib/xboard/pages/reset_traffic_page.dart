@@ -151,8 +151,10 @@ class _ResetTrafficPageState extends ConsumerState<ResetTrafficPage> {
               ),
               const SizedBox(width: 12),
               Text('¥${reset.amountYuan.toStringAsFixed(2)}',
-                  style: text.titleLarge?.copyWith(
-                      color: scheme.primary, fontWeight: FontWeight.w800)),
+                  style: TextStyle(
+                      fontSize: 21,
+                      fontWeight: FontWeight.w700,
+                      color: scheme.primary)),
             ],
           ),
         ),

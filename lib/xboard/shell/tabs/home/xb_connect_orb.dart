@@ -325,7 +325,7 @@ class _OrbCore extends StatelessWidget {
             guestIdle ? '未登录' : _statusText(state),
             style: TextStyle(
               fontSize: 14,
-              fontWeight: FontWeight.w800,
+              fontWeight: FontWeight.w700,
               letterSpacing: 2,
               color: active ? scheme.primary : scheme.onSurface,
             ),

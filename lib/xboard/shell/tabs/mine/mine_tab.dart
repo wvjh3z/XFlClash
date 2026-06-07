@@ -104,7 +104,7 @@ class _AccountCard extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(24),
+        borderRadius: BorderRadius.circular(XbTokens.rLg),
         gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
@@ -150,7 +150,7 @@ class _AccountCard extends StatelessWidget {
                       sub.email,
                       style: const TextStyle(
                         fontSize: 16,
-                        fontWeight: FontWeight.w700,
+                        fontWeight: FontWeight.w600,
                         color: white,
                       ),
                       maxLines: 1,
@@ -180,8 +180,8 @@ class _AccountCard extends StatelessWidget {
               Text(
                 _gb(sub.usedBytes),
                 style: const TextStyle(
-                  fontSize: 30,
-                  fontWeight: FontWeight.w800,
+                  fontSize: 26,
+                  fontWeight: FontWeight.w700,
                   color: white,
                   fontFeatures: [FontFeature.tabularFigures()],
                 ),
@@ -191,7 +191,7 @@ class _AccountCard extends StatelessWidget {
                 '/ ${_gb(sub.totalBytes)} GB',
                 style: TextStyle(
                   fontSize: 15,
-                  fontWeight: FontWeight.w600,
+                  fontWeight: FontWeight.w500,
                   color: white70,
                 ),
               ),
@@ -304,7 +304,7 @@ class _PlanActions extends ConsumerWidget {
                     onPressed: () => _openRenew(context, ref),
                     style: FilledButton.styleFrom(
                       shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(15)),
+                          borderRadius: BorderRadius.circular(XbTokens.rButton)),
                     ),
                     child: const Text('续费当前套餐'),
                   ),
@@ -319,7 +319,7 @@ class _PlanActions extends ConsumerWidget {
                     side: BorderSide(
                         color: scheme.primary.withValues(alpha: 0.4), width: 1.6),
                     shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(15)),
+                        borderRadius: BorderRadius.circular(XbTokens.rButton)),
                   ),
                   child: Text(sub.hasNoPlan ? '购买套餐' : '购买 / 更改套餐'),
                 ),
@@ -386,14 +386,14 @@ class _ResetCard extends StatelessWidget {
     final cardBg = Color.alphaBlend(warn.withValues(alpha: 0.10), scheme.surfaceContainerLowest);
     return Material(
       color: cardBg,
-      borderRadius: BorderRadius.circular(18),
+      borderRadius: BorderRadius.circular(XbTokens.rMd),
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(XbTokens.rMd),
         child: Container(
           padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(18),
+            borderRadius: BorderRadius.circular(XbTokens.rMd),
             border: Border.all(color: warn.withValues(alpha: 0.32)),
           ),
           child: Row(
@@ -409,7 +409,7 @@ class _ResetCard extends StatelessWidget {
                       '流量即将用尽（已用 $pctInt%）',
                       style: TextStyle(
                         fontSize: 13.5,
-                        fontWeight: FontWeight.w700,
+                        fontWeight: FontWeight.w600,
                         color: scheme.onSurface,
                       ),
                     ),
@@ -430,13 +430,13 @@ class _ResetCard extends StatelessWidget {
                 padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 9),
                 decoration: BoxDecoration(
                   color: warn,
-                  borderRadius: BorderRadius.circular(11),
+                  borderRadius: BorderRadius.circular(XbTokens.rSm),
                 ),
                 child: const Text(
                   '流量重置',
                   style: TextStyle(
                     fontSize: 12.5,
-                    fontWeight: FontWeight.w700,
+                    fontWeight: FontWeight.w600,
                     color: Colors.white,
                   ),
                 ),
@@ -532,7 +532,7 @@ class _DisabledPlanActions extends StatelessWidget {
                 onPressed: null,
                 style: FilledButton.styleFrom(
                   shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(15)),
+                      borderRadius: BorderRadius.circular(XbTokens.rButton)),
                 ),
                 child: const Text('续费当前套餐'),
               ),
@@ -546,7 +546,7 @@ class _DisabledPlanActions extends StatelessWidget {
                   side: BorderSide(
                       color: scheme.primary.withValues(alpha: 0.4), width: 1.6),
                   shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(15)),
+                      borderRadius: BorderRadius.circular(XbTokens.rButton)),
                 ),
                 child: const Text('购买 / 更改套餐'),
               ),
@@ -599,7 +599,7 @@ class _GuestCard extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(21),
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(24),
+        borderRadius: BorderRadius.circular(XbTokens.rLg),
         // 原型 mineGuest 灰渐变（#8a909e → #5a606e）。
         gradient: const LinearGradient(
           begin: Alignment.topLeft,
@@ -641,7 +641,7 @@ class _GuestCard extends StatelessWidget {
                     const Text('未登录',
                         style: TextStyle(
                             fontSize: 16,
-                            fontWeight: FontWeight.w700,
+                            fontWeight: FontWeight.w600,
                             color: Colors.white)),
                     const SizedBox(height: 2),
                     Text('登录后同步专属节点与套餐',

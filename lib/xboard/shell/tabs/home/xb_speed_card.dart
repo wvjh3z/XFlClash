@@ -73,7 +73,7 @@ class _Metric extends StatelessWidget {
       padding: const EdgeInsets.symmetric(vertical: 13, horizontal: 6),
       decoration: BoxDecoration(
         color: scheme.surfaceContainerLowest,
-        borderRadius: BorderRadius.circular(17),
+        borderRadius: BorderRadius.circular(16),
         border: Border.all(color: scheme.outlineVariant.withValues(alpha: 0.5)),
         boxShadow: [
           BoxShadow(
@@ -90,7 +90,7 @@ class _Metric extends StatelessWidget {
             value,
             style: TextStyle(
               fontSize: 21,
-              fontWeight: FontWeight.w800,
+              fontWeight: FontWeight.w700,
               // 上传不标绿（R2.7）：统一 onSurface；等宽数字（R8.4）。
               color: scheme.onSurface,
               fontFeatures: const [FontFeature.tabularFigures()],
@@ -101,7 +101,7 @@ class _Metric extends StatelessWidget {
             label,
             style: TextStyle(
               fontSize: 11,
-              fontWeight: FontWeight.w600,
+              fontWeight: FontWeight.w500,
               color: scheme.onSurfaceVariant,
             ),
           ),

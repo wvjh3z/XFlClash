@@ -40,7 +40,7 @@ class XbLineCard extends ConsumerWidget {
       color: scheme.surfaceContainerLow,
       child: InkWell(
         onTap: onTapToNodes,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(16),
         child: Padding(
           padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
           child: Row(
@@ -55,7 +55,7 @@ class XbLineCard extends ConsumerWidget {
                       title,
                       style: const TextStyle(
                         fontSize: 15,
-                        fontWeight: FontWeight.w600,
+                        fontWeight: FontWeight.w500,
                       ),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,

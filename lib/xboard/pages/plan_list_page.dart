@@ -136,7 +136,7 @@ class _PlanOptCard extends StatelessWidget {
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
           color: t.card,
-          borderRadius: BorderRadius.circular(17),
+          borderRadius: BorderRadius.circular(XbTokens.rMd),
           border: Border.all(color: t.line, width: 1.6),
         ),
         child: Row(

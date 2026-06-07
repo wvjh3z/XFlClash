@@ -34,7 +34,8 @@ class _ModeInfoSheet extends StatelessWidget {
             children: [
             Text(
               '代理模式说明',
-              style: Theme.of(context).textTheme.titleLarge,
+              style: TextStyle(
+                  fontSize: 20, fontWeight: FontWeight.w700, color: scheme.onSurface),
             ),
             const SizedBox(height: 2),
             Text(
@@ -111,7 +112,7 @@ class _ModeExplain extends StatelessWidget {
             children: [
               Text(
                 title,
-                style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
+                style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w500),
               ),
               const SizedBox(height: 4),
               Text(
