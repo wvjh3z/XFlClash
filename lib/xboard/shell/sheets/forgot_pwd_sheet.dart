@@ -78,7 +78,12 @@ class _ForgotPwdSheetState extends ConsumerState<ForgotPwdSheet> {
     final result = await ref.read(xboardServiceProvider).sendEmailVerifyCode(email);
     if (!mounted) return;
     if (result is XbFailure) {
-      setState(() => _banner = resolveErrorText((result as XbFailure).error, fallback: '发送失败，请重试'));
+      // 发送失败 → 重置冷却（让用户可立即重发，不被无谓锁 60s）。
+      _timer?.cancel();
+      setState(() {
+        _cooldown = 0;
+        _banner = resolveErrorText((result as XbFailure).error, fallback: '发送失败，请重试');
+      });
     }
   }
 
@@ -105,8 +110,10 @@ class _ForgotPwdSheetState extends ConsumerState<ForgotPwdSheet> {
     setState(() => _inFlight = false);
     switch (result) {
       case XbSuccess():
+        // 先抓根 messenger 引用再 pop（pop 后本 sheet context 失效，直接用会丢 toast）。
+        final messenger = ScaffoldMessenger.of(context);
         Navigator.of(context).pop();
-        ScaffoldMessenger.of(context).showSnackBar(
+        messenger.showSnackBar(
           const SnackBar(content: Text('密码已重置，请用新密码登录')),
         );
       case XbFailure(:final error):

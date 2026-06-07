@@ -81,7 +81,12 @@ class _RegisterSheetState extends ConsumerState<RegisterSheet> {
     final result = await ref.read(xboardServiceProvider).sendEmailVerifyCode(email);
     if (!mounted) return;
     if (result is XbFailure) {
-      setState(() => _banner = resolveErrorText((result as XbFailure).error, fallback: '发送失败，请重试'));
+      // 发送失败 → 重置冷却（让用户可立即重发，不被无谓锁 60s）。
+      _timer?.cancel();
+      setState(() {
+        _cooldown = 0;
+        _banner = resolveErrorText((result as XbFailure).error, fallback: '发送失败，请重试');
+      });
     }
   }
 

@@ -41,6 +41,7 @@ class OrderPaymentPage extends ConsumerStatefulWidget {
 class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage> {
   OrderDetail? _detail;
   List<PaymentMethodItem> _methods = const [];
+  bool _methodsError = false; // 支付方式加载失败 → 支付方式区显示重试块
   String? _selectedMethodId;
   Object? _loadError;
   bool _loading = true;
@@ -72,16 +73,23 @@ class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage> {
         XbSuccess(:final data) => data,
         XbFailure(:final error) => throw error, // 抛领域错误，_errorRetry 还原文案
       };
-      // 支付方式（仅 pending 需要；失败不阻塞）。
+      // 支付方式（仅 pending 需要）。失败不阻塞整页（订单信息仍可看），但记录失败态 → 支付方式区显示重试。
       var methods = const <PaymentMethodItem>[];
+      var methodsError = false;
       if (detail != null && detail.summary.status == XbOrderStatus.pending) {
         final mRes = await service.getPaymentMethods();
-        if (mRes case XbSuccess(:final data)) methods = data;
+        switch (mRes) {
+          case XbSuccess(:final data):
+            methods = data;
+          case XbFailure():
+            methodsError = true;
+        }
       }
       if (!mounted) return;
       setState(() {
         _detail = detail;
         _methods = methods;
+        _methodsError = methodsError;
         _selectedMethodId = methods.isNotEmpty ? methods.first.id : null;
         _loading = false;
         _retrying = false;
@@ -95,6 +103,24 @@ class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage> {
         _retrying = false;
       });
     }
+  }
+
+  /// 仅重拉支付方式（支付方式加载失败重试，#11）：不重载整页订单，只补支付方式区。
+  Future<void> _reloadMethods() async {
+    setState(() => _busy = true);
+    final mRes = await ref.read(xboardServiceProvider).getPaymentMethods();
+    if (!mounted) return;
+    setState(() {
+      switch (mRes) {
+        case XbSuccess(:final data):
+          _methods = data;
+          _methodsError = false;
+          _selectedMethodId = data.isNotEmpty ? data.first.id : null;
+        case XbFailure():
+          _methodsError = true;
+      }
+      _busy = false;
+    });
   }
 
   /// 静默刷新（轮询 / 检测支付状态用，不显示全屏 loading）。
@@ -226,13 +252,38 @@ class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage> {
   }
 
   Widget _paymentMethods(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    // 加载失败 → 小重试块（替代「暂无支付方式」死胡同，原型 17b）。仅重拉支付方式，不动订单。
+    if (_methodsError) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 14),
+        child: Column(
+          children: [
+            Text('支付方式加载失败',
+                style: TextStyle(fontSize: 13, color: scheme.onSurfaceVariant)),
+            const SizedBox(height: 8),
+            OutlinedButton.icon(
+              onPressed: _busy ? null : _reloadMethods,
+              icon: const Icon(Icons.refresh_rounded, size: 16),
+              label: const Text('重新加载'),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: scheme.primary,
+                side: BorderSide(
+                    color: scheme.primary.withValues(alpha: 0.40), width: 1.6),
+                minimumSize: const Size(0, 38),
+                padding: const EdgeInsets.symmetric(horizontal: 18),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
     if (_methods.isEmpty) {
       return const Padding(
         padding: EdgeInsets.symmetric(vertical: 8),
         child: Text('暂无可用支付方式'),
       );
     }
-    final scheme = Theme.of(context).colorScheme;
     final text = Theme.of(context).textTheme;
     return Column(
       children: _methods.map((m) {

@@ -23,7 +23,7 @@ import 'package:fl_clash/xboard/providers/user_profile_provider.dart';
 import 'package:fl_clash/xboard/providers/xboard_providers.dart';
 import 'package:fl_clash/xboard/util/app_version.dart';
 import 'package:fl_clash/xboard/widgets/xb_components.dart';
-import 'package:fl_clash/xboard/widgets/xb_theme.dart' show xbPush, XbTokens;
+import 'package:fl_clash/xboard/widgets/xb_theme.dart' show xbPush, xbShowDialog, XbTokens;
 
 import 'xb_settings_page.dart';
 
@@ -724,6 +724,44 @@ class _SettingsSection extends ConsumerWidget {
 
   final bool isGuest;
 
+  /// 退出登录二次确认（破坏性操作，原型 15b）：destructive 红确认键。确认后执行登出编排
+  /// （清 token/profile + 服务端撤销，永不抛）+ 全程 loading 遮罩（编排有网络耗时，避免无反馈）。
+  Future<void> _confirmLogout(BuildContext context, WidgetRef ref) async {
+    final brand = Color(XboardConfig.current.brandColor);
+    final ok = await xbShowDialog<bool>(
+      context: context,
+      brandColor: brand,
+      builder: (ctx) => AlertDialog(
+        title: const Text('退出登录'),
+        content: const Text('退出后需重新登录才能连接和管理套餐，确定退出吗？'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            style: FilledButton.styleFrom(backgroundColor: XbTokens.bad),
+            child: const Text('退出登录'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !context.mounted) return;
+    // 登出编排有网络耗时（服务端撤销 token）→ 弹不可关闭 loading，完成后自动消失（切游客态重建树）。
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const Center(child: CircularProgressIndicator()),
+    );
+    try {
+      await ref.read(authStateProvider.notifier).logout();
+    } finally {
+      // logout 永不抛；切到游客态后关掉 loading（用根 navigator pop 掉 loading dialog）。
+      if (context.mounted) Navigator.of(context, rootNavigator: true).pop();
+    }
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     return Column(
@@ -763,8 +801,8 @@ class _SettingsSection extends ConsumerWidget {
                 label: '退出登录',
                 danger: true,
                 showChevron: false,
-                // ◇ 复用形态 B 登出编排（R6.11）。
-                onTap: () => ref.read(authStateProvider.notifier).logout(),
+                // 破坏性操作二次确认（与「取消订单」一致），确认后执行登出（◇ 复用形态 B 编排，R6.11）。
+                onTap: () => _confirmLogout(context, ref),
               ),
           ],
         ),
