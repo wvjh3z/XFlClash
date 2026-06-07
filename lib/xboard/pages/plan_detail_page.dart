@@ -233,8 +233,8 @@ class _PlanDetailPageState extends ConsumerState<PlanDetailPage> {
     final t = XbTokens.of(context);
     final scheme = Theme.of(context).colorScheme;
     final selected = p.period == _selected.period;
-    // 续费模式：基于月付单价算折扣「省 N%」（套餐无月付/无优惠则不显示）。
-    final savePct = widget.renew ? _discountPercent(p) : null;
+    // 基于月付单价算折扣「省 N%」（套餐无月付/无优惠则不显示）；购买、续费两模式都显示。
+    final savePct = _discountPercent(p);
     return XbSelectableOption(
       selected: selected,
       tag: savePct != null ? '省 $savePct%' : null,
