@@ -24,6 +24,7 @@ import '../util/error_text.dart';
 import '../util/format.dart';
 import '../util/period_label.dart';
 import '../widgets/xb_feedback.dart' show xbToast, xbConfirm, xbBrandColor;
+import '../widgets/xb_submit_guard.dart';
 import '../widgets/xb_theme.dart' show xbShowDialog, XbTokens;
 import '../widgets/xb_components.dart' show XbSyncBanner;
 import '../widgets/xb_ui_kit.dart';
@@ -39,7 +40,8 @@ class OrderPaymentPage extends ConsumerStatefulWidget {
   ConsumerState<OrderPaymentPage> createState() => _OrderPaymentPageState();
 }
 
-class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage> {
+class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage>
+    with XbSubmitGuard<OrderPaymentPage> {
   OrderDetail? _detail;
   List<PaymentMethodItem> _methods = const [];
   bool _methodsError = false; // 支付方式加载失败 → 支付方式区显示重试块
@@ -47,7 +49,6 @@ class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage> {
   Object? _loadError;
   bool _loading = true;
   bool _retrying = false; // 重试中 → 顶部「正在刷新服务」黄条
-  bool _busy = false; // 支付/取消进行中
   Timer? _pollTimer;
 
   @override
@@ -108,19 +109,19 @@ class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage> {
 
   /// 仅重拉支付方式（支付方式加载失败重试，#11）：不重载整页订单，只补支付方式区。
   Future<void> _reloadMethods() async {
-    setState(() => _busy = true);
-    final mRes = await ref.read(xboardServiceProvider).getPaymentMethods();
-    if (!mounted) return;
-    setState(() {
-      switch (mRes) {
-        case XbSuccess(:final data):
-          _methods = data;
-          _methodsError = false;
-          _selectedMethodId = data.isNotEmpty ? data.first.id : null;
-        case XbFailure():
-          _methodsError = true;
-      }
-      _busy = false;
+    await runSubmit(() async {
+      final mRes = await ref.read(xboardServiceProvider).getPaymentMethods();
+      if (!mounted) return;
+      setState(() {
+        switch (mRes) {
+          case XbSuccess(:final data):
+            _methods = data;
+            _methodsError = false;
+            _selectedMethodId = data.isNotEmpty ? data.first.id : null;
+          case XbFailure():
+            _methodsError = true;
+        }
+      });
     });
   }
 
@@ -264,7 +265,7 @@ class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage> {
                 style: TextStyle(fontSize: 13, color: scheme.onSurfaceVariant)),
             const SizedBox(height: 8),
             OutlinedButton.icon(
-              onPressed: _busy ? null : _reloadMethods,
+              onPressed: submitting ? null : _reloadMethods,
               icon: const Icon(Icons.refresh_rounded, size: 16),
               label: const Text('重新加载'),
               style: OutlinedButton.styleFrom(
@@ -297,7 +298,7 @@ class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage> {
         return Padding(
           padding: const EdgeInsets.only(bottom: 8),
           child: InkWell(
-            onTap: _busy ? null : () => setState(() => _selectedMethodId = m.id),
+            onTap: submitting ? null : () => setState(() => _selectedMethodId = m.id),
             borderRadius: BorderRadius.circular(12),
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
@@ -349,8 +350,8 @@ class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage> {
     return Column(
       children: [
         FilledButton.icon(
-          onPressed: _busy ? null : _pay,
-          icon: _busy
+          onPressed: submitting ? null : _pay,
+          icon: submitting
               ? const SizedBox(
                   width: 18,
                   height: 18,
@@ -365,7 +366,7 @@ class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage> {
         ),
         const SizedBox(height: 10),
         OutlinedButton.icon(
-          onPressed: _busy ? null : _cancel,
+          onPressed: submitting ? null : _cancel,
           icon: const Icon(Icons.close_rounded, size: 18),
           style: OutlinedButton.styleFrom(
               minimumSize: const Size.fromHeight(XbTokens.hButton)),
@@ -373,7 +374,7 @@ class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage> {
         ),
         const SizedBox(height: 4),
         TextButton.icon(
-          onPressed: _busy ? null : _refreshStatus,
+          onPressed: submitting ? null : _refreshStatus,
           icon: const Icon(Icons.refresh_rounded, size: 18),
           label: const Text('检测支付状态'),
         ),
@@ -383,8 +384,7 @@ class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage> {
 
   Future<void> _pay() async {
     final method = _selectedMethodId ?? '';
-    setState(() => _busy = true);
-    try {
+    await runSubmit(() async {
       final result =
           await ref.read(xboardServiceProvider).checkout(widget.tradeNo, method);
       if (result case XbFailure(:final error)) {
@@ -393,9 +393,7 @@ class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage> {
       }
       if (!mounted) return;
       await _handleOutcome((result as XbSuccess<CheckoutOutcomeUi>).data);
-    } finally {
-      if (mounted) setState(() => _busy = false);
-    }
+    });
   }
 
   Future<void> _handleOutcome(CheckoutOutcomeUi outcome) async {
@@ -457,8 +455,7 @@ class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage> {
       destructive: true,
     );
     if (!confirm) return;
-    setState(() => _busy = true);
-    try {
+    await runSubmit(() async {
       final result =
           await ref.read(xboardServiceProvider).cancelOrder(widget.tradeNo);
       switch (result) {
@@ -468,9 +465,7 @@ class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage> {
         case XbFailure(:final error):
           _toast('取消失败：${resolveErrorText(error, fallback: '请稍后重试')}');
       }
-    } finally {
-      if (mounted) setState(() => _busy = false);
-    }
+    });
   }
 
   // ── helpers ──

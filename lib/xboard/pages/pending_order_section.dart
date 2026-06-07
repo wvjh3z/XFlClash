@@ -18,7 +18,9 @@ import '../util/error_text.dart';
 import '../util/period_label.dart';
 import '../widgets/xb_components.dart';
 import '../widgets/xb_feedback.dart' show xbToast, xbConfirm, xbBrandColor;
+import '../widgets/xb_submit_guard.dart';
 import '../widgets/xb_theme.dart' show xbPush;
+import '../util/format.dart';
 import 'order_payment_page.dart';
 
 class PendingOrderSection extends ConsumerStatefulWidget {
@@ -29,8 +31,8 @@ class PendingOrderSection extends ConsumerStatefulWidget {
       _PendingOrderSectionState();
 }
 
-class _PendingOrderSectionState extends ConsumerState<PendingOrderSection> {
-  bool _cancelling = false;
+class _PendingOrderSectionState extends ConsumerState<PendingOrderSection>
+    with XbSubmitGuard<PendingOrderSection> {
   // 已取消的订单号（乐观隐藏：取消成功后立即不再显示该单，不等后端重查落定）。
   final Set<String> _cancelledTradeNos = {};
 
@@ -57,8 +59,8 @@ class _PendingOrderSectionState extends ConsumerState<PendingOrderSection> {
       padding: const EdgeInsets.only(bottom: 15),
       child: XbPendingOrderBanner(
         subtitle: _subtitle(order),
-        amountText: '¥${order.totalAmountYuan.toStringAsFixed(2)}',
-        cancelling: _cancelling,
+        amountText: xbYuan(order.totalAmountYuan),
+        cancelling: submitting,
         onPay: () => _pay(order),
         onCancel: () => _confirmCancel(order),
       ),
@@ -94,8 +96,7 @@ class _PendingOrderSectionState extends ConsumerState<PendingOrderSection> {
   }
 
   Future<void> _doCancel(OrderSummary o) async {
-    setState(() => _cancelling = true);
-    try {
+    await runSubmit(() async {
       final result =
           await ref.read(xboardServiceProvider).cancelOrder(o.tradeNo);
       if (!mounted) return;
@@ -107,9 +108,7 @@ class _PendingOrderSectionState extends ConsumerState<PendingOrderSection> {
         case XbFailure(:final error):
           _toast('取消失败：${resolveErrorText(error, fallback: '请稍后重试')}');
       }
-    } finally {
-      if (mounted) setState(() => _cancelling = false);
-    }
+    });
   }
 
   void _toast(String msg) {
