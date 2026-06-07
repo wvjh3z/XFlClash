@@ -6,6 +6,7 @@
 ///
 /// 分组（对齐原型 settings()）：
 ///   设置：语言 / 主题 / 备份与恢复 / 访问控制(仅 Android) / 基础配置 / 高级配置 / 应用设置
+///   数据与诊断：请求 / 连接 / 资源（复用 FlClash 工具页 RequestsView/ConnectionsView/ResourcesView）
 ///   其他：免责声明 / 关于
 library;
 
@@ -86,6 +87,30 @@ class XbSettingsPage extends ConsumerWidget {
                 label: '应用设置',
                 subtitle: '开机自启 / 托盘 / 日志 / 更新 等',
                 onTap: () => adapter.openApplicationSetting(context),
+              ),
+            ],
+          ),
+          // ── 数据与诊断组（复用 FlClash 工具页的 请求 / 连接 / 资源）──
+          const XbGroupLabel('数据与诊断'),
+          XbListCard(
+            rows: [
+              XbListRow(
+                icon: Icons.swap_vert,
+                label: '请求',
+                subtitle: '实时流量请求记录',
+                onTap: () => adapter.openRequests(context),
+              ),
+              XbListRow(
+                icon: Icons.hub_outlined,
+                label: '连接',
+                subtitle: '当前活动连接',
+                onTap: () => adapter.openConnections(context),
+              ),
+              XbListRow(
+                icon: Icons.dataset_outlined,
+                label: '资源',
+                subtitle: 'GEOIP / GEOSITE / MMDB / ASN 数据',
+                onTap: () => adapter.openResources(context),
               ),
             ],
           ),
