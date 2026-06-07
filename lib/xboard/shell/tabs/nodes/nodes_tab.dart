@@ -14,6 +14,7 @@ import 'package:fl_clash/xboard/providers/auth_state_provider.dart';
 import 'package:fl_clash/xboard/providers/xboard_providers.dart';
 import 'package:fl_clash/xboard/services/xboard_subscription_service.dart';
 import 'package:fl_clash/xboard/widgets/xb_components.dart';
+import 'package:fl_clash/xboard/widgets/xb_feedback.dart' show xbToast;
 import 'package:fl_clash/xboard/widgets/xb_theme.dart' show XbTokens;
 
 import '../../adapters/xb_nodes_adapter.dart';
@@ -62,8 +63,7 @@ class _NodesTabState extends ConsumerState<NodesTab> {
         XbSyncOutcome.authExpired => '登录已过期，请重新登录',
         _ => '刷新失败，请稍后重试',
       };
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(msg)));
+      xbToast(context, msg);
     }
   }
 

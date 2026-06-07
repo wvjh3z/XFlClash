@@ -10,7 +10,6 @@ library;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../config/xboard_config.dart';
 import '../models/order_summary.dart';
 import '../models/xb_result.dart';
 import '../providers/pending_order_provider.dart';
@@ -18,7 +17,8 @@ import '../providers/xboard_providers.dart';
 import '../util/error_text.dart';
 import '../util/period_label.dart';
 import '../widgets/xb_components.dart';
-import '../widgets/xb_theme.dart' show xbPush, xbShowDialog;
+import '../widgets/xb_feedback.dart' show xbToast, xbConfirm, xbBrandColor;
+import '../widgets/xb_theme.dart' show xbPush;
 import 'order_payment_page.dart';
 
 class PendingOrderSection extends ConsumerStatefulWidget {
@@ -74,32 +74,22 @@ class _PendingOrderSectionState extends ConsumerState<PendingOrderSection> {
     await xbPush(
       context,
       OrderPaymentPage(tradeNo: o.tradeNo),
-      brandColor: Color(XboardConfig.current.brandColor),
+      brandColor: xbBrandColor(),
     );
     // 从支付页返回后重查（可能已支付完成 → 横幅应消失）。
     if (mounted) ref.invalidate(pendingOrderProvider);
   }
 
   Future<void> _confirmCancel(OrderSummary o) async {
-    final ok = await xbShowDialog<bool>(
-      context: context,
-      brandColor: Color(XboardConfig.current.brandColor),
-      builder: (ctx) => AlertDialog(
-        title: const Text('取消订单'),
-        content: const Text('确定要取消这笔待支付订单吗？取消后需重新下单。'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(false),
-            child: const Text('再想想'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(ctx).pop(true),
-            child: const Text('取消订单'),
-          ),
-        ],
-      ),
+    final ok = await xbConfirm(
+      context,
+      title: '取消订单',
+      message: '确定要取消这笔待支付订单吗？取消后需重新下单。',
+      confirmLabel: '取消订单',
+      cancelLabel: '再想想',
+      destructive: true,
     );
-    if (ok != true) return;
+    if (!ok) return;
     await _doCancel(o);
   }
 
@@ -124,6 +114,6 @@ class _PendingOrderSectionState extends ConsumerState<PendingOrderSection> {
 
   void _toast(String msg) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+    xbToast(context, msg);
   }
 }

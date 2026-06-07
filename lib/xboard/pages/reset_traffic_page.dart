@@ -8,14 +8,15 @@ library;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../config/xboard_config.dart';
 import '../widgets/xb_components.dart';
+import '../widgets/xb_feedback.dart' show xbToast, xbBrandColor;
 import '../widgets/xb_theme.dart' show xbPush;
 import '../models/plan_item.dart';
 import '../models/xb_domain_types.dart';
 import '../models/xb_result.dart';
 import '../providers/xboard_providers.dart';
 import '../util/error_text.dart';
+import '../util/format.dart';
 import '../widgets/xb_ui_kit.dart';
 import 'order_payment_page.dart';
 import 'pending_order_section.dart';
@@ -89,15 +90,9 @@ class _ResetTrafficPageState extends ConsumerState<ResetTrafficPage> {
 
   @override
   Widget build(BuildContext context) {
-    return XbBrandTheme(
-      brandColor: Color(XboardConfig.current.brandColor),
-      child: Builder(builder: _buildScaffold),
-    );
-  }
-
-  Widget _buildScaffold(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('购买流量重置包')),
+    return XbBrandScaffold(
+      title: '购买流量重置包',
+      bottomNavigationBar: _bottomBar(context),
       body: _loading
           ? (_retrying
               ? ListView(
@@ -110,7 +105,6 @@ class _ResetTrafficPageState extends ConsumerState<ResetTrafficPage> {
               : _resetPrice == null
                   ? _unavailable(context)
                   : _content(context, _plan!, _resetPrice!),
-      bottomNavigationBar: _bottomBar(context),
     );
   }
 
@@ -161,7 +155,7 @@ class _ResetTrafficPageState extends ConsumerState<ResetTrafficPage> {
                 ),
               ),
               const SizedBox(width: 12),
-              Text('¥${reset.amountYuan.toStringAsFixed(2)}',
+              Text(xbYuan(reset.amountYuan),
                   style: TextStyle(
                       fontSize: 21,
                       fontWeight: FontWeight.w700,
@@ -195,7 +189,7 @@ class _ResetTrafficPageState extends ConsumerState<ResetTrafficPage> {
           xbPush(
             context,
             OrderPaymentPage(tradeNo: data),
-            brandColor: Color(XboardConfig.current.brandColor),
+            brandColor: xbBrandColor(),
             replace: true,
           );
         case XbFailure(:final error):
@@ -208,6 +202,6 @@ class _ResetTrafficPageState extends ConsumerState<ResetTrafficPage> {
 
   void _toast(String msg) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+    xbToast(context, msg);
   }
 }

@@ -6,8 +6,8 @@ library;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../config/xboard_config.dart';
 import '../widgets/xb_components.dart';
+import '../widgets/xb_feedback.dart' show xbBrandColor;
 import '../widgets/xb_theme.dart' show xbPush, XbTokens;
 import '../models/order_summary.dart';
 import '../models/xb_domain_error.dart';
@@ -15,6 +15,7 @@ import '../models/xb_domain_types.dart';
 import '../models/xb_result.dart';
 import '../providers/xboard_providers.dart';
 import '../util/error_text.dart';
+import '../util/format.dart';
 import '../util/period_label.dart';
 import '../widgets/xb_ui_kit.dart';
 import 'order_payment_page.dart';
@@ -58,15 +59,8 @@ class _OrderListPageState extends ConsumerState<OrderListPage> {
 
   @override
   Widget build(BuildContext context) {
-    return XbBrandTheme(
-      brandColor: Color(XboardConfig.current.brandColor),
-      child: Builder(builder: _buildScaffold),
-    );
-  }
-
-  Widget _buildScaffold(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('我的订单')),
+    return XbBrandScaffold(
+      title: '我的订单',
       body: RefreshIndicator(
         onRefresh: () async => _reload(),
         child: FutureBuilder<List<OrderSummary>>(
@@ -106,7 +100,7 @@ class _OrderListPageState extends ConsumerState<OrderListPage> {
                 onTap: () => xbPush(
                   context,
                   OrderPaymentPage(tradeNo: orders[i].tradeNo),
-                  brandColor: Color(XboardConfig.current.brandColor),
+                  brandColor: xbBrandColor(),
                 ),
               ),
             );
@@ -127,8 +121,7 @@ class _OrderTile extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     final text = Theme.of(context).textTheme;
     final d = order.createdAt;
-    final dateStr = '${d.year}-${d.month.toString().padLeft(2, '0')}-'
-        '${d.day.toString().padLeft(2, '0')}';
+    final dateStr = xbDate(d);
     return Card(
       elevation: 0,
       color: scheme.surfaceContainerHigh,
@@ -138,7 +131,7 @@ class _OrderTile extends StatelessWidget {
         title: Text(order.planName ?? '套餐订单',
             style: text.titleSmall?.copyWith(fontWeight: FontWeight.w600)),
         subtitle: Text(
-            '${planPeriodLabel(order.period)} · $dateStr\n¥${order.totalAmountYuan.toStringAsFixed(2)}'),
+            '${planPeriodLabel(order.period)} · $dateStr\n${xbYuan(order.totalAmountYuan)}'),
         isThreeLine: true,
         trailing: _StatusChip(status: order.status),
         onTap: onTap,

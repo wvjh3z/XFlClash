@@ -13,7 +13,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-import '../config/xboard_config.dart';
 import '../models/checkout_outcome_ui.dart';
 import '../models/order_summary.dart';
 import '../models/xb_domain_error.dart';
@@ -22,7 +21,9 @@ import '../models/xb_result.dart';
 import '../providers/xboard_providers.dart';
 import '../services/subscription_triggers.dart';
 import '../util/error_text.dart';
+import '../util/format.dart';
 import '../util/period_label.dart';
+import '../widgets/xb_feedback.dart' show xbToast, xbConfirm, xbBrandColor;
 import '../widgets/xb_theme.dart' show xbShowDialog, XbTokens;
 import '../widgets/xb_components.dart' show XbSyncBanner;
 import '../widgets/xb_ui_kit.dart';
@@ -159,7 +160,7 @@ class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage> {
   @override
   Widget build(BuildContext context) {
     return XbBrandTheme(
-      brandColor: Color(XboardConfig.current.brandColor),
+      brandColor: xbBrandColor(),
       child: Builder(builder: _buildScaffold),
     );
   }
@@ -423,7 +424,7 @@ class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage> {
   Future<void> _showQrDialog(String qrUrl) async {
     await xbShowDialog<void>(
       context: context,
-      brandColor: Color(XboardConfig.current.brandColor),
+      brandColor: xbBrandColor(),
       builder: (ctx) => AlertDialog(
         title: const Text('扫码支付'),
         content: Column(
@@ -447,23 +448,15 @@ class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage> {
   }
 
   Future<void> _cancel() async {
-    final confirm = await xbShowDialog<bool>(
-      context: context,
-      brandColor: Color(XboardConfig.current.brandColor),
-      builder: (ctx) => AlertDialog(
-        title: const Text('取消订单'),
-        content: const Text('确定取消这笔订单吗？'),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.of(ctx).pop(false),
-              child: const Text('再想想')),
-          FilledButton(
-              onPressed: () => Navigator.of(ctx).pop(true),
-              child: const Text('确定取消')),
-        ],
-      ),
+    final confirm = await xbConfirm(
+      context,
+      title: '取消订单',
+      message: '确定取消这笔订单吗？',
+      confirmLabel: '确定取消',
+      cancelLabel: '再想想',
+      destructive: true,
     );
-    if (confirm != true) return;
+    if (!confirm) return;
     setState(() => _busy = true);
     try {
       final result =
@@ -487,16 +480,11 @@ class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage> {
       _CopyableRow(label: label, value: value);
   Widget _totalRow(String label, double yuan) => _TotalRow(label: label, yuan: yuan);
 
-  String _fmtDateTime(DateTime d) =>
-      '${d.year}-${d.month.toString().padLeft(2, '0')}-'
-      '${d.day.toString().padLeft(2, '0')} '
-      '${d.hour.toString().padLeft(2, '0')}:'
-      '${d.minute.toString().padLeft(2, '0')}:'
-      '${d.second.toString().padLeft(2, '0')}';
+  String _fmtDateTime(DateTime d) => xbDateTime(d);
 
   void _toast(String msg) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+    xbToast(context, msg);
   }
 }
 

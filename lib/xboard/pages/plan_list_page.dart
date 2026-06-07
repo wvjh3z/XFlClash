@@ -6,8 +6,8 @@ library;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../config/xboard_config.dart';
 import '../widgets/xb_components.dart';
+import '../widgets/xb_feedback.dart' show xbBrandColor;
 import '../widgets/xb_theme.dart' show xbPush, XbTokens;
 import '../models/plan_item.dart';
 import '../models/xb_domain_error.dart';
@@ -15,6 +15,7 @@ import '../models/xb_domain_types.dart';
 import '../models/xb_result.dart';
 import '../providers/xboard_providers.dart';
 import '../util/error_text.dart';
+import '../util/format.dart';
 import '../util/html_text.dart';
 import '../util/period_label.dart';
 import '../widgets/xb_ui_kit.dart';
@@ -60,15 +61,8 @@ class _PlanListPageState extends ConsumerState<PlanListPage> {
 
   @override
   Widget build(BuildContext context) {
-    return XbBrandTheme(
-      brandColor: Color(XboardConfig.current.brandColor),
-      child: Builder(builder: _buildScaffold),
-    );
-  }
-
-  Widget _buildScaffold(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('购买套餐')),
+    return XbBrandScaffold(
+      title: '购买套餐',
       body: FutureBuilder<List<PlanItem>>(
         future: _plansFuture,
         builder: (context, snap) {
@@ -108,7 +102,7 @@ class _PlanListPageState extends ConsumerState<PlanListPage> {
                 child: _PlanOptCard(
                   plan: plan,
                   onTap: () => xbPush(context, PlanDetailPage(plan: plan),
-                      brandColor: Color(XboardConfig.current.brandColor)),
+                      brandColor: xbBrandColor()),
                 ),
               );
             },
@@ -195,7 +189,7 @@ class _PlanOptCard extends StatelessWidget {
                       text: TextSpan(
                         children: [
                           TextSpan(
-                            text: '¥${min.amountYuan.toStringAsFixed(2)}',
+                            text: xbYuan(min.amountYuan),
                             style: TextStyle(
                                 fontSize: 22,
                                 fontWeight: FontWeight.w700,

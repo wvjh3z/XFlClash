@@ -9,6 +9,7 @@ library;
 
 import 'package:flutter/material.dart';
 
+import '../config/xboard_config.dart';
 import 'xb_theme.dart';
 
 /// 形态 A 品牌主题注入点（薄封装，真源 = [buildXbTheme]）。
@@ -36,6 +37,40 @@ class XbBrandTheme extends StatelessWidget {
         brightness: Theme.of(context).brightness,
       ),
       child: child,
+    );
+  }
+}
+
+/// 形态 A 品牌脚手架页 —— `XbBrandTheme + Builder + Scaffold + AppBar` 一站封装。
+///
+/// **设计意图**：所有 push 二级页都手写同一套包裹（注品牌色 → Builder → Scaffold → AppBar 标题），
+/// 重复 5 处。本组件收口：传 [title] + [body]（+ 可选 [bottomNavigationBar]），自动注品牌主题。
+/// 改页面脚手架（如统一 appbar 行为）只动这一处。
+class XbBrandScaffold extends StatelessWidget {
+  const XbBrandScaffold({
+    super.key,
+    required this.title,
+    required this.body,
+    this.bottomNavigationBar,
+    this.actions,
+  });
+
+  final String title;
+  final Widget body;
+  final Widget? bottomNavigationBar;
+  final List<Widget>? actions;
+
+  @override
+  Widget build(BuildContext context) {
+    return XbBrandTheme(
+      brandColor: Color(XboardConfig.current.brandColor),
+      child: Builder(
+        builder: (context) => Scaffold(
+          appBar: AppBar(title: Text(title), actions: actions),
+          body: body,
+          bottomNavigationBar: bottomNavigationBar,
+        ),
+      ),
     );
   }
 }

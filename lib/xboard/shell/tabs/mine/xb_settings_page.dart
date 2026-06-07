@@ -13,9 +13,8 @@ library;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import 'package:fl_clash/xboard/config/xboard_config.dart';
 import 'package:fl_clash/xboard/widgets/xb_components.dart';
-import 'package:fl_clash/xboard/widgets/xb_ui_kit.dart' show XbBrandTheme;
+import 'package:fl_clash/xboard/widgets/xb_ui_kit.dart' show XbBrandScaffold;
 
 import '../../adapters/xb_native_page_adapter.dart';
 
@@ -25,20 +24,18 @@ class XbSettingsPage extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    // 设置页经 Navigator push（挂根 Navigator），自套品牌主题避免逃逸。
-    return XbBrandTheme(
-      brandColor: Color(XboardConfig.current.brandColor),
-      child: Builder(builder: (context) => _buildScaffold(context, ref)),
+    // 设置页经 Navigator push（挂根 Navigator），XbBrandScaffold 自套品牌主题避免逃逸。
+    return XbBrandScaffold(
+      title: '设置',
+      body: _buildBody(context, ref),
     );
   }
 
-  Widget _buildScaffold(BuildContext context, WidgetRef ref) {
+  Widget _buildBody(BuildContext context, WidgetRef ref) {
     final adapter = ref.read(xbNativePageAdapterProvider);
-    return Scaffold(
-      appBar: AppBar(title: const Text('设置')),
-      body: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-        children: [
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+      children: [
           // ── 设置组 ──
           const XbGroupLabel('设置'),
           XbListCard(
@@ -131,7 +128,6 @@ class XbSettingsPage extends ConsumerWidget {
             ],
           ),
         ],
-      ),
     );
   }
 }

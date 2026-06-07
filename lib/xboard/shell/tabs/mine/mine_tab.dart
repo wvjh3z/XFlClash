@@ -11,7 +11,6 @@ library;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import 'package:fl_clash/xboard/config/xboard_config.dart';
 import 'package:fl_clash/xboard/models/xb_domain_subscription.dart';
 import 'package:fl_clash/xboard/models/xb_result.dart';
 import 'package:fl_clash/xboard/pages/order_list_page.dart';
@@ -22,8 +21,10 @@ import 'package:fl_clash/xboard/providers/auth_state_provider.dart';
 import 'package:fl_clash/xboard/providers/user_profile_provider.dart';
 import 'package:fl_clash/xboard/providers/xboard_providers.dart';
 import 'package:fl_clash/xboard/util/app_version.dart';
+import 'package:fl_clash/xboard/util/format.dart';
 import 'package:fl_clash/xboard/widgets/xb_components.dart';
-import 'package:fl_clash/xboard/widgets/xb_theme.dart' show xbPush, xbShowDialog, XbTokens;
+import 'package:fl_clash/xboard/widgets/xb_feedback.dart' show xbConfirm, xbBrandColor;
+import 'package:fl_clash/xboard/widgets/xb_theme.dart' show xbPush, XbTokens;
 
 import 'xb_settings_page.dart';
 
@@ -253,14 +254,12 @@ class _AccountCard extends StatelessWidget {
     );
   }
 
-  static String _gb(int bytes) =>
-      (bytes / (1024 * 1024 * 1024)).toStringAsFixed(1);
+  static String _gb(int bytes) => xbGb(bytes);
 
   static String _expireText(XbDomainSubscription sub) {
     if (sub.expiredAt == null) return '长期有效';
     final d = sub.expiredAt!;
-    final ymd =
-        '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+    final ymd = xbDate(d);
     // 剩余天数（原型：到期 YYYY-MM-DD（剩 N 天））。
     final days = d
         .difference(DateTime(
@@ -274,8 +273,7 @@ class _AccountCard extends StatelessWidget {
   static String? _resetText(XbDomainSubscription sub) {
     final d = sub.nextResetAt;
     if (d != null) {
-      final base =
-          '流量重置 ${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+      final base = '流量重置 ${xbDate(d)}';
       return sub.resetDay != null ? '$base（每月 ${sub.resetDay} 日）' : base;
     }
     if (sub.resetDay != null) return '流量重置 每月 ${sub.resetDay} 日';
@@ -368,13 +366,13 @@ class _PlanActions extends ConsumerWidget {
   // ◇ 复用形态 B 套餐页（不经 adapter）。
   void _openPlans(BuildContext context) {
     xbPush(context, const PlanListPage(),
-        brandColor: Color(XboardConfig.current.brandColor));
+        brandColor: xbBrandColor());
   }
 
   /// 续费当前套餐（R6.4，原型图13）：拉套餐列表 → 锁定当前 planId 的套餐 → 续费模式详情页。
   /// 找不到当前套餐（已下架等）→ 回退到购买/更改套餐列表。
   Future<void> _openRenew(BuildContext context, WidgetRef ref) async {
-    final brand = Color(XboardConfig.current.brandColor);
+    final brand = xbBrandColor();
     final result = await ref.read(xboardServiceProvider).getPlans();
     if (!context.mounted) return;
     final current = switch (result) {
@@ -395,7 +393,7 @@ class _PlanActions extends ConsumerWidget {
     xbPush(
       context,
       ResetTrafficPage(planId: sub.planId!, planName: sub.planName),
-      brandColor: Color(XboardConfig.current.brandColor),
+      brandColor: xbBrandColor(),
     );
   }
 }
@@ -749,27 +747,14 @@ class _SettingsSection extends ConsumerWidget {
   /// 退出登录二次确认（破坏性操作，原型 15b）：destructive 红确认键。确认后执行登出编排
   /// （清 token/profile + 服务端撤销，永不抛）+ 全程 loading 遮罩（编排有网络耗时，避免无反馈）。
   Future<void> _confirmLogout(BuildContext context, WidgetRef ref) async {
-    final brand = Color(XboardConfig.current.brandColor);
-    final ok = await xbShowDialog<bool>(
-      context: context,
-      brandColor: brand,
-      builder: (ctx) => AlertDialog(
-        title: const Text('退出登录'),
-        content: const Text('退出后需重新登录才能连接和管理套餐，确定退出吗？'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(false),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(ctx).pop(true),
-            style: FilledButton.styleFrom(backgroundColor: XbTokens.bad),
-            child: const Text('退出登录'),
-          ),
-        ],
-      ),
+    final ok = await xbConfirm(
+      context,
+      title: '退出登录',
+      message: '退出后需重新登录才能连接和管理套餐，确定退出吗？',
+      confirmLabel: '退出登录',
+      destructive: true,
     );
-    if (ok != true || !context.mounted) return;
+    if (!ok || !context.mounted) return;
     // 登出编排有网络耗时（服务端撤销 token）→ 弹不可关闭 loading，完成后自动消失（切游客态重建树）。
     showDialog<void>(
       context: context,
@@ -801,7 +786,7 @@ class _SettingsSection extends ConsumerWidget {
               onTap: isGuest
                   ? null
                   : () => xbPush(context, const OrderListPage(),
-                      brandColor: Color(XboardConfig.current.brandColor)),
+                      brandColor: xbBrandColor()),
             ),
           ],
         ),
@@ -814,7 +799,7 @@ class _SettingsSection extends ConsumerWidget {
               label: '设置',
               // 设置 → 形态 A 风格设置页（组件库列表 → FlClash 原生子页，R6.8）。
               onTap: () => xbPush(context, const XbSettingsPage(),
-                  brandColor: Color(XboardConfig.current.brandColor)),
+                  brandColor: xbBrandColor()),
             ),
             const _AboutRow(),
             if (!isGuest)

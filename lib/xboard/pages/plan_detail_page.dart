@@ -8,14 +8,15 @@ import 'package:flutter/material.dart';
 import 'package:flutter_html/flutter_html.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../config/xboard_config.dart';
 import '../widgets/xb_components.dart';
+import '../widgets/xb_feedback.dart' show xbToast, xbBrandColor;
 import '../widgets/xb_theme.dart' show xbPush, XbTokens;
 import '../models/plan_item.dart';
 import '../models/xb_domain_types.dart';
 import '../models/xb_result.dart';
 import '../providers/xboard_providers.dart';
 import '../util/error_text.dart';
+import '../util/format.dart';
 import '../util/period_label.dart';
 import '../widgets/xb_ui_kit.dart';
 import 'order_payment_page.dart';
@@ -100,15 +101,15 @@ class _PlanDetailPageState extends ConsumerState<PlanDetailPage> {
 
   @override
   Widget build(BuildContext context) {
-    return XbBrandTheme(
-      brandColor: Color(XboardConfig.current.brandColor),
-      child: Builder(builder: _buildScaffold),
-    );
-  }
-
-  Widget _buildScaffold(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: Text(widget.renew ? '续费当前套餐' : plan.name)),
+    return XbBrandScaffold(
+      title: widget.renew ? '续费当前套餐' : plan.name,
+      bottomNavigationBar: XbBottomActionBar(
+        secondaryLabel: '返回',
+        primaryLabel: widget.renew ? '确认续费' : '提交订单',
+        primaryIcon: Icons.shopping_cart_checkout_rounded,
+        primaryLoading: _submitting,
+        onPrimary: _submitOrder,
+      ),
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
         children: [
@@ -123,13 +124,6 @@ class _PlanDetailPageState extends ConsumerState<PlanDetailPage> {
           const SizedBox(height: 14),
           XbSectionCard(title: '订单摘要', child: _summarySection(context)),
         ],
-      ),
-      bottomNavigationBar: XbBottomActionBar(
-        secondaryLabel: '返回',
-        primaryLabel: widget.renew ? '确认续费' : '提交订单',
-        primaryIcon: Icons.shopping_cart_checkout_rounded,
-        primaryLoading: _submitting,
-        onPrimary: _submitOrder,
       ),
     );
   }
@@ -257,7 +251,7 @@ class _PlanDetailPageState extends ConsumerState<PlanDetailPage> {
                   color: selected ? scheme.primary : t.on,
                   fontWeight: FontWeight.w500)),
           const SizedBox(height: 4),
-          Text('¥${p.amountYuan.toStringAsFixed(2)}',
+          Text(xbYuan(p.amountYuan),
               textAlign: TextAlign.center,
               style: TextStyle(
                   fontSize: 18,
@@ -324,15 +318,15 @@ class _PlanDetailPageState extends ConsumerState<PlanDetailPage> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        XbKeyValueRow(label: '小计', value: '¥${_subtotal.toStringAsFixed(2)}'),
+        XbKeyValueRow(label: '小计', value: xbYuan(_subtotal)),
         if (_coupon != null)
           XbKeyValueRow(
               label: '优惠（预估）',
-              value: '-¥${_discount.toStringAsFixed(2)}',
+              value: xbYuanMinus(_discount),
               valueColor: scheme.primary),
         const XbHairline(margin: 10),
         XbKeyValueRow(
-            label: '总计', value: '¥${_total.toStringAsFixed(2)}', total: true),
+            label: '总计', value: xbYuan(_total), total: true),
         if (_coupon != null) ...[
           const SizedBox(height: 4),
           Text('* 最终金额以提交订单后为准',
@@ -386,7 +380,7 @@ class _PlanDetailPageState extends ConsumerState<PlanDetailPage> {
           xbPush(
             context,
             OrderPaymentPage(tradeNo: data),
-            brandColor: Color(XboardConfig.current.brandColor),
+            brandColor: xbBrandColor(),
             replace: true,
           );
         case XbFailure(:final error):
@@ -399,6 +393,6 @@ class _PlanDetailPageState extends ConsumerState<PlanDetailPage> {
 
   void _toast(String msg) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+    xbToast(context, msg);
   }
 }
