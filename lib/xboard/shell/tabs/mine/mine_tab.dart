@@ -64,6 +64,23 @@ class MineTab extends ConsumerWidget {
 class _AccountSection extends ConsumerWidget {
   const _AccountSection();
 
+  /// 账号信息重试：**先重新竞速/故障转移 API 域名**（当前域名可能被墙/故障，原地重试无意义），
+  /// 切到候选里第一个可达的 baseUrl 后再重发 getSubscription。永不抛（failOver 内部吞错），
+  /// 即便无候选/全挂也至少退回原域名重试一次（不比之前差）。
+  ///
+  /// 只动账号信息链路：不触发启动竞速、不重拉节点订阅（与「连接/节点」解耦，对齐失败卡文案）。
+  Future<void> _retry(WidgetRef ref) async {
+    final race = ref.read(injectedRaceControllerProvider);
+    if (race != null) {
+      try {
+        await race.failOverApi(); // 探测候选域名，切到第一个可达者（串行锁防抖）。
+      } catch (_) {
+        // 永不抛：竞速失败沿用当前域名，仍重发一次请求。
+      }
+    }
+    ref.invalidate(userProfileProvider);
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     // F14：已 gate authenticated（MineTab 已判 isGuest），可安全 watch。
@@ -71,7 +88,7 @@ class _AccountSection extends ConsumerWidget {
     return async.when(
       loading: () => const _AccountSkeleton(),
       error: (e, _) => _AccountErrorCard(
-        onRetry: () => ref.invalidate(userProfileProvider),
+        onRetry: () => _retry(ref),
       ),
       data: (sub) => Column(
         children: [
@@ -558,6 +575,9 @@ class _DisabledPlanActions extends StatelessWidget {
   }
 }
 
+/// 账号卡加载失败态（原型 `.plan-error`，11c）：白底卡 + 圆形红云图标 + 标题 + 出路说明 +
+/// 描边「重新加载」按钮。重试 = `ref.invalidate(userProfileProvider)` → 只重发 getSubscription
+/// （不重新竞速、不重拉节点订阅），故文案强调「不影响连接与节点」。下方账户/应用菜单仍可用。
 class _AccountErrorCard extends StatelessWidget {
   const _AccountErrorCard({required this.onRetry});
 
@@ -565,22 +585,59 @@ class _AccountErrorCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final t = XbTokens.of(context);
     final scheme = Theme.of(context).colorScheme;
-    return Card(
-      elevation: 0,
-      color: scheme.surfaceContainerHigh,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-      child: Padding(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          children: [
-            Icon(Icons.cloud_off, color: scheme.onSurfaceVariant),
-            const SizedBox(height: 8),
-            const Text('账号信息加载失败'),
-            const SizedBox(height: 8),
-            TextButton(onPressed: onRetry, child: const Text('重试')),
-          ],
-        ),
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 28),
+      decoration: BoxDecoration(
+        color: t.card,
+        borderRadius: BorderRadius.circular(XbTokens.rLg),
+        border: Border.all(color: t.line),
+        boxShadow: t.shadow1,
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // 圆形图标容器（红云，--bad 10% 柔底）。
+          Container(
+            width: 54,
+            height: 54,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: Color.alphaBlend(
+                  XbTokens.bad.withValues(alpha: 0.10), t.sfc),
+            ),
+            child: const Icon(Icons.cloud_off_rounded,
+                size: 27, color: XbTokens.bad),
+          ),
+          const SizedBox(height: 12),
+          Text('账号信息加载失败',
+              style: TextStyle(
+                  fontSize: 15, fontWeight: FontWeight.w600, color: t.on)),
+          const SizedBox(height: 4),
+          Text(
+            '请检查网络连接后重试，期间不影响连接与节点使用',
+            textAlign: TextAlign.center,
+            style: TextStyle(fontSize: 12.5, height: 1.55, color: t.onv),
+          ),
+          const SizedBox(height: 16),
+          // 描边「重新加载」按钮（42 高，明确点击区域）。
+          OutlinedButton.icon(
+            onPressed: onRetry,
+            icon: const Icon(Icons.refresh_rounded, size: 18),
+            label: const Text('重新加载'),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: scheme.primary,
+              side: BorderSide(
+                  color: scheme.primary.withValues(alpha: 0.40), width: 1.6),
+              minimumSize: const Size(0, 42),
+              padding: const EdgeInsets.symmetric(horizontal: 24),
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(XbTokens.rMd)),
+            ),
+          ),
+        ],
       ),
     );
   }

@@ -211,6 +211,27 @@ void main() {
         matchesGoldenFile('goldens/page_mine_auth.png'));
   });
 
+  testWidgets('我的（账号信息加载失败）golden', (t) async {
+    await pump(
+      t,
+      ProviderScope(
+        overrides: [
+          authStateProvider.overrideWith(_FakeAuth.new),
+          // 抛错 → AsyncError → _AccountErrorCard。
+          userProfileProvider.overrideWith(
+              (ref) async => throw Exception('network down')),
+        ],
+        child: app(const XbBrandTheme(
+          brandColor: Color(0xFFD92E1A),
+          child: MineTab(),
+        )),
+      ),
+    );
+    expect(t.takeException(), isNull);
+    await expectLater(find.byType(MineTab),
+        matchesGoldenFile('goldens/page_mine_error.png'));
+  });
+
   testWidgets('流量重置包页 golden', (t) async {
     final svc = _MockService();
     when(svc.getPlans).thenAnswer((_) async => XbResult.success([_resetPlan]));
