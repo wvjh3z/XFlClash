@@ -26,6 +26,8 @@ class XbTokens {
     required this.hair,
     required this.shadow1,
     required this.shadow2,
+    required this.onWarn,
+    required this.onOk,
   });
 
   // —— 颜色（中性底色族，原型 CSS 变量）——
@@ -40,6 +42,9 @@ class XbTokens {
   // —— 阴影（--sd1 普通卡 / --sd2 强调卡）——
   final List<BoxShadow> shadow1;
   final List<BoxShadow> shadow2;
+  // —— 琥珀/绿柔底卡上的正文色（随亮度切换，a11y 对比）——
+  final Color onWarn;
+  final Color onOk;
 
   // —— 语义状态色（原型 --ok / --warn / --bad / --info / --conn）——
   // 浅深通用（原型深色未单独覆盖语义色），统一定义于此。
@@ -48,6 +53,14 @@ class XbTokens {
   static const Color bad = Color(0xFFDC3B2C); // 错误 / 已取消 / 高延迟
   static const Color info = Color(0xFF2563EB); // 信息
   static const Color conn = Color(0xFF10B981); // 已连接绿（连接球语义，备用）
+
+  // —— 琥珀/绿「柔底卡」上的正文色（toast/syncbar/pendcard/initbar）——
+  // 浅色用深棕/深绿保证对比；深色模式柔底变暗琥珀/暗绿，需亮色文字（否则对比度 <4.5）。
+  // 原型 token --on-warn / --on-ok（随亮度切换）。
+  static const Color onWarnLight = Color(0xFF8A6321);
+  static const Color onWarnDark = Color(0xFFE6B15E);
+  static const Color onOkLight = Color(0xFF157A3A);
+  static const Color onOkDark = Color(0xFF5CC98A);
 
   // —— 间距（原型 8pt grid：--s1..--s6）——
   static const double s1 = 4;
@@ -72,8 +85,8 @@ class XbTokens {
   static const double rPill = rMd; // .guestlogin（原型 --r-md:16）
 
   // —— 尺寸 ——
-  static const double hButton = 54; // .go / .b
-  static const double hCta = 54; // .cta（精致化：56→54，按钮规格统一）
+  static const double hButton = 52; // .go / .b（原型统一按钮高 52）
+  static const double hCta = 52; // .cta（与所有主按钮统一 52）
 
   static const light = XbTokens(
     sf: Color(0xFFF5F6F8),
@@ -92,6 +105,8 @@ class XbTokens {
       BoxShadow(
           color: Color(0x290F172A), blurRadius: 36, offset: Offset(0, 16), spreadRadius: -14),
     ],
+    onWarn: onWarnLight,
+    onOk: onOkLight,
   );
 
   static const dark = XbTokens(
@@ -111,6 +126,8 @@ class XbTokens {
       BoxShadow(
           color: Color(0x99000000), blurRadius: 40, offset: Offset(0, 18), spreadRadius: -14),
     ],
+    onWarn: onWarnDark,
+    onOk: onOkDark,
   );
 
   /// 从当前主题取 token（[buildXbTheme] 注入到 ThemeExtension）。
@@ -184,10 +201,10 @@ ThemeData buildXbTheme({required Color brandColor, required Brightness brightnes
     bodyColor: t.on,
     displayColor: t.on,
   ).copyWith(
-    // 大标题（原型 .abar .t / .backbar .t）：字号 24，字重收敛到 w700（不再 w800）。
+    // 大标题（原型 .abar .t / .backbar .t）：字号 20（24→20 更克制），字重 w700。
     headlineSmall: TextStyle(
-        fontSize: 24, fontWeight: FontWeight.w700, letterSpacing: -0.5, color: t.on),
-    titleLarge: TextStyle(fontSize: 24, fontWeight: FontWeight.w700, letterSpacing: -0.5, color: t.on),
+        fontSize: 20, fontWeight: FontWeight.w700, letterSpacing: -0.4, color: t.on),
+    titleLarge: TextStyle(fontSize: 20, fontWeight: FontWeight.w700, letterSpacing: -0.4, color: t.on),
     // 卡内项名 / 小标题：字重收敛 w700→w600（原型字重降一档，克制粗体）。
     titleMedium: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: t.on),
     titleSmall: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w600, color: t.on),
@@ -279,7 +296,7 @@ ThemeData buildXbTheme({required Color brandColor, required Brightness brightnes
       scrolledUnderElevation: 0,
       centerTitle: false,
       titleTextStyle: TextStyle(
-          color: t.on, fontSize: 24, fontWeight: FontWeight.w700, letterSpacing: -0.5),
+          color: t.on, fontSize: 20, fontWeight: FontWeight.w700, letterSpacing: -0.4),
     ),
     // 对话框（.dialog）：白面 + 圆角 + 不叠色。
     dialogTheme: DialogThemeData(

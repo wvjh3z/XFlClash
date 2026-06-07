@@ -90,7 +90,7 @@ class _Metric extends StatelessWidget {
             value,
             style: TextStyle(
               fontSize: 21,
-              fontWeight: FontWeight.w700,
+              fontWeight: FontWeight.w500,
               // 上传不标绿（R2.7）：统一 onSurface；等宽数字（R8.4）。
               color: scheme.onSurface,
               fontFeatures: const [FontFeature.tabularFigures()],

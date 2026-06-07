@@ -133,11 +133,11 @@ class _ToastWidgetState extends State<_ToastWidget>
                       Flexible(
                         child: Text(
                           widget.message,
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontSize: 14,
                             fontWeight: FontWeight.w600,
                             height: 1.55,
-                            color: Color(0xFF8A6321),
+                            color: t.onWarn,
                           ),
                         ),
                       ),

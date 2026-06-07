@@ -42,7 +42,7 @@ class XbSyncBanner extends StatelessWidget {
           Expanded(
             child: Text(
               text,
-              style: const TextStyle(fontSize: 12.5, color: Color(0xFF8A6321)),
+              style: TextStyle(fontSize: 12.5, color: t.onWarn),
             ),
           ),
         ],
@@ -221,9 +221,9 @@ class XbScreenTitle extends StatelessWidget {
         children: [
           Text(title,
               style: TextStyle(
-                  fontSize: 24,
+                  fontSize: 20,
                   fontWeight: FontWeight.w700,
-                  letterSpacing: -0.5,
+                  letterSpacing: -0.4,
                   color: t.on)),
           if (trailing != null) ...[const Spacer(), trailing!],
         ],

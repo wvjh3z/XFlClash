@@ -295,7 +295,7 @@ class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage> {
               : const Icon(Icons.payment_rounded),
           style: FilledButton.styleFrom(
             backgroundColor: scheme.primary,
-            minimumSize: const Size.fromHeight(50),
+            minimumSize: const Size.fromHeight(XbTokens.hButton),
           ),
           label: const Text('立即支付'),
         ),
@@ -303,7 +303,8 @@ class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage> {
         OutlinedButton.icon(
           onPressed: _busy ? null : _cancel,
           icon: const Icon(Icons.close_rounded, size: 18),
-          style: OutlinedButton.styleFrom(minimumSize: const Size.fromHeight(48)),
+          style: OutlinedButton.styleFrom(
+              minimumSize: const Size.fromHeight(XbTokens.hButton)),
           label: const Text('取消订单'),
         ),
         const SizedBox(height: 4),
