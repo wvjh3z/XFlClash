@@ -40,12 +40,23 @@ ProxiesTabState _tab() => const ProxiesTabState(
       columns: 2,
     );
 
-Future<void> pumpHome(WidgetTester tester, {required AuthState auth}) async {
+ProxiesTabState _emptyTab() => const ProxiesTabState(
+      groups: [],
+      currentGroupName: null,
+      proxyCardType: ProxyCardType.expand,
+      columns: 2,
+    );
+
+Future<void> pumpHome(
+  WidgetTester tester, {
+  required AuthState auth,
+  ProxiesTabState? tab,
+}) async {
   final container = ProviderContainer(
     overrides: [
       authStateProvider.overrideWith(() => _FakeAuth(auth)),
       isStartProvider.overrideWith((ref) => false),
-      proxiesTabStateProvider.overrideWith((ref) => _tab()),
+      proxiesTabStateProvider.overrideWith((ref) => tab ?? _tab()),
       patchClashConfigProvider
           .overrideWithBuild((ref, _) => const PatchClashConfig(mode: Mode.rule)),
     ],
@@ -85,5 +96,32 @@ void main() {
     expect(find.text('登录解锁全部功能'), findsNothing);
     expect(find.byType(XbConnectOrb), findsOneWidget);
     expect(find.byType(XbLineCard), findsOneWidget);
+  });
+
+  group('连接拦截', () {
+    testWidgets('游客点连接 → 拦截 + 居中提示「请先登录」，不连接', (tester) async {
+      await pumpHome(tester, auth: AuthState.unauthenticated);
+      await tester.tap(find.byType(XbConnectOrb));
+      await tester.pump(); // 触发 toast 插入 overlay
+      await tester.pump(const Duration(milliseconds: 250)); // 淡入
+      expect(find.text('请先登录账号后再连接'), findsOneWidget);
+      // 走完 3s 停留 + 淡出，清理 timer（避免 pending timer 报错）。
+      await tester.pump(const Duration(seconds: 3));
+      await tester.pumpAndSettle();
+    });
+
+    testWidgets('已登录 + 无可用线路点连接 → 拦截 + 提示「无可用线路」，不连接', (tester) async {
+      await pumpHome(
+        tester,
+        auth: AuthState.authenticated,
+        tab: _emptyTab(),
+      );
+      await tester.tap(find.byType(XbConnectOrb));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 250));
+      expect(find.text('当前无可用线路，请前往「节点」刷新或购买套餐'), findsOneWidget);
+      await tester.pump(const Duration(seconds: 3));
+      await tester.pumpAndSettle();
+    });
   });
 }

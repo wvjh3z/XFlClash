@@ -20,6 +20,18 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../adapters/xb_connect_adapter.dart';
 
+/// 连接拦截原因（首页连接球点击 gate）：未登录 / 无可用线路 / 线路准备中。
+enum XbConnectBlock {
+  /// 未登录 → 提示先登录。
+  notLoggedIn,
+
+  /// 已登录但无可用线路（profile 无 proxy-group，套餐到期/未生效）→ 提示刷新/购买。
+  noNodes,
+
+  /// 已登录、线路正在准备（订阅 sync in-flight，profile 还没生成）→ 提示稍候。
+  preparing,
+}
+
 /// 连接球四态外形。
 class XbConnectOrb extends ConsumerWidget {
   const XbConnectOrb({
@@ -27,6 +39,7 @@ class XbConnectOrb extends ConsumerWidget {
     this.size = 208,
     this.showLock = false,
     this.guest = false,
+    this.onBlocked,
   });
 
   /// 连接球直径。
@@ -37,6 +50,10 @@ class XbConnectOrb extends ConsumerWidget {
 
   /// 游客态：未连接时文案显示「未登录 / 点击登录」（原型 guest orb）。
   final bool guest;
+
+  /// 连接拦截回调（HomeTab 注入）：返回拦截原因则**不连接**、走该回调（弹居中提示）；
+  /// 返回 null 表示放行 → 正常 toggle。仅在「未连接 → 发起连接」方向拦截（断开不拦）。
+  final XbConnectBlock? Function()? onBlocked;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -50,7 +67,7 @@ class XbConnectOrb extends ConsumerWidget {
       enabled: enabled,
       label: _semanticLabel(state),
       child: GestureDetector(
-        onTap: enabled ? () => adapter.toggle(ref) : null,
+        onTap: enabled ? () => _handleTap(ref, state) : null,
         child: SizedBox(
           width: size,
           height: size,
@@ -97,6 +114,16 @@ class XbConnectOrb extends ConsumerWidget {
         ),
       ),
     );
+  }
+
+  /// 点击处理：仅在「未连接 → 连接」方向先过拦截 gate；已连接（断开）/ 连接中直接放行。
+  void _handleTap(WidgetRef ref, XbConnState state) {
+    final adapter = ref.read(xbConnectAdapterProvider);
+    if (state == XbConnState.disconnected && onBlocked != null) {
+      final block = onBlocked!();
+      if (block != null) return; // 被拦截（回调内已弹提示），不连接。
+    }
+    adapter.toggle(ref);
   }
 
   String _semanticLabel(XbConnState state) => switch (state) {

@@ -726,7 +726,7 @@ class _SettingsSection extends ConsumerWidget {
   }
 }
 
-/// 「关于」条目：动态显示真实版本号 + 构建标识（确认安装的是否最新包）。
+/// 「关于」条目：显示 FlClash 版本号（沿用底座 `packageInfo.version`，不另起自有版本号）。
 class _AboutRow extends StatelessWidget {
   const _AboutRow();
 

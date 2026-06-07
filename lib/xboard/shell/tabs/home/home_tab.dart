@@ -10,8 +10,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:fl_clash/xboard/providers/auth_state_provider.dart';
+import 'package:fl_clash/xboard/providers/xboard_providers.dart';
+import 'package:fl_clash/xboard/widgets/xb_center_toast.dart';
 
 import '../../adapters/xb_mode_adapter.dart';
+import '../../adapters/xb_nodes_adapter.dart';
 import 'xb_connect_orb.dart';
 import 'xb_line_card.dart';
 import 'xb_mode_segment.dart';
@@ -40,6 +43,35 @@ class _HomeTabState extends ConsumerState<HomeTab> {
       if (!mounted) return;
       ref.read(xbModeAdapterProvider).normalizeDirectIfNeeded(ref);
     });
+  }
+
+  /// 连接拦截 gate（首页连接球点击「连接」前判定）：
+  /// - 游客 → notLoggedIn；
+  /// - 已登录但无可用线路：订阅正在 sync → preparing；否则 → noNodes。
+  /// 命中则弹居中提示并返回原因（不连接）；放行返回 null。
+  XbConnectBlock? _checkConnectBlock(bool isGuest) {
+    if (isGuest) {
+      XbCenterToast.show(context, '请先登录账号后再连接',
+          icon: Icons.info_outline_rounded);
+      return XbConnectBlock.notLoggedIn;
+    }
+    final hasNodes = !ref.read(xbNodesAdapterProvider).nodesView(ref).isEmpty;
+    if (hasNodes) return null; // 有线路 → 放行连接。
+    // 无线路：区分「正在准备」与「确实无可用」。
+    bool syncing = false;
+    try {
+      syncing = ref.read(subscriptionServiceProvider).isSyncing;
+    } catch (_) {
+      // provider 未就绪 → 当作非加载中。
+    }
+    if (syncing) {
+      XbCenterToast.show(context, '正在准备线路，请稍候…',
+          icon: Icons.hourglass_top_rounded);
+      return XbConnectBlock.preparing;
+    }
+    XbCenterToast.show(context, '当前无可用线路，请前往「节点」刷新或购买套餐',
+        icon: Icons.warning_amber_rounded);
+    return XbConnectBlock.noNodes;
   }
 
   @override
@@ -75,7 +107,13 @@ class _HomeTabState extends ConsumerState<HomeTab> {
               const SizedBox(height: 12),
             ],
             const SizedBox(height: 8),
-            Center(child: XbConnectOrb(showLock: isGuest, guest: isGuest)),
+            Center(
+              child: XbConnectOrb(
+                showLock: isGuest,
+                guest: isGuest,
+                onBlocked: () => _checkConnectBlock(isGuest),
+              ),
+            ),
             // 游客态说明行（原型 subline）。
             if (isGuest) ...[
               const SizedBox(height: 15),

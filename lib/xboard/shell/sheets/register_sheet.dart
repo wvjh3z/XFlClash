@@ -14,6 +14,7 @@ import 'package:fl_clash/xboard/models/xb_result.dart';
 import 'package:fl_clash/xboard/providers/auth_state_provider.dart';
 import 'package:fl_clash/xboard/providers/email_suffixes_provider.dart';
 import 'package:fl_clash/xboard/providers/xboard_providers.dart';
+import 'package:fl_clash/xboard/util/error_text.dart';
 
 import 'sheet_scaffold.dart';
 
@@ -80,7 +81,7 @@ class _RegisterSheetState extends ConsumerState<RegisterSheet> {
     final result = await ref.read(xboardServiceProvider).sendEmailVerifyCode(email);
     if (!mounted) return;
     if (result is XbFailure) {
-      setState(() => _banner = (result as XbFailure).error.message);
+      setState(() => _banner = resolveErrorText((result as XbFailure).error, fallback: '发送失败，请重试'));
     }
   }
 
@@ -91,6 +92,10 @@ class _RegisterSheetState extends ConsumerState<RegisterSheet> {
     final pw = _pwCtrl.text;
     if (email.isEmpty || !email.contains('@') || code.isEmpty || pw.isEmpty) {
       setState(() => _banner = '请完整填写邮箱、验证码和密码');
+      return;
+    }
+    if (pw.length < 8) {
+      setState(() => _banner = '密码至少需要 8 位');
       return;
     }
     setState(() {
@@ -114,7 +119,7 @@ class _RegisterSheetState extends ConsumerState<RegisterSheet> {
           setState(() => _banner = '注册成功，请手动登录');
         }
       case XbFailure(:final error):
-        setState(() => _banner = error.message);
+        setState(() => _banner = resolveErrorText(error, fallback: '注册失败，请重试'));
     }
   }
 

@@ -323,7 +323,7 @@ class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage> {
       final result =
           await ref.read(xboardServiceProvider).checkout(widget.tradeNo, method);
       if (result case XbFailure(:final error)) {
-        _toast('支付失败：${error.message}');
+        _toast('支付失败：${resolveErrorText(error, fallback: '请稍后重试')}');
         return;
       }
       if (!mounted) return;
@@ -409,7 +409,7 @@ class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage> {
           _toast('订单已取消');
           await _refreshStatus();
         case XbFailure(:final error):
-          _toast('取消失败：${error.message}');
+          _toast('取消失败：${resolveErrorText(error, fallback: '请稍后重试')}');
       }
     } finally {
       if (mounted) setState(() => _busy = false);

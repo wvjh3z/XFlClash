@@ -54,7 +54,7 @@ void main() {
     expect(find.text('前往续费'), findsOneWidget);
     // 空态提供「刷新重试」次要链接（原型一致）。
     expect(find.text('刷新重试'), findsOneWidget);
-    // 空态不显示搜索/分组标签（R4.6）。
-    expect(find.text('刷新节点'), findsNothing);
+    // 空态顶部保留「刷新节点」按钮（原型 nodes('empty') abar 一致，触发重拉订阅）。
+    expect(find.text('刷新节点'), findsOneWidget);
   });
 }

@@ -186,7 +186,7 @@ class _ResetTrafficPageState extends ConsumerState<ResetTrafficPage> {
             replace: true,
           );
         case XbFailure(:final error):
-          _toast('提交订单失败：${error.message}');
+          _toast('提交订单失败：${resolveErrorText(error, fallback: '请稍后重试')}');
       }
     } finally {
       if (mounted) setState(() => _submitting = false);

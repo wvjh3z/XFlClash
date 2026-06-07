@@ -15,6 +15,7 @@ import '../models/order_summary.dart';
 import '../models/xb_result.dart';
 import '../providers/pending_order_provider.dart';
 import '../providers/xboard_providers.dart';
+import '../util/error_text.dart';
 import '../util/period_label.dart';
 import '../widgets/xb_components.dart';
 import '../widgets/xb_theme.dart' show xbPush, xbShowDialog;
@@ -114,7 +115,7 @@ class _PendingOrderSectionState extends ConsumerState<PendingOrderSection> {
           ref.invalidate(pendingOrderProvider); // 后台重查对齐后端
           _toast('订单已取消');
         case XbFailure(:final error):
-          _toast('取消失败：${error.message}');
+          _toast('取消失败：${resolveErrorText(error, fallback: '请稍后重试')}');
       }
     } finally {
       if (mounted) setState(() => _cancelling = false);

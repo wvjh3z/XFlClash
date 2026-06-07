@@ -1,7 +1,8 @@
 /// 形态 A 速度卡（spec `xboard-form-a-ui-revamp` / W3.2 / R2.6·R2.7·R8.4）。
 ///
 /// 三指标：下载 / 上传 / 延迟。
-/// - 速率单位 **Mbps**（兆比特/秒，非 MB/s；R2.6）：字节/秒 × 8 / 1e6。
+/// - 速率单位**动态**（R2.6 比特/秒口径，×8）：<1Mbps 显 **Kbps**，≥1Mbps 显 **Mbps**，
+///   单位标签随数值切换（下载/上传各自判定）。
 /// - 上传数字**不标绿**（R2.7）：与下载同色（onSurface），不用语义绿。
 /// - 等宽数字 `tabular-nums`（R8.4）：跳变不抖动。
 ///
@@ -26,12 +27,14 @@ class XbSpeedCard extends ConsumerWidget {
     final adapter = ref.watch(xbTrafficAdapterProvider);
     final traffic = adapter.currentTraffic(ref);
 
+    final down = _fmtSpeed(traffic.down);
+    final up = _fmtSpeed(traffic.up);
     // 原型：三张独立卡（各带圆角 + 细边 + 阴影），而非单卡竖线分隔。
     return Row(
       children: [
-        Expanded(child: _Metric(value: _toMbps(traffic.down), label: '下载 Mbps')),
+        Expanded(child: _Metric(value: down.value, label: '下载 ${down.unit}')),
         const SizedBox(width: 11),
-        Expanded(child: _Metric(value: _toMbps(traffic.up), label: '上传 Mbps')),
+        Expanded(child: _Metric(value: up.value, label: '上传 ${up.unit}')),
         const SizedBox(width: 11),
         Expanded(
           child: _Metric(
@@ -43,10 +46,17 @@ class XbSpeedCard extends ConsumerWidget {
     );
   }
 
-  /// 字节/秒 → Mbps（× 8 bit / 1e6），保留 1 位小数。
-  static String _toMbps(num bytesPerSec) {
-    final mbps = bytesPerSec * 8 / 1000000;
-    return mbps.toStringAsFixed(1);
+  /// 字节/秒 → 速率串 + 单位：<1Mbps 显 **Kbps**，≥1Mbps 显 **Mbps**（R2.6 仍是比特/秒口径，
+  /// ×8）。低网速用 Kbps 更直观，达到 1Mbps 才切 Mbps。
+  static ({String value, String unit}) _fmtSpeed(num bytesPerSec) {
+    final kbps = bytesPerSec * 8 / 1000;
+    if (kbps <= 0) return (value: '0', unit: 'Kbps');
+    if (kbps < 1000) return (value: kbps.round().toString(), unit: 'Kbps');
+    final mbps = kbps / 1000;
+    return (
+      value: mbps >= 100 ? mbps.round().toString() : mbps.toStringAsFixed(1),
+      unit: 'Mbps',
+    );
   }
 }
 

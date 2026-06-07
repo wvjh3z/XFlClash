@@ -69,6 +69,10 @@ class XboardSubscriptionService {
   Completer<XbSyncOutcome>? _inFlight;
   bool _pendingForce = false;
 
+  /// 是否正在同步（in-flight）。供 UI 区分「加载中」与「无套餐」（首页连接拦截 1-B：
+  /// 已登录但 profile 还没生成时，若正在 sync → 提示「正在准备线路」而非「无可用线路」）。
+  bool get isSyncing => _inFlight != null;
+
   /// θ-8：退出登录期间为 true —— 新 sync 直接 skip（避免删 profile 后 in-flight sync 重建孤儿）。
   bool _loggingOut = false;
 

@@ -12,6 +12,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:fl_clash/xboard/models/xb_result.dart';
 import 'package:fl_clash/xboard/providers/auth_state_provider.dart';
 import 'package:fl_clash/xboard/providers/xboard_providers.dart';
+import 'package:fl_clash/xboard/util/error_text.dart';
 
 import 'forgot_pwd_sheet.dart';
 import 'register_sheet.dart';
@@ -69,7 +70,7 @@ class _LoginSheetState extends ConsumerState<LoginSheet> {
         Navigator.of(context).pop();
       case XbFailure(:final error):
         ref.read(authStateProvider.notifier).markUnauthenticated();
-        setState(() => _banner = error.message);
+        setState(() => _banner = resolveErrorText(error, fallback: '登录失败，请重试'));
     }
   }
 

@@ -74,8 +74,11 @@ void main() {
     });
 
     testWidgets('失败 → banner 显示错误，回未登录', (t) async {
-      when(() => service.login(any(), any())).thenAnswer(
-          (_) async => XbResult.failure(XbDomainError.unauthorized('邮箱或密码错误')));
+      // 登录失败实际是 HTTP 400 → BusinessError.generic（非 401）；
+      // resolveErrorText 透传后端 message（中文原样保留）。
+      when(() => service.login(any(), any())).thenAnswer((_) async =>
+          XbResult.failure(
+              XbDomainError.business(XbBusinessKind.generic, '邮箱或密码错误', null)));
       await pump(t, const LoginSheet());
       await t.enterText(find.byType(TextField).first, 'a@b.com');
       await t.enterText(find.byType(TextField).last, 'wrong');

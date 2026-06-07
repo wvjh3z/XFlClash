@@ -13,7 +13,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:fl_clash/xboard/config/xboard_config.dart';
-import 'package:fl_clash/xboard/util/app_version.dart';
 import 'package:fl_clash/xboard/widgets/xb_components.dart';
 import 'package:fl_clash/xboard/widgets/xb_ui_kit.dart' show XbBrandTheme;
 
@@ -102,7 +101,6 @@ class XbSettingsPage extends ConsumerWidget {
               XbListRow(
                 icon: Icons.info_outline,
                 label: '关于',
-                badge: kBuildTag.isEmpty ? null : kBuildTag,
                 onTap: () => adapter.openAbout(context),
               ),
             ],

@@ -625,7 +625,7 @@ packages:
       path: "../Xboard_sdk"
       relative: true
     source: path
-    version: "1.15.3+xfork"
+    version: "1.16.0+xfork"
   fractional_indexing:
     dependency: "direct main"
     description:

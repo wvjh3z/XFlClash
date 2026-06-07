@@ -12,6 +12,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:fl_clash/xboard/models/xb_result.dart';
 import 'package:fl_clash/xboard/providers/email_suffixes_provider.dart';
 import 'package:fl_clash/xboard/providers/xboard_providers.dart';
+import 'package:fl_clash/xboard/util/error_text.dart';
 
 import 'sheet_scaffold.dart';
 
@@ -77,7 +78,7 @@ class _ForgotPwdSheetState extends ConsumerState<ForgotPwdSheet> {
     final result = await ref.read(xboardServiceProvider).sendEmailVerifyCode(email);
     if (!mounted) return;
     if (result is XbFailure) {
-      setState(() => _banner = (result as XbFailure).error.message);
+      setState(() => _banner = resolveErrorText((result as XbFailure).error, fallback: '发送失败，请重试'));
     }
   }
 
@@ -88,6 +89,10 @@ class _ForgotPwdSheetState extends ConsumerState<ForgotPwdSheet> {
     final pw = _pwCtrl.text;
     if (email.isEmpty || !email.contains('@') || code.isEmpty || pw.isEmpty) {
       setState(() => _banner = '请完整填写邮箱、验证码和新密码');
+      return;
+    }
+    if (pw.length < 8) {
+      setState(() => _banner = '密码至少需要 8 位');
       return;
     }
     setState(() {
@@ -105,7 +110,7 @@ class _ForgotPwdSheetState extends ConsumerState<ForgotPwdSheet> {
           const SnackBar(content: Text('密码已重置，请用新密码登录')),
         );
       case XbFailure(:final error):
-        setState(() => _banner = error.message);
+        setState(() => _banner = resolveErrorText(error, fallback: '重置失败，请重试'));
     }
   }
 
