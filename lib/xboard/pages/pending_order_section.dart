@@ -30,12 +30,27 @@ class PendingOrderSection extends ConsumerStatefulWidget {
 
 class _PendingOrderSectionState extends ConsumerState<PendingOrderSection> {
   bool _cancelling = false;
+  // 已取消的订单号（乐观隐藏：取消成功后立即不再显示该单，不等后端重查落定）。
+  final Set<String> _cancelledTradeNos = {};
+
+  @override
+  void initState() {
+    super.initState();
+    // 进页强制重查（FutureProvider 默认只首拉一次；不刷新则进页看不到最新待支付状态，
+    // 须冷启动才更新）。延后到首帧后 invalidate，避免 build 期改 provider。
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) ref.invalidate(pendingOrderProvider);
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
     final async = ref.watch(pendingOrderProvider);
     final order = async.asData?.value;
-    if (order == null) return const SizedBox.shrink();
+    // 无订单 / 该单已被本地取消 → 收起。
+    if (order == null || _cancelledTradeNos.contains(order.tradeNo)) {
+      return const SizedBox.shrink();
+    }
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 15),
@@ -54,12 +69,14 @@ class _PendingOrderSectionState extends ConsumerState<PendingOrderSection> {
     return '$plan · ${planPeriodLabel(o.period)}';
   }
 
-  void _pay(OrderSummary o) {
-    xbPush(
+  Future<void> _pay(OrderSummary o) async {
+    await xbPush(
       context,
       OrderPaymentPage(tradeNo: o.tradeNo),
       brandColor: Color(XboardConfig.current.brandColor),
     );
+    // 从支付页返回后重查（可能已支付完成 → 横幅应消失）。
+    if (mounted) ref.invalidate(pendingOrderProvider);
   }
 
   Future<void> _confirmCancel(OrderSummary o) async {
@@ -93,7 +110,8 @@ class _PendingOrderSectionState extends ConsumerState<PendingOrderSection> {
       if (!mounted) return;
       switch (result) {
         case XbSuccess():
-          ref.invalidate(pendingOrderProvider); // 刷新 → 横幅消失
+          _cancelledTradeNos.add(o.tradeNo); // 乐观隐藏，立即消失
+          ref.invalidate(pendingOrderProvider); // 后台重查对齐后端
           _toast('订单已取消');
         case XbFailure(:final error):
           _toast('取消失败：${error.message}');

@@ -14,7 +14,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:fl_clash/xboard/config/xboard_config.dart';
 import 'package:fl_clash/xboard/models/xb_domain_subscription.dart';
 import 'package:fl_clash/xboard/pages/order_list_page.dart';
-import 'package:fl_clash/xboard/pages/pending_order_section.dart';
 import 'package:fl_clash/xboard/pages/plan_list_page.dart';
 import 'package:fl_clash/xboard/pages/reset_traffic_page.dart';
 import 'package:fl_clash/xboard/providers/auth_state_provider.dart';
@@ -330,12 +329,6 @@ class _PlanActions extends StatelessWidget {
           const SizedBox(height: 12),
           _ResetCard(pctInt: pctInt, onTap: () => _openReset(context, sub)),
         ],
-        // 待支付订单横幅（原型 12b：放流量重置卡下方，有 pending 订单才显示；
-        // 无订单时 PendingOrderSection 自收起为零高度）。
-        const Padding(
-          padding: EdgeInsets.only(top: 12),
-          child: PendingOrderSection(),
-        ),
       ],
     );
   }
