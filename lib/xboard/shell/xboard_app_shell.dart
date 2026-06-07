@@ -46,7 +46,7 @@ class _XboardAppShellState extends ConsumerState<XboardAppShell> {
     XbErrorBoundary.install();
     // 启动即记录版本(排查"装的是不是新版";print 在 debug logcat 可见)。
     // ignore: avoid_print
-    loadVersionLabel().then((v) => print('[XB-VERSION] $v'));
+    print('[XB-VERSION] ${myClientVersionLabel()}');
   }
 
   void _onTabSelected(int index) => setState(() => _tabIndex = index);

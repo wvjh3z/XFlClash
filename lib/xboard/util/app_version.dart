@@ -1,18 +1,21 @@
-/// 应用版本信息（形态 A「关于」条目展示）。
+/// 应用版本信息（形态 A「我的」Tab「关于」条目展示）。
 ///
-/// 沿用 FlClash 底座版本号（`package_info_plus` → pubspec version），不另起自有版本号 /
-/// 构建标识。`PackageInfo.fromPlatform()` 与 FlClash 原生关于页用的 `globalState.packageInfo`
-/// 同源，但带 try/catch 兜底（widget 测试无 plugin 时不抛），故各「关于」入口统一用本函数。
+/// **两套版本号，不同来源（用户决策）**：
+/// - 设置 → 关于（FlClash 原生 AboutView）：显示**底座版本**（`packageInfo.version` = build-name
+///   = FlClash 0.8.93），沿用上游不动。
+/// - 我的 Tab → 关于（本函数）：显示 **MyClient 自有产品版本 + 构建时间戳**，即 `v0.0.1-{tag}`。
+///   产品版本与底座脱钩，不走 packageInfo（那是底座版本），改由编译期 `--dart-define` 注入。
 library;
 
-import 'package:package_info_plus/package_info_plus.dart';
+/// 编译期注入的 MyClient 产品版本（构建脚本传 `--dart-define=XB_PRODUCT_VERSION=0.0.1`，
+/// 取自 `flavors/brand_a/flavor.yaml` 的 versionName）。未注入时回退 0.0.0。
+const String kProductVersion =
+    String.fromEnvironment('XB_PRODUCT_VERSION', defaultValue: '0.0.0');
 
-/// 取展示用版本串（沿用 FlClash 版本号，如 `0.8.93`）。plugin 不可用时回退占位。
-Future<String> loadVersionLabel() async {
-  try {
-    final info = await PackageInfo.fromPlatform();
-    return info.version;
-  } catch (_) {
-    return '—';
-  }
-}
+/// 编译期注入的构建标识（构建脚本传 `--dart-define=XB_BUILD_TAG=202606071230`，构建时间戳）。
+const String kBuildTag = String.fromEnvironment('XB_BUILD_TAG');
+
+/// 取展示用版本串：`v{产品版本}-{buildTag}`（如 `v0.0.1-202606072036`）。
+/// buildTag 为空（未注入）时退化为 `v{产品版本}`。同步函数（编译期常量，无需异步）。
+String myClientVersionLabel() =>
+    kBuildTag.isEmpty ? 'v$kProductVersion' : 'v$kProductVersion-$kBuildTag';

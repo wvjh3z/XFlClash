@@ -726,19 +726,17 @@ class _SettingsSection extends ConsumerWidget {
   }
 }
 
-/// 「关于」条目：显示 FlClash 版本号（沿用底座 `packageInfo.version`，不另起自有版本号）。
+/// 「关于」条目：显示 MyClient 自有产品版本 + 构建时间戳（`v0.0.1-{tag}`）。
+/// 注意与「设置 → 关于」（FlClash 原生页，显示底座版本 0.8.93）不同源。
 class _AboutRow extends StatelessWidget {
   const _AboutRow();
 
   @override
   Widget build(BuildContext context) {
-    return FutureBuilder<String>(
-      future: loadVersionLabel(),
-      builder: (context, snap) => XbListRow(
-        icon: Icons.info_outline,
-        label: '关于',
-        badge: snap.data ?? '…',
-      ),
+    return XbListRow(
+      icon: Icons.info_outline,
+      label: '关于',
+      badge: myClientVersionLabel(),
     );
   }
 }

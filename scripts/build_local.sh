@@ -5,10 +5,13 @@
 #   bash scripts/build_local.sh release [arm64|x64]   # release APK（默认 arm64，真机分发）
 #   bash scripts/build_local.sh debug                 # debug APK（全 ABI，模拟器用）
 #
-# 版本号（与 FlClash 底座脱钩，MyClient 自有产品版本）:
-#   versionName  ← flavors/brand_a/flavor.yaml 的 versionName（如 0.1.0），功能发布手动递增
-#   versionCode  ← scripts/build_number.txt，每次 release 构建自动 +1（单调递增,Android 覆盖更新正常）
-#   buildTag     ← 自动 = v{versionName}-build{N}-{短SHA}（关于页核对安装的是否目标构建）
+# 版本号（两套，不同来源）:
+#   产品版本 versionName ← flavors/brand_a/flavor.yaml（如 0.0.1）；注入 XB_PRODUCT_VERSION，
+#                          「我的」Tab 关于显示 v{版本}-{时间戳}（MyClient 自有，与底座脱钩）
+#   底座版本 build-name  ← pubspec.yaml version（FlClash 0.8.93）；喂 packageInfo，
+#                          设置→关于（原生 AboutView）显示底座版本，沿用上游不改
+#   versionCode          ← scripts/build_number.txt，每次 release 构建自动 +1（Android 覆盖更新）
+#   buildTag             ← 构建时间戳（YYYYMMDDHHMM），注入 XB_BUILD_TAG
 #
 # 特性: 清 Flutter 构建缓存（防 release AOT 复用陈旧 app.dill → 代码改动未编译进包）。
 set -euo pipefail
@@ -22,9 +25,14 @@ cd "$REPO_DIR"
 FLAVOR_YAML="flavors/brand_a/flavor.yaml"
 BUILD_NUM_FILE="scripts/build_number.txt"
 
-# 产品版本名（从 flavor.yaml 读，MyClient 自有，非 FlClash 0.8.93）
+# 产品版本名（MyClient 自有，注入 dart-define 供「我的」Tab 关于显示 v{版本}-{时间戳}）
 VERSION_NAME="$(grep -m1 -E '^\s*versionName:' "$FLAVOR_YAML" | sed -E 's/.*versionName:\s*"?([^"#]+)"?.*/\1/' | xargs)"
 [ -n "$VERSION_NAME" ] || { echo "✗ 未能从 $FLAVOR_YAML 读到 versionName"; exit 1; }
+
+# build-name = FlClash 底座版本：喂 packageInfo → 设置「关于」(原生 AboutView) 显示底座版本，沿用上游。
+# 取自 pubspec.yaml 的 version 字段（如 0.8.93+2026052901 → 0.8.93）。
+BASE_VERSION="$(grep -m1 -E '^version:' pubspec.yaml | sed -E 's/^version:\s*([0-9.]+).*/\1/' | xargs)"
+[ -n "$BASE_VERSION" ] || BASE_VERSION="0.8.93"
 
 # versionCode：debug 不动计数（沿用当前值）；release 自增并写回。
 BUILD_NUMBER="$(cat "$BUILD_NUM_FILE" 2>/dev/null || echo 1)"
@@ -42,10 +50,11 @@ COMMON_DEFINES=(
   --dart-define-from-file=flavor_defines.json
   --dart-define=XB_FORM_A=true
   --dart-define=XB_BUILD_TAG="$TAG"
+  --dart-define=XB_PRODUCT_VERSION="$VERSION_NAME"
 )
 
 echo "=== build: mode=$MODE arch=$ARCH ==="
-echo "    versionName=$VERSION_NAME  versionCode=$BUILD_NUMBER  tag=$TAG"
+echo "    productVersion=$VERSION_NAME  baseVersion(build-name)=$BASE_VERSION  versionCode=$BUILD_NUMBER  tag=$TAG"
 echo "=== flutter clean（铁律：防 release AOT 复用陈旧 app.dill → 代码改动未编译进包）==="
 flutter clean >/dev/null 2>&1 || true
 flutter pub get >/dev/null 2>&1 || true
@@ -58,20 +67,20 @@ if [ "$MODE" = "release" ]; then
   esac
   flutter build apk --release --flavor brand_a \
     "${COMMON_DEFINES[@]}" \
-    --build-name="$VERSION_NAME" \
+    --build-name="$BASE_VERSION" \
     --build-number="$BUILD_NUMBER" \
     --split-per-abi --target-platform "$TP"
   OUT="build/app/outputs/flutter-apk/app-${ABISUF}-brand_a-release.apk"
 else
   flutter build apk --debug --flavor brand_a \
     "${COMMON_DEFINES[@]}" \
-    --build-name="$VERSION_NAME" \
+    --build-name="$BASE_VERSION" \
     --build-number="$BUILD_NUMBER"
   OUT="build/app/outputs/flutter-apk/app-brand_a-debug.apk"
 fi
 
 echo "=== done ==="
-echo "  MyClient v$VERSION_NAME (build $BUILD_NUMBER)"
+echo "  MyClient 产品版本 v$VERSION_NAME (build $BUILD_NUMBER) · 底座 $BASE_VERSION"
 echo "  buildTag : $TAG"
 echo "  apk      : $OUT"
 ls -la "$OUT" 2>/dev/null || echo "  (产物未找到，检查上面构建日志)"
