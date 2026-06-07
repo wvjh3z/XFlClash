@@ -138,6 +138,11 @@ class _FakeAuth extends AuthStateNotifier {
   AuthState build() => AuthState.authenticated;
 }
 
+class _GuestAuth extends AuthStateNotifier {
+  @override
+  AuthState build() => AuthState.unauthenticated;
+}
+
 void main() {
   setUpAll(_loadCjkFont);
 
@@ -245,5 +250,23 @@ void main() {
     expect(t.takeException(), isNull);
     await expectLater(find.byType(ResetTrafficPage),
         matchesGoldenFile('goldens/page_reset_traffic.png'));
+  });
+
+  testWidgets('我的（游客态）golden', (t) async {
+    await pump(
+      t,
+      ProviderScope(
+        overrides: [
+          authStateProvider.overrideWith(_GuestAuth.new),
+        ],
+        child: app(const XbBrandTheme(
+          brandColor: Color(0xFFD92E1A),
+          child: MineTab(),
+        )),
+      ),
+    );
+    expect(t.takeException(), isNull);
+    await expectLater(find.byType(MineTab),
+        matchesGoldenFile('goldens/page_mine_guest.png'));
   });
 }
