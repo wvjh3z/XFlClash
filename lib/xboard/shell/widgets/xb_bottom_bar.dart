@@ -66,7 +66,7 @@ class XbBottomBar extends StatelessWidget {
       child: SafeArea(
         top: false,
         child: SizedBox(
-          height: 64,
+          height: 68,
           child: Row(
             children: [
               for (var i = 0; i < items.length; i++)
@@ -107,14 +107,28 @@ class _XbBottomBarSlot extends StatelessWidget {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(selected ? item.selectedIcon : item.icon, color: color, size: 24),
+          // 选中态图标底加品牌色药丸（原型 .nav .it.on .ic{background:brand 13%}）。
+          AnimatedContainer(
+            duration: const Duration(milliseconds: 180),
+            width: 60,
+            height: 32,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: selected
+                  ? scheme.primary.withValues(alpha: 0.13)
+                  : Colors.transparent,
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Icon(selected ? item.selectedIcon : item.icon,
+                color: color, size: 24),
+          ),
           const SizedBox(height: 4),
           Text(
             item.label,
             style: TextStyle(
               color: color,
-              fontSize: 12,
-              fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
+              fontSize: 11.5,
+              fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
             ),
           ),
         ],
