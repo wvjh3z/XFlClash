@@ -28,6 +28,9 @@ Future<void> main() async {
     // config: dart-define 编译期值（W8.5，prepare_flavor 生成 flavor_defines.json 注入；
     // 无注入则用占位默认）。
     try {
+      // 先显式 bind flavor 配置（含 XB_FORM_A），保证即便 bootstrap 同步阶段抛异常被吞，
+      // `XboardConfig.current.formA` 在首帧渲染时也已正确。
+      XboardConfig.bind(XboardConfig.fromEnvironment());
       await XboardModule.bootstrap(
         container,
         config: XboardConfig.fromEnvironment(),
