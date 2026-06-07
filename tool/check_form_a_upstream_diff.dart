@@ -12,6 +12,9 @@ import 'dart:io';
 /// 接缝点白名单（允许改的 FlClash 上游既有文件）。
 const _seamAllowlist = <String>{
   'lib/application.dart', // 接缝点 #9（form-a R1）
+  'lib/providers/action.dart', // 接缝点 #10（form-a：屏蔽 FlClash 上游更新检查）
+  'lib/main.dart', // 接缝点 #1（XboardModule bootstrap + config bind）
+  'pubspec.yaml', // 接缝点 #3（Xboard 依赖 + 产品版本号）
 };
 
 /// FlClash upstream 基线 commit（flclash-anchors.md 基线 = v0.8.93）。
@@ -26,6 +29,7 @@ bool _isOurFile(String path) {
       path.startsWith('integration_test/') ||
       path.startsWith('tool/') ||
       path.startsWith('flavors/') ||
+      path.startsWith('scripts/') ||
       path.startsWith('.kiro/') ||
       path.startsWith('.github/') ||
       path.startsWith('.githooks/') ||
