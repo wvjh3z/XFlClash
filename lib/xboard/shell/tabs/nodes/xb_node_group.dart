@@ -367,14 +367,16 @@ class _DelayText extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final scheme = Theme.of(context).colorScheme;
     final delay = adapter.nodeDelay(ref, proxyName: proxyName, testUrl: testUrl);
+    // 首页「3 次取最低」测速中：屏蔽中间跳变，统一显示转圈（测完写入最低值后解除）。
+    final measuring = ref.watch(xbMeasuringNodesProvider).contains(proxyName);
 
     void test() {
       // ignore: discarded_futures
       adapter.testNode(ref, proxyName: proxyName, type: type, testUrl: testUrl);
     }
 
-    if (delay == 0) {
-      // 测速中。
+    if (measuring || delay == 0) {
+      // 测速中（首页 3 次取最低 / 单次 core 测速占位 0）。
       return const SizedBox(
         width: 16,
         height: 16,

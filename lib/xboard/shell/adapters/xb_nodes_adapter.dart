@@ -15,7 +15,7 @@ library;
 import 'package:fl_clash/common/common.dart' show utils;
 import 'package:fl_clash/common/compute.dart' show computeRealSelectedProxyState;
 import 'package:fl_clash/core/core.dart' show coreController;
-import 'package:fl_clash/models/models.dart' show Group, GroupExt, Proxy;
+import 'package:fl_clash/models/models.dart' show Delay, Group, GroupExt, Proxy;
 import 'package:fl_clash/providers/providers.dart';
 import 'package:fl_clash/views/proxies/common.dart' as proxies_common;
 import 'package:fl_clash/views/proxies/tab.dart' show ProxyGroupView;
@@ -288,11 +288,22 @@ class XbNodesAdapter {
       final testUrl = (groupUrl != null && groupUrl.trim().isNotEmpty)
           ? groupUrl.trim()
           : ref.read(realTestUrlProvider(null));
+      // 标记该节点「测速中」：节点页延迟行显示转圈、屏蔽中间 3 次跳变。
+      final measuring = ref.read(xbMeasuringNodesProvider.notifier);
+      measuring.start(state.proxyName);
       int? best;
-      for (var i = 0; i < rounds; i++) {
-        final d = await coreController.getDelay(testUrl, state.proxyName);
-        final v = d.value;
-        if (v != null && v > 0 && (best == null || v < best)) best = v;
+      try {
+        for (var i = 0; i < rounds; i++) {
+          final d = await coreController.getDelay(testUrl, state.proxyName);
+          final v = d.value;
+          if (v != null && v > 0 && (best == null || v < best)) best = v;
+        }
+      } finally {
+        // 把最低值写回全局延迟表（节点页显示最低，覆盖 core onDelay 推送的中间值），再解除转圈。
+        ref.read(proxiesActionProvider.notifier).setDelay(
+              Delay(url: testUrl, name: state.proxyName, value: best ?? -1),
+            );
+        measuring.finish(state.proxyName);
       }
       home.setResult(best); // null/失败 → 清空显示
     } catch (_) {
@@ -413,6 +424,24 @@ class XbNodesAdapter {
 final xbNodesAdapterProvider = Provider<XbNodesAdapter>(
   (ref) => const XbNodesAdapter(),
 );
+
+/// 「正在 3 次取最低测速中」的节点名集合（首页连接/切换节点触发的 measureCurrentNodeBest 用）。
+///
+/// 节点页延迟行据此显示转圈、屏蔽中间 3 次跳变；测完写入最低值后移出集合 → 显示最低值。
+final xbMeasuringNodesProvider =
+    NotifierProvider<XbMeasuringNodesNotifier, Set<String>>(
+  XbMeasuringNodesNotifier.new,
+);
+
+/// 测速中节点集合 Notifier。
+class XbMeasuringNodesNotifier extends Notifier<Set<String>> {
+  @override
+  Set<String> build() => const {};
+
+  void start(String name) => state = {...state, name};
+
+  void finish(String name) => state = {...state}..remove(name);
+}
 
 /// 顺序分批并发执行（纯函数，可单测）：把 [items] 按原始顺序切成每批 [concurrency] 个，
 /// **批内并发（Future.wait）、批间串行**（上一批全完成才开下一批）→ 整体从上到下推进。
