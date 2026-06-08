@@ -17,6 +17,7 @@ import 'package:fl_clash/providers/app.dart';
 import 'package:fl_clash/providers/config.dart';
 import 'package:fl_clash/providers/state.dart';
 import 'package:fl_clash/xboard/config/xboard_config.dart';
+import '_net_detection_stub.dart';
 import 'package:fl_clash/xboard/providers/auth_state_provider.dart';
 import 'package:fl_clash/xboard/providers/xboard_providers.dart';
 import 'package:fl_clash/xboard/shell/xboard_app_shell.dart';
@@ -80,6 +81,7 @@ Future<void> pumpGate(
           )),
       patchClashConfigProvider
           .overrideWithBuild((ref, _) => const PatchClashConfig()),
+      netDetectionOverride(),
     ],
   );
   addTearDown(container.dispose);

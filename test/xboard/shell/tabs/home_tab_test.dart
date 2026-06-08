@@ -21,6 +21,7 @@ import 'package:fl_clash/xboard/shell/tabs/home/xb_connect_orb.dart';
 import 'package:fl_clash/xboard/shell/tabs/home/xb_line_card.dart';
 import 'package:fl_clash/xboard/shell/tabs/home/xb_speed_card.dart';
 import 'package:fl_clash/xboard/shell/tabs/home/xb_mode_segment.dart';
+import '../_net_detection_stub.dart';
 
 class _FakeAuth extends AuthStateNotifier {
   _FakeAuth(this._initial);
@@ -59,6 +60,7 @@ Future<void> pumpHome(
       authStateProvider.overrideWith(() => _FakeAuth(auth)),
       isStartProvider.overrideWith((ref) => false),
       proxiesTabStateProvider.overrideWith((ref) => tab ?? _tab()),
+      netDetectionOverride(),
       groupsProvider.overrideWithValue(const [
         Group(
           type: GroupType.Selector,

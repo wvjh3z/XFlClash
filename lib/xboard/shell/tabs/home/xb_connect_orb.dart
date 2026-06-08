@@ -20,6 +20,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../adapters/xb_connect_adapter.dart';
 import '../../adapters/xb_nodes_adapter.dart';
+import '../../adapters/xb_network_adapter.dart';
 
 /// 连接拦截原因（首页连接球点击 gate）：未登录 / 无可用线路 / 线路准备中。
 enum XbConnectBlock {
@@ -37,7 +38,7 @@ enum XbConnectBlock {
 class XbConnectOrb extends ConsumerWidget {
   const XbConnectOrb({
     super.key,
-    this.size = 208,
+    this.size = 177,
     this.showLock = false,
     this.guest = false,
     this.onBlocked,
@@ -92,8 +93,8 @@ class XbConnectOrb extends ConsumerWidget {
                   right: size * 0.08,
                   bottom: size * 0.04,
                   child: Container(
-                    width: 38,
-                    height: 38,
+                    width: size * 0.18,
+                    height: size * 0.18,
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
                       color: scheme.surfaceContainerLow,
@@ -107,7 +108,7 @@ class XbConnectOrb extends ConsumerWidget {
                       ],
                     ),
                     child: Icon(Icons.lock,
-                        size: 17, color: scheme.onSurfaceVariant),
+                        size: size * 0.085, color: scheme.onSurfaceVariant),
                   ),
                 ),
             ],
@@ -131,6 +132,8 @@ class XbConnectOrb extends ConsumerWidget {
       // ignore: discarded_futures
       ref.read(xbNodesAdapterProvider).measureCurrentNodeBest(ref);
     }
+    // 连接/断开后重新检测出口 IP（VPN 出口会变；延后让连接态切换后再测）。
+    ref.read(xbNetworkAdapterProvider).startCheck(ref);
   }
 
   String _semanticLabel(XbConnState state) => switch (state) {
@@ -326,7 +329,7 @@ class _OrbCore extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(_icon(state), size: 52, color: iconColor),
+          Icon(_icon(state), size: size * 0.316, color: iconColor),
           const SizedBox(height: 10),
           Text(
             guestIdle ? '未登录' : _statusText(state),

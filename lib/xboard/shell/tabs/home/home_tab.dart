@@ -17,8 +17,10 @@ import 'package:fl_clash/xboard/widgets/xb_ui_kit.dart' show XbIconBadge;
 
 import '../../adapters/xb_mode_adapter.dart';
 import '../../adapters/xb_nodes_adapter.dart';
+import '../../adapters/xb_network_adapter.dart';
 import 'xb_connect_orb.dart';
 import 'home_latency_provider.dart';
+import 'xb_ip_card.dart';
 import 'xb_line_card.dart';
 import 'xb_mode_segment.dart';
 import 'xb_speed_card.dart';
@@ -45,6 +47,8 @@ class _HomeTabState extends ConsumerState<HomeTab> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       ref.read(xbModeAdapterProvider).normalizeDirectIfNeeded(ref);
+      // 进入首页触发一次出口 IP 检测（复用 FlClash 多源竞速；debounce 去重安全）。
+      ref.read(xbNetworkAdapterProvider).startCheck(ref);
     });
   }
 
@@ -138,6 +142,8 @@ class _HomeTabState extends ConsumerState<HomeTab> {
             ],
             const SizedBox(height: 20),
             const XbModeSegment(),
+            // 出口 IP 卡（原型 .ipcard，代理模式段下方）。所有态显示（与登录无关）。
+            const XbIpCard(),
           ],
         ),
       ),

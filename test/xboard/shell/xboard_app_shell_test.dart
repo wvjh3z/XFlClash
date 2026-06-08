@@ -16,6 +16,7 @@ import 'package:fl_clash/providers/config.dart';
 import 'package:fl_clash/providers/state.dart';
 import 'package:fl_clash/xboard/providers/auth_state_provider.dart';
 import 'package:fl_clash/xboard/providers/xboard_providers.dart';
+import '_net_detection_stub.dart';
 import 'package:fl_clash/xboard/shell/xboard_app_shell.dart';
 
 class _Ready extends BootstrapReady {
@@ -42,6 +43,7 @@ ProviderContainer _container() {
           )),
       patchClashConfigProvider
           .overrideWithBuild((ref, _) => const PatchClashConfig()),
+      netDetectionOverride(),
     ],
   );
   c.read(coreStatusProvider.notifier).value = CoreStatus.disconnected;
