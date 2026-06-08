@@ -16,7 +16,8 @@ import 'package:fl_clash/models/models.dart' show Group, GroupExt, Proxy;
 import 'package:fl_clash/providers/providers.dart';
 import 'package:fl_clash/views/proxies/common.dart' as proxies_common;
 import 'package:fl_clash/views/proxies/tab.dart' show ProxyGroupView;
-import 'package:fl_clash/enum/enum.dart' show GroupType, ProxyCardType;
+import 'package:fl_clash/enum/enum.dart'
+    show GroupType, GroupName, Mode, ProxyCardType;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -123,23 +124,28 @@ class XbNodesAdapter {
   }
 
   /// 当前生效的「叶子节点名 + 所属分组名」（首页线路卡用）。
-  /// 当前生效的「叶子节点名 + 所属分组名」（首页线路卡用）。
   ///
-  /// **数据源（关键修正）**：用户选择持久化在 `selectedMap`（profile.selectedMap[组名]=节点名），
-  /// **未连接（core 未运行）时 `Group.now` 往往为空**，真正选择只在 selectedMap。故下钻用
-  /// `group.getCurrentSelectedName(selectedMap[组名])`（computed 组 url-test/fallback 用 now、
-  /// 否则用 selectedMap）取每层实际选中项，而非裸读 `now`。
+  /// **数据源（多重回退，保证总能给出节点）**：
+  /// 1. 用 `groupsProvider`（原始，保留 core 写入的 `now`），而非 `proxiesTabState`
+  ///    （后者把 `now` 清空，未连接时取不到生效节点）。
+  /// 2. 入口组按 mode：global → `GLOBAL` 组；否则用 `currentGroupName`，再否则首个非 GLOBAL 可见组。
+  /// 3. 每层选中：`getCurrentSelectedName(selectedMap[组名])`（computed 组用 now、否则 selectedMap）；
+  ///    **若为空 → 回退该组首个真实节点**（覆盖「全局首次未手选、selectedMap 无该组」场景，
+  ///    避免显示不了）。
+  /// 4. 沿链下钻到真实节点（非分组名）：`node`=叶子节点名，`group`=叶子的直接父分组名。
   ///
-  /// 沿选择链从主组下钻到真实节点（非分组名）：
-  /// - `node`：链末端真实节点名；
-  /// - `group`：该叶子节点的**直接父分组**名（链上最后一个分组）。
-  ///
-  /// 链断/空 → 退化取起点组当前选中 + 起点组名；全空 → (null, null)。
+  /// 全空（无任何组/节点）→ (null, null)。
   ({String? node, String? group}) currentSelection(WidgetRef ref) {
-    final tabState = ref.watch(proxiesTabStateProvider);
-    final groups = tabState.groups;
+    final mode = ref.watch(
+      patchClashConfigProvider.select((s) => s.mode),
+    );
+    final groups = ref.watch(groupsProvider);
     if (groups.isEmpty) return (node: null, group: null);
     final selectedMap = ref.watch(selectedMapProvider);
+    final currentGroupName = ref.watch(
+      currentProfileProvider.select((s) => s?.currentGroupName),
+    );
+
     Group? byName(String name) {
       for (final g in groups) {
         if (g.name == name) return g;
@@ -147,17 +153,25 @@ class XbNodesAdapter {
       return null;
     }
 
-    Group? cur = (tabState.currentGroupName != null
-            ? byName(tabState.currentGroupName!)
-            : null) ??
-        groups.firstWhere((g) => g.hidden != true, orElse: () => groups.first);
+    // 入口组：global → GLOBAL 组；否则 currentGroupName；再否则首个非 GLOBAL 可见组。
+    Group? cur = mode == Mode.global
+        ? (byName(GroupName.GLOBAL.name) ?? groups.first)
+        : (currentGroupName != null ? byName(currentGroupName) : null) ??
+            groups.firstWhere(
+              (g) => g.hidden != true && g.name != GroupName.GLOBAL.name,
+              orElse: () => groups.first,
+            );
 
     String? leaf;
     String? parentGroup;
     final seen = <String>{}; // 防环。
     while (cur != null && seen.add(cur.name)) {
-      // 每层实际生效选中：computed 组(url-test/fallback)优先 now，否则取 selectedMap。
-      final selected = cur.getCurrentSelectedName(selectedMap[cur.name] ?? '');
+      // 每层实际选中：computed 组(url-test/fallback)优先 now、否则 selectedMap；
+      // 仍为空 → 回退该组首个真实节点（全局首次/未手选场景）。
+      var selected = cur.getCurrentSelectedName(selectedMap[cur.name] ?? '');
+      if (selected.isEmpty) {
+        selected = _firstRealNode(cur, byName);
+      }
       if (selected.isEmpty) break;
       leaf = selected;
       parentGroup = cur.name;
@@ -166,6 +180,17 @@ class XbNodesAdapter {
       cur = next;
     }
     return (node: leaf, group: parentGroup);
+  }
+
+  /// 取分组首个「真实可用」候选：优先第一个非分组、非内置(DIRECT/REJECT/GLOBAL)项；
+  /// 退化取 all.first；空组返回 ''。
+  String _firstRealNode(Group group, Group? Function(String) byName) {
+    const builtin = {'DIRECT', 'REJECT', 'GLOBAL', 'PASS', 'COMPATIBLE'};
+    for (final p in group.all) {
+      if (builtin.contains(p.name)) continue;
+      return p.name; // 子组名也可（下钻会继续解析）。
+    }
+    return group.all.isNotEmpty ? group.all.first.name : '';
   }
 
   XbGroupSummary _toSummary(Group group) {
