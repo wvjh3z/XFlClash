@@ -23,6 +23,10 @@ String xbDate(DateTime d) =>
 String xbDateTime(DateTime d) =>
     '${xbDate(d)} ${_pad2(d.hour)}:${_pad2(d.minute)}:${_pad2(d.second)}';
 
+/// 日期时间到分钟 `YYYY-MM-DD HH:mm`（到期 / 流量重置等展示用，秒无意义）。
+String xbDateMinute(DateTime d) =>
+    '${xbDate(d)} ${_pad2(d.hour)}:${_pad2(d.minute)}';
+
 /// 百分比整数（四舍五入）：`62`（不带 % 号，调用方自行拼）。
 int xbPercentInt(double ratio0to1) => (ratio0to1 * 100).round();
 

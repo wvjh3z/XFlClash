@@ -30,6 +30,11 @@ void main() {
     expect(xbDateTime(DateTime(2026, 6, 5, 9, 3, 7)), '2026-06-05 09:03:07');
   });
 
+  test('xbDateMinute YYYY-MM-DD HH:mm（到分钟，补零）', () {
+    expect(xbDateMinute(DateTime(2026, 7, 1, 8, 30)), '2026-07-01 08:30');
+    expect(xbDateMinute(DateTime(2026, 6, 12, 0, 0)), '2026-06-12 00:00');
+  });
+
   test('xbPercentInt 四舍五入', () {
     expect(xbPercentInt(0.625), 63);
     expect(xbPercentInt(0.9), 90);

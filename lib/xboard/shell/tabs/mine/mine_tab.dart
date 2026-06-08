@@ -259,8 +259,8 @@ class _AccountCard extends StatelessWidget {
   static String _expireText(XbDomainSubscription sub) {
     if (sub.expiredAt == null) return '长期有效';
     final d = sub.expiredAt!;
-    final ymd = xbDate(d);
-    // 剩余天数（原型：到期 YYYY-MM-DD（剩 N 天））。
+    final ymd = xbDateMinute(d);
+    // 剩余天数（原型：到期 YYYY-MM-DD HH:mm（剩 N 天））。
     final days = d
         .difference(DateTime(
             DateTime.now().year, DateTime.now().month, DateTime.now().day))
@@ -273,7 +273,7 @@ class _AccountCard extends StatelessWidget {
   static String? _resetText(XbDomainSubscription sub) {
     final d = sub.nextResetAt;
     if (d != null) {
-      final base = '流量重置 ${xbDate(d)}';
+      final base = '流量重置 ${xbDateMinute(d)}';
       return sub.resetDay != null ? '$base（每月 ${sub.resetDay} 日）' : base;
     }
     if (sub.resetDay != null) return '流量重置 每月 ${sub.resetDay} 日';
