@@ -12,7 +12,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:fl_clash/xboard/models/xb_domain_subscription.dart';
-import 'package:fl_clash/xboard/models/xb_result.dart';
 import 'package:fl_clash/xboard/pages/order_list_page.dart';
 import 'package:fl_clash/xboard/pages/plan_detail_page.dart';
 import 'package:fl_clash/xboard/pages/plan_list_page.dart';
@@ -24,7 +23,6 @@ import 'package:fl_clash/xboard/util/app_version.dart';
 import 'package:fl_clash/xboard/util/format.dart';
 import 'package:fl_clash/xboard/widgets/xb_components.dart';
 import 'package:fl_clash/xboard/widgets/xb_feedback.dart' show xbConfirm, xbBrandColor;
-import 'package:fl_clash/xboard/widgets/xb_loading_overlay.dart' show xbRunWithLoading;
 import 'package:fl_clash/xboard/widgets/xb_theme.dart' show xbPush, XbTokens;
 
 import 'xb_settings_page.dart';
@@ -329,7 +327,7 @@ class _PlanActions extends ConsumerWidget {
               if (!sub.hasNoPlan)
                 Expanded(
                   child: FilledButton(
-                    onPressed: () => _openRenew(context, ref),
+                    onPressed: () => _openRenew(context),
                     style: FilledButton.styleFrom(
                       shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(XbTokens.rButton)),
@@ -370,29 +368,16 @@ class _PlanActions extends ConsumerWidget {
         brandColor: xbBrandColor());
   }
 
-  /// 续费当前套餐（R6.4，原型图13）：拉套餐列表 → 锁定当前 planId 的套餐 → 续费模式详情页。
-  /// 找不到当前套餐（已下架等）→ 回退到购买/更改套餐列表。
-  /// **全局加载遮罩**（`xbRunWithLoading`）覆盖拉数据期间：淡化等待 + 模态屏障阻断连点。
-  /// 拉完（遮罩已关）再 push，避免遮罩 finally 误 pop 刚 push 的页面。
-  Future<void> _openRenew(BuildContext context, WidgetRef ref) async {
-    final brand = xbBrandColor();
-    final result = await xbRunWithLoading(
-      context,
-      () => ref.read(xboardServiceProvider).getPlans(),
-    );
-    if (!context.mounted) return;
-    final current = switch (result) {
-      XbSuccess(:final data) =>
-        data.where((p) => p.id == sub.planId).firstOrNull,
-      XbFailure() => null,
-    };
-    if (current != null) {
-      xbPush(context, PlanDetailPage(plan: current, renew: true),
-          brandColor: brand);
-    } else {
-      // 当前套餐查不到 → 退回购买/更改列表（不阻断续费意图）。
-      xbPush(context, const PlanListPage(), brandColor: brand);
+  /// 续费当前套餐（R6.4）：与「购买/更改」走同一模式——**立即跳转**，由 [PlanRenewLoader]
+  /// 自己拉套餐 + 锁定当前套餐 + 转圈（XbAsyncView），交互统一（不在本页预拉 + 弹遮罩）。
+  void _openRenew(BuildContext context) {
+    final id = sub.planId;
+    if (id == null) {
+      // 异常：有套餐但无 planId → 回退购买/更改列表。
+      xbPush(context, const PlanListPage(), brandColor: xbBrandColor());
+      return;
     }
+    xbPush(context, PlanRenewLoader(planId: id), brandColor: xbBrandColor());
   }
 
   void _openReset(BuildContext context, XbDomainSubscription sub) {

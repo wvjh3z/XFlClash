@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_html/flutter_html.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../widgets/xb_async_view.dart';
 import '../widgets/xb_components.dart';
 import '../widgets/xb_feedback.dart' show xbToast, xbBrandColor;
 import '../widgets/xb_theme.dart' show xbPush, XbTokens;
@@ -21,6 +22,81 @@ import '../util/period_label.dart';
 import '../widgets/xb_ui_kit.dart';
 import 'order_payment_page.dart';
 import 'pending_order_section.dart';
+import 'plan_list_page.dart';
+
+/// 续费加载外壳：按 [planId] 拉套餐 → 锁定当前套餐 → 渲染续费详情页。
+///
+/// **交互统一**（§11 系统化修复）：续费与「购买/更改」走同一模式——点击**立即跳转**，由目标
+/// 页用 [XbAsyncView] 自己加载转圈，而非在「我的」页预拉数据 + 弹遮罩。找不到当前套餐（已下架）
+/// → 回退展示套餐列表（不阻断续费意图）。
+class PlanRenewLoader extends ConsumerStatefulWidget {
+  const PlanRenewLoader({super.key, required this.planId});
+
+  final int planId;
+
+  @override
+  ConsumerState<PlanRenewLoader> createState() => _PlanRenewLoaderState();
+}
+
+class _PlanRenewLoaderState extends ConsumerState<PlanRenewLoader> {
+  late Future<List<PlanItem>> _future;
+  bool _retrying = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _future = _load();
+  }
+
+  Future<List<PlanItem>> _load() async {
+    final result = await ref.read(xboardServiceProvider).getPlans();
+    return switch (result) {
+      XbSuccess(:final data) => data,
+      XbFailure(:final error) => throw error,
+    };
+  }
+
+  void _reload() {
+    setState(() {
+      _retrying = true;
+      _future = _load();
+    });
+    _future.whenComplete(() {
+      if (mounted) setState(() => _retrying = false);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<List<PlanItem>>(
+      future: _future,
+      builder: (context, snap) {
+        final done = snap.connectionState == ConnectionState.done;
+        // 数据就绪 → 直接返回目标页（自带 XbBrandScaffold/AppBar），避免嵌套脚手架。
+        if (done && !_retrying && snap.error == null) {
+          final plans = snap.data ?? const <PlanItem>[];
+          final current =
+              plans.where((p) => p.id == widget.planId).firstOrNull;
+          return current != null
+              ? PlanDetailPage(plan: current, renew: true)
+              : const PlanListPage();
+        }
+        // 加载 / 重试 / 错误：用带返回栏的脚手架 + XbAsyncView 转圈（与购买页转圈口径一致）。
+        return XbBrandScaffold(
+          title: '续费当前套餐',
+          body: XbAsyncView(
+            loading: !done && !_retrying,
+            retrying: _retrying,
+            error: done ? snap.error : null,
+            errorFallback: '加载套餐失败',
+            onRetry: _reload,
+            builder: (_) => const SizedBox.shrink(),
+          ),
+        );
+      },
+    );
+  }
+}
 
 class PlanDetailPage extends ConsumerStatefulWidget {
   const PlanDetailPage({super.key, required this.plan, this.renew = false});
