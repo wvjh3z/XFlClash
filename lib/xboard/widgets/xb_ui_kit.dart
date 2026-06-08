@@ -204,3 +204,60 @@ class XbBrandBadge extends StatelessWidget {
     );
   }
 }
+
+/// 方形图标徽标 —— 「固定尺寸正方形 + 圆角 + 居中图标」基元（批次三视觉收敛）。
+///
+/// **背景**：设置项 / 信息卡 / 续费头 / 登录卡等 7+ 处各自手写
+/// `Container(width:s,height:s, decoration: BoxDecoration(color/gradient, borderRadius), child: Icon)`。
+/// 容器壳子重复，但配方各异（品牌淡底 / 中性灰底 / 品牌渐变实底，尺寸 40/42，圆角 10/12/16）。
+/// 本组件**只收敛容器骨架**——背景色 / 渐变 / 尺寸 / 圆角 / 图标色全参数透传，**像素严格不变**，
+/// 调用点从约 10 行降为 1 行。不引入 variant 枚举（配方差异是设计有意，不强行统一）。
+class XbIconBadge extends StatelessWidget {
+  const XbIconBadge({
+    super.key,
+    required this.icon,
+    this.size = 42,
+    this.radius = XbTokens.rMd,
+    this.background,
+    this.gradient,
+    this.iconColor,
+    this.iconSize,
+  }) : assert(background == null || gradient == null,
+            'background 与 gradient 互斥');
+
+  /// 图标。
+  final IconData icon;
+
+  /// 正方形边长。
+  final double size;
+
+  /// 圆角半径。
+  final double radius;
+
+  /// 纯色背景（与 [gradient] 互斥）。
+  final Color? background;
+
+  /// 渐变背景（与 [background] 互斥，如品牌渐变实底）。
+  final Gradient? gradient;
+
+  /// 图标颜色。
+  final Color? iconColor;
+
+  /// 图标尺寸（默认 size 的一半）。
+  final double? iconSize;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: size,
+      height: size,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: gradient == null ? background : null,
+        gradient: gradient,
+        borderRadius: BorderRadius.circular(radius),
+      ),
+      child: Icon(icon, size: iconSize ?? size * 0.5, color: iconColor),
+    );
+  }
+}

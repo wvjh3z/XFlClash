@@ -136,16 +136,13 @@ class _PlanDetailPageState extends ConsumerState<PlanDetailPage> {
       return XbCard(
         child: Row(
           children: [
-            Container(
-              width: 42,
-              height: 42,
-              alignment: Alignment.center,
-              decoration: BoxDecoration(
-                color: scheme.primary.withValues(alpha: 0.14),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Icon(Icons.confirmation_number_outlined,
-                  color: scheme.primary, size: 21),
+            XbIconBadge(
+              icon: Icons.confirmation_number_outlined,
+              size: 42,
+              radius: 12,
+              background: scheme.primary.withValues(alpha: 0.14),
+              iconColor: scheme.primary,
+              iconSize: 21,
             ),
             const SizedBox(width: 13),
             Expanded(

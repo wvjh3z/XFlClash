@@ -12,6 +12,7 @@ library;
 import 'package:flutter/material.dart';
 
 import 'xb_theme.dart';
+import 'xb_ui_kit.dart' show XbIconBadge;
 
 /// 顶部同步横幅（原型 `.syncbar`）：琥珀柔底 + 旋转 spinner + 文案。
 /// 用于"已登录但订阅/账号数据竞速未完成"的过渡态。
@@ -335,15 +336,13 @@ class XbListRow extends StatelessWidget {
         padding: const EdgeInsets.symmetric(vertical: 13, horizontal: 4),
         child: Row(
           children: [
-            Container(
-              width: 40,
-              height: 40,
-              alignment: Alignment.center,
-              decoration: BoxDecoration(
-                color: t.sfc,
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Icon(icon, size: 20, color: danger ? scheme.error : t.on),
+            XbIconBadge(
+              icon: icon,
+              size: 40,
+              radius: 12,
+              background: t.sfc,
+              iconColor: danger ? scheme.error : t.on,
+              iconSize: 20,
             ),
             const SizedBox(width: 14),
             Expanded(
@@ -979,15 +978,13 @@ class _XbInfoItemCard extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(
-            width: 42,
-            height: 42,
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-              color: scheme.primary.withValues(alpha: 0.12),
-              borderRadius: BorderRadius.circular(XbTokens.rMd),
-            ),
-            child: Icon(item.icon, size: 22, color: scheme.primary),
+          XbIconBadge(
+            icon: item.icon,
+            size: 42,
+            radius: XbTokens.rMd,
+            background: scheme.primary.withValues(alpha: 0.12),
+            iconColor: scheme.primary,
+            iconSize: 22,
           ),
           const SizedBox(width: 13),
           Expanded(

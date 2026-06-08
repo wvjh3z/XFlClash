@@ -13,6 +13,7 @@ import 'package:fl_clash/xboard/providers/auth_state_provider.dart';
 import 'package:fl_clash/xboard/providers/xboard_providers.dart';
 import 'package:fl_clash/xboard/widgets/xb_center_toast.dart';
 import 'package:fl_clash/xboard/widgets/xb_theme.dart' show XbTokens;
+import 'package:fl_clash/xboard/widgets/xb_ui_kit.dart' show XbIconBadge;
 
 import '../../adapters/xb_mode_adapter.dart';
 import '../../adapters/xb_nodes_adapter.dart';
@@ -177,24 +178,23 @@ class _GuestBanner extends StatelessWidget {
             child: Row(
               children: [
                 // 白图标 + 品牌红渐变方块。
-                Container(
-                  width: 40,
-                  height: 40,
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(XbTokens.rMd),
-                    gradient: LinearGradient(
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                      colors: [
-                        Color.alphaBlend(
-                          Colors.white.withValues(alpha: 0.18),
-                          scheme.primary,
-                        ),
+                XbIconBadge(
+                  icon: Icons.person,
+                  size: 40,
+                  radius: XbTokens.rMd,
+                  iconColor: Colors.white,
+                  iconSize: 20,
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [
+                      Color.alphaBlend(
+                        Colors.white.withValues(alpha: 0.18),
                         scheme.primary,
-                      ],
-                    ),
+                      ),
+                      scheme.primary,
+                    ],
                   ),
-                  child: const Icon(Icons.person, size: 20, color: Colors.white),
                 ),
                 const SizedBox(width: 13),
                 // 主副文案。
