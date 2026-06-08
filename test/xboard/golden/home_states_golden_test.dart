@@ -16,6 +16,7 @@ import 'package:fl_clash/models/models.dart'
 import 'package:fl_clash/providers/app.dart';
 import 'package:fl_clash/providers/config.dart';
 import 'package:fl_clash/providers/state.dart';
+import 'package:fl_clash/providers/providers.dart' show selectedMapProvider;
 import 'package:fl_clash/xboard/providers/auth_state_provider.dart';
 import 'package:fl_clash/xboard/providers/xboard_providers.dart';
 import 'package:fl_clash/xboard/shell/tabs/home/home_tab.dart';
@@ -77,6 +78,7 @@ Future<void> pumpHome(
       authStateProvider.overrideWith(() => _FakeAuth(auth)),
       isStartProvider.overrideWith((ref) => isStart),
       proxiesTabStateProvider.overrideWith((ref) => _tab()),
+      selectedMapProvider.overrideWith((ref) => const {'智能优选': '香港01'}),
       patchClashConfigProvider
           .overrideWithBuild((ref, _) => const PatchClashConfig(mode: Mode.rule)),
     ],

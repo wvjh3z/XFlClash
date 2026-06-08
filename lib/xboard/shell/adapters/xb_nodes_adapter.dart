@@ -12,7 +12,7 @@
 library;
 
 import 'package:fl_clash/common/common.dart' show utils;
-import 'package:fl_clash/models/models.dart' show Group, Proxy;
+import 'package:fl_clash/models/models.dart' show Group, GroupExt, Proxy;
 import 'package:fl_clash/providers/providers.dart';
 import 'package:fl_clash/views/proxies/common.dart' as proxies_common;
 import 'package:fl_clash/views/proxies/tab.dart' show ProxyGroupView;
@@ -123,19 +123,23 @@ class XbNodesAdapter {
   }
 
   /// 当前生效的「叶子节点名 + 所属分组名」（首页线路卡用）。
+  /// 当前生效的「叶子节点名 + 所属分组名」（首页线路卡用）。
   ///
-  /// 沿 `now` 链从主组一路下钻到真实节点（非分组名）：
-  /// - `node`：链末端真实节点名（如「香港 BGP 02」）；
-  /// - `group`：该叶子节点所在的**直接父分组**名（如「香港」）——即链上最后一个分组。
+  /// **数据源（关键修正）**：用户选择持久化在 `selectedMap`（profile.selectedMap[组名]=节点名），
+  /// **未连接（core 未运行）时 `Group.now` 往往为空**，真正选择只在 selectedMap。故下钻用
+  /// `group.getCurrentSelectedName(selectedMap[组名])`（computed 组 url-test/fallback 用 now、
+  /// 否则用 selectedMap）取每层实际选中项，而非裸读 `now`。
   ///
-  /// 例：主组「智能优选」(now=香港 IEPL 专线 01) → node=香港 IEPL 专线 01 / group=智能优选；
-  ///     主组「Proxy」(now=香港) → 「香港」(now=香港 BGP 02) → node=香港 BGP 02 / group=香港。
+  /// 沿选择链从主组下钻到真实节点（非分组名）：
+  /// - `node`：链末端真实节点名；
+  /// - `group`：该叶子节点的**直接父分组**名（链上最后一个分组）。
   ///
-  /// 链断/空 → node 取起点组 now、group 取起点组名（退化）；全空 → (null, null)。
+  /// 链断/空 → 退化取起点组当前选中 + 起点组名；全空 → (null, null)。
   ({String? node, String? group}) currentSelection(WidgetRef ref) {
     final tabState = ref.watch(proxiesTabStateProvider);
     final groups = tabState.groups;
     if (groups.isEmpty) return (node: null, group: null);
+    final selectedMap = ref.watch(selectedMapProvider);
     Group? byName(String name) {
       for (final g in groups) {
         if (g.name == name) return g;
@@ -152,11 +156,12 @@ class XbNodesAdapter {
     String? parentGroup;
     final seen = <String>{}; // 防环。
     while (cur != null && seen.add(cur.name)) {
-      final now = cur.now;
-      if (now == null || now.isEmpty) break;
-      leaf = now;
-      parentGroup = cur.name; // now 的直接父分组。
-      final next = byName(now); // now 仍是分组 → 继续下钻；否则就是叶子节点。
+      // 每层实际生效选中：computed 组(url-test/fallback)优先 now，否则取 selectedMap。
+      final selected = cur.getCurrentSelectedName(selectedMap[cur.name] ?? '');
+      if (selected.isEmpty) break;
+      leaf = selected;
+      parentGroup = cur.name;
+      final next = byName(selected); // 仍是分组 → 继续下钻；否则就是叶子节点。
       if (next == null) break;
       cur = next;
     }

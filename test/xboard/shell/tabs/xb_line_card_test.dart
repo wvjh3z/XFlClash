@@ -9,6 +9,7 @@ import 'package:fl_clash/enum/enum.dart';
 import 'package:fl_clash/models/models.dart' show Group, Proxy, ProxiesTabState;
 import 'package:fl_clash/providers/app.dart';
 import 'package:fl_clash/providers/state.dart';
+import 'package:fl_clash/providers/providers.dart' show selectedMapProvider;
 import 'package:fl_clash/xboard/providers/xboard_providers.dart';
 import 'package:fl_clash/xboard/shell/tabs/home/xb_line_card.dart';
 
@@ -30,12 +31,14 @@ Future<void> pumpCard(
   WidgetTester tester, {
   required bool isStart,
   String? selected,
+  Map<String, String> selectedMap = const {},
   VoidCallback? onTap,
 }) async {
   final container = ProviderContainer(
     overrides: [
       isStartProvider.overrideWith((ref) => isStart),
       proxiesTabStateProvider.overrideWith((ref) => _tab(selected)),
+      selectedMapProvider.overrideWith((ref) => selectedMap),
     ],
   );
   addTearDown(container.dispose);
@@ -60,29 +63,31 @@ void main() {
     expect(find.text('当前分组：智能优选'), findsOneWidget);
   });
 
-  testWidgets('已连接 → 沿 now 链下钻显示叶子节点 + 其所属分组（主组→子组→节点）',
+  testWidgets('未连接(now 全空)沿 selectedMap 链下钻显示叶子节点 + 所属分组（真实场景）',
       (tester) async {
     final container = ProviderContainer(
       overrides: [
-        isStartProvider.overrideWith((ref) => true),
+        isStartProvider.overrideWith((ref) => false), // 未连接
+        // selectedMap 持有用户选择：主组选了子组「香港」，子组「香港」选了叶子节点。
+        selectedMapProvider.overrideWith((ref) => {
+              '智能优选': '香港',
+              '香港': '🇭🇰 香港 BGP 02',
+            }),
         proxiesTabStateProvider.overrideWith(
           (ref) => ProxiesTabState(
             currentGroupName: '智能优选',
             proxyCardType: ProxyCardType.expand,
             columns: 2,
             groups: [
-              // 主组指向子组「香港」。
+              // now 全空（core 未运行）；真正选择只在 selectedMap。
               Group(
                 type: GroupType.Selector,
                 name: '智能优选',
-                now: '香港',
                 all: const [Proxy(name: '香港', type: 'Selector')],
               ),
-              // 子组「香港」指向叶子节点。
               Group(
                 type: GroupType.Selector,
                 name: '香港',
-                now: '🇭🇰 香港 BGP 02',
                 all: const [Proxy(name: '🇭🇰 香港 BGP 02', type: 'ss')],
               ),
             ],
@@ -92,7 +97,7 @@ void main() {
     );
     addTearDown(container.dispose);
     container.read(bootstrapReadyProvider.notifier).set(true);
-    container.read(coreStatusProvider.notifier).value = CoreStatus.connected;
+    container.read(coreStatusProvider.notifier).value = CoreStatus.disconnected;
     await tester.pumpWidget(
       UncontrolledProviderScope(
         container: container,
