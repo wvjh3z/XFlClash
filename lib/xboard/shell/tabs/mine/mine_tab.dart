@@ -173,7 +173,8 @@ class _AccountCard extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 10),
-              Flexible(
+              // 邮箱占套餐名之外的剩余空间（Expanded），只有真超长才省略（方案1）。
+              Expanded(
                 child: Text(
                   sub.email,
                   textAlign: TextAlign.right,
