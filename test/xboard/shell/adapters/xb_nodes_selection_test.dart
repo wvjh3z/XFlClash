@@ -17,8 +17,7 @@ import 'package:fl_clash/enum/enum.dart';
 import 'package:fl_clash/models/models.dart'
     show Group, Proxy, ProxiesTabState, PatchClashConfig;
 import 'package:fl_clash/providers/config.dart';
-import 'package:fl_clash/providers/state.dart'
-    show proxiesTabStateProvider, delayProvider;
+import 'package:fl_clash/providers/state.dart' show proxiesTabStateProvider;
 import 'package:fl_clash/providers/providers.dart'
     show selectedMapProvider, groupsProvider;
 import 'package:fl_clash/xboard/shell/adapters/xb_nodes_adapter.dart';
@@ -334,58 +333,6 @@ void main() {
       final r = await sel(t, mode: Mode.rule, groups: const []);
       expect(r.node, isNull);
       expect(r.group, isNull);
-    });
-  });
-
-  group('currentNodeDelay（首页速度卡延迟）', () {
-    Future<int?> delayVia(
-      WidgetTester t, {
-      required List<Group> groups,
-      Map<String, String> selectedMap = const {},
-      required Map<String, int?> delays, // proxyName → delay
-    }) async {
-      int? out;
-      await t.pumpWidget(ProviderScope(
-        key: UniqueKey(),
-        overrides: [
-          groupsProvider.overrideWithValue(groups),
-          selectedMapProvider.overrideWith((ref) => selectedMap),
-          patchClashConfigProvider
-              .overrideWithBuild((ref, _) => const PatchClashConfig(mode: Mode.rule)),
-          for (final e in delays.entries)
-            delayProvider(proxyName: e.key, testUrl: null)
-                .overrideWithValue(e.value),
-        ],
-        child: MaterialApp(
-          home: Consumer(builder: (ctx, ref, _) {
-            out = const XbNodesAdapter().currentNodeDelay(ref);
-            return const SizedBox();
-          }),
-        ),
-      ));
-      await t.pump();
-      return out;
-    }
-
-    testWidgets('选中香港且已测 → 返回香港延迟', (t) async {
-      final d = await delayVia(t,
-          groups: ruleGroups(manualNow: _hk),
-          selectedMap: {'omofly 手动选择': _hk},
-          delays: {_hk: 88});
-      expect(d, 88);
-    });
-
-    testWidgets('选中节点未测 → null（速度卡显示 --）', (t) async {
-      final d = await delayVia(t,
-          groups: ruleGroups(manualNow: _hk),
-          selectedMap: {'omofly 手动选择': _hk},
-          delays: {_hk: null});
-      expect(d, isNull);
-    });
-
-    testWidgets('无任何分组 → null', (t) async {
-      final d = await delayVia(t, groups: const [], delays: const {});
-      expect(d, isNull);
     });
   });
 }

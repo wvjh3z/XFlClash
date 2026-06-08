@@ -19,6 +19,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../adapters/xb_connect_adapter.dart';
+import '../../adapters/xb_nodes_adapter.dart';
 
 /// 连接拦截原因（首页连接球点击 gate）：未登录 / 无可用线路 / 线路准备中。
 enum XbConnectBlock {
@@ -119,11 +120,17 @@ class XbConnectOrb extends ConsumerWidget {
   /// 点击处理：仅在「未连接 → 连接」方向先过拦截 gate；已连接（断开）/ 连接中直接放行。
   void _handleTap(WidgetRef ref, XbConnState state) {
     final adapter = ref.read(xbConnectAdapterProvider);
-    if (state == XbConnState.disconnected && onBlocked != null) {
+    final initiatingConnect = state == XbConnState.disconnected;
+    if (initiatingConnect && onBlocked != null) {
       final block = onBlocked!();
       if (block != null) return; // 被拦截（回调内已弹提示），不连接。
     }
     adapter.toggle(ref);
+    // 发起连接时测一次当前生效节点延迟（3 次取最低，刷到首页速度卡）。fire-and-forget。
+    if (initiatingConnect) {
+      // ignore: discarded_futures
+      ref.read(xbNodesAdapterProvider).measureCurrentNodeBest(ref);
+    }
   }
 
   String _semanticLabel(XbConnState state) => switch (state) {

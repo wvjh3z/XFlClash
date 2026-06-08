@@ -13,6 +13,8 @@
 library;
 
 import 'package:fl_clash/common/common.dart' show utils;
+import 'package:fl_clash/common/compute.dart' show computeRealSelectedProxyState;
+import 'package:fl_clash/core/core.dart' show coreController;
 import 'package:fl_clash/models/models.dart' show Group, GroupExt, Proxy;
 import 'package:fl_clash/providers/providers.dart';
 import 'package:fl_clash/views/proxies/common.dart' as proxies_common;
@@ -21,6 +23,8 @@ import 'package:fl_clash/enum/enum.dart'
     show GroupType, GroupName, Mode, ProxyCardType;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import '../tabs/home/home_latency_provider.dart';
 
 /// 形态 A 节点分组类型（primitive，对应 FlClash GroupType；UI 据此分别渲染/说明）。
 enum XbGroupKind {
@@ -244,15 +248,56 @@ class XbNodesAdapter {
   int? nodeDelay(WidgetRef ref, {required String proxyName, String? testUrl}) =>
       ref.watch(delayProvider(proxyName: proxyName, testUrl: testUrl));
 
-  /// 当前生效节点的延迟（ms）—— 首页速度卡用。
+  /// 测当前生效节点延迟 **3 次取最低**（连接 / 切换节点后触发），结果写入 [homeLatencyProvider]
+  /// 供首页速度卡显示。**不写全局延迟表**（首页延迟独立于节点列表延迟）。
   ///
-  /// 取 [currentSelection] 解析出的实际生效节点名，再查 `delayProvider`（testUrl 传 null →
-  /// provider 内部经 `realSelectedProxyState` 解析该节点真正所属组的 testUrl，口径与节点页一致）。
-  /// 无选中节点 → null（速度卡显示「--」）。
-  int? currentNodeDelay(WidgetRef ref) {
-    final node = currentSelection(ref).node;
-    if (node == null || node.isEmpty) return null;
-    return ref.watch(delayProvider(proxyName: node, testUrl: null));
+  /// [explicitNode] 指定则测它（切换节点后传刚选的节点名，避开 provider 同步帧未刷新读到旧值）；
+  /// 否则取 [currentSelection] 当前生效节点。经 `computeRealSelectedProxyState` 解析真实节点 +
+  /// 其 testUrl → 连续 `getDelay` [rounds] 次取**最低有效值**(>0)。无生效节点 / 内置项(DIRECT)
+  /// → 清空首页延迟。永不抛。
+  Future<void> measureCurrentNodeBest(
+    WidgetRef ref, {
+    String? explicitNode,
+    int rounds = 3,
+  }) async {
+    const builtin = {'DIRECT', 'REJECT', 'GLOBAL', 'PASS', 'COMPATIBLE'};
+    final home = ref.read(homeLatencyProvider.notifier);
+    final selNode = (explicitNode != null && explicitNode.isNotEmpty)
+        ? explicitNode
+        : currentSelection(ref).node;
+    if (selNode == null || selNode.isEmpty || builtin.contains(selNode)) {
+      home.setResult(null);
+      return;
+    }
+    home.startMeasuring();
+    try {
+      final groups = ref.read(groupsProvider);
+      final selectedMap = ref.read(selectedMapProvider);
+      // 解析真实生效节点 + 其所属组 testUrl（口径与节点页一致）。
+      final state = computeRealSelectedProxyState(
+        selNode,
+        groups: groups,
+        selectedMap: selectedMap,
+      );
+      if (state.proxyName.isEmpty || builtin.contains(state.proxyName)) {
+        home.setResult(null);
+        return;
+      }
+      // testUrl 回退：分组 url 优先，空则用设置/默认测速链接。
+      final groupUrl = state.testUrl;
+      final testUrl = (groupUrl != null && groupUrl.trim().isNotEmpty)
+          ? groupUrl.trim()
+          : ref.read(realTestUrlProvider(null));
+      int? best;
+      for (var i = 0; i < rounds; i++) {
+        final d = await coreController.getDelay(testUrl, state.proxyName);
+        final v = d.value;
+        if (v != null && v > 0 && (best == null || v < best)) best = v;
+      }
+      home.setResult(best); // null/失败 → 清空显示
+    } catch (_) {
+      home.setResult(null); // 永不抛
+    }
   }
 
   /// 某组当前生效选中节点名（计算选择组返回自动命中的节点，selector 返回手选）。
@@ -345,6 +390,9 @@ class XbNodesAdapter {
     ref
         .read(proxiesActionProvider.notifier)
         .changeProxyDebounce(groupName, next);
+    // 切换节点后测一次该节点延迟（3 次取最低，刷到首页速度卡）。fire-and-forget。
+    // ignore: discarded_futures
+    measureCurrentNodeBest(ref);
   }
 
   /// 刷新（批量竞速重测延迟）。**从上到下顺序 + 并发 10**（`_delayTestBatched`）。

@@ -18,6 +18,7 @@ import 'package:fl_clash/xboard/widgets/xb_ui_kit.dart' show XbIconBadge;
 import '../../adapters/xb_mode_adapter.dart';
 import '../../adapters/xb_nodes_adapter.dart';
 import 'xb_connect_orb.dart';
+import 'home_latency_provider.dart';
 import 'xb_line_card.dart';
 import 'xb_mode_segment.dart';
 import 'xb_speed_card.dart';
@@ -81,10 +82,10 @@ class _HomeTabState extends ConsumerState<HomeTab> {
     final isGuest =
         ref.watch(authStateProvider) != AuthState.authenticated;
     final scheme = Theme.of(context).colorScheme;
-    // 当前生效节点延迟：仅显示有效正值（>0 ms）；未测/测速中/超时/游客 → null（显示「--」）。
-    final rawDelay =
-        isGuest ? null : ref.watch(xbNodesAdapterProvider).currentNodeDelay(ref);
-    final latencyMs = (rawDelay != null && rawDelay > 0) ? rawDelay : null;
+    // 首页延迟：读独立的 homeLatencyProvider（仅「连接/切换节点」时由 measureCurrentNodeBest
+    // 现测 3 次取最低写入），不读节点列表的全局延迟表。游客 → null（显示「--」）。
+    final homeLatency = ref.watch(homeLatencyProvider);
+    final latencyMs = isGuest ? null : homeLatency.ms;
 
     return SafeArea(
       child: SingleChildScrollView(
