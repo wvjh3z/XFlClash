@@ -135,7 +135,9 @@ class XbNodesAdapter {
   /// **数据源（多重回退，保证总能给出节点）**：
   /// 1. 用 `groupsProvider`（原始，保留 core 写入的 `now`），而非 `proxiesTabState`
   ///    （后者把 `now` 清空，未连接时取不到生效节点）。
-  /// 2. 入口组按 mode：global → `GLOBAL` 组；否则用 `currentGroupName`，再否则首个非 GLOBAL 可见组。
+  /// 2. 入口组**与节点页默认打开的组一致**：global → `GLOBAL` 组；rule → 首个非 GLOBAL 可见组。
+  ///    **不用 `currentGroupName`**：它切 global 时被 FlClash 永久写成 "GLOBAL"，切回 rule 不复位，
+  ///    会导致 rule 模式误显示 GLOBAL（污染）。
   /// 3. 每层选中：`getCurrentSelectedName(selectedMap[组名])`（computed 组用 now、否则 selectedMap）；
   ///    **若为空 → 回退该组首个真实节点**（覆盖「全局首次未手选、selectedMap 无该组」场景，
   ///    避免显示不了）。
@@ -149,9 +151,6 @@ class XbNodesAdapter {
     final groups = ref.watch(groupsProvider);
     if (groups.isEmpty) return (node: null, group: null);
     final selectedMap = ref.watch(selectedMapProvider);
-    final currentGroupName = ref.watch(
-      currentProfileProvider.select((s) => s?.currentGroupName),
-    );
 
     Group? byName(String name) {
       for (final g in groups) {
@@ -160,24 +159,31 @@ class XbNodesAdapter {
       return null;
     }
 
-    // 入口组：global → GLOBAL 组；否则 currentGroupName；再否则首个非 GLOBAL 可见组。
+    // 入口组：global → GLOBAL 组；rule → 首个非 GLOBAL 可见组（与节点页默认组一致，
+    // 不依赖会被污染的 currentGroupName）。
     Group? cur = mode == Mode.global
         ? (byName(GroupName.GLOBAL.name) ?? groups.first)
-        : (currentGroupName != null ? byName(currentGroupName) : null) ??
-            groups.firstWhere(
-              (g) => g.hidden != true && g.name != GroupName.GLOBAL.name,
-              orElse: () => groups.first,
-            );
+        : groups.firstWhere(
+            (g) => g.hidden != true && g.name != GroupName.GLOBAL.name,
+            orElse: () => groups.first,
+          );
 
+    const builtin = {'DIRECT', 'REJECT', 'GLOBAL', 'PASS', 'COMPATIBLE'};
     String? leaf;
     String? parentGroup;
     final seen = <String>{}; // 防环。
     while (cur != null && seen.add(cur.name)) {
-      // 每层实际选中：computed 组(url-test/fallback)优先 now、否则 selectedMap；
-      // 仍为空 → 回退该组首个真实节点（全局首次/未手选场景）。
+      final hasExplicit = selectedMap.containsKey(cur.name) &&
+          selectedMap[cur.name]!.isNotEmpty;
+      // 每层选中优先级：
+      // ① 用户显式选择（selectedMap 有值）→ 尊重（含主动选 DIRECT）；
+      // ② 否则 core 运行值 now（computed 组语义）；
+      // ③ 若①②落空或解析到内置项(DIRECT 等) 且非用户显式 → 回退首个真实节点
+      //    （不默认直连：用户用 VPN 不会想只直连）。
       var selected = cur.getCurrentSelectedName(selectedMap[cur.name] ?? '');
-      if (selected.isEmpty) {
-        selected = _firstRealNode(cur, byName);
+      if (selected.isEmpty || (!hasExplicit && builtin.contains(selected))) {
+        final real = _firstRealNode(cur);
+        if (real.isNotEmpty) selected = real;
       }
       if (selected.isEmpty) break;
       leaf = selected;
@@ -186,18 +192,26 @@ class XbNodesAdapter {
       if (next == null) break;
       cur = next;
     }
+    // 最终仍落在内置项（如整组只有 DIRECT 且非用户显式）→ 视为未选。
+    if (leaf != null && builtin.contains(leaf)) {
+      final rootExplicit = parentGroup != null &&
+          selectedMap[parentGroup]?.isNotEmpty == true &&
+          builtin.contains(selectedMap[parentGroup]);
+      if (!rootExplicit) return (node: null, group: null);
+    }
     return (node: leaf, group: parentGroup);
   }
 
-  /// 取分组首个「真实可用」候选：优先第一个非分组、非内置(DIRECT/REJECT/GLOBAL)项；
-  /// 退化取 all.first；空组返回 ''。
-  String _firstRealNode(Group group, Group? Function(String) byName) {
+  /// 取分组首个「真实可用」候选：第一个非内置(DIRECT/REJECT/GLOBAL/PASS/COMPATIBLE)项
+  /// （子组名也算候选，下钻会继续解析）。**不兜底 all.first** —— 避免在用户未选时
+  /// 默认落到 DIRECT（直连违背用 VPN 的初衷）。无真实候选 → 返回 ''（视为未选）。
+  String _firstRealNode(Group group) {
     const builtin = {'DIRECT', 'REJECT', 'GLOBAL', 'PASS', 'COMPATIBLE'};
     for (final p in group.all) {
       if (builtin.contains(p.name)) continue;
-      return p.name; // 子组名也可（下钻会继续解析）。
+      return p.name;
     }
-    return group.all.isNotEmpty ? group.all.first.name : '';
+    return '';
   }
 
   XbGroupSummary _toSummary(Group group) {
