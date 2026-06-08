@@ -29,7 +29,7 @@ class XbSyncBanner extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
       decoration: BoxDecoration(
         color: Color.alphaBlend(warn.withValues(alpha: 0.11), t.card),
-        borderRadius: BorderRadius.circular(13),
+        borderRadius: BorderRadius.circular(XbTokens.rMd),
         border: Border.all(color: warn.withValues(alpha: 0.30)),
       ),
       child: Row(

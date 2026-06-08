@@ -139,7 +139,7 @@ class _PlanDetailPageState extends ConsumerState<PlanDetailPage> {
             XbIconBadge(
               icon: Icons.confirmation_number_outlined,
               size: 42,
-              radius: 12,
+              radius: XbTokens.rMd,
               background: scheme.primary.withValues(alpha: 0.14),
               iconColor: scheme.primary,
               iconSize: 21,
