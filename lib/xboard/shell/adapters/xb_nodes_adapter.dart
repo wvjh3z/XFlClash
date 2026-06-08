@@ -113,11 +113,18 @@ class XbNodesAdapter {
   const XbNodesAdapter();
 
   /// 投影轻量节点视图（过滤 hidden 组）。
+  ///
+  /// **mode 一致性（修复「全局选节点不生效」）**：global 模式下 core 只认 `GLOBAL` 组的选择，
+  /// 故节点页 global 模式**只展示 GLOBAL 组**（用户在 GLOBAL 里选 → 与首页 GLOBAL 入口一致、
+  /// 与 core 实际生效一致）。rule 模式展示业务组（`currentGroupsState` 已排除 GLOBAL）。
   XbNodesView nodesView(WidgetRef ref) {
     final tabState = ref.watch(proxiesTabStateProvider);
+    final mode = ref.watch(patchClashConfigProvider.select((s) => s.mode));
     final summaries = <XbGroupSummary>[];
     for (final group in tabState.groups) {
       if (group.hidden == true) continue;
+      // global 模式只保留 GLOBAL 组（其余业务组在 global 下选了也不生效，隐藏避免误导）。
+      if (mode == Mode.global && group.name != GroupName.GLOBAL.name) continue;
       summaries.add(_toSummary(group));
     }
     return XbNodesView(groups: summaries);
