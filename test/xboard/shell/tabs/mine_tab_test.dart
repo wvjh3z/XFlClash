@@ -14,6 +14,7 @@ import 'package:fl_clash/xboard/providers/user_profile_provider.dart';
 import 'package:fl_clash/xboard/providers/xboard_providers.dart';
 import 'package:fl_clash/xboard/sdk/xboard_service.dart';
 import 'package:fl_clash/xboard/shell/tabs/mine/mine_tab.dart';
+import 'package:fl_clash/xboard/widgets/xb_components.dart' show XbSkeletonBar;
 
 class _MockService extends Mock implements XboardService {}
 
@@ -132,6 +133,11 @@ void main() {
     await tester.tap(find.text('重新加载'));
     await tester.pump();
     expect(find.text('正在刷新服务，请稍候…'), findsOneWidget);
+    // 11d：重试态与首次加载同布局——卡片不丢（骨架卡占位 + 禁用按钮行），不只是一条横幅。
+    expect(find.byType(XbSkeletonBar), findsWidgets,
+        reason: '重试态保留骨架卡占位（卡片不丢，原型 11d）');
+    expect(find.text('续费当前套餐'), findsOneWidget,
+        reason: '重试态显示禁用的续费/购买按钮行');
 
     // 等 getSubscription 落定 + invalidate + setState(_retrying=false)。
     // _retry await 的是反腐层（必返回），故横幅一定撤除（验证不卡死）。

@@ -91,12 +91,10 @@ class _AccountSectionState extends ConsumerState<_AccountSection> {
 
   @override
   Widget build(BuildContext context) {
-    // 重试中：黄色横幅占位（不闪骨架卡），让用户清楚看到「正在刷新服务」。
+    // 重试中：与首次加载（booting）同布局——顶部刷新横幅 + 骨架卡 + 禁用按钮（卡片不丢，
+    // 不突兀，原型 11d）。仅横幅文案不同（「正在刷新服务」vs「正在同步账号与套餐信息」）。
     if (_retrying) {
-      return const Padding(
-        padding: EdgeInsets.symmetric(vertical: 4),
-        child: XbSyncBanner(text: '正在刷新服务，请稍候…'),
-      );
+      return const _AccountSkeleton(bannerText: '正在刷新服务，请稍候…');
     }
     // F14：已 gate authenticated（MineTab 已判 isGuest），可安全 watch。
     final async = ref.watch(userProfileProvider);
@@ -470,7 +468,11 @@ class _ResetCard extends StatelessWidget {
 
 /// 加载骨架（已登录未就绪，R6.9）—— 原型：顶部琥珀同步条 + 白底骨架卡（shimmer）。
 class _AccountSkeleton extends StatelessWidget {
-  const _AccountSkeleton();
+  const _AccountSkeleton({this.bannerText});
+
+  /// 顶部同步横幅文案（null → XbSyncBanner 默认「正在同步账号与套餐信息…」；
+  /// 重试态传「正在刷新服务，请稍候…」，原型 11d）。
+  final String? bannerText;
 
   @override
   Widget build(BuildContext context) {
@@ -479,7 +481,7 @@ class _AccountSkeleton extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         // 顶部同步条（原型 .syncbar）。
-        const XbSyncBanner(),
+        bannerText != null ? XbSyncBanner(text: bannerText!) : const XbSyncBanner(),
         const SizedBox(height: 12),
         // 白底骨架卡（原型 .plan-skel）。
         Container(
