@@ -193,6 +193,24 @@ XbAsyncView(
 **契约**：倒计时自动停；重入不叠加双 timer；立即解锁；mounted 安全；dispose 自动 cancel。
 **使用方**：register / forgot sheet。
 
+### 6.4 全局加载遮罩 `xbRunWithLoading`（xb_loading_overlay.dart）
+**用途**：按钮点击后需先 `await` 异步（拉数据再跳转 / 提交）时的统一加载反馈。弹一层**淡化半透明
+遮罩 + 居中加载卡**覆盖全屏，明确「正在处理」并**物理阻断重复点击**（模态屏障吃掉手势），完成
+自动关闭。**替代各按钮内嵌转圈**的零散写法。
+```dart
+final plans = await xbRunWithLoading(context, () => service.getPlans());
+if (!context.mounted) return;
+xbPush(context, PlanDetailPage(plan: ...), brandColor: xbBrandColor()); // 遮罩已关后再 push
+```
+**契约**：重入安全（已有遮罩不叠加第二层）；永远关闭（成功/异常 finally 关）；异常 rethrow 由调用方落地。
+**注意**：push 目标页要在 `xbRunWithLoading` **返回之后**做（遮罩用 dialog，finally 会 pop 栈顶，若在 action 内 push 会误 pop 刚 push 的页）。
+**使用方**：mine 续费（先拉套餐再跳详情）等「拉数据后跳转」场景。
+
+### 6.5 导航防连点（`xbPush` 内置）
+`xbPush` 内置 **500ms 全局节流**：极短时间内的重复 push 视为连点（双击/狂点），只放行第一次，
+避免叠跳多层页面（曾出现「续费连点十次跳十层」）。`replace` 不节流（程序主动替换，非连点）。
+调用方无需关心，所有 `xbPush` 跳转自动免疫连点。
+
 ---
 
 ## 7. 反馈与格式化辅助
@@ -222,6 +240,8 @@ XbAsyncView(
 1. **脚手架**：二级 push 页用 `XbBrandScaffold`；Tab 内页面顶部用 `XbScreenTitle`。
 2. **异步加载**：用 `XbAsyncView` 统一 loading/retrying/error/data 四态，别手写 FutureBuilder 分支。
 3. **提交动作**：State 混入 `XbSubmitGuard`，按钮 loading 用 `submitting`，提交包 `runSubmit`。
+4. **点击后需先拉数据再跳转**：用 `xbRunWithLoading(context, action)` 包异步段（淡化遮罩 + 防连点），返回后再 `xbPush`。不要在按钮里自己写 `_busy` + 转圈。
+5. **页面跳转**：一律 `xbPush`（已内置 500ms 防连点节流），不裸用 `Navigator.push`。
 4. **验证码冷却**：混入 `XbCooldownGuard`，别手写 Timer。
 5. **颜色/圆角/间距**：一律用 `XbTokens`，不写裸数字裸色值。
 6. **图标方块**：用 `XbIconBadge`，不手写 Container+BoxDecoration+Icon。
@@ -239,6 +259,7 @@ XbAsyncView(
 | `test/xboard/widgets/xb_submit_guard_test.dart` | 提交守卫 5 契约 |
 | `test/xboard/widgets/xb_cooldown_guard_test.dart` | 冷却 4 契约 |
 | `test/xboard/widgets/xb_icon_badge_test.dart` | 图标徽标 4 契约 |
+| `test/xboard/widgets/xb_loading_overlay_test.dart` | 全局加载遮罩（显示/重入/异常关闭）3 契约 |
 | `test/xboard/golden/pages_golden_test.dart` | 套餐列表/订单/重置/我的(已登录·失败·游客) |
 | `test/xboard/golden/home_states_golden_test.dart` | 首页游客/未连接/已连接 |
 | `test/xboard/golden/a11y_golden_test.dart` | 套餐详情/支付页 × light/dark × 1.0/1.5/2.0 + 对比度 |

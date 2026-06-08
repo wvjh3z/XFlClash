@@ -24,6 +24,7 @@ import 'package:fl_clash/xboard/util/app_version.dart';
 import 'package:fl_clash/xboard/util/format.dart';
 import 'package:fl_clash/xboard/widgets/xb_components.dart';
 import 'package:fl_clash/xboard/widgets/xb_feedback.dart' show xbConfirm, xbBrandColor;
+import 'package:fl_clash/xboard/widgets/xb_loading_overlay.dart' show xbRunWithLoading;
 import 'package:fl_clash/xboard/widgets/xb_theme.dart' show xbPush, XbTokens;
 
 import 'xb_settings_page.dart';
@@ -371,9 +372,14 @@ class _PlanActions extends ConsumerWidget {
 
   /// 续费当前套餐（R6.4，原型图13）：拉套餐列表 → 锁定当前 planId 的套餐 → 续费模式详情页。
   /// 找不到当前套餐（已下架等）→ 回退到购买/更改套餐列表。
+  /// **全局加载遮罩**（`xbRunWithLoading`）覆盖拉数据期间：淡化等待 + 模态屏障阻断连点。
+  /// 拉完（遮罩已关）再 push，避免遮罩 finally 误 pop 刚 push 的页面。
   Future<void> _openRenew(BuildContext context, WidgetRef ref) async {
     final brand = xbBrandColor();
-    final result = await ref.read(xboardServiceProvider).getPlans();
+    final result = await xbRunWithLoading(
+      context,
+      () => ref.read(xboardServiceProvider).getPlans(),
+    );
     if (!context.mounted) return;
     final current = switch (result) {
       XbSuccess(:final data) =>
