@@ -22,13 +22,29 @@ import 'xb_node_group.dart';
 
 /// 节点 Tab。
 class NodesTab extends ConsumerStatefulWidget {
-  const NodesTab({super.key, this.onTapRenew, this.onTapLogin});
+  const NodesTab({
+    super.key,
+    this.onTapRenew,
+    this.onTapLogin,
+    this.targetGroup,
+    this.targetNode,
+    this.targetNonce = 0,
+  });
 
   /// 空态点击续费（shell/我的 注入）。
   final VoidCallback? onTapRenew;
 
   /// 游客点击登录（shell 注入）。
   final VoidCallback? onTapLogin;
+
+  /// 从首页「当前线路」进入时的目标分组名（打开即切到该分组）。null = 不定向。
+  final String? targetGroup;
+
+  /// 目标节点名（在分组内滚动到该节点并尽量上下居中）。
+  final String? targetNode;
+
+  /// 定向请求序号（shell 每次点线路卡自增）：用于即便目标相同也能再次触发定位。
+  final int targetNonce;
 
   @override
   ConsumerState<NodesTab> createState() => _NodesTabState();
@@ -41,6 +57,35 @@ class _NodesTabState extends ConsumerState<NodesTab> {
 
   /// 当前选中的分组名（顶部 tab）。null = 用首个可见分组。
   String? _selectedGroup;
+
+  /// 待定位到的节点名（传给 XbNodeGroup 滚动居中）；消费后清空（只定位一次）。
+  String? _pendingScrollNode;
+
+  /// 已处理的定向请求序号（避免重复定位）。
+  int _handledNonce = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _applyTarget();
+  }
+
+  @override
+  void didUpdateWidget(covariant NodesTab oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.targetNonce != _handledNonce) {
+      setState(_applyTarget);
+    }
+  }
+
+  /// 应用首页传入的定向：切到目标分组 + 记录待滚动节点。
+  void _applyTarget() {
+    _handledNonce = widget.targetNonce;
+    if (widget.targetGroup != null) {
+      _selectedGroup = widget.targetGroup;
+      _pendingScrollNode = widget.targetNode;
+    }
+  }
 
   /// 刷新 = 重拉订阅并解密写入新节点（2-A）。await sync(force) 拿 `ok`（新 profile 写入成功）
   /// 才算完成；期间按钮禁用、显示横幅，完成后恢复。旧节点在写入成功前保持不变。
@@ -126,6 +171,11 @@ class _NodesTabState extends ConsumerState<NodesTab> {
             // key 让切换分组时重建状态（测速态不串组）。
             key: ValueKey(current.name),
             group: current,
+            // 仅当待定位节点确实属于当前分组时传入（滚动到它并尽量居中，只用一次）。
+            scrollToNode: (_pendingScrollNode != null &&
+                    current.nodes.any((n) => n.name == _pendingScrollNode))
+                ? _pendingScrollNode
+                : null,
           ),
         ),
       ],

@@ -45,7 +45,10 @@ Future<void> pumpCard(
     UncontrolledProviderScope(
       container: container,
       child: MaterialApp(
-        home: Scaffold(body: XbLineCard(onTapToNodes: onTap)),
+        home: Scaffold(
+            body: XbLineCard(
+                onTapToNodes:
+                    onTap == null ? null : (group, node) => onTap())),
       ),
     ),
   );
@@ -146,5 +149,49 @@ void main() {
         isStart: true, groups: _singleGroup(now: '香港01'), onTap: () => tapped = true);
     await tester.tap(find.byType(XbLineCard));
     expect(tapped, isTrue);
+  });
+
+  testWidgets('点击回调带出选中节点的分组+节点名（供节点页定位）', (tester) async {
+    String? gotGroup;
+    String? gotNode;
+    final container = ProviderContainer(
+      overrides: [
+        isStartProvider.overrideWith((ref) => true),
+        groupsProvider.overrideWithValue(const [
+          Group(
+            type: GroupType.Selector,
+            name: '香港',
+            now: '🇭🇰 香港 BGP 02',
+            all: [Proxy(name: '🇭🇰 香港 BGP 02', type: 'ss')],
+          ),
+        ]),
+        selectedMapProvider.overrideWith((ref) => const {'香港': '🇭🇰 香港 BGP 02'}),
+        currentProfileProvider.overrideWith((ref) => null),
+        patchClashConfigProvider
+            .overrideWithBuild((ref, _) => const PatchClashConfig(mode: Mode.rule)),
+      ],
+    );
+    addTearDown(container.dispose);
+    container.read(bootstrapReadyProvider.notifier).set(true);
+    container.read(coreStatusProvider.notifier).value = CoreStatus.connected;
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp(
+          home: Scaffold(
+            body: XbLineCard(
+              onTapToNodes: (g, n) {
+                gotGroup = g;
+                gotNode = n;
+              },
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.tap(find.byType(XbLineCard));
+    expect(gotGroup, '香港');
+    expect(gotNode, '🇭🇰 香港 BGP 02');
   });
 }

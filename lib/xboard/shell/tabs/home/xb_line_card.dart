@@ -18,8 +18,9 @@ import '../../adapters/xb_nodes_adapter.dart';
 class XbLineCard extends ConsumerWidget {
   const XbLineCard({super.key, this.onTapToNodes});
 
-  /// 点击切到节点 Tab 的回调（shell 注入）。
-  final VoidCallback? onTapToNodes;
+  /// 点击切到节点 Tab 的回调（shell 注入）。带上当前生效节点的所属分组名 +
+  /// 节点名，供节点页打开时定位到该分组并把该节点滚动到尽量居中。无选中则传 (null, null)。
+  final void Function(String? group, String? node)? onTapToNodes;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -50,7 +51,9 @@ class XbLineCard extends ConsumerWidget {
       elevation: 0,
       color: scheme.surfaceContainerLow,
       child: InkWell(
-        onTap: onTapToNodes,
+        onTap: onTapToNodes == null
+            ? null
+            : () => onTapToNodes!(selection.group, selection.node),
         borderRadius: BorderRadius.circular(16),
         child: Padding(
           padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),

@@ -26,8 +26,8 @@ import 'xb_speed_card.dart';
 class HomeTab extends ConsumerStatefulWidget {
   const HomeTab({super.key, this.onTapToNodes, this.onTapLogin});
 
-  /// 点击线路卡 → 切节点 Tab（shell 注入）。
-  final VoidCallback? onTapToNodes;
+  /// 点击线路卡 → 切节点 Tab（shell 注入）。带上选中节点的所属分组 + 节点名供定位。
+  final void Function(String? group, String? node)? onTapToNodes;
 
   /// 点击登录 banner → 弹登录 sheet（shell 注入，W5 接线）。
   final VoidCallback? onTapLogin;

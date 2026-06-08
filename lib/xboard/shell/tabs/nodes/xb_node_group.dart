@@ -12,6 +12,7 @@
 library;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show RenderAbstractViewport;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:fl_clash/xboard/widgets/xb_components.dart'
@@ -23,9 +24,12 @@ import '../../sheets/sheet_scaffold.dart' show showXbBottomSheet;
 
 /// 自绘分组区块：分组名 + 类型标签(含「?」说明) + 测延迟按钮 + 节点行列表。
 class XbNodeGroup extends ConsumerStatefulWidget {
-  const XbNodeGroup({super.key, required this.group});
+  const XbNodeGroup({super.key, required this.group, this.scrollToNode});
 
   final XbGroupSummary group;
+
+  /// 进入时滚动到该节点并尽量上下居中（不强制：靠顶/底则就近）。null = 不定位。
+  final String? scrollToNode;
 
   @override
   ConsumerState<XbNodeGroup> createState() => _XbNodeGroupState();
@@ -35,7 +39,47 @@ class _XbNodeGroupState extends ConsumerState<XbNodeGroup> {
   /// 本组「测延迟」进行中（点测延迟 → true，本组全部节点拿到结果 → false）。
   bool _testing = false;
 
+  /// 列表滚动控制器（用于进入时定位到选中节点）。
+  final ScrollController _scrollCtrl = ScrollController();
+
+  /// 目标节点行的 key（用于精确计算居中偏移）。
+  final GlobalKey _targetKey = GlobalKey();
+
   XbGroupSummary get group => widget.group;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.scrollToNode != null) {
+      // 首帧布局完成后把目标行滚动到视口中央（不强制：clamp 到可滚范围 → 靠边就近）。
+      WidgetsBinding.instance.addPostFrameCallback((_) => _centerTarget());
+    }
+  }
+
+  @override
+  void dispose() {
+    _scrollCtrl.dispose();
+    super.dispose();
+  }
+
+  /// 把目标行滚到视口尽量居中（alignment=0.5）；clamp 到 [0,max] → 靠顶/底则就近。
+  void _centerTarget() {
+    if (!mounted || !_scrollCtrl.hasClients) return;
+    final ctx = _targetKey.currentContext;
+    if (ctx == null) return;
+    final box = ctx.findRenderObject();
+    if (box is! RenderBox) return;
+    final viewport = RenderAbstractViewport.of(box);
+    // alignment 0.5 = 目标行在视口垂直居中。
+    final target = viewport.getOffsetToReveal(box, 0.5).offset;
+    final max = _scrollCtrl.position.maxScrollExtent;
+    final clamped = target.clamp(0.0, max);
+    _scrollCtrl.animateTo(
+      clamped,
+      duration: const Duration(milliseconds: 320),
+      curve: Curves.easeOutCubic,
+    );
+  }
 
   /// 测延迟：只测本组节点（不波及其它组）。await 完成后清测速态。
   Future<void> _testGroup() async {
@@ -65,6 +109,10 @@ class _XbNodeGroupState extends ConsumerState<XbNodeGroup> {
 
     // 选中分组的节点列表（可滚动）；头部为「类型标签 + 测延迟」行（分组名已由顶部 tab 显示）。
     return ListView(
+      controller: _scrollCtrl,
+      // 定位场景：放大缓存范围，确保目标行（可能在视口外）已 build → GlobalKey 可解析居中。
+      // ignore: deprecated_member_use
+      cacheExtent: widget.scrollToNode != null ? 5000.0 : null,
       padding: const EdgeInsets.fromLTRB(16, 6, 16, 24),
       children: [
         // 分组头：类型标签（带 ? 说明）左、测延迟右（所有分组都可测）。
@@ -88,6 +136,7 @@ class _XbNodeGroupState extends ConsumerState<XbNodeGroup> {
         // 节点行。
         ...group.nodes.map(
           (n) => _NodeRow(
+            key: widget.scrollToNode == n.name ? _targetKey : null,
             group: group,
             node: n,
             // 计算选择组：选中=当前生效节点；selector：选中=手选名。
@@ -219,6 +268,7 @@ class _DelayTestButton extends StatelessWidget {
 /// 自绘节点行（原型 `.node`）：国旗+名 · 延迟ms(着色) · 选中勾。
 class _NodeRow extends ConsumerWidget {
   const _NodeRow({
+    super.key,
     required this.group,
     required this.node,
     required this.isSelected,

@@ -56,6 +56,9 @@ Future<void> pumpNodes(
   WidgetTester tester, {
   required AuthState auth,
   ProxiesTabState? tab,
+  String? targetGroup,
+  String? targetNode,
+  int targetNonce = 0,
 }) async {
   final state = tab ?? _emptyTab();
   // 隔离 FlClash 内核 provider：给每组选中态 + 每节点延迟固定值，避免触达真实 DB。
@@ -75,7 +78,15 @@ Future<void> pumpNodes(
   await tester.pumpWidget(
     ProviderScope(
       overrides: overrides,
-      child: MaterialApp(home: Scaffold(body: NodesTab())),
+      child: MaterialApp(
+        home: Scaffold(
+          body: NodesTab(
+            targetGroup: targetGroup,
+            targetNode: targetNode,
+            targetNonce: targetNonce,
+          ),
+        ),
+      ),
     ),
   );
   await tester.pump();
@@ -117,6 +128,22 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('🇭🇰 香港 BGP 02'), findsOneWidget);
     // 切走后不再显示「智能优选」组的节点。
+    expect(find.text('🇯🇵 东京 IEPL 02'), findsNothing);
+  });
+
+  testWidgets('首页定位：targetGroup 指定 → 打开即切到该分组 + 选中节点行可见', (tester) async {
+    // 默认选中组是「智能优选」，但定位目标是「香港」组 → 应自动切到香港组。
+    await pumpNodes(
+      tester,
+      auth: AuthState.authenticated,
+      tab: _multiTab(),
+      targetGroup: '香港',
+      targetNode: '🇭🇰 香港 BGP 02',
+      targetNonce: 1,
+    );
+    await tester.pumpAndSettle();
+    // 切到香港组 → 显示其节点（选中行可见），不显示智能优选组节点。
+    expect(find.text('🇭🇰 香港 BGP 02'), findsOneWidget);
     expect(find.text('🇯🇵 东京 IEPL 02'), findsNothing);
   });
 }

@@ -38,6 +38,12 @@ class _XboardAppShellState extends ConsumerState<XboardAppShell> {
   /// （接口约定，避免与 FlClash 导航状态机耦合）。
   int _tabIndex = 0;
 
+  /// 首页「当前线路」点击 → 节点页定位目标（分组 + 节点）+ 自增请求序号
+  /// （序号自增让 NodesTab 即便目标相同也能再次触发定位）。
+  String? _nodeTargetGroup;
+  String? _nodeTargetNode;
+  int _nodeTargetNonce = 0;
+
   @override
   void initState() {
     super.initState();
@@ -50,6 +56,16 @@ class _XboardAppShellState extends ConsumerState<XboardAppShell> {
   }
 
   void _onTabSelected(int index) => setState(() => _tabIndex = index);
+
+  /// 首页点「当前线路」：记录定位目标 + 自增序号 → 切到节点 Tab。
+  void _onTapToNodes(String? group, String? node) {
+    setState(() {
+      _nodeTargetGroup = group;
+      _nodeTargetNode = node;
+      _nodeTargetNonce++;
+      _tabIndex = 1;
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -74,7 +90,7 @@ class _XboardAppShellState extends ConsumerState<XboardAppShell> {
             XbErrorBoundary(
               label: '首页',
               child: HomeTab(
-                onTapToNodes: () => _onTabSelected(1),
+                onTapToNodes: _onTapToNodes,
                 onTapLogin: () => showLoginSheet(context),
               ),
             ),
@@ -83,6 +99,9 @@ class _XboardAppShellState extends ConsumerState<XboardAppShell> {
               child: NodesTab(
                 onTapRenew: () => _onTabSelected(2),
                 onTapLogin: () => showLoginSheet(context),
+                targetGroup: _nodeTargetGroup,
+                targetNode: _nodeTargetNode,
+                targetNonce: _nodeTargetNonce,
               ),
             ),
             XbErrorBoundary(
