@@ -77,8 +77,8 @@ void main() {
         sub: _sub(total: 100 * gb, used: 37 * gb));
     expect(find.text('demo@example.com'), findsOneWidget);
     expect(find.text('专业版'), findsOneWidget);
-    // 用量% 现并入标签文案（原型 .lab）。
-    expect(find.text('本月已用流量（已使用 37%）'), findsOneWidget);
+    // 紧凑卡：用量% 在流量行右侧「已用 N%」（去掉了原「本月已用流量（已使用 N%）」标签行）。
+    expect(find.text('已用 37%'), findsOneWidget);
     expect(find.text('退出登录'), findsOneWidget);
   });
 

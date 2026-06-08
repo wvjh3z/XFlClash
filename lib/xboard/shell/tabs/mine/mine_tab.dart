@@ -130,7 +130,7 @@ class _AccountCard extends StatelessWidget {
     final white70 = Colors.white.withValues(alpha: 0.88);
 
     return Container(
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.fromLTRB(18, 16, 18, 16),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(XbTokens.rLg),
         gradient: LinearGradient(
@@ -155,52 +155,37 @@ class _AccountCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // 账号行：头像 + 邮箱(掩码) + 套餐名。
+          // 顶行：套餐名（左，主）+ 邮箱(掩码，右，次)。去头像（紧凑版）。
           Row(
+            crossAxisAlignment: CrossAxisAlignment.baseline,
+            textBaseline: TextBaseline.alphabetic,
             children: [
-              Container(
-                width: 50,
-                height: 50,
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.22),
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: Colors.white.withValues(alpha: 0.25)),
+              Flexible(
+                child: Text(
+                  sub.planName ?? '未订阅套餐',
+                  style: const TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w600,
+                    color: white,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
-                child: const Icon(Icons.person, color: white, size: 24),
               ),
-              const SizedBox(width: 13),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      sub.email,
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w600,
-                        color: white,
-                      ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      sub.planName ?? '未订阅套餐',
-                      style: TextStyle(fontSize: 12, color: white70),
-                    ),
-                  ],
+              const SizedBox(width: 10),
+              Flexible(
+                child: Text(
+                  sub.email,
+                  textAlign: TextAlign.right,
+                  style: TextStyle(fontSize: 12, color: white70),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 16),
-          // 用量标签 + 大号数字。
-          Text(
-            '本月已用流量（已使用 $pctInt%）',
-            style: TextStyle(fontSize: 12, color: white70),
-          ),
-          const SizedBox(height: 4),
+          const SizedBox(height: 13),
+          // 流量行：大数字 + 单位 + 「已用 N%」(右)。
           Row(
             crossAxisAlignment: CrossAxisAlignment.baseline,
             textBaseline: TextBaseline.alphabetic,
@@ -208,7 +193,7 @@ class _AccountCard extends StatelessWidget {
               Text(
                 _gb(sub.usedBytes),
                 style: const TextStyle(
-                  fontSize: 26,
+                  fontSize: 23,
                   fontWeight: FontWeight.w700,
                   color: white,
                   fontFeatures: [FontFeature.tabularFigures()],
@@ -218,14 +203,24 @@ class _AccountCard extends StatelessWidget {
               Text(
                 '/ ${_gb(sub.totalBytes)} GB',
                 style: TextStyle(
-                  fontSize: 15,
+                  fontSize: 13,
                   fontWeight: FontWeight.w500,
                   color: white70,
                 ),
               ),
+              const Spacer(),
+              Text(
+                '已用 $pctInt%',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: hot ? const Color(0xFFFFE1DA) : white70,
+                  fontFeatures: const [FontFeature.tabularFigures()],
+                ),
+              ),
             ],
           ),
-          const SizedBox(height: 11),
+          const SizedBox(height: 9),
           // 进度条（白色填充）。
           ClipRRect(
             borderRadius: BorderRadius.circular(6),
@@ -239,9 +234,9 @@ class _AccountCard extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 11),
-          // 到期行。
+          // 到期行（保持原风格）。
           _InfoRow(icon: Icons.event, text: _expireText(sub), color: white70),
-          // 流量重置行（有重置日才显示）。
+          // 流量重置行（有重置日才显示，保持原风格）。
           if (_resetText(sub) != null) ...[
             const SizedBox(height: 3),
             _InfoRow(
@@ -483,9 +478,9 @@ class _AccountSkeleton extends StatelessWidget {
         // 顶部同步条（原型 .syncbar）。
         bannerText != null ? XbSyncBanner(text: bannerText!) : const XbSyncBanner(),
         const SizedBox(height: 12),
-        // 白底骨架卡（原型 .plan-skel）。
+        // 白底骨架卡（原型 .plancmp.plan-skel，紧凑无头像）。
         Container(
-          padding: const EdgeInsets.all(20),
+          padding: const EdgeInsets.fromLTRB(18, 16, 18, 16),
           decoration: BoxDecoration(
             color: t.card,
             borderRadius: BorderRadius.circular(XbTokens.rCard),
@@ -495,35 +490,20 @@ class _AccountSkeleton extends StatelessWidget {
           child: const Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // 头像方块 + 两行。
-              Row(
-                children: [
-                  SizedBox(
-                    width: 48,
-                    child: XbSkeletonBar(
-                        widthFactor: 1, height: 48, radius: 14),
-                  ),
-                  SizedBox(width: 13),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        XbSkeletonBar(widthFactor: 0.6, height: 13),
-                        SizedBox(height: 7),
-                        XbSkeletonBar(widthFactor: 0.4, height: 13),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-              SizedBox(height: 14),
-              XbSkeletonBar(widthFactor: 0.5, height: 13),
-              SizedBox(height: 8),
-              XbSkeletonBar(widthFactor: 0.8, height: 24),
-              SizedBox(height: 10),
+              // 套餐名行（无头像）。
+              XbSkeletonBar(widthFactor: 0.55, height: 15),
+              SizedBox(height: 11),
+              // 流量数字行。
+              XbSkeletonBar(widthFactor: 0.46, height: 22),
+              SizedBox(height: 11),
+              // 进度条。
               XbSkeletonBar(widthFactor: 1, height: 10, radius: 6),
-              SizedBox(height: 10),
-              XbSkeletonBar(widthFactor: 0.7, height: 13),
+              SizedBox(height: 11),
+              // 到期行。
+              XbSkeletonBar(widthFactor: 0.68, height: 13),
+              SizedBox(height: 7),
+              // 重置行。
+              XbSkeletonBar(widthFactor: 0.62, height: 13),
             ],
           ),
         ),
@@ -591,21 +571,22 @@ class _AccountErrorCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final t = XbTokens.of(context);
     final scheme = Theme.of(context).colorScheme;
+    // 横向紧凑布局（与紧凑账号卡等高）：左圆图标 + 中标题/说明 + 右描边重试。
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 28),
+      constraints: const BoxConstraints(minHeight: 118),
+      padding: const EdgeInsets.fromLTRB(18, 16, 18, 16),
       decoration: BoxDecoration(
         color: t.card,
         borderRadius: BorderRadius.circular(XbTokens.rLg),
         border: Border.all(color: t.line),
         boxShadow: t.shadow1,
       ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
+      child: Row(
         children: [
           // 圆形图标容器（红云，--bad 10% 柔底）。
           Container(
-            width: 54,
-            height: 54,
+            width: 48,
+            height: 48,
             alignment: Alignment.center,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
@@ -613,30 +594,40 @@ class _AccountErrorCard extends StatelessWidget {
                   XbTokens.bad.withValues(alpha: 0.10), t.sfc),
             ),
             child: const Icon(Icons.cloud_off_rounded,
-                size: 27, color: XbTokens.bad),
+                size: 25, color: XbTokens.bad),
           ),
-          const SizedBox(height: 12),
-          Text('账号信息加载失败',
-              style: TextStyle(
-                  fontSize: 15, fontWeight: FontWeight.w600, color: t.on)),
-          const SizedBox(height: 4),
-          Text(
-            '请检查网络连接后重试，期间不影响连接与节点使用',
-            textAlign: TextAlign.center,
-            style: TextStyle(fontSize: 12.5, height: 1.55, color: t.onv),
+          const SizedBox(width: 14),
+          // 标题 + 一行说明。
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text('账号信息加载失败',
+                    style: TextStyle(
+                        fontSize: 15, fontWeight: FontWeight.w600, color: t.on)),
+                const SizedBox(height: 3),
+                Text(
+                  '请检查网络后重试，期间不影响连接与节点使用',
+                  style: TextStyle(fontSize: 12.5, height: 1.5, color: t.onv),
+                ),
+              ],
+            ),
           ),
-          const SizedBox(height: 16),
-          // 描边「重新加载」按钮（42 高，明确点击区域）。
+          const SizedBox(width: 12),
+          // 描边「重新加载」按钮。
           OutlinedButton.icon(
             onPressed: onRetry,
-            icon: const Icon(Icons.refresh_rounded, size: 18),
+            icon: const Icon(Icons.refresh_rounded, size: 17),
             label: const Text('重新加载'),
             style: OutlinedButton.styleFrom(
               foregroundColor: scheme.primary,
               side: BorderSide(
                   color: scheme.primary.withValues(alpha: 0.40), width: 1.6),
-              minimumSize: const Size(0, 42),
-              padding: const EdgeInsets.symmetric(horizontal: 24),
+              minimumSize: const Size(0, 38),
+              padding: const EdgeInsets.symmetric(horizontal: 14),
+              textStyle:
+                  const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
               shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(XbTokens.rMd)),
             ),
@@ -658,7 +649,7 @@ class _GuestCard extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     final white70 = Colors.white.withValues(alpha: 0.88);
     return Container(
-      padding: const EdgeInsets.all(21),
+      padding: const EdgeInsets.fromLTRB(18, 16, 18, 16),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(XbTokens.rLg),
         // 原型 mineGuest 灰渐变（#8a909e → #5a606e）。
@@ -679,40 +670,16 @@ class _GuestCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // 账号行：头像 + 未登录 + 副标题。
-          Row(
-            children: [
-              Container(
-                width: 50,
-                height: 50,
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.22),
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: Colors.white.withValues(alpha: 0.25)),
-                ),
-                child: const Icon(Icons.person, color: Colors.white, size: 24),
-              ),
-              const SizedBox(width: 13),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Text('未登录',
-                        style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w600,
-                            color: Colors.white)),
-                    const SizedBox(height: 2),
-                    Text('登录后同步专属节点与套餐',
-                        style: TextStyle(fontSize: 12, color: white70)),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
+          // 未登录标题（无头像，紧凑版）。
+          const Text('未登录',
+              style: TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.white)),
+          const SizedBox(height: 4),
+          Text('登录后同步专属节点与套餐',
+              style: TextStyle(fontSize: 12, color: white70)),
+          const SizedBox(height: 13),
           // 白底登录按钮（灰卡上的高对比 CTA）。
           SizedBox(
             width: double.infinity,
