@@ -95,7 +95,7 @@ class XbIpCard extends ConsumerWidget {
           const SizedBox(width: 10),
           // 刷新（检测中显示转圈）。
           IconButton(
-            onPressed: status.loading ? null : () => adapter.startCheck(ref),
+            onPressed: status.loading ? null : () => adapter.forceCheck(ref),
             visualDensity: VisualDensity.compact,
             icon: status.loading
                 ? SizedBox(

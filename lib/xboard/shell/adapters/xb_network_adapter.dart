@@ -52,6 +52,18 @@ class XbNetworkAdapter {
   void startCheck(WidgetRef ref) {
     ref.read(networkDetectionProvider.notifier).startCheck();
   }
+
+  /// 强制重新检测（IP 卡刷新按钮用）。
+  ///
+  /// **为何不能只调 startCheck**：FlClash `_checkIp` 有早退守卫——未连接 + 上次也未连接 +
+  /// 已有 ipInfo 时直接 return（避免重复检测），导致未连接态点刷新无反应。这里先 `invalidate`
+  /// 重建 notifier（私有 `_preIsStart` 等会话态归零 + state 回到 isLoading:true/ipInfo:null →
+  /// UI 立即显示「检测中」），再 startCheck → 守卫不再挡，真正重测。
+  void forceCheck(WidgetRef ref) {
+    ref.invalidate(networkDetectionProvider);
+    // invalidate 后 notifier 重建（私有会话态归零）；立即 startCheck → 守卫不再挡，真正重测。
+    ref.read(networkDetectionProvider.notifier).startCheck();
+  }
 }
 
 /// 网络检测适配器单例 provider（Tab 经此取，测试可 override）。
