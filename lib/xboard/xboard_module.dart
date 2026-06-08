@@ -6,7 +6,7 @@
 /// **职责**：
 /// - `bootstrap(container)`：同步阶段（DD-17 render-first，零网络）—— 加载 flavor /
 ///   早期 Sentry hook / 本地 fallback 解密 / SDK initialize / 写基础设施 provider；
-///   异步阶段（runApp 后）—— 远端 Bootstrap 拉取 + endpoint 竞速 + globalUa 注入（W5）。
+///   异步阶段（runApp 后）—— 远端 Bootstrap 拉取 + endpoint 竞速（W5）。
 /// - `dispose()`：释放长生命周期资源（observer / timer / 订阅 / race controller，DD-19）。
 ///
 /// **生命周期归属（DD-19）**：FlClash 根 ProviderContainer 全 App 不 dispose；bootstrap 是
@@ -38,6 +38,9 @@ import 'services/subscription_triggers.dart';
 import 'services/xboard_lifecycle_observer.dart';
 import 'widgets/xboard_consent_dialog.dart' show kXbConsentKey;
 
+/// 「首次安装默认开 IPv6」已应用标记（seam #7）。存在 = 已应用过默认，之后尊重用户开关。
+const String kXbIpv6DefaultAppliedKey = 'xb_ipv6_default_applied_v1';
+
 class XboardModule {
   XboardModule._();
 
@@ -47,7 +50,7 @@ class XboardModule {
   /// 自起 endpoint 竞速控制器（DD-19）。
   static EndpointRaceController? _raceController;
 
-  /// seam #7 globalUa 注入的 initProvider 监听句柄（dispose 时关）。
+  /// seam #7 「首次默认开 IPv6」的 initProvider 监听句柄（dispose 时关）。
   static ProviderSubscription<bool>? _initListener;
 
   /// R4.9：isStartProvider（VPN 开关）监听句柄（dispose 时关）。
@@ -405,11 +408,11 @@ class XboardModule {
       debugPrint('[XboardModule] lifecycle observer wire failed: $e\n$s');
     }
 
-    // seam #7（W5.5）：等 initProvider==true（globalState.attach 完成）后强制注入 globalUa。
+    // seam #7（W5.5）：等 initProvider==true（globalState.attach 完成）后应用「首次安装默认开 IPv6」。
     try {
-      _wireGlobalUaInjection(container);
+      _wireDefaultIpv6(container);
     } catch (e, s) {
-      debugPrint('[XboardModule] globalUa wire failed: $e\n$s');
+      debugPrint('[XboardModule] default-ipv6 wire failed: $e\n$s');
     }
 
     // DD-23：bootstrap 同步阶段完成 tag（W5.7）。
@@ -419,29 +422,36 @@ class XboardModule {
     // UI/race 通过 ref.watch/listen 复用，不在此裸 listen，DD-5/E12）。
   }
 
-  /// seam #7 globalUa 强制注入（F221 / DD-12 / R7 AC 0.bis）。
+  /// seam #7 「首次安装默认开 IPv6」（用户 2026-06-09 决策：全新安装默认开 + 尊重用户后续修改）。
   ///
-  /// 监听 `initProvider`，==true（globalState.attach 完成）时强制写 globalUa（含单一 flclash 子串）。
-  /// **DD-12**：不盲目复用用户值（防用户改 globalUa 成 clash-verge 致 R7 协议歧义崩）。
-  static void _wireGlobalUaInjection(ProviderContainer container) {
-    void inject() {
+  /// FlClash `PatchClashConfig.ipv6` 默认 false（上游，不可改）。本逻辑在**首次启动**（无
+  /// [kXbIpv6DefaultAppliedKey] 标记）时把 ipv6 设为 true 并落标记；之后**永不再覆盖**——用户
+  /// 在设置里关掉/开启都被尊重（标记已在，跳过）。
+  ///
+  /// 监听 `initProvider`，==true（globalState.attach 完成）后执行（patchClashConfig 此刻已就绪）。
+  static void _wireDefaultIpv6(ProviderContainer container) {
+    Future<void> applyOnce() async {
       try {
-        final ua = XboardConfig.current.subscribeUserAgent;
+        final prefs = await SharedPreferences.getInstance();
+        if (prefs.getBool(kXbIpv6DefaultAppliedKey) == true) return; // 已应用过 → 尊重用户。
         container
             .read(patchClashConfigProvider.notifier)
-            .update((s) => s.copyWith(globalUa: ua));
+            .update((s) => s.copyWith(ipv6: true));
+        await prefs.setBool(kXbIpv6DefaultAppliedKey, true);
       } catch (e, s) {
-        debugPrint('[XboardModule] globalUa inject failed: $e\n$s');
+        debugPrint('[XboardModule] default-ipv6 apply failed: $e\n$s');
       }
     }
 
-    // 已就绪则立即注入；否则监听首次 true。
+    // 已就绪则立即应用；否则监听首次 true。
     if (container.read(initProvider)) {
-      inject();
+      // ignore: discarded_futures
+      applyOnce();
     } else {
       _initListener = container.listen<bool>(initProvider, (prev, next) {
         if (next) {
-          inject();
+          // ignore: discarded_futures
+          applyOnce();
           _initListener?.close();
           _initListener = null;
         }
