@@ -122,15 +122,20 @@ class XbNodesAdapter {
     return XbNodesView(groups: summaries);
   }
 
-  /// 当前实际生效的「叶子节点名」（首页线路卡用）：从主组沿 `now` 链一路下钻，
-  /// 直到某个 `now` 不再是分组名（即真实节点）。例如 主组「香港」→ now=「香港 BGP 02」（叶子）。
+  /// 当前生效的「叶子节点名 + 所属分组名」（首页线路卡用）。
   ///
-  /// 主组优先取 `proxiesTabState.currentGroupName`，否则第一个非 hidden 组。
-  /// 链断/空 → 返回起点组的 now（退化，至少给个名字）；全空 → null。
-  String? currentNodeName(WidgetRef ref) {
+  /// 沿 `now` 链从主组一路下钻到真实节点（非分组名）：
+  /// - `node`：链末端真实节点名（如「香港 BGP 02」）；
+  /// - `group`：该叶子节点所在的**直接父分组**名（如「香港」）——即链上最后一个分组。
+  ///
+  /// 例：主组「智能优选」(now=香港 IEPL 专线 01) → node=香港 IEPL 专线 01 / group=智能优选；
+  ///     主组「Proxy」(now=香港) → 「香港」(now=香港 BGP 02) → node=香港 BGP 02 / group=香港。
+  ///
+  /// 链断/空 → node 取起点组 now、group 取起点组名（退化）；全空 → (null, null)。
+  ({String? node, String? group}) currentSelection(WidgetRef ref) {
     final tabState = ref.watch(proxiesTabStateProvider);
     final groups = tabState.groups;
-    if (groups.isEmpty) return null;
+    if (groups.isEmpty) return (node: null, group: null);
     Group? byName(String name) {
       for (final g in groups) {
         if (g.name == name) return g;
@@ -138,23 +143,24 @@ class XbNodesAdapter {
       return null;
     }
 
-    // 起点主组。
     Group? cur = (tabState.currentGroupName != null
             ? byName(tabState.currentGroupName!)
             : null) ??
         groups.firstWhere((g) => g.hidden != true, orElse: () => groups.first);
 
     String? leaf;
+    String? parentGroup;
     final seen = <String>{}; // 防环。
     while (cur != null && seen.add(cur.name)) {
       final now = cur.now;
       if (now == null || now.isEmpty) break;
       leaf = now;
+      parentGroup = cur.name; // now 的直接父分组。
       final next = byName(now); // now 仍是分组 → 继续下钻；否则就是叶子节点。
       if (next == null) break;
       cur = next;
     }
-    return leaf;
+    return (node: leaf, group: parentGroup);
   }
 
   XbGroupSummary _toSummary(Group group) {

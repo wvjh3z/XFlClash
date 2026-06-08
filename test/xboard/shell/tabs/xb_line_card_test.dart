@@ -54,13 +54,14 @@ Future<void> pumpCard(
 }
 
 void main() {
-  testWidgets('已连接 → 显示当前线路名', (tester) async {
+  testWidgets('已连接 → 上行节点名 + 下行「当前分组：X」', (tester) async {
     await pumpCard(tester, isStart: true, selected: '香港01');
     expect(find.text('香港01'), findsOneWidget);
-    expect(find.text('当前线路'), findsOneWidget);
+    expect(find.text('当前分组：智能优选'), findsOneWidget);
   });
 
-  testWidgets('已连接 → 沿 now 链下钻显示叶子节点（主组→子组→节点）', (tester) async {
+  testWidgets('已连接 → 沿 now 链下钻显示叶子节点 + 其所属分组（主组→子组→节点）',
+      (tester) async {
     final container = ProviderContainer(
       overrides: [
         isStartProvider.overrideWith((ref) => true),
@@ -99,8 +100,10 @@ void main() {
       ),
     );
     await tester.pump();
-    // 下钻到叶子节点，而非停在子组名「香港」。
+    // 上行：下钻到叶子节点（非子组名「香港」）。
     expect(find.text('🇭🇰 香港 BGP 02'), findsOneWidget);
+    // 下行：叶子节点的直接父分组「香港」。
+    expect(find.text('当前分组：香港'), findsOneWidget);
   });
 
   testWidgets('未连接 → 连接后自动优选', (tester) async {

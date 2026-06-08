@@ -29,11 +29,18 @@ class XbLineCard extends ConsumerWidget {
     final connectedOrConnecting =
         state == XbConnState.connected || state == XbConnState.connecting;
 
-    final lineName = _currentLineName(nodesAdapter, ref);
-    final title = connectedOrConnecting
-        ? (lineName ?? '智能优选')
-        : '未选择线路';
-    final subtitle = connectedOrConnecting ? '当前线路' : '连接后自动优选';
+    final selection = nodesAdapter.currentSelection(ref);
+    // 已连接/连接中：上行显示真实生效的节点名，下行显示「当前分组：X」（原型 curnode）。
+    // 未连接：占位提示。
+    final String title;
+    final String subtitle;
+    if (connectedOrConnecting) {
+      title = selection.node ?? '智能优选';
+      subtitle = selection.group != null ? '当前分组：${selection.group}' : '当前线路';
+    } else {
+      title = '未选择线路';
+      subtitle = '连接后自动优选';
+    }
 
     return Card(
       elevation: 0,
@@ -77,10 +84,5 @@ class XbLineCard extends ConsumerWidget {
         ),
       ),
     );
-  }
-
-  /// 当前线路名：沿 now 链下钻到实际生效的叶子节点（主组→子组→…→节点）。
-  String? _currentLineName(XbNodesAdapter adapter, WidgetRef ref) {
-    return adapter.currentNodeName(ref);
   }
 }
