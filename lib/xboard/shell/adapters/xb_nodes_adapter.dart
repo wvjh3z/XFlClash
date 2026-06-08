@@ -8,7 +8,8 @@
 /// - `selectNode`：⚠️ **必须两步**（card.dart:103-112 同源）——① `updateCurrentSelectedMap`
 ///   持久化选择 ② `changeProxyDebounce` 调 core 切换 + reset/close 连接。只调一步会让
 ///   UI/core/持久化脱节（design 风险②）。
-/// - `refresh`：批量竞速（`delayTest`，复用 `lib/views/proxies/common.dart`）。
+/// - `refresh` / `testGroupDelay`：从上到下顺序 + 并发 10 竞速（`runBatchedConcurrent`，
+///   调单节点 `proxyDelayTest`，不碰上游 `delayTest` 的 100 并发实现）。
 library;
 
 import 'package:fl_clash/common/common.dart' show utils;
@@ -250,15 +251,30 @@ class XbNodesAdapter {
   /// 延迟着色（复用 FlClash `utils.getDelayColor`，口径一致）。
   Color? delayColor(int? delay) => utils.getDelayColor(delay);
 
+  /// 并发上限（测延迟/刷新）：从上到下顺序、每批最多并发 [_kDelayConcurrency] 个，
+  /// 批内并发、批间串行。比上游 `delayTest` 的 100 并发更克制（避免瞬时打满连接），
+  /// 代价是含超时节点时整体较慢（每批被最慢节点拖到 ~5s core 超时）。
+  static const int _kDelayConcurrency = 10;
+
+  /// 顺序分批竞速：按 [proxies] 原始顺序切成每批 [_kDelayConcurrency] 个，逐批并发测速。
+  /// 调单节点 `proxyDelayTest`（不碰上游 `delayTest` 的 100 并发实现，守上游零侵入）。
+  Future<void> _delayTestBatched(List<Proxy> proxies, String? testUrl) async {
+    await runBatchedConcurrent<Proxy>(
+      proxies,
+      _kDelayConcurrency,
+      (p) => proxies_common.proxyDelayTest(p, testUrl),
+    );
+  }
+
   /// 测速本分组所有节点（点分组头「测延迟」触发，只测该组，不波及其它组）。
-  /// 复用 `delayTest`（批量竞速）；await 完成后各节点延迟着色经 delayProvider 自动更新。
+  /// **从上到下顺序 + 并发 10**（`_delayTestBatched`）；各节点延迟着色经 delayProvider 自动更新。
   Future<void> testGroupDelay(WidgetRef ref, String groupName) async {
     final tabState = ref.read(proxiesTabStateProvider);
     final group = tabState.groups.firstWhere(
       (g) => g.name == groupName,
       orElse: () => throw ArgumentError('group not found: $groupName'),
     );
-    await proxies_common.delayTest(group.all, group.testUrl);
+    await _delayTestBatched(group.all, group.testUrl);
   }
 
   /// 单节点测速（点击节点行延迟数字触发）。复用 `proxyDelayTest`。
@@ -320,7 +336,7 @@ class XbNodesAdapter {
         .changeProxyDebounce(groupName, next);
   }
 
-  /// 刷新（批量竞速重测延迟）。复用 `lib/views/proxies/common.dart::delayTest`。
+  /// 刷新（批量竞速重测延迟）。**从上到下顺序 + 并发 10**（`_delayTestBatched`）。
   ///
   /// 对指定组（默认所有可见组）内节点批量竞速；触发后节点行延迟着色自动更新（R4.5）。
   Future<void> refresh(WidgetRef ref, {String? groupName}) async {
@@ -329,7 +345,7 @@ class XbNodesAdapter {
         ? tabState.groups
         : tabState.groups.where((g) => g.name == groupName);
     for (final group in groups) {
-      await proxies_common.delayTest(group.all, group.testUrl);
+      await _delayTestBatched(group.all, group.testUrl);
     }
   }
 }
@@ -338,3 +354,18 @@ class XbNodesAdapter {
 final xbNodesAdapterProvider = Provider<XbNodesAdapter>(
   (ref) => const XbNodesAdapter(),
 );
+
+/// 顺序分批并发执行（纯函数，可单测）：把 [items] 按原始顺序切成每批 [concurrency] 个，
+/// **批内并发（Future.wait）、批间串行**（上一批全完成才开下一批）→ 整体从上到下推进。
+/// [task] 对单个元素执行异步操作。[concurrency] ≤0 时按 1 处理（全串行）。
+Future<void> runBatchedConcurrent<T>(
+  List<T> items,
+  int concurrency,
+  Future<void> Function(T item) task,
+) async {
+  final step = concurrency < 1 ? 1 : concurrency;
+  for (var i = 0; i < items.length; i += step) {
+    final end = (i + step) > items.length ? items.length : (i + step);
+    await Future.wait(items.sublist(i, end).map(task));
+  }
+}
