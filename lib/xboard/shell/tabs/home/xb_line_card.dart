@@ -1,9 +1,11 @@
 /// 形态 A 当前线路卡（spec `xboard-form-a-ui-revamp` / W3.3 / R2.8）。
 ///
-/// 已连接显示当前线路名；未连接显示「连接后自动优选」。点击 → 切到节点 Tab（回调）。
+/// **显示口径（修正）**：只要用户在节点页选了节点（无论是否已连接），上行显示**生效节点名**、
+/// 下行显示**「当前分组：X」**（原型 curnode）。仅当确实无任何选中（全空链）时显示占位。
+/// 点击 → 切到节点 Tab（回调）。
 ///
-/// **适配层铁律**：经 `XbConnectAdapter`（连接态）+ `XbNodesAdapter`（当前线路名）读取，
-/// 不直接碰 FlClash provider。
+/// **适配层铁律**：经 `XbConnectAdapter`（连接态，仅决定图标高亮）+ `XbNodesAdapter`
+/// （当前选中节点 + 分组）读取，不直接碰 FlClash provider。
 library;
 
 import 'package:flutter/material.dart';
@@ -30,13 +32,15 @@ class XbLineCard extends ConsumerWidget {
         state == XbConnState.connected || state == XbConnState.connecting;
 
     final selection = nodesAdapter.currentSelection(ref);
-    // 已连接/连接中：上行显示真实生效的节点名，下行显示「当前分组：X」（原型 curnode）。
-    // 未连接：占位提示。
+    // 只要有生效节点就显示它（不依赖连接态）：上行节点名，下行「当前分组：X」。
+    // 无任何选中（全空链）→ 占位引导。
+    final hasSelection = selection.node != null && selection.node!.isNotEmpty;
     final String title;
     final String subtitle;
-    if (connectedOrConnecting) {
-      title = selection.node ?? '智能优选';
-      subtitle = selection.group != null ? '当前分组：${selection.group}' : '当前线路';
+    if (hasSelection) {
+      title = selection.node!;
+      subtitle =
+          selection.group != null ? '当前分组：${selection.group}' : '当前线路';
     } else {
       title = '未选择线路';
       subtitle = '连接后自动优选';
@@ -52,7 +56,11 @@ class XbLineCard extends ConsumerWidget {
           padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
           child: Row(
             children: [
-              Icon(Icons.bolt, color: scheme.primary, size: 22),
+              Icon(Icons.bolt,
+                  color: connectedOrConnecting
+                      ? scheme.primary
+                      : scheme.onSurfaceVariant,
+                  size: 22),
               const SizedBox(width: 12),
               Expanded(
                 child: Column(

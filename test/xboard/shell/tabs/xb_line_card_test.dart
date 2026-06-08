@@ -112,6 +112,14 @@ void main() {
     expect(find.text('连接后自动优选'), findsOneWidget);
   });
 
+  testWidgets('未连接但已选节点 → 仍显示节点名 + 当前分组（核心修复）', (tester) async {
+    // 用户在节点页选了节点但未连接：首页应显示已选节点，而非「未选择线路」。
+    await pumpCard(tester, isStart: false, selected: '香港01');
+    expect(find.text('香港01'), findsOneWidget);
+    expect(find.text('当前分组：智能优选'), findsOneWidget);
+    expect(find.text('未选择线路'), findsNothing);
+  });
+
   testWidgets('点击 → 触发切节点 Tab 回调', (tester) async {
     var tapped = false;
     await pumpCard(tester, isStart: true, selected: '香港01',

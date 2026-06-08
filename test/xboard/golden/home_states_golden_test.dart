@@ -52,6 +52,7 @@ ProxiesTabState _tab() => const ProxiesTabState(
         Group(
           type: GroupType.Selector,
           name: '智能优选',
+          now: '香港01', // 已选中节点 → 线路卡展示「香港01 / 当前分组：智能优选」
           all: [Proxy(name: '香港01', type: 'ss')],
         ),
       ],
