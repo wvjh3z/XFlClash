@@ -260,55 +260,76 @@ class XbNodesAdapter {
     String? explicitNode,
     int rounds = 3,
   }) async {
-    const builtin = {'DIRECT', 'REJECT', 'GLOBAL', 'PASS', 'COMPATIBLE'};
     final home = ref.read(homeLatencyProvider.notifier);
-    final selNode = (explicitNode != null && explicitNode.isNotEmpty)
-        ? explicitNode
-        : currentSelection(ref).node;
-    if (selNode == null || selNode.isEmpty || builtin.contains(selNode)) {
+    // 决定测哪个真实节点 + 用哪个 testUrl（纯决策，已抽出可单测，见 resolveMeasureTarget）。
+    final target = resolveMeasureTarget(ref, explicitNode: explicitNode);
+    if (target == null) {
       home.setResult(null);
       return;
     }
+    final proxyName = target.proxyName;
+    final testUrl = target.testUrl;
     home.startMeasuring();
     try {
-      final groups = ref.read(groupsProvider);
-      final selectedMap = ref.read(selectedMapProvider);
-      // 解析真实生效节点 + 其所属组 testUrl（口径与节点页一致）。
-      final state = computeRealSelectedProxyState(
-        selNode,
-        groups: groups,
-        selectedMap: selectedMap,
-      );
-      if (state.proxyName.isEmpty || builtin.contains(state.proxyName)) {
-        home.setResult(null);
-        return;
-      }
-      // testUrl 回退：分组 url 优先，空则用设置/默认测速链接。
-      final groupUrl = state.testUrl;
-      final testUrl = (groupUrl != null && groupUrl.trim().isNotEmpty)
-          ? groupUrl.trim()
-          : ref.read(realTestUrlProvider(null));
       // 标记该节点「测速中」：节点页延迟行显示转圈、屏蔽中间 3 次跳变。
       final measuring = ref.read(xbMeasuringNodesProvider.notifier);
-      measuring.start(state.proxyName);
+      measuring.start(proxyName);
       int? best;
       try {
         for (var i = 0; i < rounds; i++) {
-          final d = await coreController.getDelay(testUrl, state.proxyName);
+          final d = await coreController.getDelay(testUrl, proxyName);
           final v = d.value;
           if (v != null && v > 0 && (best == null || v < best)) best = v;
         }
       } finally {
         // 把最低值写回全局延迟表（节点页显示最低，覆盖 core onDelay 推送的中间值），再解除转圈。
         ref.read(proxiesActionProvider.notifier).setDelay(
-              Delay(url: testUrl, name: state.proxyName, value: best ?? -1),
+              Delay(url: testUrl, name: proxyName, value: best ?? -1),
             );
-        measuring.finish(state.proxyName);
+        measuring.finish(proxyName);
       }
       home.setResult(best); // null/失败 → 清空显示
     } catch (_) {
       home.setResult(null); // 永不抛
     }
+  }
+
+  /// 决定 [measureCurrentNodeBest] 要测的**真实节点名 + testUrl**（纯决策，无副作用、可单测）。
+  ///
+  /// **关键契约（修「选 B 却测 A」bug）**：[explicitNode] 非空时**优先用它**——切换节点后
+  /// `changeProxyDebounce` 防抖未落、provider 同步帧未刷新，此刻读 [currentSelection] 仍是
+  /// **旧选中节点**。故 `selectNode` 必须传 `explicitNode=刚选的节点`，本方法才会测对节点。
+  /// [explicitNode] 为空 → 回退 [currentSelection]（连接时无切换，读当前生效即正确）。
+  ///
+  /// 解析链：候选节点经 `computeRealSelectedProxyState` 下钻到真实叶子节点；落到内置项
+  /// （DIRECT 等）或为空 → 返回 null（调用方清空首页延迟）。testUrl：叶子所属组 url 优先，
+  /// 空则回退设置/默认测速链接。
+  ({String proxyName, String testUrl})? resolveMeasureTarget(
+    WidgetRef ref, {
+    String? explicitNode,
+  }) {
+    const builtin = {'DIRECT', 'REJECT', 'GLOBAL', 'PASS', 'COMPATIBLE'};
+    final selNode = (explicitNode != null && explicitNode.isNotEmpty)
+        ? explicitNode
+        : currentSelection(ref).node;
+    if (selNode == null || selNode.isEmpty || builtin.contains(selNode)) {
+      return null;
+    }
+    final groups = ref.read(groupsProvider);
+    final selectedMap = ref.read(selectedMapProvider);
+    final state = computeRealSelectedProxyState(
+      selNode,
+      groups: groups,
+      selectedMap: selectedMap,
+    );
+    if (state.proxyName.isEmpty || builtin.contains(state.proxyName)) {
+      return null;
+    }
+    final groupUrl = state.testUrl;
+    final testUrl = (groupUrl != null && groupUrl.trim().isNotEmpty)
+        ? groupUrl.trim()
+        : ref.read(realTestUrlProvider(null));
+    return (proxyName: state.proxyName, testUrl: testUrl);
   }
 
   /// 某组当前生效选中节点名（计算选择组返回自动命中的节点，selector 返回手选）。
@@ -402,8 +423,11 @@ class XbNodesAdapter {
         .read(proxiesActionProvider.notifier)
         .changeProxyDebounce(groupName, next);
     // 切换节点后测一次该节点延迟（3 次取最低，刷到首页速度卡）。fire-and-forget。
+    // ⚠️ 必须传 explicitNode=next：此刻 changeProxyDebounce 防抖未落、provider 同步帧未刷新，
+    // measureCurrentNodeBest 内若走 currentSelection 会读到**旧选中节点**（表现：选 B 却在测 A）。
+    // next 为空串（computed 组解锁恢复自动）时，方法内部自动回退 currentSelection。
     // ignore: discarded_futures
-    measureCurrentNodeBest(ref);
+    measureCurrentNodeBest(ref, explicitNode: next);
   }
 
   /// 刷新（批量竞速重测延迟）。**从上到下顺序 + 并发 10**（`_delayTestBatched`）。

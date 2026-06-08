@@ -21,7 +21,6 @@ import 'package:fl_clash/providers/state.dart' show proxiesTabStateProvider;
 import 'package:fl_clash/providers/providers.dart'
     show selectedMapProvider, groupsProvider;
 import 'package:fl_clash/xboard/shell/adapters/xb_nodes_adapter.dart';
-
 const _hk = '🇭🇰 香港1';
 const _jp = '🇯🇵 日本1';
 const _sg = '🇸🇬 新加坡1';
@@ -127,6 +126,35 @@ void main() {
               .groups
               .map((g) => g.name)
               .toList();
+          return const SizedBox();
+        }),
+      ),
+    ));
+    await t.pump();
+    return out;
+  }
+
+  /// 读取 resolveMeasureTarget（测「选 B 却测 A」bug：旧选择在 providers，传 explicitNode）。
+  Future<({String proxyName, String testUrl})?> measureTarget(
+    WidgetTester t, {
+    required Mode mode,
+    required List<Group> groups,
+    Map<String, String> selectedMap = const {},
+    String? explicitNode,
+  }) async {
+    late ({String proxyName, String testUrl})? out;
+    await t.pumpWidget(ProviderScope(
+      key: UniqueKey(),
+      overrides: [
+        groupsProvider.overrideWithValue(groups),
+        selectedMapProvider.overrideWith((ref) => selectedMap),
+        patchClashConfigProvider
+            .overrideWithBuild((ref, _) => PatchClashConfig(mode: mode)),
+      ],
+      child: MaterialApp(
+        home: Consumer(builder: (ctx, ref, _) {
+          out = const XbNodesAdapter()
+              .resolveMeasureTarget(ref, explicitNode: explicitNode);
           return const SizedBox();
         }),
       ),
@@ -333,6 +361,71 @@ void main() {
       final r = await sel(t, mode: Mode.rule, groups: const []);
       expect(r.node, isNull);
       expect(r.group, isNull);
+    });
+  });
+
+  group('resolveMeasureTarget（修「选 B 却测 A」回归）', () {
+    testWidgets('切换节点：providers 旧选择=香港，传 explicitNode=日本 → 测日本（不是香港）',
+        (t) async {
+      // 复现 bug 时序：用户在香港，点日本。changeProxyDebounce 未落 → providers 仍是香港。
+      // selectNode 传 explicitNode=日本 → 必须测日本。
+      final r = await measureTarget(t,
+          mode: Mode.rule,
+          groups: ruleGroups(manualNow: _hk), // 旧选择香港仍在 providers
+          selectedMap: {'omofly 手动选择': _hk},
+          explicitNode: _jp); // 刚点的新节点
+      expect(r, isNotNull);
+      expect(r!.proxyName, _jp, reason: 'explicitNode 优先：测刚选的日本，不是旧的香港');
+    });
+
+    testWidgets('未传 explicitNode → 回退当前生效节点（连接场景，无切换）', (t) async {
+      final r = await measureTarget(t,
+          mode: Mode.rule,
+          groups: ruleGroups(manualNow: _sg),
+          selectedMap: {'omofly 手动选择': _sg});
+      expect(r, isNotNull);
+      expect(r!.proxyName, _sg);
+    });
+
+    testWidgets('explicitNode 为空串（computed 组解锁）→ 回退当前生效节点', (t) async {
+      final r = await measureTarget(t,
+          mode: Mode.rule,
+          groups: ruleGroups(manualNow: _hk),
+          selectedMap: {'omofly 手动选择': _hk},
+          explicitNode: '');
+      expect(r, isNotNull);
+      expect(r!.proxyName, _hk);
+    });
+
+    testWidgets('explicitNode=子组名 → 下钻到子组真实叶子节点', (t) async {
+      // 选「自动选择」url-test 子组（now=新加坡）→ 应解析到叶子新加坡。
+      final r = await measureTarget(t,
+          mode: Mode.rule,
+          groups: ruleGroups(manualNow: _hk)
+            ..removeWhere((g) => g.name == '自动选择')
+            ..add(const Group(
+              type: GroupType.URLTest,
+              name: '自动选择',
+              now: _sg,
+              all: [
+                Proxy(name: _hk, type: 'ss'),
+                Proxy(name: _jp, type: 'ss'),
+                Proxy(name: _sg, type: 'ss'),
+              ],
+            )),
+          selectedMap: const {},
+          explicitNode: '自动选择');
+      expect(r, isNotNull);
+      expect(r!.proxyName, _sg, reason: '子组下钻到 now 叶子节点');
+    });
+
+    testWidgets('explicitNode=DIRECT（内置项）→ null（不测内置，清空首页延迟）', (t) async {
+      final r = await measureTarget(t,
+          mode: Mode.rule,
+          groups: ruleGroups(manualNow: _hk),
+          selectedMap: {'omofly 手动选择': _hk},
+          explicitNode: 'DIRECT');
+      expect(r, isNull);
     });
   });
 }
