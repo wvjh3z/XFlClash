@@ -81,6 +81,10 @@ class _HomeTabState extends ConsumerState<HomeTab> {
     final isGuest =
         ref.watch(authStateProvider) != AuthState.authenticated;
     final scheme = Theme.of(context).colorScheme;
+    // 当前生效节点延迟：仅显示有效正值（>0 ms）；未测/测速中/超时/游客 → null（显示「--」）。
+    final rawDelay =
+        isGuest ? null : ref.watch(xbNodesAdapterProvider).currentNodeDelay(ref);
+    final latencyMs = (rawDelay != null && rawDelay > 0) ? rawDelay : null;
 
     return SafeArea(
       child: SingleChildScrollView(
@@ -125,7 +129,7 @@ class _HomeTabState extends ConsumerState<HomeTab> {
               ),
             ],
             const SizedBox(height: 17),
-            const XbSpeedCard(),
+            XbSpeedCard(latencyMs: latencyMs),
             // 当前线路卡：仅已登录显示（原型 guest 态无线路卡）。
             if (!isGuest) ...[
               const SizedBox(height: 12),

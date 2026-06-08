@@ -244,6 +244,17 @@ class XbNodesAdapter {
   int? nodeDelay(WidgetRef ref, {required String proxyName, String? testUrl}) =>
       ref.watch(delayProvider(proxyName: proxyName, testUrl: testUrl));
 
+  /// 当前生效节点的延迟（ms）—— 首页速度卡用。
+  ///
+  /// 取 [currentSelection] 解析出的实际生效节点名，再查 `delayProvider`（testUrl 传 null →
+  /// provider 内部经 `realSelectedProxyState` 解析该节点真正所属组的 testUrl，口径与节点页一致）。
+  /// 无选中节点 → null（速度卡显示「--」）。
+  int? currentNodeDelay(WidgetRef ref) {
+    final node = currentSelection(ref).node;
+    if (node == null || node.isEmpty) return null;
+    return ref.watch(delayProvider(proxyName: node, testUrl: null));
+  }
+
   /// 某组当前生效选中节点名（计算选择组返回自动命中的节点，selector 返回手选）。
   String? selectedName(WidgetRef ref, String groupName) =>
       ref.watch(selectedProxyNameProvider(groupName));
