@@ -23,7 +23,8 @@ import 'package:fl_clash/xboard/util/app_version.dart';
 import 'package:fl_clash/xboard/util/format.dart';
 import 'package:fl_clash/xboard/widgets/xb_components.dart';
 import 'package:fl_clash/xboard/widgets/xb_feedback.dart' show xbConfirm, xbBrandColor;
-import 'package:fl_clash/xboard/widgets/xb_theme.dart' show xbPush, XbTokens;
+import 'package:fl_clash/xboard/widgets/xb_theme.dart'
+    show xbPush, xbShowDialog, XbTokens;
 
 import 'xb_settings_page.dart';
 
@@ -747,8 +748,10 @@ class _SettingsSection extends ConsumerWidget {
     );
     if (!ok || !context.mounted) return;
     // 登出编排有网络耗时（服务端撤销 token）→ 弹不可关闭 loading，完成后自动消失（切游客态重建树）。
-    showDialog<void>(
+    // 走 xbShowDialog 套品牌主题（裸 showDialog 挂根 Navigator 会逃逸 formA 主题，§check-xb-theme）。
+    xbShowDialog<void>(
       context: context,
+      brandColor: xbBrandColor(),
       barrierDismissible: false,
       builder: (_) => const Center(child: CircularProgressIndicator()),
     );
