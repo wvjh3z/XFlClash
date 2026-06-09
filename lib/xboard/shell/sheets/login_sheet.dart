@@ -108,7 +108,6 @@ class _LoginSheetState extends ConsumerState<LoginSheet>
           autofillHints: const [AutofillHints.email],
           decoration: const InputDecoration(
             labelText: '邮箱账号',
-            prefixIcon: Icon(Icons.email_outlined),
           ),
         ),
         const SizedBox(height: 12),
@@ -118,7 +117,6 @@ class _LoginSheetState extends ConsumerState<LoginSheet>
           autofillHints: const [AutofillHints.password],
           decoration: InputDecoration(
             labelText: '密码',
-            prefixIcon: const Icon(Icons.lock_outline),
             suffixIcon: IconButton(
               icon: Icon(_obscure ? Icons.visibility_off : Icons.visibility),
               onPressed: () => setState(() => _obscure = !_obscure),

@@ -140,7 +140,6 @@ class _RegisterSheetState extends ConsumerState<RegisterSheet>
           obscureText: _obscure,
           decoration: InputDecoration(
             labelText: '密码',
-            prefixIcon: const Icon(Icons.lock_outline),
             suffixIcon: IconButton(
               icon: Icon(_obscure ? Icons.visibility_off : Icons.visibility),
               onPressed: () => setState(() => _obscure = !_obscure),

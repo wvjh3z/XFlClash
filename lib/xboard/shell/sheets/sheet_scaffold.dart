@@ -83,7 +83,7 @@ class XbSheetScaffold extends StatelessWidget {
             children: [
               if (badge != null) ...[
                 Center(child: badge!),
-                const SizedBox(height: 13),
+                const SizedBox(height: 11),
               ],
               Text(
                 title,
@@ -154,11 +154,11 @@ class XbSheetBadge extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     return Container(
-      width: 70,
-      height: 70,
+      width: 52,
+      height: 52,
       alignment: Alignment.center,
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(22),
+        borderRadius: BorderRadius.circular(XbTokens.rMd),
         gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
@@ -171,8 +171,8 @@ class XbSheetBadge extends StatelessWidget {
         boxShadow: [
           BoxShadow(
             color: scheme.primary.withValues(alpha: 0.5),
-            blurRadius: 30,
-            offset: const Offset(0, 14),
+            blurRadius: 26,
+            offset: const Offset(0, 12),
             spreadRadius: -10,
           ),
         ],
@@ -181,12 +181,12 @@ class XbSheetBadge extends StatelessWidget {
           ? Text(
               letter!,
               style: const TextStyle(
-                fontSize: 34,
+                fontSize: 26,
                 fontWeight: FontWeight.w800,
                 color: Colors.white,
               ),
             )
-          : Icon(icon, size: 34, color: Colors.white),
+          : Icon(icon, size: 27, color: Colors.white),
     );
   }
 }
@@ -221,39 +221,39 @@ class XbEmailAccountField extends StatelessWidget {
       return TextField(
         controller: prefixController,
         keyboardType: TextInputType.emailAddress,
-        decoration: const InputDecoration(
-          labelText: '邮箱账号',
-          prefixIcon: Icon(Icons.email_outlined),
-        ),
+        decoration: const InputDecoration(labelText: '邮箱账号'),
       );
     }
-    // 前缀 2/3 + 后缀下拉 1/3。
+    // 前缀输入框占满剩余宽 + 后缀下拉按内容宽（去前导图标，最大化可输入区）。
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Expanded(
-          flex: 2,
           child: TextField(
             controller: prefixController,
             keyboardType: TextInputType.emailAddress,
-            decoration: const InputDecoration(
-              labelText: '邮箱账号',
-              prefixIcon: Icon(Icons.email_outlined),
-            ),
+            decoration: const InputDecoration(labelText: '邮箱账号'),
           ),
         ),
         const SizedBox(width: 8),
-        Expanded(
-          flex: 1,
-          child: DropdownButtonFormField<String>(
-            initialValue: selectedSuffix ?? suffixes.first,
-            isExpanded: true,
-            decoration: const InputDecoration(contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 16)),
-            items: [
-              for (final s in suffixes)
-                DropdownMenuItem(value: s, child: Text('@$s', overflow: TextOverflow.ellipsis)),
-            ],
-            onChanged: onSuffixChanged,
+        // 后缀下拉：按内容宽度（不再固定 1/3），约束最大宽避免超长后缀挤压输入框。
+        ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 150),
+          child: IntrinsicWidth(
+            child: DropdownButtonFormField<String>(
+              initialValue: selectedSuffix ?? suffixes.first,
+              isExpanded: true,
+              decoration: const InputDecoration(
+                  contentPadding:
+                      EdgeInsets.symmetric(horizontal: 12, vertical: 16)),
+              items: [
+                for (final s in suffixes)
+                  DropdownMenuItem(
+                      value: s,
+                      child: Text('@$s', overflow: TextOverflow.ellipsis)),
+              ],
+              onChanged: onSuffixChanged,
+            ),
           ),
         ),
       ],
@@ -283,7 +283,6 @@ class XbVerifyCodeField extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
         Expanded(
-          flex: 2,
           child: TextField(
             controller: controller,
             keyboardType: TextInputType.number,
@@ -291,20 +290,16 @@ class XbVerifyCodeField extends StatelessWidget {
             decoration: const InputDecoration(
               labelText: '验证码',
               counterText: '',
-              prefixIcon: Icon(Icons.verified_outlined),
             ),
           ),
         ),
         const SizedBox(width: 8),
-        Expanded(
-          flex: 1,
-          child: OutlinedButton(
-            onPressed: cooldownSeconds > 0 ? null : onSend,
-            child: Text(
-              cooldownSeconds > 0 ? '${cooldownSeconds}s' : '获取',
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
+        OutlinedButton(
+          onPressed: cooldownSeconds > 0 ? null : onSend,
+          child: Text(
+            cooldownSeconds > 0 ? '${cooldownSeconds}s' : '获取验证码',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
           ),
         ),
       ],

@@ -125,7 +125,7 @@ void main() {
           .thenAnswer((_) async => XbResult.success(true));
       await pump(t, const RegisterSheet());
       await t.enterText(find.byType(TextField).first, 'alice');
-      await t.tap(find.widgetWithText(OutlinedButton, '获取'));
+      await t.tap(find.widgetWithText(OutlinedButton, '获取验证码'));
       await t.pump();
       verify(() => service.sendEmailVerifyCode('alice@gmail.com')).called(1);
       // 冷却后按钮显示秒数（60s）。

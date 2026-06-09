@@ -11,7 +11,6 @@ library;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../adapters/xb_connect_adapter.dart';
 import '../../adapters/xb_nodes_adapter.dart';
 
 /// 当前线路卡。
@@ -24,13 +23,8 @@ class XbLineCard extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final connectAdapter = ref.watch(xbConnectAdapterProvider);
     final nodesAdapter = ref.watch(xbNodesAdapterProvider);
     final scheme = Theme.of(context).colorScheme;
-
-    final state = connectAdapter.connState(ref);
-    final connectedOrConnecting =
-        state == XbConnState.connected || state == XbConnState.connecting;
 
     final selection = nodesAdapter.currentSelection(ref);
     // 只要有生效节点就显示它（不依赖连接态）：上行节点名，下行「当前分组：X」。
@@ -59,12 +53,6 @@ class XbLineCard extends ConsumerWidget {
           padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
           child: Row(
             children: [
-              Icon(Icons.bolt,
-                  color: connectedOrConnecting
-                      ? scheme.primary
-                      : scheme.onSurfaceVariant,
-                  size: 22),
-              const SizedBox(width: 12),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,

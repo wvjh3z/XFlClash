@@ -38,6 +38,7 @@ Future<ScrollController> _pump(
 
   final overrides = [
     selectedProxyNameProvider(group.name).overrideWithValue(group.currentSelected),
+    proxyNameProvider(group.name).overrideWithValue(null),
     for (final node in group.nodes)
       delayProvider(proxyName: node.name, testUrl: group.testUrl)
           .overrideWithValue(48),
@@ -123,6 +124,7 @@ void main() {
     final overrides = [
       selectedProxyNameProvider(group.name)
           .overrideWithValue(group.currentSelected),
+      proxyNameProvider(group.name).overrideWithValue(null),
       for (final node in group.nodes)
         delayProvider(proxyName: node.name, testUrl: group.testUrl)
             .overrideWithValue(48),

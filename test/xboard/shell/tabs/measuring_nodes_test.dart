@@ -6,7 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:fl_clash/providers/state.dart'
-    show delayProvider, selectedProxyNameProvider;
+    show delayProvider, selectedProxyNameProvider, proxyNameProvider;
 import 'package:fl_clash/xboard/shell/adapters/xb_nodes_adapter.dart';
 import 'package:fl_clash/xboard/shell/tabs/nodes/xb_node_group.dart';
 
@@ -34,6 +34,7 @@ void main() {
           delayProvider(proxyName: 'HK01', testUrl: null)
               .overrideWithValue(120), // 有值
           selectedProxyNameProvider('HK').overrideWithValue(''),
+          proxyNameProvider('HK').overrideWithValue(null),
         ],
         child: Consumer(builder: (ctx, ref, _) {
           container = ProviderScope.containerOf(ctx);

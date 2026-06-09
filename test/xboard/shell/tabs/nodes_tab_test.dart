@@ -68,6 +68,7 @@ Future<void> pumpNodes(
   ];
   for (final g in state.groups) {
     overrides.add(selectedProxyNameProvider(g.name).overrideWithValue(g.now));
+    overrides.add(proxyNameProvider(g.name).overrideWithValue(null));
     for (final p in g.all) {
       overrides.add(
         delayProvider(proxyName: p.name, testUrl: g.testUrl)

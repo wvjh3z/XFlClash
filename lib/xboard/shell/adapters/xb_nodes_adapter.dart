@@ -333,8 +333,17 @@ class XbNodesAdapter {
   }
 
   /// 某组当前生效选中节点名（计算选择组返回自动命中的节点，selector 返回手选）。
-  String? selectedName(WidgetRef ref, String groupName) =>
-      ref.watch(selectedProxyNameProvider(groupName));
+  ///
+  /// **乐观选中（修 computed 组「选中态不立即更新」）**：url-test/fallback 组的
+  /// `selectedProxyName` 优先看 core 运行值 `now`，而 `now` 要等 core 切换+测速回来才更新，
+  /// 导致用户刚点的节点 UI 不立即高亮。这里改为：用户**显式锁定**（`selectedMap[组]` 非空）
+  /// 时立即返回该锁定节点（乐观），不等 core；未锁定（跟随自动）才回退 `selectedProxyName`
+  /// 取 core now。selector 组本就立即认 selectedMap，行为不变。
+  String? selectedName(WidgetRef ref, String groupName) {
+    final explicit = ref.watch(proxyNameProvider(groupName));
+    if (explicit != null && explicit.isNotEmpty) return explicit;
+    return ref.watch(selectedProxyNameProvider(groupName));
+  }
 
   /// 延迟着色（复用 FlClash `utils.getDelayColor`，口径一致）。
   Color? delayColor(int? delay) => utils.getDelayColor(delay);

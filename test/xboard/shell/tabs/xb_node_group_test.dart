@@ -6,7 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:fl_clash/providers/state.dart'
-    show selectedProxyNameProvider, delayProvider;
+    show selectedProxyNameProvider, proxyNameProvider, delayProvider;
 import 'package:fl_clash/xboard/shell/adapters/xb_nodes_adapter.dart';
 import 'package:fl_clash/xboard/shell/tabs/nodes/xb_node_group.dart';
 
@@ -35,6 +35,8 @@ Future<void> pump(WidgetTester tester, XbGroupSummary group) async {
         selectedProxyNameProvider(group.name).overrideWithValue(
           group.nodes.isNotEmpty ? group.nodes.first.name : null,
         ),
+        // selectedName 乐观分支：proxyNameProvider 给 null → 回退 selectedProxyNameProvider。
+        proxyNameProvider(group.name).overrideWithValue(null),
         for (final n in group.nodes)
           delayProvider(proxyName: n.name, testUrl: null).overrideWithValue(38),
       ],
