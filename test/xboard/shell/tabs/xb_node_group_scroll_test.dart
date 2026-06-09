@@ -111,4 +111,69 @@ void main() {
     final ctrl = await _pump(tester, group: group, scrollTo: '');
     expect(ctrl.offset, 0);
   });
+
+  testWidgets('同组 State 复用：scrollNonce 自增 → 再次触发居中（修「同组定位失效」）',
+      (tester) async {
+    tester.view.physicalSize = const Size(390 * 3, 700 * 3);
+    tester.view.devicePixelRatio = 3.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final group = _group(40, selected: '🇸🇬 节点 20');
+    final overrides = [
+      selectedProxyNameProvider(group.name)
+          .overrideWithValue(group.currentSelected),
+      for (final node in group.nodes)
+        delayProvider(proxyName: node.name, testUrl: group.testUrl)
+            .overrideWithValue(48),
+    ];
+
+    // 宿主：可变 scrollToNode + scrollNonce，但 XbNodeGroup 的 key 固定（同组 → State 复用）。
+    String target = '🇸🇬 节点 20';
+    int nonce = 1;
+    late StateSetter setOuter;
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: overrides,
+        child: MaterialApp(
+          home: Scaffold(
+            body: StatefulBuilder(
+              builder: (context, setState) {
+                setOuter = setState;
+                return XbNodeGroup(
+                  key: const ValueKey('香港'), // 固定 key → 切目标时 State 不重建
+                  group: group,
+                  scrollToNode: target,
+                  scrollNonce: nonce,
+                );
+              },
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final ctrl =
+        tester.widget<ListView>(find.byType(ListView)).controller!;
+    final offsetAt20 = ctrl.offset;
+    expect(offsetAt20, greaterThan(0));
+
+    // 手动滚回顶部（模拟用户翻看后离开位置）。
+    ctrl.jumpTo(0);
+    await tester.pump();
+    expect(ctrl.offset, 0);
+
+    // 首页再次点击「同组」另一个节点 → scrollToNode 变 + nonce 自增（State 复用，不重建）。
+    setOuter(() {
+      target = '🇸🇬 节点 35';
+      nonce = 2;
+    });
+    await tester.pumpAndSettle();
+
+    // didUpdateWidget 应再次触发居中 → 重新发生滚动（不再停在 0）。
+    expect(ctrl.offset, greaterThan(0),
+        reason: 'scrollNonce 变化应触发 didUpdateWidget 重新居中（同组 State 复用）');
+    expect(find.text('🇸🇬 节点 35'), findsOneWidget);
+  });
 }

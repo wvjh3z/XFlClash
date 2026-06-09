@@ -24,12 +24,22 @@ import '../../sheets/sheet_scaffold.dart' show showXbBottomSheet;
 
 /// 自绘分组区块：分组名 + 类型标签(含「?」说明) + 测延迟按钮 + 节点行列表。
 class XbNodeGroup extends ConsumerStatefulWidget {
-  const XbNodeGroup({super.key, required this.group, this.scrollToNode});
+  const XbNodeGroup({
+    super.key,
+    required this.group,
+    this.scrollToNode,
+    this.scrollNonce = 0,
+  });
 
   final XbGroupSummary group;
 
   /// 进入时滚动到该节点并尽量上下居中（不强制：靠顶/底则就近）。null = 不定位。
   final String? scrollToNode;
+
+  /// 定位请求序号（首页每次点线路卡自增）：即便目标节点 / 分组都没变（同组重复点击），
+  /// 序号变化也会经 [didUpdateWidget] 再次触发居中。避免「同组时 State 复用、initState
+  /// 不重跑导致定位失效」（用户报告「修复没生效」的根因）。
+  final int scrollNonce;
 
   @override
   ConsumerState<XbNodeGroup> createState() => _XbNodeGroupState();
@@ -52,6 +62,18 @@ class _XbNodeGroupState extends ConsumerState<XbNodeGroup> {
     super.initState();
     if (widget.scrollToNode != null) {
       // 首帧布局完成后把目标行滚动到视口中央（不强制：clamp 到可滚范围 → 靠边就近）。
+      WidgetsBinding.instance.addPostFrameCallback((_) => _centerTarget());
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant XbNodeGroup oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // 同组重复定位（State 复用、不重跑 initState）：scrollToNode 变化或 scrollNonce 自增
+    // 都重新居中。首页点线路卡时即便目标节点/分组都没变也能再次触发（修「定位失效」）。
+    if (widget.scrollToNode != null &&
+        (widget.scrollToNode != oldWidget.scrollToNode ||
+            widget.scrollNonce != oldWidget.scrollNonce)) {
       WidgetsBinding.instance.addPostFrameCallback((_) => _centerTarget());
     }
   }

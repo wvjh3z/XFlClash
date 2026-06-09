@@ -176,6 +176,8 @@ class _NodesTabState extends ConsumerState<NodesTab> {
                     current.nodes.any((n) => n.name == _pendingScrollNode))
                 ? _pendingScrollNode
                 : null,
+            // 定位请求序号：同组重复点击线路卡也能再次触发居中（XbNodeGroup.didUpdateWidget）。
+            scrollNonce: _handledNonce,
           ),
         ),
       ],
