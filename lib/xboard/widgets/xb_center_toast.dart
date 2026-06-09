@@ -107,41 +107,46 @@ class _ToastWidgetState extends State<_ToastWidget>
                 scale: Tween<double>(begin: 0.96, end: 1).animate(
                   CurvedAnimation(parent: _c, curve: Curves.easeOut),
                 ),
-                child: Container(
-                  margin: const EdgeInsets.symmetric(horizontal: 36),
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 18, vertical: 15),
-                  decoration: BoxDecoration(
-                    color: Color.alphaBlend(
-                        warn.withValues(alpha: 0.13), t.card),
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(color: warn.withValues(alpha: 0.34)),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.16),
-                        blurRadius: 30,
-                        spreadRadius: -8,
-                        offset: const Offset(0, 12),
-                      ),
-                    ],
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(widget.icon, size: 22, color: warn),
-                      const SizedBox(width: 12),
-                      Flexible(
-                        child: Text(
-                          widget.message,
-                          style: TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w600,
-                            height: 1.55,
-                            color: t.onWarn,
+                // Material 包裹：Overlay 直挂根、无 Material 祖先 → 裸 Text 会渲染黄黑下划线
+                // （Flutter「missing Material」提示）。透明 Material 提供文本渲染祖先，消下划线。
+                child: Material(
+                  type: MaterialType.transparency,
+                  child: Container(
+                    margin: const EdgeInsets.symmetric(horizontal: 36),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 18, vertical: 15),
+                    decoration: BoxDecoration(
+                      color: Color.alphaBlend(
+                          warn.withValues(alpha: 0.13), t.card),
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: warn.withValues(alpha: 0.34)),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.16),
+                          blurRadius: 30,
+                          spreadRadius: -8,
+                          offset: const Offset(0, 12),
+                        ),
+                      ],
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(widget.icon, size: 22, color: warn),
+                        const SizedBox(width: 12),
+                        Flexible(
+                          child: Text(
+                            widget.message,
+                            style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600,
+                              height: 1.55,
+                              color: t.onWarn,
+                            ),
                           ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
                 ),
               ),
