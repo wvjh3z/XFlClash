@@ -49,6 +49,13 @@ class _XbNodeGroupState extends ConsumerState<XbNodeGroup> {
   /// 本组「测延迟」进行中（点测延迟 → true，本组全部节点拿到结果 → false）。
   bool _testing = false;
 
+  /// 本轮测速已完成节点数（进度「测速中 N/M」用）。
+  ///
+  /// **为何用本地计数而非读延迟表**：重测时节点已有上次延迟值，core 把测速中节点逐个重置为 0
+  /// 占位再回填真值，按「非0延迟节点数」估算会在 M↔M-1 间反复横跳（用户反馈「进度横跳」）。
+  /// 改为 adapter 每个节点测速 future 完成时回调累加，done 单调递增，进度准确不回退。
+  int _testedCount = 0;
+
   /// 列表滚动控制器（用于进入时定位到选中节点）。
   final ScrollController _scrollCtrl = ScrollController();
 
@@ -106,9 +113,19 @@ class _XbNodeGroupState extends ConsumerState<XbNodeGroup> {
   /// 测延迟：只测本组节点（不波及其它组）。await 完成后清测速态。
   Future<void> _testGroup() async {
     if (_testing) return;
-    setState(() => _testing = true);
+    setState(() {
+      _testing = true;
+      _testedCount = 0;
+    });
     try {
-      await ref.read(xbNodesAdapterProvider).testGroupDelay(ref, group.name);
+      await ref.read(xbNodesAdapterProvider).testGroupDelay(
+        ref,
+        group.name,
+        onProgress: (done, total) {
+          // 完成计数单调递增 → 进度不横跳。仅在 mounted 且仍在测速时更新。
+          if (mounted && _testing) setState(() => _testedCount = done);
+        },
+      );
     } catch (_) {
       // 永不抛。
     }
@@ -122,14 +139,9 @@ class _XbNodeGroupState extends ConsumerState<XbNodeGroup> {
     // computed 组（url-test/fallback）是否自动模式（未手动锁定）：决定「自动」标签标在哪个节点。
     final autoMode = group.isComputed && adapter.isAutoMode(ref, group.name);
 
-    // 测速进度（N/M）：测速中时统计本组已拿到结果（delay 非 null 非 0）的节点数。
-    int tested = 0;
-    if (_testing) {
-      for (final n in group.nodes) {
-        final d = adapter.nodeDelay(ref, proxyName: n.name, testUrl: n.testUrl);
-        if (d != null && d != 0) tested++;
-      }
-    }
+    // 测速进度（N/M）：用本地完成计数器（adapter 回调累加，单调递增不横跳），
+    // 不再读延迟表统计「非0节点数」（重测时会 M↔M-1 横跳，见 _testedCount 注释）。
+    final tested = _testedCount;
 
     // 选中分组的节点列表（可滚动）；头部为「类型标签 + 测延迟」行（分组名已由顶部 tab 显示）。
     return ListView(

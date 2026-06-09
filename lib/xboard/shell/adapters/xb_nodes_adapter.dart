@@ -364,23 +364,43 @@ class XbNodesAdapter {
 
   /// 顺序分批竞速：按 [proxies] 原始顺序切成每批 [_kDelayConcurrency] 个，逐批并发测速。
   /// 调单节点 `proxyDelayTest`（不碰上游 `delayTest` 的 100 并发实现，守上游零侵入）。
-  Future<void> _delayTestBatched(List<Proxy> proxies, String? testUrl) async {
+  ///
+  /// [onProgress]：每个节点测速 future 完成时回调 `(done, total)`，done 单调递增到 total。
+  /// 用于「测速中 N/M」进度——**基于完成计数而非读延迟表**：重测时节点已有上次延迟值，
+  /// core 把测速中节点逐个重置为 0 占位再回填，按「非0节点数」估算会在 M↔M-1 横跳（用户反馈）。
+  Future<void> _delayTestBatched(
+    List<Proxy> proxies,
+    String? testUrl, {
+    void Function(int done, int total)? onProgress,
+  }) async {
+    final total = proxies.length;
+    var done = 0;
     await runBatchedConcurrent<Proxy>(
       proxies,
       _kDelayConcurrency,
-      (p) => proxies_common.proxyDelayTest(p, testUrl),
+      (p) async {
+        await proxies_common.proxyDelayTest(p, testUrl);
+        done++;
+        onProgress?.call(done, total);
+      },
     );
   }
 
   /// 测速本分组所有节点（点分组头「测延迟」触发，只测该组，不波及其它组）。
   /// **从上到下顺序 + 并发 10**（`_delayTestBatched`）；各节点延迟着色经 delayProvider 自动更新。
-  Future<void> testGroupDelay(WidgetRef ref, String groupName) async {
+  ///
+  /// [onProgress]：进度回调 `(done, total)`，UI 据此显示「测速中 N/M」（可靠完成计数，不横跳）。
+  Future<void> testGroupDelay(
+    WidgetRef ref,
+    String groupName, {
+    void Function(int done, int total)? onProgress,
+  }) async {
     final tabState = ref.read(proxiesTabStateProvider);
     final group = tabState.groups.firstWhere(
       (g) => g.name == groupName,
       orElse: () => throw ArgumentError('group not found: $groupName'),
     );
-    await _delayTestBatched(group.all, group.testUrl);
+    await _delayTestBatched(group.all, group.testUrl, onProgress: onProgress);
   }
 
   /// 单节点测速（点击节点行延迟数字触发）。复用 `proxyDelayTest`。
