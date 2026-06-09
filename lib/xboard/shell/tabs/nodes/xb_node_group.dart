@@ -266,7 +266,8 @@ class _DelayTestButton extends StatelessWidget {
         icon: const SizedBox(
           width: 13,
           height: 13,
-          child: CircularProgressIndicator(strokeWidth: 2),
+          child: CircularProgressIndicator(
+              strokeWidth: 2, color: XbTokens.warn),
         ),
         label: Text('测速中 $tested/$total'),
         style: TextButton.styleFrom(
@@ -405,11 +406,13 @@ class _DelayText extends ConsumerWidget {
     }
 
     if (measuring || delay == 0) {
-      // 测速中（首页 3 次取最低 / 单次 core 测速占位 0）。
+      // 测速中（首页 3 次取最低 / 单次 core 测速占位 0）：琥珀黄转圈（原型 .spin = warn，
+      // 非品牌红 CircularProgressIndicator）。
       return const SizedBox(
         width: 16,
         height: 16,
-        child: CircularProgressIndicator(strokeWidth: 2),
+        child: CircularProgressIndicator(
+            strokeWidth: 2, color: XbTokens.warn),
       );
     }
     if (delay == null) {

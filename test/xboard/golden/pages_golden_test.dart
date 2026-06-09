@@ -51,17 +51,23 @@ Future<void> _loadCjkFont() async {
 final _fixedCreated = DateTime(2026, 6, 5, 12, 30);
 
 // 真实账号那份数据（98% 用量，触发流量重置告警卡）。
-XbDomainSubscription get _sub => XbDomainSubscription(
+// 到期/重置时间用「相对当前日期的固定偏移」→ 「剩 N 天」恒定，golden 不随运行日期飘移
+// （xbResetText / _expireText 内部用 DateTime.now() 算剩余天数，固定日期会导致每天像素漂移）。
+XbDomainSubscription get _sub {
+  final today = DateTime.now();
+  final base = DateTime(today.year, today.month, today.day);
+  return XbDomainSubscription(
       email: '123456@qq.com',
       uuid: 'uid-real',
       planName: '标准套餐',
       totalBytes: 250 * 1024 * 1024 * 1024,
       usedBytes: (245.7 * 1024 * 1024 * 1024).round(),
-      expiredAt: DateTime(2026, 7, 1),
-      nextResetAt: DateTime(2026, 7, 26),
+      expiredAt: base.add(const Duration(days: 27, hours: 8, minutes: 30)),
+      nextResetAt: base.add(const Duration(days: 10, hours: 11, minutes: 17)),
       resetDay: 26,
       planId: 1,
     );
+}
 
 const _plans = [
   PlanItem(
