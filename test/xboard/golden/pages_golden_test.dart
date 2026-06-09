@@ -178,7 +178,11 @@ void main() {
 
   testWidgets('订单列表页 golden（状态色：完成=绿/取消=红/待付=琥珀）', (t) async {
     final svc = _MockService();
-    when(() => svc.getOrders())
+    when(() => svc.getOrders(
+              page: any(named: 'page'),
+              pageSize: any(named: 'pageSize'),
+              forceRefresh: any(named: 'forceRefresh'),
+            ))
         .thenAnswer((_) async => XbResult.success(XbPagedList(
               items: _orders,
               page: 1,

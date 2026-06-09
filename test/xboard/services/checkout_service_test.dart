@@ -33,7 +33,7 @@ void main() {
 
   group('retryableCheckout（§ H 复用 pending）', () {
     test('有 pending → 复用旧 tradeNo，不 createOrder', () async {
-      when(() => service.getOrders(page: 1, pageSize: 5)).thenAnswer((_) async =>
+      when(() => service.getOrders(page: 1, pageSize: 5, forceRefresh: true)).thenAnswer((_) async =>
           XbResult.success(XbPagedList(
             items: [order('OLD', XbOrderStatus.pending)],
             page: 1, pageSize: 5, total: 1,
@@ -50,7 +50,7 @@ void main() {
     });
 
     test('无 pending → createOrder + checkout 新 tradeNo', () async {
-      when(() => service.getOrders(page: 1, pageSize: 5)).thenAnswer((_) async =>
+      when(() => service.getOrders(page: 1, pageSize: 5, forceRefresh: true)).thenAnswer((_) async =>
           XbResult.success(const XbPagedList(items: <OrderSummary>[],
               page: 1, pageSize: 5, total: 0)));
       when(() => service.createOrder(any(), any(),
@@ -66,7 +66,7 @@ void main() {
     });
 
     test('createOrder 失败 → 透传 failure（不 checkout）', () async {
-      when(() => service.getOrders(page: 1, pageSize: 5)).thenAnswer((_) async =>
+      when(() => service.getOrders(page: 1, pageSize: 5, forceRefresh: true)).thenAnswer((_) async =>
           XbResult.success(const XbPagedList(items: <OrderSummary>[],
               page: 1, pageSize: 5, total: 0)));
       when(() => service.createOrder(any(), any(),

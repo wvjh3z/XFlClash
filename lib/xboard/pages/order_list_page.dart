@@ -39,7 +39,10 @@ class _OrderListPageState extends ConsumerState<OrderListPage> {
   }
 
   Future<List<OrderSummary>> _loadOrders() async {
-    final result = await ref.read(xboardServiceProvider).getOrders();
+    // 强制实时拉服务端（绕过 SDK _cachedAllOrders 缓存）：否则新建的待支付订单不在缓存里、
+    // 进页面看不到，且缓存命中会让转圈一闪而过（用户报告「没转圈、没显示」的根因）。
+    final result =
+        await ref.read(xboardServiceProvider).getOrders(forceRefresh: true);
     return switch (result) {
       XbSuccess(:final data) => data.items,
       XbFailure(:final error) => throw error, // 抛领域错误，error 分支还原文案

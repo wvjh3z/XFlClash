@@ -34,8 +34,10 @@ class CheckoutService {
     required String method,
     String? couponCode,
   }) async {
-    // 1. 查 pending 订单（首页 5 条够用）。
-    final ordersResult = await _service.getOrders(page: 1, pageSize: 5);
+    // 1. 查 pending 订单（首页 5 条够用）。强制实时（绕 SDK 缓存）：避免缓存里漏掉
+    //    刚建的 pending 订单 → 误判无可复用而重复下单。
+    final ordersResult =
+        await _service.getOrders(page: 1, pageSize: 5, forceRefresh: true);
     String? reuseTradeNo;
     if (ordersResult case XbSuccess(:final data)) {
       for (final o in data.items) {
