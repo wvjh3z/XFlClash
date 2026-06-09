@@ -112,19 +112,12 @@ class _ModePill extends StatelessWidget {
           decoration: BoxDecoration(
             color: selected ? scheme.surfaceContainerLowest : Colors.transparent,
             borderRadius: BorderRadius.circular(10),
-            // 选中：白卡底 + 品牌色描边（60%）+ 浮起阴影（不用品牌实心填充，避免整钮变红）。
-            border: Border.all(
-              color: selected
-                  ? scheme.primary.withValues(alpha: 0.60)
-                  : Colors.transparent,
-              width: 1.4,
-            ),
             boxShadow: selected
                 ? [
                     BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.12),
-                      blurRadius: 12,
-                      offset: const Offset(0, 5),
+                      color: Colors.black.withValues(alpha: 0.10),
+                      blurRadius: 10,
+                      offset: const Offset(0, 4),
                     ),
                   ]
                 : null,
@@ -141,8 +134,8 @@ class _ModePill extends StatelessWidget {
               Text(
                 label,
                 style: TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
+                  fontSize: 13.5,
+                  fontWeight: FontWeight.w500,
                   color: selected ? scheme.primary : scheme.onSurfaceVariant,
                 ),
               ),
