@@ -497,15 +497,26 @@ class _StatusCard extends StatelessWidget {
         ),
     };
     return Container(
-      padding: const EdgeInsets.all(18),
+      padding: const EdgeInsets.all(15),
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.10),
         borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: color.withValues(alpha: 0.26)),
       ),
       child: Row(
         children: [
-          Icon(icon, color: color, size: 36),
-          const SizedBox(width: 16),
+          // 圆形柔色徽标包住状态图标（与订单卡/账号失败卡统一，不裸放大图标）。
+          Container(
+            width: 46,
+            height: 46,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: color.withValues(alpha: 0.16),
+            ),
+            child: Icon(icon, color: color, size: 26),
+          ),
+          const SizedBox(width: 14),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,

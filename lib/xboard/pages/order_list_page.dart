@@ -114,40 +114,94 @@ class _OrderTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final text = Theme.of(context).textTheme;
-    final d = order.createdAt;
-    final dateStr = xbDate(d);
-    return Card(
-      elevation: 0,
-      color: scheme.surfaceContainerHigh,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      child: ListTile(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: Text(order.planName ?? '套餐订单',
-            style: text.titleSmall?.copyWith(fontWeight: FontWeight.w600)),
-        subtitle: Text(
-            '${planPeriodLabel(order.period)} · $dateStr\n${xbYuan(order.totalAmountYuan)}'),
-        isThreeLine: true,
-        trailing: _StatusChip(status: order.status),
+    final t = XbTokens.of(context);
+    final dateStr = xbDate(order.createdAt);
+
+    // 状态 → 图标 + 语义色（原型 .ocard 左侧圆角图标方块）。
+    final (statusColor, statusIcon) = switch (order.status) {
+      XbOrderStatus.completed ||
+      XbOrderStatus.discounted =>
+        (XbTokens.ok, Icons.check_circle),
+      XbOrderStatus.cancelled => (XbTokens.bad, Icons.cancel),
+      XbOrderStatus.pending ||
+      XbOrderStatus.processing =>
+        (XbTokens.warn, Icons.schedule),
+    };
+
+    return Material(
+      color: t.card,
+      borderRadius: BorderRadius.circular(XbTokens.rMd),
+      child: InkWell(
         onTap: onTap,
+        borderRadius: BorderRadius.circular(XbTokens.rMd),
+        child: Ink(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(XbTokens.rMd),
+            border: Border.all(color: t.line),
+            boxShadow: t.shadow1,
+          ),
+          padding: const EdgeInsets.all(14),
+          child: Row(
+            children: [
+              // 左侧状态图标方块（柔色底）。
+              Container(
+                width: 38,
+                height: 38,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: statusColor.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(XbTokens.rSm),
+                ),
+                child: Icon(statusIcon, size: 21, color: statusColor),
+              ),
+              const SizedBox(width: 12),
+              // 中间：套餐名（加粗，过长省略）+ 周期 · 日期。
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      order.planName ?? '套餐订单',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 14.5,
+                        fontWeight: FontWeight.w600,
+                        color: t.on,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      '${planPeriodLabel(order.period)} · $dateStr',
+                      style: TextStyle(fontSize: 11.5, color: t.onv),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 10),
+              // 右侧：金额（上）+ 状态 chip（下），右对齐成列。
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    xbYuan(order.totalAmountYuan),
+                    style: TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w700,
+                      color: t.on,
+                      fontFeatures: const [FontFeature.tabularFigures()],
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  XbTag(orderStatusLabel(order.status), color: statusColor),
+                ],
+              ),
+            ],
+          ),
+        ),
       ),
     );
-  }
-}
-
-class _StatusChip extends StatelessWidget {
-  const _StatusChip({required this.status});
-  final XbOrderStatus status;
-
-  @override
-  Widget build(BuildContext context) {
-    final color = switch (status) {
-      // 语义色（原型 --ok 绿 / --bad 红 / --warn 琥珀）：已完成=绿，非品牌红。
-      XbOrderStatus.completed || XbOrderStatus.discounted => XbTokens.ok,
-      XbOrderStatus.cancelled => XbTokens.bad,
-      XbOrderStatus.pending || XbOrderStatus.processing => XbTokens.warn,
-    };
-    return XbTag(orderStatusLabel(status), color: color);
   }
 }
