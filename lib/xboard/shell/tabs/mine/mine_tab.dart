@@ -155,12 +155,15 @@ class _AccountCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // 顶行：套餐名（左，主）+ 邮箱(掩码，右，次)。去头像（紧凑版）。
+          // 顶行：套餐名（左，主，优先完整）+ 邮箱(右，次，超长才省略)。去头像（紧凑版）。
+          // ⚠️ 套餐名用 Flexible(flex:0)=按内容占宽、不参与弹性瓜分；邮箱 Expanded 占「套餐名
+          // 之外的真实剩余」。若两者都用 flex=1 会平分空间→套餐名省下的宽被浪费、邮箱被框小过早省略。
           Row(
             crossAxisAlignment: CrossAxisAlignment.baseline,
             textBaseline: TextBaseline.alphabetic,
             children: [
               Flexible(
+                flex: 0,
                 child: Text(
                   sub.planName ?? '未订阅套餐',
                   style: const TextStyle(
@@ -173,7 +176,7 @@ class _AccountCard extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 10),
-              // 邮箱占套餐名之外的剩余空间（Expanded），只有真超长才省略（方案1）。
+              // 邮箱占套餐名之外的剩余空间（Expanded），只有真超长才省略。
               Expanded(
                 child: Text(
                   sub.email,
