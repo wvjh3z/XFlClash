@@ -9,6 +9,7 @@
 library;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:fl_clash/xboard/models/xb_domain_subscription.dart';
@@ -22,7 +23,8 @@ import 'package:fl_clash/xboard/providers/xboard_providers.dart';
 import 'package:fl_clash/xboard/util/app_version.dart';
 import 'package:fl_clash/xboard/util/format.dart';
 import 'package:fl_clash/xboard/widgets/xb_components.dart';
-import 'package:fl_clash/xboard/widgets/xb_feedback.dart' show xbConfirm, xbBrandColor;
+import 'package:fl_clash/xboard/widgets/xb_feedback.dart'
+    show xbConfirm, xbBrandColor, xbToast;
 import 'package:fl_clash/xboard/widgets/xb_theme.dart'
     show xbPush, xbShowDialog, XbTokens;
 
@@ -159,8 +161,7 @@ class _AccountCard extends StatelessWidget {
           // ⚠️ 套餐名用 Flexible(flex:0)=按内容占宽、不参与弹性瓜分；邮箱 Expanded 占「套餐名
           // 之外的真实剩余」。若两者都用 flex=1 会平分空间→套餐名省下的宽被浪费、邮箱被框小过早省略。
           Row(
-            crossAxisAlignment: CrossAxisAlignment.baseline,
-            textBaseline: TextBaseline.alphabetic,
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
               Flexible(
                 flex: 0,
@@ -184,6 +185,19 @@ class _AccountCard extends StatelessWidget {
                   style: TextStyle(fontSize: 12, color: white70),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              // 复制邮箱（已登录账号卡，原型 .cmpcopy）：点击写剪贴板 + toast。
+              const SizedBox(width: 6),
+              InkWell(
+                onTap: () {
+                  Clipboard.setData(ClipboardData(text: sub.email));
+                  xbToast(context, '已复制邮箱');
+                },
+                borderRadius: BorderRadius.circular(6),
+                child: Padding(
+                  padding: const EdgeInsets.all(3),
+                  child: Icon(Icons.content_copy, size: 15, color: white70),
                 ),
               ),
             ],

@@ -2,6 +2,7 @@
 library;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show SystemChannels;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
@@ -80,6 +81,37 @@ void main() {
     // 紧凑卡：用量% 在流量行右侧「已用 N%」（去掉了原「本月已用流量（已使用 N%）」标签行）。
     expect(find.text('已用 37%'), findsOneWidget);
     expect(find.text('退出登录'), findsOneWidget);
+    // 邮箱后有复制按钮（已登录账号卡）。
+    expect(find.byIcon(Icons.content_copy), findsOneWidget);
+  });
+
+  testWidgets('点复制按钮 → 邮箱写入剪贴板 + toast', (tester) async {
+    // 拦截剪贴板平台调用并记录写入值。
+    String? copied;
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+      SystemChannels.platform,
+      (call) async {
+        if (call.method == 'Clipboard.setData') {
+          copied = (call.arguments as Map)['text'] as String?;
+        }
+        return null;
+      },
+    );
+    addTearDown(() => tester.binding.defaultBinaryMessenger
+        .setMockMethodCallHandler(SystemChannels.platform, null));
+
+    await pumpMine(tester,
+        auth: AuthState.authenticated,
+        sub: _sub(total: 100 * gb, used: 37 * gb));
+    await tester.tap(find.byIcon(Icons.content_copy));
+    await tester.pump();
+    expect(copied, 'demo@example.com', reason: '点复制应把邮箱写入剪贴板');
+    expect(find.text('已复制邮箱'), findsOneWidget, reason: 'toast 提示');
+  });
+
+  testWidgets('游客态 → 无复制按钮（无邮箱）', (tester) async {
+    await pumpMine(tester, auth: AuthState.unauthenticated);
+    expect(find.byIcon(Icons.content_copy), findsNothing);
   });
 
   testWidgets('用量 <90% → 不显示流量重置入口（R6.3）', (tester) async {
