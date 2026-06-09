@@ -30,5 +30,19 @@ String xbDateMinute(DateTime d) =>
 /// 百分比整数（四舍五入）：`62`（不带 % 号，调用方自行拼）。
 int xbPercentInt(double ratio0to1) => (ratio0to1 * 100).round();
 
+/// 流量重置行文案：`每月N号HH:mm分（剩余N天）`。
+///
+/// [nextResetAt] = 后端 next_reset_at（下次重置时刻）。N号/时分取自它本身（不用后端 reset_day，
+/// 那个口径与实际下次重置日对不上、会误导）。剩余天数 = `ceil((nextResetAt - now)/天)` **向上取整**，
+/// 最少 1 天（剩 1 小时也显示「剩余1天」，绝不显示「剩余0天」）。已过期 → `剩余0天`（兜底，正常不出现）。
+String xbResetText(DateTime nextResetAt, {DateTime? now}) {
+  final base = now ?? DateTime.now();
+  final hm = '${_pad2(nextResetAt.hour)}:${_pad2(nextResetAt.minute)}';
+  final ms = nextResetAt.difference(base).inMilliseconds;
+  // 向上取整：未过期(ms>0)时 ceil 必 ≥1，故「剩 1 小时」也得「剩余1天」；已过期 → 0。
+  final left = ms <= 0 ? 0 : ((ms + 86400000 - 1) ~/ 86400000);
+  return '流量重置 每月${nextResetAt.day}号$hm分（剩余$left天）';
+}
+
 /// 两位补零。
 String _pad2(int n) => n.toString().padLeft(2, '0');

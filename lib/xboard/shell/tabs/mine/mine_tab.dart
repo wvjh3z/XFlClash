@@ -266,14 +266,12 @@ class _AccountCard extends StatelessWidget {
     return '到期 $ymd（剩 $days 天）';
   }
 
-  /// 流量重置行：有重置日才显示（一次性套餐无）。
+  /// 流量重置行：有重置日才显示（一次性套餐无）。`每月N号HH:mm分（剩余N天）`。
   static String? _resetText(XbDomainSubscription sub) {
     final d = sub.nextResetAt;
-    if (d != null) {
-      final base = '流量重置 ${xbDateMinute(d)}';
-      return sub.resetDay != null ? '$base（每月 ${sub.resetDay} 日）' : base;
-    }
-    if (sub.resetDay != null) return '流量重置 每月 ${sub.resetDay} 日';
+    if (d != null) return xbResetText(d);
+    // 无 nextResetAt 但有 resetDay（理论少见）→ 仅显示重置日。
+    if (sub.resetDay != null) return '流量重置 每月 ${sub.resetDay} 号';
     return null;
   }
 }

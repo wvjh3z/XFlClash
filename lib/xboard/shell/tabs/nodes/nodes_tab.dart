@@ -227,15 +227,29 @@ class _GroupTabBar extends StatelessWidget {
                         ],
                       )
                     : null,
-                color: on ? null : t.sfc,
+                // 未选：白卡底 + 细描边（清晰是可点 chip，深色下也跳出来）；选中：品牌渐变。
+                color: on ? null : t.card,
+                border: on
+                    ? null
+                    : Border.all(color: t.line, width: 1.4),
                 borderRadius: BorderRadius.circular(30),
+                boxShadow: on
+                    ? [
+                        BoxShadow(
+                          color: scheme.primary.withValues(alpha: 0.45),
+                          blurRadius: 16,
+                          offset: const Offset(0, 6),
+                          spreadRadius: -6,
+                        ),
+                      ]
+                    : null,
               ),
               child: Text(
                 g.name,
                 style: TextStyle(
                   fontSize: 14,
                   fontWeight: FontWeight.w700,
-                  color: on ? Colors.white : t.onv,
+                  color: on ? Colors.white : t.on,
                 ),
               ),
             ),
