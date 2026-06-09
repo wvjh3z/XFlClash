@@ -51,14 +51,68 @@ Future<void> pump(WidgetTester tester, XbGroupSummary group) async {
 }
 
 void main() {
-  testWidgets('url-test：显示类型标签（含简短说明）+ 首项「自动」+ 测延迟', (tester) async {
+  testWidgets('url-test：显示类型标签（含简短说明）+ 自动命中节点标「自动」+ 测延迟',
+      (tester) async {
     await pump(tester, _group(XbGroupKind.urlTest));
     expect(find.textContaining('url-test'), findsOneWidget);
     expect(find.textContaining('自动选择低延迟节点'), findsOneWidget);
-    // 计算选择组首项标「自动」。
+    // 计算选择组：core 命中节点（mock selected=首项）标「自动」。
     expect(find.text('自动'), findsOneWidget);
     // 可选组显示「测延迟」。
     expect(find.text('测延迟'), findsOneWidget);
+  });
+
+  testWidgets('url-test：自动命中第二个节点 → 「自动」标签跟随命中节点（不固定首项）',
+      (tester) async {
+    final group = _group(XbGroupKind.urlTest,
+        nodeNames: const ['🇭🇰 香港 01', '🇯🇵 东京 02', '🇸🇬 新加坡 03']);
+    // core 命中第二个节点（延迟最低），未手动锁定（proxyName=null → 自动模式）。
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          selectedProxyNameProvider(group.name)
+              .overrideWithValue('🇯🇵 东京 02'),
+          proxyNameProvider(group.name).overrideWithValue(null),
+          for (final n in group.nodes)
+            delayProvider(proxyName: n.name, testUrl: null)
+                .overrideWithValue(38),
+        ],
+        child: MaterialApp(home: Scaffold(body: XbNodeGroup(group: group))),
+      ),
+    );
+    await tester.pump();
+    // 「自动」标签只出现一次，且在命中的第二个节点行（不在首项）。
+    expect(find.text('自动'), findsOneWidget);
+    final autoRow = find.ancestor(
+      of: find.text('自动'),
+      matching: find.byType(Row),
+    );
+    expect(
+      find.descendant(of: autoRow.first, matching: find.text('🇯🇵 东京 02')),
+      findsOneWidget,
+      reason: '「自动」标签应与命中节点(东京 02)同行，而非固定第一项',
+    );
+  });
+
+  testWidgets('url-test：手动锁定后 → 不显示「自动」标签（只选中勾）', (tester) async {
+    final group = _group(XbGroupKind.urlTest);
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          selectedProxyNameProvider(group.name)
+              .overrideWithValue(group.nodes.first.name),
+          // 手动锁定首项（proxyName 非空 → 非自动模式）。
+          proxyNameProvider(group.name)
+              .overrideWithValue(group.nodes.first.name),
+          for (final n in group.nodes)
+            delayProvider(proxyName: n.name, testUrl: null)
+                .overrideWithValue(38),
+        ],
+        child: MaterialApp(home: Scaffold(body: XbNodeGroup(group: group))),
+      ),
+    );
+    await tester.pump();
+    expect(find.text('自动'), findsNothing, reason: '手动锁定后不显示自动标签');
   });
 
   testWidgets('selector：类型标签 + 无「自动」标记', (tester) async {

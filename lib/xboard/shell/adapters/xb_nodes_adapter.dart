@@ -345,6 +345,15 @@ class XbNodesAdapter {
     return ref.watch(selectedProxyNameProvider(groupName));
   }
 
+  /// computed 组（url-test/fallback）是否处于「自动」模式（未手动锁定单节点）。
+  ///
+  /// 自动模式下当前生效节点 = core 实测命中（最低延迟 / 首个可用），「自动」标签应标在它身上；
+  /// 手动锁定后返回 false（不显示自动标签，只显示选中勾）。`selectedMap[组]` 空 = 自动。
+  bool isAutoMode(WidgetRef ref, String groupName) {
+    final explicit = ref.watch(proxyNameProvider(groupName));
+    return explicit == null || explicit.isEmpty;
+  }
+
   /// 延迟着色（复用 FlClash `utils.getDelayColor`，口径一致）。
   Color? delayColor(int? delay) => utils.getDelayColor(delay);
 

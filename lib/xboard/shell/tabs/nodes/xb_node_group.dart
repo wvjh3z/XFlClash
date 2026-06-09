@@ -119,6 +119,8 @@ class _XbNodeGroupState extends ConsumerState<XbNodeGroup> {
   Widget build(BuildContext context) {
     final adapter = ref.watch(xbNodesAdapterProvider);
     final selected = adapter.selectedName(ref, group.name);
+    // computed 组（url-test/fallback）是否自动模式（未手动锁定）：决定「自动」标签标在哪个节点。
+    final autoMode = group.isComputed && adapter.isAutoMode(ref, group.name);
 
     // 测速进度（N/M）：测速中时统计本组已拿到结果（delay 非 null 非 0）的节点数。
     int tested = 0;
@@ -163,6 +165,9 @@ class _XbNodeGroupState extends ConsumerState<XbNodeGroup> {
             node: n,
             // 计算选择组：选中=当前生效节点；selector：选中=手选名。
             isSelected: group.isSelectable && selected == n.name,
+            // 「自动」标签：computed 组自动模式下，标在 core 当前命中的那个节点（=selected），
+            // 而非固定第一项（修「自动恒在第一个、不随延迟变」）。
+            isAutoHit: autoMode && selected == n.name,
             onTap: group.isSelectable
                 ? () => adapter.selectNode(
                       ref,
@@ -294,12 +299,17 @@ class _NodeRow extends ConsumerWidget {
     required this.group,
     required this.node,
     required this.isSelected,
+    this.isAutoHit = false,
     this.onTap,
   });
 
   final XbGroupSummary group;
   final XbNodeItem node;
   final bool isSelected;
+
+  /// computed 组自动模式下，本节点是否 core 当前命中节点（标「自动」标签）。
+  final bool isAutoHit;
+
   final VoidCallback? onTap;
 
   @override
@@ -307,9 +317,6 @@ class _NodeRow extends ConsumerWidget {
     final t = XbTokens.of(context);
     final scheme = Theme.of(context).colorScheme;
     final adapter = ref.watch(xbNodesAdapterProvider);
-    // 首项「自动」标记：计算选择组（url-test/fallback）第一项。
-    final isAutoFirst = group.isComputed && group.nodes.isNotEmpty &&
-        group.nodes.first.name == node.name;
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 11),
@@ -347,7 +354,7 @@ class _NodeRow extends ConsumerWidget {
                       ),
                     ),
                   ),
-                  if (isAutoFirst) ...[
+                  if (isAutoHit) ...[
                     const SizedBox(width: 8),
                     const XbTag('自动'),
                   ],
