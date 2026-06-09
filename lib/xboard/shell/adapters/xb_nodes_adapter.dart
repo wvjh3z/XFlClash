@@ -8,8 +8,8 @@
 /// - `selectNode`：⚠️ **必须两步**（card.dart:103-112 同源）——① `updateCurrentSelectedMap`
 ///   持久化选择 ② `changeProxyDebounce` 调 core 切换 + reset/close 连接。只调一步会让
 ///   UI/core/持久化脱节（design 风险②）。
-/// - `refresh` / `testGroupDelay`：从上到下顺序 + 并发 10 竞速（`runBatchedConcurrent`，
-///   调单节点 `proxyDelayTest`，不碰上游 `delayTest` 的 100 并发实现）。
+/// - `refresh` / `testGroupDelay`：并发池竞速（`runPooledConcurrent`，始终保持并发 10、
+///   慢节点不阻塞其余），调单节点 `proxyDelayTest`（不碰上游 `delayTest` 的 100 并发实现）。
 library;
 
 import 'package:fl_clash/common/common.dart' show utils;
@@ -357,25 +357,29 @@ class XbNodesAdapter {
   /// 延迟着色（复用 FlClash `utils.getDelayColor`，口径一致）。
   Color? delayColor(int? delay) => utils.getDelayColor(delay);
 
-  /// 并发上限（测延迟/刷新）：从上到下顺序、每批最多并发 [_kDelayConcurrency] 个，
-  /// 批内并发、批间串行。比上游 `delayTest` 的 100 并发更克制（避免瞬时打满连接），
-  /// 代价是含超时节点时整体较慢（每批被最慢节点拖到 ~5s core 超时）。
+  /// 并发上限（测延迟/刷新）：并发池始终保持最多 [_kDelayConcurrency] 个在跑，任一完成补下一个。
+  /// 比上游 `delayTest` 的 100 并发更克制（避免瞬时打满连接）；慢节点只占 1 个槽不阻塞其余。
   static const int _kDelayConcurrency = 10;
 
-  /// 顺序分批竞速：按 [proxies] 原始顺序切成每批 [_kDelayConcurrency] 个，逐批并发测速。
-  /// 调单节点 `proxyDelayTest`（不碰上游 `delayTest` 的 100 并发实现，守上游零侵入）。
+  /// 并发池竞速：按 [proxies] 原始顺序取任务，**始终保持 [_kDelayConcurrency] 个在跑**，
+  /// 任一节点测完立刻补下一个进来。调单节点 `proxyDelayTest`（不碰上游 `delayTest` 的 100
+  /// 并发实现，守上游零侵入）。
+  ///
+  /// **为何用并发池而非固定批次**（用户反馈「一个卡住会阻塞后面」）：固定批次（Future.wait
+  /// 每批 N 个、批间串行）下，一批里若有 1 个节点测速卡住（core 超时 ~5s），其余早测完也得
+  /// 干等它，后续批全被阻塞，进度卡死。并发池下慢节点只占 1 个槽，其余槽继续推进，整体快得多。
   ///
   /// [onProgress]：每个节点测速 future 完成时回调 `(done, total)`，done 单调递增到 total。
   /// 用于「测速中 N/M」进度——**基于完成计数而非读延迟表**：重测时节点已有上次延迟值，
   /// core 把测速中节点逐个重置为 0 占位再回填，按「非0节点数」估算会在 M↔M-1 横跳（用户反馈）。
-  Future<void> _delayTestBatched(
+  Future<void> _delayTestPooled(
     List<Proxy> proxies,
     String? testUrl, {
     void Function(int done, int total)? onProgress,
   }) async {
     final total = proxies.length;
     var done = 0;
-    await runBatchedConcurrent<Proxy>(
+    await runPooledConcurrent<Proxy>(
       proxies,
       _kDelayConcurrency,
       (p) async {
@@ -400,7 +404,7 @@ class XbNodesAdapter {
       (g) => g.name == groupName,
       orElse: () => throw ArgumentError('group not found: $groupName'),
     );
-    await _delayTestBatched(group.all, group.testUrl, onProgress: onProgress);
+    await _delayTestPooled(group.all, group.testUrl, onProgress: onProgress);
   }
 
   /// 单节点测速（点击节点行延迟数字触发）。复用 `proxyDelayTest`。
@@ -468,7 +472,7 @@ class XbNodesAdapter {
     measureCurrentNodeBest(ref, explicitNode: next);
   }
 
-  /// 刷新（批量竞速重测延迟）。**从上到下顺序 + 并发 10**（`_delayTestBatched`）。
+  /// 刷新（批量竞速重测延迟）。**并发池上限 10**（`_delayTestPooled`，慢节点不阻塞其余）。
   ///
   /// 对指定组（默认所有可见组）内节点批量竞速；触发后节点行延迟着色自动更新（R4.5）。
   Future<void> refresh(WidgetRef ref, {String? groupName}) async {
@@ -477,7 +481,7 @@ class XbNodesAdapter {
         ? tabState.groups
         : tabState.groups.where((g) => g.name == groupName);
     for (final group in groups) {
-      await _delayTestBatched(group.all, group.testUrl);
+      await _delayTestPooled(group.all, group.testUrl);
     }
   }
 }
@@ -505,17 +509,37 @@ class XbMeasuringNodesNotifier extends Notifier<Set<String>> {
   void finish(String name) => state = {...state}..remove(name);
 }
 
-/// 顺序分批并发执行（纯函数，可单测）：把 [items] 按原始顺序切成每批 [concurrency] 个，
-/// **批内并发（Future.wait）、批间串行**（上一批全完成才开下一批）→ 整体从上到下推进。
-/// [task] 对单个元素执行异步操作。[concurrency] ≤0 时按 1 处理（全串行）。
-Future<void> runBatchedConcurrent<T>(
+/// 并发池执行（纯函数，可单测）：按 [items] 原始顺序取任务，**始终保持最多 [concurrency] 个
+/// 在跑**——任一任务完成立刻补下一个进来（滑动窗口），而非固定批次「批内并发、批间串行」。
+///
+/// **相比固定批次的优势**：固定批次下一批要等上批最慢任务才开始，单个卡住的任务会阻塞后续
+/// 整批；并发池下慢任务只占 1 个槽，其余槽继续推进，整体不被个别慢任务拖死。
+/// [task] 对单个元素执行异步操作（不应抛；如抛会中断整体）。[concurrency] ≤0 时按 1 处理（全串行）。
+Future<void> runPooledConcurrent<T>(
   List<T> items,
   int concurrency,
   Future<void> Function(T item) task,
 ) async {
-  final step = concurrency < 1 ? 1 : concurrency;
-  for (var i = 0; i < items.length; i += step) {
-    final end = (i + step) > items.length ? items.length : (i + step);
-    await Future.wait(items.sublist(i, end).map(task));
+  final limit = concurrency < 1 ? 1 : concurrency;
+  var next = 0; // 下一个待派发的任务下标。
+  final active = <Future<void>>{};
+
+  void spawn() {
+    final i = next++;
+    late final Future<void> f;
+    f = task(items[i]).whenComplete(() => active.remove(f));
+    active.add(f);
+  }
+
+  // 先填满并发池。
+  while (next < items.length && active.length < limit) {
+    spawn();
+  }
+  // 任一完成 → 立刻补一个，保持池满，直至全部派发并跑完。
+  while (active.isNotEmpty) {
+    await Future.any(active);
+    while (next < items.length && active.length < limit) {
+      spawn();
+    }
   }
 }
