@@ -202,12 +202,12 @@ class _GroupTabBar extends StatelessWidget {
     final t = XbTokens.of(context);
     final scheme = Theme.of(context).colorScheme;
     return SizedBox(
-      height: 52,
+      height: 46,
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.fromLTRB(16, 8, 16, 6),
+        padding: const EdgeInsets.fromLTRB(16, 6, 16, 10),
         itemCount: groups.length,
-        separatorBuilder: (_, _) => const SizedBox(width: 9),
+        separatorBuilder: (_, _) => const SizedBox(width: 8),
         itemBuilder: (context, i) {
           final g = groups[i];
           final on = g.name == selected;
@@ -215,7 +215,7 @@ class _GroupTabBar extends StatelessWidget {
             onTap: () => onSelect(g.name),
             child: Container(
               alignment: Alignment.center,
-              padding: const EdgeInsets.symmetric(horizontal: 17),
+              padding: const EdgeInsets.symmetric(horizontal: 15),
               decoration: BoxDecoration(
                 gradient: on
                     ? LinearGradient(
@@ -249,7 +249,7 @@ class _GroupTabBar extends StatelessWidget {
               child: Text(
                 g.name,
                 style: TextStyle(
-                  fontSize: 14,
+                  fontSize: 13.5,
                   fontWeight: FontWeight.w700,
                   color: on ? Colors.white : t.on,
                 ),

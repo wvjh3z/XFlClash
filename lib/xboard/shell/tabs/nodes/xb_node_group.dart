@@ -149,11 +149,11 @@ class _XbNodeGroupState extends ConsumerState<XbNodeGroup> {
       // 定位场景：放大缓存范围，确保目标行（可能在视口外）已 build → GlobalKey 可解析居中。
       // ignore: deprecated_member_use
       cacheExtent: widget.scrollToNode != null ? 5000.0 : null,
-      padding: const EdgeInsets.fromLTRB(16, 6, 16, 24),
+      padding: const EdgeInsets.fromLTRB(16, 2, 16, 24),
       children: [
         // 分组头：类型标签（带 ? 说明）左、测延迟右（所有分组都可测）。
         Padding(
-          padding: const EdgeInsets.fromLTRB(0, 2, 0, 11),
+          padding: const EdgeInsets.fromLTRB(0, 0, 0, 8),
           child: Row(
             children: [
               Expanded(child: Align(
@@ -332,7 +332,7 @@ class _NodeRow extends ConsumerWidget {
     final adapter = ref.watch(xbNodesAdapterProvider);
 
     return Padding(
-      padding: const EdgeInsets.only(bottom: 11),
+      padding: const EdgeInsets.only(bottom: 8),
       child: Material(
           color: isSelected
               ? Color.alphaBlend(scheme.primary.withValues(alpha: 0.07), t.card)
@@ -349,7 +349,7 @@ class _NodeRow extends ConsumerWidget {
                   width: isSelected ? 1.4 : 1,
                 ),
               ),
-              padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 15),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
               child: Row(
                 children: [
                   // 节点名占据剩余空间（Expanded，单独 ellipsis），右侧依次「自动」/延迟/勾。

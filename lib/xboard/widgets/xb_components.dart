@@ -193,7 +193,7 @@ class XbGroupLabel extends StatelessWidget {
   Widget build(BuildContext context) {
     final t = XbTokens.of(context);
     return Padding(
-      padding: const EdgeInsets.fromLTRB(6, 22, 6, 8),
+      padding: const EdgeInsets.fromLTRB(6, 14, 6, 7),
       child: Text(
         text,
         style: TextStyle(
@@ -333,24 +333,24 @@ class XbListRow extends StatelessWidget {
       onTap: onTap,
       borderRadius: BorderRadius.circular(10),
       child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 13, horizontal: 4),
+        padding: const EdgeInsets.symmetric(vertical: 9, horizontal: 4),
         child: Row(
           children: [
             XbIconBadge(
               icon: icon,
-              size: 40,
-              radius: 12,
+              size: 32,
+              radius: 8,
               background: t.sfc,
               iconColor: danger ? scheme.error : t.on,
-              iconSize: 20,
+              iconSize: 17,
             ),
-            const SizedBox(width: 14),
+            const SizedBox(width: 12),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Text(label, style: TextStyle(fontSize: 15, color: fg)),
+                  Text(label, style: TextStyle(fontSize: 14.5, color: fg)),
                   if (subtitle != null) ...[
                     const SizedBox(height: 2),
                     Text(subtitle!,

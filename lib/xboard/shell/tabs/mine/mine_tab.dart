@@ -330,7 +330,7 @@ class _PlanActions extends ConsumerWidget {
     return Column(
       children: [
         SizedBox(
-          height: 52,
+          height: 42,
           child: Row(
             children: [
               // 续费当前套餐（R6.4）：有套餐才显示，实心品牌按钮。
@@ -339,19 +339,23 @@ class _PlanActions extends ConsumerWidget {
                   child: FilledButton(
                     onPressed: () => _openRenew(context),
                     style: FilledButton.styleFrom(
+                      textStyle: const TextStyle(
+                          fontSize: 14, fontWeight: FontWeight.w600),
                       shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(XbTokens.rButton)),
                     ),
                     child: const Text('续费当前套餐'),
                   ),
                 ),
-              if (!sub.hasNoPlan) const SizedBox(width: 12),
+              if (!sub.hasNoPlan) const SizedBox(width: 11),
               // 购买/更改套餐（R6.5/R6.6），描边品牌按钮。
               Expanded(
                 child: OutlinedButton(
                   onPressed: () => _openPlans(context),
                   style: OutlinedButton.styleFrom(
                     foregroundColor: scheme.primary,
+                    textStyle: const TextStyle(
+                        fontSize: 14, fontWeight: FontWeight.w600),
                     side: BorderSide(
                         color: scheme.primary.withValues(alpha: 0.4), width: 1.6),
                     shape: RoundedRectangleBorder(
@@ -365,7 +369,7 @@ class _PlanActions extends ConsumerWidget {
         ),
         // 流量重置告警卡（原型 .resetcard，仅 ≥90% 显示）。
         if (showReset) ...[
-          const SizedBox(height: 12),
+          const SizedBox(height: 11),
           _ResetCard(pctInt: pctInt, onTap: () => _openReset(context, sub)),
         ],
       ],
@@ -419,35 +423,35 @@ class _ResetCard extends StatelessWidget {
         onTap: onTap,
         borderRadius: BorderRadius.circular(XbTokens.rMd),
         child: Container(
-          padding: const EdgeInsets.all(14),
+          padding: const EdgeInsets.fromLTRB(13, 10, 13, 10),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(XbTokens.rMd),
             border: Border.all(color: warn.withValues(alpha: 0.32)),
           ),
           child: Row(
             children: [
-              const Icon(Icons.warning_rounded, color: warn, size: 24),
-              const SizedBox(width: 12),
+              const Icon(Icons.warning_rounded, color: warn, size: 21),
+              const SizedBox(width: 11),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Text(
-                      '流量即将用尽（已用 $pctInt%）',
+                      '流量即将用尽 · 已用 $pctInt%',
                       style: TextStyle(
-                        fontSize: 13.5,
+                        fontSize: 13,
                         fontWeight: FontWeight.w600,
                         color: scheme.onSurface,
                       ),
                     ),
-                    const SizedBox(height: 2),
+                    const SizedBox(height: 1),
                     Text(
-                      '可购买流量重置包，立即恢复本月可用流量',
+                      '购买重置包立即恢复本月流量',
                       style: TextStyle(
                         fontSize: 11,
                         color: scheme.onSurfaceVariant,
-                        height: 1.45,
+                        height: 1.4,
                       ),
                     ),
                   ],
@@ -455,7 +459,7 @@ class _ResetCard extends StatelessWidget {
               ),
               const SizedBox(width: 10),
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 9),
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
                 decoration: BoxDecoration(
                   color: warn,
                   borderRadius: BorderRadius.circular(XbTokens.rSm),
@@ -539,7 +543,7 @@ class _DisabledPlanActions extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     return SizedBox(
-      height: 52,
+      height: 42,
       child: Opacity(
         opacity: 0.5,
         child: Row(
@@ -548,18 +552,22 @@ class _DisabledPlanActions extends StatelessWidget {
               child: FilledButton(
                 onPressed: null,
                 style: FilledButton.styleFrom(
+                  textStyle: const TextStyle(
+                      fontSize: 14, fontWeight: FontWeight.w600),
                   shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(XbTokens.rButton)),
                 ),
                 child: const Text('续费当前套餐'),
               ),
             ),
-            const SizedBox(width: 12),
+            const SizedBox(width: 11),
             Expanded(
               child: OutlinedButton(
                 onPressed: null,
                 style: OutlinedButton.styleFrom(
                   foregroundColor: scheme.primary,
+                  textStyle: const TextStyle(
+                      fontSize: 14, fontWeight: FontWeight.w600),
                   side: BorderSide(
                       color: scheme.primary.withValues(alpha: 0.4), width: 1.6),
                   shape: RoundedRectangleBorder(
