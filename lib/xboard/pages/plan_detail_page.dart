@@ -11,10 +11,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../widgets/xb_async_view.dart';
 import '../widgets/xb_components.dart';
 import '../widgets/xb_feedback.dart' show xbToast, xbBrandColor;
-import '../widgets/xb_theme.dart' show xbPush, XbTokens;
+import '../widgets/xb_theme.dart' show xbPush, xbShowDialog, XbTokens;
 import '../models/plan_item.dart';
+import '../models/xb_domain_subscription.dart';
 import '../models/xb_domain_types.dart';
 import '../models/xb_result.dart';
+import '../providers/user_profile_provider.dart';
 import '../providers/xboard_providers.dart';
 import '../util/error_text.dart';
 import '../util/format.dart';
@@ -23,6 +25,24 @@ import '../widgets/xb_ui_kit.dart';
 import 'order_payment_page.dart';
 import 'pending_order_section.dart';
 import 'plan_list_page.dart';
+
+/// 是否需弹「更换套餐」确认（纯函数，可单测）。同时满足才弹：
+/// ① 非续费模式；② 当前有套餐（planId 非空、有流量）；③ 未到期（expiredAt==null 长期有效
+/// 或在 [now] 之后）；④ 所选套餐 [newPlanId] ≠ 当前套餐。任一不满足 → 视为正常下单，不提示。
+bool shouldConfirmPlanSwitch({
+  required XbDomainSubscription? current,
+  required int newPlanId,
+  required bool isRenew,
+  required DateTime now,
+}) {
+  if (isRenew) return false;
+  final sub = current;
+  if (sub == null || sub.hasNoPlan || sub.planId == null) return false;
+  // 已到期（expiredAt 非空且不在未来）→ 视为全新选购，不提示。
+  final expired = sub.expiredAt != null && !sub.expiredAt!.isAfter(now);
+  if (expired) return false;
+  return sub.planId != newPlanId; // 仅换成不同套餐才提示。
+}
 
 /// 续费加载外壳：按 [planId] 拉套餐 → 锁定当前套餐 → 渲染续费详情页。
 ///
@@ -439,6 +459,15 @@ class _PlanDetailPageState extends ConsumerState<PlanDetailPage> {
   }
 
   Future<void> _submitOrder() async {
+    // 更换套餐确认（仅购买模式）：当前有「仍生效（未到期）」套餐且所选 ≠ 当前 → 提示会覆盖。
+    // 旧套餐已到期 / 无生效套餐 / 续费 / 选的就是当前套餐 → 视为正常下单，不打扰。
+    if (!widget.renew) {
+      final sub = ref.read(userProfileProvider).value;
+      if (_shouldConfirmSwitch(sub)) {
+        final ok = await _confirmSwitchPlan(sub!);
+        if (!ok || !mounted) return;
+      }
+    }
     setState(() => _submitting = true);
     try {
       final result = await ref.read(xboardServiceProvider).createOrder(
@@ -464,8 +493,159 @@ class _PlanDetailPageState extends ConsumerState<PlanDetailPage> {
     }
   }
 
+  /// 是否需弹「更换套餐」确认：当前有生效（未到期）套餐 + 所选套餐 ≠ 当前套餐。
+  /// expiredAt==null = 长期有效（视为生效）；expiredAt 在未来 = 仍生效；已过去 = 已到期（不提示）。
+  bool _shouldConfirmSwitch(XbDomainSubscription? sub) =>
+      shouldConfirmPlanSwitch(
+        current: sub,
+        newPlanId: plan.id,
+        isRenew: widget.renew,
+        now: DateTime.now(),
+      );
+
+  /// 更换套餐确认弹窗（原型 16b）：警示徽标 + 覆盖说明 + 当前→新套餐对比 + 品牌确认键（非破坏性）。
+  Future<bool> _confirmSwitchPlan(XbDomainSubscription sub) async {
+    final ok = await xbShowDialog<bool>(
+      context: context,
+      brandColor: xbBrandColor(),
+      builder: (ctx) => _SwitchPlanDialog(
+        currentName: sub.planName ?? '当前套餐',
+        newName: plan.name,
+      ),
+    );
+    return ok ?? false;
+  }
+
   void _toast(String msg) {
     if (!mounted) return;
     xbToast(context, msg);
+  }
+}
+
+/// 更换套餐确认弹窗（原型 16b）：顶部琥珀警示圆徽标 + 覆盖说明 + 「当前 → 新套餐」对比条 +
+/// 再想想/确认更换。确认键品牌色（非破坏性 —— 正常购买操作，只提醒会覆盖）。
+class _SwitchPlanDialog extends StatelessWidget {
+  const _SwitchPlanDialog({required this.currentName, required this.newName});
+
+  final String currentName;
+  final String newName;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = XbTokens.of(context);
+    final scheme = Theme.of(context).colorScheme;
+    return AlertDialog(
+      title: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // 琥珀警示圆徽标（swap 图标，与其它圆形徽标一套语言）。
+          Container(
+            width: 48,
+            height: 48,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: XbTokens.warn.withValues(alpha: 0.15),
+            ),
+            child: const Icon(Icons.swap_horiz_rounded,
+                size: 26, color: XbTokens.warn),
+          ),
+          const SizedBox(height: 14),
+          const Text('确认更换套餐？',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+        ],
+      ),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text.rich(
+            TextSpan(
+              style: TextStyle(fontSize: 13, height: 1.5, color: t.onv),
+              children: [
+                const TextSpan(text: '你当前有正在使用的套餐，购买不同套餐将'),
+                TextSpan(
+                    text: '覆盖现有套餐',
+                    style: TextStyle(
+                        color: t.on, fontWeight: FontWeight.w600)),
+                const TextSpan(text: '，原套餐的剩余流量与有效期不再保留。'),
+              ],
+            ),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 16),
+          // 当前 → 新套餐对比条。
+          Container(
+            padding: const EdgeInsets.all(13),
+            decoration: BoxDecoration(
+              color: t.sfc,
+              borderRadius: BorderRadius.circular(XbTokens.rMd),
+              border: Border.all(color: t.line),
+            ),
+            child: Row(
+              children: [
+                _SwapCol(label: '当前', name: currentName, color: t.on, labelColor: t.onv),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 10),
+                  child: Icon(Icons.arrow_forward_rounded,
+                      size: 20, color: t.onv),
+                ),
+                _SwapCol(
+                    label: '更换为',
+                    name: newName,
+                    color: scheme.primary,
+                    labelColor: scheme.primary),
+              ],
+            ),
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(false),
+          child: const Text('再想想'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.of(context).pop(true),
+          child: const Text('确认更换'),
+        ),
+      ],
+    );
+  }
+}
+
+/// 对比条单列（标签 + 套餐名，居中，过长省略）。
+class _SwapCol extends StatelessWidget {
+  const _SwapCol({
+    required this.label,
+    required this.name,
+    required this.color,
+    required this.labelColor,
+  });
+
+  final String label;
+  final String name;
+  final Color color;
+  final Color labelColor;
+
+  @override
+  Widget build(BuildContext context) {
+    return Expanded(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(label, style: TextStyle(fontSize: 11, color: labelColor)),
+          const SizedBox(height: 3),
+          Text(
+            name,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+                fontSize: 14, fontWeight: FontWeight.w600, color: color),
+          ),
+        ],
+      ),
+    );
   }
 }
