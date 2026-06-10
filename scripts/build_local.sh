@@ -59,6 +59,38 @@ echo "=== flutter clean（铁律：防 release AOT 复用陈旧 app.dill → 代
 flutter clean >/dev/null 2>&1 || true
 flutter pub get >/dev/null 2>&1 || true
 
+# === 本地自测：注入真实 AES key（防 flavor_defines.json 被 prepare_flavor 冲空致登录失败）===
+# flavor.yaml 按设计不存密钥（D58），prepare_flavor 生成的 flavor_defines.json 里 XB_AES_KEY_B64 恒为空。
+# 没有 key → bootstrap 无法解密 config.json → 拿不到真实 API → 登录打到 COS 桶报 MethodNotAllowed。
+# 本地自测从 gitignored 的 .secrets/ 取回真实 key 注入；CI 环境无 .secrets，靠 CI secrets 注入。
+SECRETS_FILE=".secrets/xboard-dev-secrets.md"
+DEFINES_FILE="flavor_defines.json"
+if [ ! -f "$DEFINES_FILE" ]; then
+  echo "=== flavor_defines.json 不存在 → prepare_flavor 生成（test target，空 key 占位）==="
+  dart run tool/prepare_flavor.dart --flavor brand_a --target test >/dev/null 2>&1 || true
+fi
+if [ -f "$SECRETS_FILE" ] && [ -f "$DEFINES_FILE" ]; then
+  # 提取 .secrets 里的 32 字节 base64 主密钥（44 字符、末尾 '='；md 内仅此行匹配）。
+  AES_KEY="$(grep -oE '^[A-Za-z0-9+/]{43}=$' "$SECRETS_FILE" | head -1)"
+  if [ -n "$AES_KEY" ]; then
+    python3 - "$DEFINES_FILE" "$AES_KEY" <<'PY'
+import json, sys
+path, key = sys.argv[1], sys.argv[2]
+with open(path, encoding="utf-8") as f:
+    d = json.load(f)
+d["XB_AES_KEY_B64"] = key
+with open(path, "w", encoding="utf-8") as f:
+    json.dump(d, f, ensure_ascii=False, indent=2)
+    f.write("\n")
+PY
+    echo "=== ✓ 已从 .secrets 注入真实 AES key（本地自测，bootstrap 可解密）==="
+  else
+    echo "⚠ .secrets 未找到合法 AES key（44 字符 base64），沿用 flavor_defines.json 现值"
+  fi
+else
+  echo "⚠ 无 .secrets（CI 环境？）→ XB_AES_KEY_B64 靠 CI secrets 注入"
+fi
+
 if [ "$MODE" = "release" ]; then
   case "$ARCH" in
     arm64) TP="android-arm64"; ABISUF="arm64-v8a" ;;
