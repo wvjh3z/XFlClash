@@ -328,11 +328,8 @@ class _PlanDetailPageState extends ConsumerState<PlanDetailPage> {
       ));
       if (i + 2 < sorted.length) rows.add(const SizedBox(height: rowGap));
     }
-    return Padding(
-      // 顶部留白：首行「省 N%」浮标（上探 ~11px）不顶到「选择计费周期」标题。
-      padding: const EdgeInsets.only(top: 11),
-      child: Column(children: rows),
-    );
+    // 卡片自身已预留顶部浮标空间（XbSelectableOption 内 Padding top:11），此处无需再留白。
+    return Column(children: rows);
   }
 
   Widget _periodCard(BuildContext context, PricePlan p) {
@@ -362,13 +359,24 @@ class _PlanDetailPageState extends ConsumerState<PlanDetailPage> {
                   color: selected ? scheme.primary : t.on,
                   fontWeight: FontWeight.w500)),
           const SizedBox(height: 4),
-          Text(xbYuan(p.amountYuan),
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                  fontSize: 18,
-                  color: selected ? scheme.primary : t.on,
-                  fontWeight: FontWeight.w700,
-                  fontFeatures: const [FontFeature.tabularFigures()])),
+          // 价格恒为一行（长价格如 ¥142.50 在半宽卡里若换行 → 行高比短价格多 26px、整行变形，
+          // 已被 plan_period_grid_test 尺寸断言锁定）。固定行高 26 + FittedBox 仅在放不下时等比缩，
+          // 不换行；固定高消除「短价格不缩/长价格缩」的亚像素行高差，所有卡严格等高。
+          SizedBox(
+            height: 26,
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Text(xbYuan(p.amountYuan),
+                  maxLines: 1,
+                  softWrap: false,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                      fontSize: 18,
+                      color: selected ? scheme.primary : t.on,
+                      fontWeight: FontWeight.w700,
+                      fontFeatures: const [FontFeature.tabularFigures()])),
+            ),
+          ),
         ],
       ),
     );

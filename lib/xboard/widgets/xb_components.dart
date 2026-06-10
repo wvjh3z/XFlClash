@@ -792,6 +792,7 @@ class XbSelectableOption extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     final option = AnimatedContainer(
       duration: const Duration(milliseconds: 150),
+      width: double.infinity, // 撑满 Expanded 宽（否则 Stack 给 loose 约束 → 卡缩成内容宽、行间宽高不一）。
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: selected
@@ -805,22 +806,27 @@ class XbSelectableOption extends StatelessWidget {
       ),
       child: child,
     );
+    // **始终预留顶部 11px 浮标空间**（不管有无 tag）：浮标浮进这块预留区，且有/无 tag 的卡
+    // 外形尺寸完全一致 —— 杜绝「无折扣卡(如月付)比有折扣卡矮一截、整行变形」（已被
+    // plan_period_grid_test 尺寸断言锁定）。
     return GestureDetector(
       onTap: onTap,
       behavior: HitTestBehavior.opaque,
-      child: tag == null
-          ? option
-          : Stack(
-              clipBehavior: Clip.none,
-              children: [
-                option,
-                Positioned(
-                  top: -9,
-                  right: 8,
-                  child: XbTag(tag!, color: tagColor, elevated: true),
-                ),
-              ],
-            ),
+      child: Padding(
+        padding: const EdgeInsets.only(top: 11),
+        child: Stack(
+          clipBehavior: Clip.none,
+          children: [
+            option,
+            if (tag != null)
+              Positioned(
+                top: -9,
+                right: 8,
+                child: XbTag(tag!, color: tagColor, elevated: true),
+              ),
+          ],
+        ),
+      ),
     );
   }
 }
