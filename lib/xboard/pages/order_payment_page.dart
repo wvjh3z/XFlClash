@@ -625,12 +625,18 @@ class _CopyableRow extends StatelessWidget {
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.end,
                 children: [
+                  // 长订单号（可达 28 位）：单行不折行，超长时头部省略保留尾部 + 等宽，
+                  // 复制图标固定最右（softWrap 折行会让右对齐错乱、行变形）。
                   Flexible(
                     child: Text(value,
                         textAlign: TextAlign.right,
-                        style: text.bodyMedium
-                            ?.copyWith(fontWeight: FontWeight.w500),
-                        softWrap: true),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: text.bodyMedium?.copyWith(
+                            fontWeight: FontWeight.w500,
+                            fontFeatures: const [
+                              FontFeature.tabularFigures()
+                            ])),
                   ),
                   const SizedBox(width: 6),
                   Icon(Icons.copy_rounded,
@@ -652,32 +658,44 @@ class _TotalRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final t = XbTokens.of(context);
     final scheme = Theme.of(context).colorScheme;
     final text = Theme.of(context).textTheme;
-    return Padding(
-      padding: const EdgeInsets.only(top: 8),
-      child: Row(
-        children: [
-          Expanded(
-            child: Text(label,
-                style: text.bodyLarge?.copyWith(fontWeight: FontWeight.w600)),
+    // 原型 .irow.tot：上方一条细分隔线 + 间距，把「总额」与上面的明细行分隔开。
+    return Column(
+      children: [
+        Container(
+            height: 1,
+            margin: const EdgeInsets.only(top: 10),
+            color: t.hair),
+        Padding(
+          padding: const EdgeInsets.only(top: 8),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(label,
+                    style:
+                        text.bodyLarge?.copyWith(fontWeight: FontWeight.w600)),
+              ),
+              const SizedBox(width: 8),
+              // 行内合计金额：显式 21px（不用 titleLarge=屏幕大标题 24，避免大字号缩放溢出）；
+              // 用 Flexible+FittedBox 让超大缩放时金额自适应收缩而非撑破布局。等宽数字。
+              Flexible(
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerRight,
+                  child: Text('¥${yuan.toStringAsFixed(2)}',
+                      style: TextStyle(
+                          fontSize: 21,
+                          fontWeight: FontWeight.w700,
+                          color: scheme.primary,
+                          fontFeatures: const [FontFeature.tabularFigures()])),
+                ),
+              ),
+            ],
           ),
-          const SizedBox(width: 8),
-          // 行内合计金额：显式 21px（不用 titleLarge=屏幕大标题 24，避免大字号缩放溢出）；
-          // 用 Flexible+FittedBox 让超大缩放时金额自适应收缩而非撑破布局。
-          Flexible(
-            child: FittedBox(
-              fit: BoxFit.scaleDown,
-              alignment: Alignment.centerRight,
-              child: Text('¥${yuan.toStringAsFixed(2)}',
-                  style: TextStyle(
-                      fontSize: 21,
-                      fontWeight: FontWeight.w700,
-                      color: scheme.primary)),
-            ),
-          ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 }
