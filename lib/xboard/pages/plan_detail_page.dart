@@ -304,15 +304,21 @@ class _PlanDetailPageState extends ConsumerState<PlanDetailPage> {
     return LayoutBuilder(builder: (context, constraints) {
       const spacing = 10.0;
       final cardWidth = (constraints.maxWidth - spacing) / 2;
-      return Wrap(
-        spacing: spacing,
-        runSpacing: spacing,
-        children: sorted
-            .map((p) => SizedBox(
-                  width: cardWidth,
-                  child: _periodCard(context, p),
-                ))
-            .toList(),
+      return Padding(
+        // 顶部留白：让首行「省 N%」浮标（top:-9 浮出卡片上方）不顶到「选择计费周期」标题。
+        padding: const EdgeInsets.only(top: 6),
+        child: Wrap(
+          spacing: spacing,
+          // runSpacing 需大于浮标上探高度（top:-9 + 标签高 ~20 → 约 11px 探出），否则下一行
+          // 浮标侵入上一行底部，看起来「挤压/大小不齐」。给足 18 行距。
+          runSpacing: 18,
+          children: sorted
+              .map((p) => SizedBox(
+                    width: cardWidth,
+                    child: _periodCard(context, p),
+                  ))
+              .toList(),
+        ),
       );
     });
   }
@@ -404,8 +410,23 @@ class _PlanDetailPageState extends ConsumerState<PlanDetailPage> {
               Icon(Icons.check_circle_rounded,
                   size: 16, color: scheme.primary),
               const SizedBox(width: 6),
-              Text('优惠券已应用',
-                  style: text.bodySmall?.copyWith(color: scheme.primary)),
+              Expanded(
+                child: Text('优惠券已应用',
+                    style: text.bodySmall?.copyWith(color: scheme.primary)),
+              ),
+              // 取消已应用的优惠券（清空券 + 输入框 + 错误）。
+              GestureDetector(
+                onTap: _clearCoupon,
+                behavior: HitTestBehavior.opaque,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 4, vertical: 2),
+                  child: Text('取消',
+                      style: text.bodySmall?.copyWith(
+                          color: scheme.onSurfaceVariant,
+                          fontWeight: FontWeight.w600)),
+                ),
+              ),
             ],
           ),
         ],
@@ -437,15 +458,30 @@ class _PlanDetailPageState extends ConsumerState<PlanDetailPage> {
     );
   }
 
+  /// 取消已应用的优惠券：清空券 + 输入框 + 错误提示，金额恢复原价。
+  void _clearCoupon() {
+    setState(() {
+      _coupon = null;
+      _couponError = null;
+      _couponController.clear();
+    });
+  }
+
   Future<void> _checkCoupon() async {
-    final code = _couponController.text.trim();
-    if (code.isEmpty) {
-      setState(() => _couponError = '请输入优惠码');
+    final code = _couponController.text.trim();    if (code.isEmpty) {
+      // 空输入点验证 → 视为清除已应用的券（也给提示）。
+      setState(() {
+        _coupon = null;
+        _couponError = '请输入优惠码';
+      });
       return;
     }
     setState(() {
       _checkingCoupon = true;
       _couponError = null;
+      // 重新验证即作废上一张已应用的券：无论新码有效与否，旧券都不再生效
+      // （修「先用有效码、再输无效码时仍显示『已应用』」的矛盾态）。
+      _coupon = null;
     });
     try {
       final result = await ref
