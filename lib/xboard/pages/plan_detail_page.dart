@@ -439,6 +439,7 @@ class _PlanDetailPageState extends ConsumerState<PlanDetailPage> {
   }
 
   Widget _summarySection(BuildContext context) {
+    final t = XbTokens.of(context);
     final scheme = Theme.of(context).colorScheme;
     final text = Theme.of(context).textTheme;
     return Column(
@@ -450,7 +451,12 @@ class _PlanDetailPageState extends ConsumerState<PlanDetailPage> {
               label: '优惠（预估）',
               value: xbYuanMinus(_discount),
               valueColor: scheme.primary),
-        const XbHairline(margin: 10),
+        // 「总计」上方结构分隔线：用 t.line（明显）而非 XbHairline(hair 过淡，白卡上几乎不可见)，
+        // 与支付页 _TotalRow 同源口径一致。
+        Container(
+            height: 1,
+            margin: const EdgeInsets.symmetric(vertical: 10),
+            color: t.line),
         XbKeyValueRow(
             label: '总计', value: xbYuan(_total), total: true),
         if (_coupon != null) ...[
