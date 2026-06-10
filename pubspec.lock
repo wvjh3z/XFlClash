@@ -273,6 +273,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.15.0"
+  crisp_chat:
+    dependency: "direct main"
+    description:
+      name: crisp_chat
+      sha256: a0f9bbc8e1aaf49fee4d56642e2fbb0f93d5857b4a1adbd4bfc02e9a2c14d7e4
+      url: "https://pub.dev"
+    source: hosted
+    version: "2.5.0"
   cross_file:
     dependency: transitive
     description:
@@ -329,6 +337,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "0.0.2"
+  desktop_webview_window:
+    dependency: transitive
+    description:
+      name: desktop_webview_window
+      sha256: b6fdae2cbf9571879b1761c12f27facaf82e22d0bdc74d049907c2a09a432957
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.3.0"
   device_info_plus:
     dependency: "direct main"
     description:

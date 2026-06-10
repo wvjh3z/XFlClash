@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
+import 'package:fl_clash/xboard/config/xboard_config.dart';
 import 'package:fl_clash/xboard/models/xb_domain_error.dart';
 import 'package:fl_clash/xboard/models/xb_domain_subscription.dart';
 import 'package:fl_clash/xboard/models/xb_result.dart';
@@ -180,4 +181,44 @@ void main() {
         reason: '重试落定后横幅必须消失（不卡死）');
     expect(find.text('账号信息加载失败'), findsOneWidget, reason: '重试仍失败 → 回到失败卡');
   }, timeout: const Timeout(Duration(seconds: 30)));
+
+  group('帮助与客服入口（D9 Crisp，按 crispWebsiteId 显隐）', () {
+    tearDown(XboardConfig.resetForTest);
+
+    testWidgets('crispWebsiteId 空（默认）→ 入口隐藏', (tester) async {
+      // 占位默认 crispWebsiteId='' → CrispSupportService.isEnabled false。
+      await pumpMine(tester,
+          auth: AuthState.authenticated,
+          sub: _sub(total: 100 * gb, used: 10 * gb));
+      expect(find.text('帮助与客服'), findsNothing);
+    });
+
+    testWidgets('crispWebsiteId 有值 → 入口显示（已登录）', (tester) async {
+      XboardConfig.bind(const XboardConfig(
+        subscribeUserAgent: 'x flclash',
+        devApiEndpoint: 'https://x',
+        devSubscriptionEndpoint: 'https://x',
+        debug: false,
+        kIsTest: true,
+        crispWebsiteId: 'ws-abc-123',
+      ));
+      await pumpMine(tester,
+          auth: AuthState.authenticated,
+          sub: _sub(total: 100 * gb, used: 10 * gb));
+      expect(find.text('帮助与客服'), findsOneWidget);
+    });
+
+    testWidgets('crispWebsiteId 有值 → 游客也显示入口', (tester) async {
+      XboardConfig.bind(const XboardConfig(
+        subscribeUserAgent: 'x flclash',
+        devApiEndpoint: 'https://x',
+        devSubscriptionEndpoint: 'https://x',
+        debug: false,
+        kIsTest: true,
+        crispWebsiteId: 'ws-abc-123',
+      ));
+      await pumpMine(tester, auth: AuthState.unauthenticated);
+      expect(find.text('帮助与客服'), findsOneWidget);
+    });
+  });
 }

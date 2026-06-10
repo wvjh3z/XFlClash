@@ -44,5 +44,6 @@ theme:
   light: { primary: "#d92e1a", surface: "#ffffff", error: "#b00020" }
   dark:  { primary: "#ff5a4a", surface: "#1a1a1a", error: "#cf6679" }
 
-# === v0.2 预留（v0.1 不读不报错）===
-crisp: { websiteId: "" }                    # v0.2 客服（D9）
+# === 在线客服（Crisp，D9）===
+# websiteId 公开可进 git（非密钥，仅标识聊天工作区）。空 → 「帮助与客服」入口隐藏。
+crisp: { websiteId: "d6fb15ed-b83c-475b-a7ff-c178ed50b033" }

@@ -209,6 +209,19 @@ void main() {
           flavorId: 'brand_a', isTest: false);
       expect(() => jsonDecode(raw), returnsNormally);
     });
+
+    test('无 crisp 节点 → XB_CRISP_WEBSITE_ID 空串（客服入口隐藏）', () {
+      expect(defines()['XB_CRISP_WEBSITE_ID'], '');
+    });
+
+    test('crisp.websiteId 有值 → 原样注入 XB_CRISP_WEBSITE_ID', () {
+      final yaml = '${_validYaml()}\ncrisp: { websiteId: "ws-123-abc" }';
+      final d = jsonDecode(generateFlavorDefinesJson(
+          loadYaml(yaml) as YamlMap,
+          flavorId: 'brand_a',
+          isTest: true)) as Map<String, dynamic>;
+      expect(d['XB_CRISP_WEBSITE_ID'], 'ws-123-abc');
+    });
   });
 
   // 🔴 W0.5 漂移守护：内联 hasSingleFlclashFlag 必须与 SDK ground truth 等价。

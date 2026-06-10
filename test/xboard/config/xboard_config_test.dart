@@ -41,6 +41,10 @@ void main() {
       expect(c.supportEmail, 'support@example.com');
     });
 
+    test('crispWebsiteId 默认空（无 XB_CRISP_WEBSITE_ID 注入 → 客服入口隐藏）', () {
+      expect(XboardConfig.fromEnvironment().crispWebsiteId, '');
+    });
+
     test('UA 含且仅含一个 flclash 子串（F202/F203）', () {
       final ua = XboardConfig.fromEnvironment().subscribeUserAgent.toLowerCase();
       expect('flclash'.allMatches(ua).length, 1);

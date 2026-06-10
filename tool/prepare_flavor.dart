@@ -126,6 +126,13 @@ String generateFlavorDefinesJson(YamlMap doc,
     return u != null && u.host.isNotEmpty ? '${u.scheme}://${u.host}' : firstUrl;
   })();
 
+  // Crisp 在线客服 websiteId（可选嵌套 `crisp: { websiteId: "..." }`，D9）。
+  // 缺/空 → 空串 → XboardConfig.crispWebsiteId 空 → 「帮助与客服」入口隐藏。
+  final crispNode = doc['crisp'];
+  final crispWebsiteId = crispNode is YamlMap
+      ? ((crispNode['websiteId'] as String?) ?? '').trim()
+      : '';
+
   // dart-define 值全为字符串（flutter --dart-define-from-file 约定）。
   final formA = (doc['form_a'] as bool?) ?? false; // 形态 A 开关（可选，默认 false）
   final defines = <String, String>{
@@ -144,6 +151,7 @@ String generateFlavorDefinesJson(YamlMap doc,
     'XB_BOOTSTRAP_URLS': urls,
     'XB_AES_KEY_B64': s('aesKey'), // CI secrets 注入；空→fromEnvironment 降级 null
     'XB_FORM_A': formA ? 'true' : 'false', // 形态 A 外壳开关（flavor.yaml form_a，可选）
+    'XB_CRISP_WEBSITE_ID': crispWebsiteId, // D9 在线客服 websiteId（空→入口隐藏）
   };
 
   const encoder = JsonEncoder.withIndent('  ');

@@ -5,6 +5,7 @@ import 'package:fl_clash/pages/error.dart';
 import 'package:fl_clash/state.dart';
 import 'package:fl_clash/xboard/config/xboard_config.dart';
 import 'package:fl_clash/xboard/xboard_module.dart';
+import 'package:desktop_webview_window/desktop_webview_window.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:rust_api/rust_api.dart';
@@ -12,9 +13,19 @@ import 'package:rust_api/rust_api.dart';
 import 'application.dart';
 import 'common/common.dart';
 
-Future<void> main() async {
+Future<void> main(List<String> args) async {
   try {
     WidgetsFlutterBinding.ensureInitialized();
+
+    // === Xboard 接缝点 #1.ter（D9 客服 / crisp_chat 桌面 WebView）===
+    // 桌面端 Crisp 客服走 desktop_webview_window 嵌入窗口；该插件以子进程渲染 WebView
+    // 标题栏（复用同一可执行文件）。此 helper 检测当前进程是否为标题栏子进程，是则只渲染
+    // 标题栏并 return（绝不再跑 FlClash 内核 / Xboard bootstrap）。必须在 runApp 前、
+    // 尽量靠前调用（crisp_chat README 要求）。非桌面 / 非该子进程 → false，正常启动。
+    if (system.isDesktop && runWebViewTitleBarWidget(args)) {
+      return;
+    }
+
     if (system.isDesktop) {
       await RustLib.init();
     }

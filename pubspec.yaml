@@ -97,6 +97,7 @@ dependencies:
   flutter_secure_storage: ^9.2.4   # NFR-3 — TokenStorage 注入实现
   qr_flutter: ^4.1.0               # R8 AC 6.bis（F346）— AlipayF2f 支付二维码渲染
   flutter_html: ^3.0.0             # R8 — 套餐 content 富文本 HTML 渲染（emoji 标题/✓✗列表/颜色）
+  crisp_chat: ^2.5.0               # D9 在线客服（Android 原生 SDK；mac/win/linux WebView 套 Web Chat）
 dev_dependencies:
   flutter_test:
     sdk: flutter

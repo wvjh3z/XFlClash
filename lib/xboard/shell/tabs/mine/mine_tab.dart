@@ -20,6 +20,7 @@ import 'package:fl_clash/xboard/pages/reset_traffic_page.dart';
 import 'package:fl_clash/xboard/providers/auth_state_provider.dart';
 import 'package:fl_clash/xboard/providers/user_profile_provider.dart';
 import 'package:fl_clash/xboard/providers/xboard_providers.dart';
+import 'package:fl_clash/xboard/services/crisp_support_service.dart';
 import 'package:fl_clash/xboard/util/app_version.dart';
 import 'package:fl_clash/xboard/util/format.dart';
 import 'package:fl_clash/xboard/widgets/xb_components.dart';
@@ -763,6 +764,16 @@ class _SettingsSection extends ConsumerWidget {
     }
   }
 
+  /// 帮助与客服（D9 Crisp）：已登录透传账号 email 关联会话，游客匿名；永不抛（失败 toast）。
+  Future<void> _openSupport(BuildContext context, WidgetRef ref) async {
+    final email =
+        isGuest ? null : ref.read(userProfileProvider).asData?.value.email;
+    final ok = await CrispSupportService.open(email: email);
+    if (!ok && context.mounted) {
+      xbToast(context, '客服暂时无法打开，请稍后再试');
+    }
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     return Column(
@@ -795,6 +806,14 @@ class _SettingsSection extends ConsumerWidget {
               onTap: () => xbPush(context, const XbSettingsPage(),
                   brandColor: xbBrandColor()),
             ),
+            // 帮助与客服（D9 Crisp，原型：应用组 设置→帮助与客服→关于）。
+            // websiteId 未配置（XboardConfig.crispWebsiteId 空）→ 隐藏入口，不暴露空会话。
+            if (CrispSupportService.isEnabled)
+              XbListRow(
+                icon: Icons.support_agent,
+                label: '帮助与客服',
+                onTap: () => _openSupport(context, ref),
+              ),
             const _AboutRow(),
             if (!isGuest)
               XbListRow(
