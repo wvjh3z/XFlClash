@@ -912,9 +912,10 @@ class XbErrorRetry extends StatelessWidget {
 
 /// 说明弹窗的单条解释项数据（原型 `.modeexp`：图标 + 标题 + 说明）。
 class XbInfoItem {
-  const XbInfoItem({required this.icon, required this.title, required this.desc});
+  const XbInfoItem({this.icon, required this.title, required this.desc});
 
-  final IconData icon;
+  /// 解释卡左侧图标块；null = 不显示图标（说明卡只显示标题/正文，用于「顶部已有徽标、避免重复」）。
+  final IconData? icon;
   final String title;
   final String desc;
 }
@@ -932,17 +933,22 @@ class XbInfoSheet extends StatelessWidget {
     required this.title,
     required this.items,
     this.subtitle,
+    this.headerIcon,
     this.confirmLabel = '知道了',
   });
 
   final String title;
   final String? subtitle;
+
+  /// 顶部圆形品牌徽标图标（原型 .shicon）；null = 不显示（保持旧版纯标题）。
+  final IconData? headerIcon;
   final List<XbInfoItem> items;
   final String confirmLabel;
 
   @override
   Widget build(BuildContext context) {
     final t = XbTokens.of(context);
+    final scheme = Theme.of(context).colorScheme;
     return SafeArea(
       child: SingleChildScrollView(
         child: Padding(
@@ -951,6 +957,23 @@ class XbInfoSheet extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
+              // 顶部圆形品牌徽标（与认证 sheet / 全 app 圆徽统一）。
+              if (headerIcon != null) ...[
+                const SizedBox(height: 2),
+                Center(
+                  child: Container(
+                    width: 48,
+                    height: 48,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: scheme.primary.withValues(alpha: 0.13),
+                    ),
+                    child: Icon(headerIcon, size: 26, color: scheme.primary),
+                  ),
+                ),
+                const SizedBox(height: 12),
+              ],
               // 标题居中（对齐原型 .sheet h3）。
               Text(
                 title,
@@ -997,6 +1020,7 @@ class _XbInfoItemCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final t = XbTokens.of(context);
     final scheme = Theme.of(context).colorScheme;
+    final hasIcon = item.icon != null;
     return Container(
       padding: const EdgeInsets.all(15),
       decoration: BoxDecoration(
@@ -1006,23 +1030,30 @@ class _XbInfoItemCard extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          XbIconBadge(
-            icon: item.icon,
-            size: 42,
-            radius: XbTokens.rMd,
-            background: scheme.primary.withValues(alpha: 0.12),
-            iconColor: scheme.primary,
-            iconSize: 22,
-          ),
-          const SizedBox(width: 13),
+          if (hasIcon) ...[
+            XbIconBadge(
+              icon: item.icon!,
+              size: 42,
+              radius: XbTokens.rMd,
+              background: scheme.primary.withValues(alpha: 0.12),
+              iconColor: scheme.primary,
+              iconSize: 22,
+            ),
+            const SizedBox(width: 13),
+          ],
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(item.title,
-                    style: TextStyle(
-                        fontSize: 15, fontWeight: FontWeight.w500, color: t.on)),
-                const SizedBox(height: 4),
+                // 无图标（顶部已有徽标）时省略重复标题，只显示说明正文。
+                if (hasIcon) ...[
+                  Text(item.title,
+                      style: TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w500,
+                          color: t.on)),
+                  const SizedBox(height: 4),
+                ],
                 Text(item.desc,
                     style: TextStyle(fontSize: 12.5, height: 1.6, color: t.onv)),
               ],

@@ -461,38 +461,39 @@ class XbGroupTypeInfoSheet extends StatelessWidget {
         XbGroupKind.urlTest => (
             Icons.bolt,
             'url-test',
-            '自动测速选择延迟最低的节点；也可手动锁定某个节点（锁定后不再自动切换，再次点击该节点可恢复自动）。日常推荐。',
+            '自动测速，始终用延迟最低的节点；也可手动点定某个节点锁定（再点一次该节点恢复自动）。日常推荐。',
           ),
         XbGroupKind.selector => (
             Icons.touch_app,
             'selector',
-            '完全手动选择，点哪个用哪个，不会自动切换。',
+            '手动选择，点哪个用哪个，不会自动切换。',
           ),
         XbGroupKind.fallback => (
             Icons.swap_horiz,
             'fallback',
-            '故障转移：按顺序使用，当前节点不可用时自动切换到下一个可用节点；也可手动锁定。',
+            '故障转移：按顺序优先用靠前的节点，当前不可用时自动跳到下一个；也可手动锁定。',
           ),
         XbGroupKind.loadBalance => (
             Icons.hub,
             'load-balance',
-            '负载均衡：组内多个节点由系统自动分流承载流量，无需也无法手动选择单个节点。',
+            '负载均衡：流量由系统在组内多个节点间自动分摊，无需也无法手动指定单个节点。',
           ),
         XbGroupKind.relay => (
             Icons.link,
             'relay',
-            '链式中转：多个节点串联成固定链路（入口→中转→出口），链路固定，无法手动选择单个节点。',
+            '链式中转：多个节点串成固定链路（入口→中转→出口），链路固定，不能单独选某个节点。',
           ),
       };
 
   @override
   Widget build(BuildContext context) {
     final (icon, title, desc) = _entry(kind);
-    // 共用说明弹窗（标题居中 + modeexp 解释卡 + 品牌「知道了」，与代理模式说明同源）。
+    // 共用说明弹窗：顶部该类型图标圆徽 + 标题居中 + 纯文字说明卡（不重复图标）+ 品牌「知道了」。
     return XbInfoSheet(
       title: '线路分组类型说明',
       subtitle: title, // 副标题 = 该类型名（如 url-test）
-      items: [XbInfoItem(icon: icon, title: title, desc: desc)],
+      headerIcon: icon,
+      items: [XbInfoItem(title: title, desc: desc)],
     );
   }
 }

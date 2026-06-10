@@ -51,8 +51,8 @@ void main() {
     await tester.tap(find.byIcon(Icons.help_outline));
     await tester.pumpAndSettle();
     expect(find.text('代理模式说明'), findsOneWidget);
-    expect(find.textContaining('国内 App 与网站走直连'), findsOneWidget);
-    expect(find.textContaining('非必要不建议使用'), findsOneWidget);
+    expect(find.textContaining('国内网站与 App 直连'), findsOneWidget);
+    expect(find.textContaining('临时开启'), findsOneWidget);
   });
 
   testWidgets('游客态 dim（Opacity 0.5）', (tester) async {

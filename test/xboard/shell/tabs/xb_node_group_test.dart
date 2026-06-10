@@ -135,7 +135,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('线路分组类型说明'), findsOneWidget);
     // 只显示被点的 url-test，不列其它类型。
-    expect(find.textContaining('自动测速选择延迟最低'), findsOneWidget);
+    expect(find.textContaining('自动测速'), findsOneWidget);
     expect(find.text('load-balance'), findsNothing);
     expect(find.text('relay'), findsNothing);
   });

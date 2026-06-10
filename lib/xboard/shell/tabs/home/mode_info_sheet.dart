@@ -19,19 +19,19 @@ Future<void> showModeInfoSheet(BuildContext context) {
     builder: (context) => const XbInfoSheet(
       title: '代理模式说明',
       subtitle: '两种模式按需切换',
+      headerIcon: Icons.help_outline,
       items: [
         XbInfoItem(
           icon: Icons.bolt,
           title: '智能模式',
-          desc: '自动识别流量去向：国内 App 与网站走直连、不经过 VPN，访问更快更省流量；'
-              '海外 App 与网站自动通过 VPN 加密访问。日常推荐。',
+          desc: '国内网站与 App 直连、不绕路，访问更快更省流量；海外网站与 App 自动走 VPN 加密。'
+              '绝大多数人用这个就好。',
         ),
         XbInfoItem(
           icon: Icons.public,
           title: '全局模式',
-          desc: '所有流量都通过 VPN 加密传输，包括国内访问。该模式下中国 App 的流量也会'
-              '绕经海外，网络体验较差、延迟更高，非必要不建议使用。适合需要全程加密或'
-              '排查网络问题时临时开启。',
+          desc: '所有流量（含国内）都走 VPN 加密。国内访问会因此绕远、变慢，'
+              '仅在需要全程加密或排查网络问题时临时开启。',
         ),
       ],
     ),
