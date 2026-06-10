@@ -304,25 +304,25 @@ class _PlanDetailPageState extends ConsumerState<PlanDetailPage> {
 
   Widget _periodSection(BuildContext context) {
     final sorted = _purchasablePrices;
-    // Wrap + 半宽卡片：内容撑高，任何 textScale 都不溢出（不用固定 aspectRatio）。
+    // Wrap + 半宽卡片：内容自适应高度（大字号 1.5/2.0 不溢出）。
+    // **杜绝变形的关键**：每张卡各自预留顶部 11px 空间（containing 浮标上探），浮标浮进
+    // 「自己这张卡」的预留区，而非飘进上一行间隙 → 不管哪张卡有无「省N%」标签，行间距完全一致、
+    // 不再出现「有标签/无标签的卡视觉错位」。runSpacing 因此可收小。
     return LayoutBuilder(builder: (context, constraints) {
       const spacing = 10.0;
       final cardWidth = (constraints.maxWidth - spacing) / 2;
-      return Padding(
-        // 顶部留白：让首行「省 N%」浮标（top:-9 浮出卡片上方）不顶到「选择计费周期」标题。
-        padding: const EdgeInsets.only(top: 6),
-        child: Wrap(
-          spacing: spacing,
-          // runSpacing 需大于浮标上探高度（top:-9 + 标签高 ~20 → 约 11px 探出），否则下一行
-          // 浮标侵入上一行底部，看起来「挤压/大小不齐」。给足 18 行距。
-          runSpacing: 18,
-          children: sorted
-              .map((p) => SizedBox(
-                    width: cardWidth,
+      return Wrap(
+        spacing: spacing,
+        runSpacing: 6,
+        children: sorted
+            .map((p) => SizedBox(
+                  width: cardWidth,
+                  child: Padding(
+                    padding: const EdgeInsets.only(top: 11),
                     child: _periodCard(context, p),
-                  ))
-              .toList(),
-        ),
+                  ),
+                ))
+            .toList(),
       );
     });
   }
