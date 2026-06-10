@@ -764,7 +764,7 @@ class _SettingsSection extends ConsumerWidget {
     }
   }
 
-  /// 帮助与客服（D9 Crisp）：已登录透传账号订阅（邮箱/套餐/到期/流量/来源），游客匿名；
+  /// 在线客服（D9 Crisp）：已登录透传账号订阅（邮箱/套餐/到期/流量/来源），游客匿名；
   /// 永不抛（失败 toast）。
   Future<void> _openSupport(BuildContext context, WidgetRef ref) async {
     final sub =
@@ -794,6 +794,14 @@ class _SettingsSection extends ConsumerWidget {
                   : () => xbPush(context, const OrderListPage(),
                       brandColor: xbBrandColor()),
             ),
+            // 在线客服（D9 Crisp）：不登录也可用（游客匿名会话）。
+            // websiteId 未配置（XboardConfig.crispWebsiteId 空）→ 隐藏入口，不暴露空会话。
+            if (CrispSupportService.isEnabled)
+              XbListRow(
+                icon: Icons.support_agent,
+                label: '在线客服',
+                onTap: () => _openSupport(context, ref),
+              ),
           ],
         ),
         // ── 应用组 ──
@@ -807,14 +815,6 @@ class _SettingsSection extends ConsumerWidget {
               onTap: () => xbPush(context, const XbSettingsPage(),
                   brandColor: xbBrandColor()),
             ),
-            // 帮助与客服（D9 Crisp，原型：应用组 设置→帮助与客服→关于）。
-            // websiteId 未配置（XboardConfig.crispWebsiteId 空）→ 隐藏入口，不暴露空会话。
-            if (CrispSupportService.isEnabled)
-              XbListRow(
-                icon: Icons.support_agent,
-                label: '帮助与客服',
-                onTap: () => _openSupport(context, ref),
-              ),
             const _AboutRow(),
             if (!isGuest)
               XbListRow(

@@ -182,7 +182,7 @@ void main() {
     expect(find.text('账号信息加载失败'), findsOneWidget, reason: '重试仍失败 → 回到失败卡');
   }, timeout: const Timeout(Duration(seconds: 30)));
 
-  group('帮助与客服入口（D9 Crisp，按 crispWebsiteId 显隐）', () {
+  group('在线客服入口（D9 Crisp，按 crispWebsiteId 显隐）', () {
     tearDown(XboardConfig.resetForTest);
 
     testWidgets('crispWebsiteId 空（默认）→ 入口隐藏', (tester) async {
@@ -190,7 +190,7 @@ void main() {
       await pumpMine(tester,
           auth: AuthState.authenticated,
           sub: _sub(total: 100 * gb, used: 10 * gb));
-      expect(find.text('帮助与客服'), findsNothing);
+      expect(find.text('在线客服'), findsNothing);
     });
 
     testWidgets('crispWebsiteId 有值 → 入口显示（已登录）', (tester) async {
@@ -205,7 +205,7 @@ void main() {
       await pumpMine(tester,
           auth: AuthState.authenticated,
           sub: _sub(total: 100 * gb, used: 10 * gb));
-      expect(find.text('帮助与客服'), findsOneWidget);
+      expect(find.text('在线客服'), findsOneWidget);
     });
 
     testWidgets('crispWebsiteId 有值 → 游客也显示入口', (tester) async {
@@ -218,7 +218,7 @@ void main() {
         crispWebsiteId: 'ws-abc-123',
       ));
       await pumpMine(tester, auth: AuthState.unauthenticated);
-      expect(find.text('帮助与客服'), findsOneWidget);
+      expect(find.text('在线客服'), findsOneWidget);
     });
   });
 }
