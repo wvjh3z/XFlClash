@@ -247,6 +247,8 @@ class _PlanDetailPageState extends ConsumerState<PlanDetailPage> {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Text('${plan.name} · ${plan.transferEnableGb} GB',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                       style: TextStyle(
                           fontSize: 14,
                           fontWeight: FontWeight.w500,
@@ -270,6 +272,8 @@ class _PlanDetailPageState extends ConsumerState<PlanDetailPage> {
             children: [
               Expanded(
                 child: Text(plan.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                     style: TextStyle(
                         fontSize: 17,
                         fontWeight: FontWeight.w700,

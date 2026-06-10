@@ -421,13 +421,19 @@ class XbKeyValueRow extends StatelessWidget {
                     color: total ? t.on : t.onv)),
           ),
           const SizedBox(width: 8),
-          Text(value,
-              style: TextStyle(
-                  fontSize: total ? 21 : 14,
-                  fontWeight: total ? FontWeight.w700 : FontWeight.w600,
-                  color: valueColor ?? (total ? scheme.primary : t.on),
-                  // 键值右值多为金额/数字 → 等宽（tabular）：竖排对齐、跳变不抖动（商用支付场景规范）。
-                  fontFeatures: const [FontFeature.tabularFigures()])),
+          // 右值包 Flexible + 单行省略：长值（金额/抵扣/动态文案）不撑破行（框架层健壮性）。
+          Flexible(
+            child: Text(value,
+                textAlign: TextAlign.right,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                    fontSize: total ? 21 : 14,
+                    fontWeight: total ? FontWeight.w700 : FontWeight.w600,
+                    color: valueColor ?? (total ? scheme.primary : t.on),
+                    // 键值右值多为金额/数字 → 等宽（tabular）：竖排对齐、跳变不抖动（商用支付场景规范）。
+                    fontFeatures: const [FontFeature.tabularFigures()])),
+          ),
         ],
       ),
     );

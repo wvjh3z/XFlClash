@@ -588,8 +588,10 @@ class _InfoRow extends StatelessWidget {
           Expanded(
             child: Text(value,
                 textAlign: TextAlign.right,
-                style: text.bodyMedium?.copyWith(fontWeight: FontWeight.w500),
-                softWrap: true),
+                // 长值（如套餐名）单行省略，防折行 + 右对齐错乱 + 整行变形（与订单号同源修复）。
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: text.bodyMedium?.copyWith(fontWeight: FontWeight.w500)),
           ),
         ],
       ),

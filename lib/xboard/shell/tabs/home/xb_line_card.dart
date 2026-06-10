@@ -69,6 +69,9 @@ class XbLineCard extends ConsumerWidget {
                     const SizedBox(height: 2),
                     Text(
                       subtitle,
+                      // 长分组名单行省略，防折行撑高线路卡。
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                       style: TextStyle(
                         fontSize: 12,
                         color: scheme.onSurfaceVariant,
