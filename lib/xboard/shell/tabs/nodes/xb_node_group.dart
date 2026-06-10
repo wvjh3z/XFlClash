@@ -16,7 +16,7 @@ import 'package:flutter/rendering.dart' show RenderAbstractViewport;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:fl_clash/xboard/widgets/xb_components.dart'
-    show XbTag, XbInfoSheet, XbInfoItem;
+    show XbTag, XbInfoSheet, XbInfoItem, XbSpinner;
 import 'package:fl_clash/xboard/widgets/xb_theme.dart' show XbTokens;
 
 import '../../adapters/xb_nodes_adapter.dart';
@@ -275,12 +275,7 @@ class _DelayTestButton extends StatelessWidget {
     if (testing) {
       return TextButton.icon(
         onPressed: null, // 测速中禁用。
-        icon: const SizedBox(
-          width: 13,
-          height: 13,
-          child: CircularProgressIndicator(
-              strokeWidth: 2, color: XbTokens.warn),
-        ),
+        icon: const XbSpinner(color: XbTokens.warn, size: 13, stroke: 2),
         label: Text('测速中 $tested/$total'),
         style: TextButton.styleFrom(
           foregroundColor: scheme.primary,
@@ -420,12 +415,7 @@ class _DelayText extends ConsumerWidget {
     if (measuring || delay == 0) {
       // 测速中（首页 3 次取最低 / 单次 core 测速占位 0）：琥珀黄转圈（原型 .spin = warn，
       // 非品牌红 CircularProgressIndicator）。
-      return const SizedBox(
-        width: 16,
-        height: 16,
-        child: CircularProgressIndicator(
-            strokeWidth: 2, color: XbTokens.warn),
-      );
+      return const XbSpinner(color: XbTokens.warn, size: 16, stroke: 2);
     }
     if (delay == null) {
       // 未测 → 闪电按钮触发单节点测速。

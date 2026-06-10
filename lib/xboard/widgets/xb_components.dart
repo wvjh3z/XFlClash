@@ -9,10 +9,94 @@
 ///   - 组合（区块卡/列表行/键值行/空态…）→ 本库 widget
 library;
 
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 import 'xb_theme.dart';
 import 'xb_ui_kit.dart' show XbIconBadge;
+
+/// 细环转圈（原型 `.spin`）：淡色整环 + 一段实色弧，匀速旋转。比 Material
+/// `CircularProgressIndicator`（粗弧扫尾）更接近原型的精致小圈。[color] 实色弧色，
+/// [size] 直径，[stroke] 环宽。
+class XbSpinner extends StatefulWidget {
+  const XbSpinner({super.key, required this.color, this.size = 16, this.stroke = 2.2});
+
+  final Color color;
+  final double size;
+  final double stroke;
+
+  @override
+  State<XbSpinner> createState() => _XbSpinnerState();
+}
+
+class _XbSpinnerState extends State<XbSpinner>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _c = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 800),
+  )..repeat();
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: widget.size,
+      height: widget.size,
+      child: AnimatedBuilder(
+        animation: _c,
+        builder: (_, _) => Transform.rotate(
+          angle: _c.value * 2 * math.pi,
+          child: CustomPaint(
+            painter: _RingPainter(color: widget.color, stroke: widget.stroke),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _RingPainter extends CustomPainter {
+  _RingPainter({required this.color, required this.stroke});
+
+  final Color color;
+  final double stroke;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final rect = Offset.zero & size;
+    final r = (size.shortestSide - stroke) / 2;
+    final center = rect.center;
+    // 淡色整环（原型 border 40% 透明）。
+    final faint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = stroke
+      ..color = color.withValues(alpha: 0.28);
+    canvas.drawCircle(center, r, faint);
+    // 实色顶部弧（约 100°，原型 border-top-color）。
+    final arc = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = stroke
+      ..strokeCap = StrokeCap.round
+      ..color = color;
+    canvas.drawArc(
+      Rect.fromCircle(center: center, radius: r),
+      -math.pi / 2, // 顶部起
+      math.pi * 0.55, // 约 100°
+      false,
+      arc,
+    );
+  }
+
+  @override
+  bool shouldRepaint(_RingPainter old) =>
+      old.color != color || old.stroke != stroke;
+}
 
 /// 顶部同步横幅（原型 `.syncbar`）：琥珀柔底 + 旋转 spinner + 文案。
 /// 用于"已登录但订阅/账号数据竞速未完成"的过渡态。
@@ -34,11 +118,7 @@ class XbSyncBanner extends StatelessWidget {
       ),
       child: Row(
         children: [
-          const SizedBox(
-            width: 14,
-            height: 14,
-            child: CircularProgressIndicator(strokeWidth: 2.2, color: warn),
-          ),
+          const XbSpinner(color: warn, size: 14),
           const SizedBox(width: 9),
           Expanded(
             child: Text(

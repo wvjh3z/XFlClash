@@ -202,10 +202,10 @@ class _GroupTabBar extends StatelessWidget {
     final t = XbTokens.of(context);
     final scheme = Theme.of(context).colorScheme;
     return SizedBox(
-      height: 46,
+      height: 42,
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.fromLTRB(16, 6, 16, 10),
+        padding: const EdgeInsets.fromLTRB(16, 2, 16, 8),
         itemCount: groups.length,
         separatorBuilder: (_, _) => const SizedBox(width: 8),
         itemBuilder: (context, i) {

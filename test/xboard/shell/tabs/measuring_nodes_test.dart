@@ -9,6 +9,7 @@ import 'package:fl_clash/providers/state.dart'
     show delayProvider, selectedProxyNameProvider, proxyNameProvider;
 import 'package:fl_clash/xboard/shell/adapters/xb_nodes_adapter.dart';
 import 'package:fl_clash/xboard/shell/tabs/nodes/xb_node_group.dart';
+import 'package:fl_clash/xboard/widgets/xb_components.dart' show XbSpinner;
 
 void main() {
   group('XbMeasuringNodesNotifier', () {
@@ -61,7 +62,7 @@ void main() {
       container.read(xbMeasuringNodesProvider.notifier).start('HK01');
       await t.pump();
       expect(find.text('120 ms'), findsNothing);
-      expect(find.byType(CircularProgressIndicator), findsWidgets);
+      expect(find.byType(XbSpinner), findsWidgets);
       // 结束 → 恢复显示数字。
       container.read(xbMeasuringNodesProvider.notifier).finish('HK01');
       await t.pump();
