@@ -764,11 +764,12 @@ class _SettingsSection extends ConsumerWidget {
     }
   }
 
-  /// 帮助与客服（D9 Crisp）：已登录透传账号 email 关联会话，游客匿名；永不抛（失败 toast）。
+  /// 帮助与客服（D9 Crisp）：已登录透传账号订阅（邮箱/套餐/到期/流量/来源），游客匿名；
+  /// 永不抛（失败 toast）。
   Future<void> _openSupport(BuildContext context, WidgetRef ref) async {
-    final email =
-        isGuest ? null : ref.read(userProfileProvider).asData?.value.email;
-    final ok = await CrispSupportService.open(email: email);
+    final sub =
+        isGuest ? null : ref.read(userProfileProvider).asData?.value;
+    final ok = await CrispSupportService.open(sub: sub);
     if (!ok && context.mounted) {
       xbToast(context, '客服暂时无法打开，请稍后再试');
     }

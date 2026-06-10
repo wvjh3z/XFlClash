@@ -16,6 +16,12 @@ const _seamAllowlist = <String>{
   'lib/main.dart', // 接缝点 #1（XboardModule bootstrap + config bind）
   'pubspec.yaml', // 接缝点 #3（Xboard 依赖 + 产品版本号）
   'pubspec.lock', // 接缝点 #3 衍生（加 Xboard SDK 依赖后 pub get 自动重算，非 UI 侵入）
+  // 接缝点 #3 衍生（crisp_chat 引入 desktop_webview_window → pub get 自动注册桌面插件，非 UI 侵入）。
+  'linux/flutter/generated_plugin_registrant.cc',
+  'linux/flutter/generated_plugins.cmake',
+  'macos/Flutter/GeneratedPluginRegistrant.swift',
+  'windows/flutter/generated_plugin_registrant.cc',
+  'windows/flutter/generated_plugins.cmake',
 };
 
 /// FlClash upstream 基线 commit（flclash-anchors.md 基线 = v0.8.93）。
