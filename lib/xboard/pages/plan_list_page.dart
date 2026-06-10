@@ -71,6 +71,7 @@ class _PlanListPageState extends ConsumerState<PlanListPage> {
             retrying: _retrying,
             error: done ? snap.error : null,
             errorFallback: '加载套餐失败',
+            skeleton: XbSkeletonKind.list,
             onRetry: _reload,
             builder: (context) {
               final plans = snap.data ?? const <PlanItem>[];

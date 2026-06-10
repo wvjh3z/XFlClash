@@ -914,6 +914,138 @@ class XbErrorRetry extends StatelessWidget {
   }
 }
 
+// ═══════════════════════════════ 骨架屏（加载态，框架化） ═══════════════════════════════
+
+/// 骨架形态枚举：各页加载态声明用哪种，由 [XbSkeletonView] 统一渲染（不用各页手写）。
+enum XbSkeletonKind {
+  /// 列表卡（订单列表 / 套餐列表）：左图标块 + 两行文字 + 右金额块，重复 N 行。
+  list,
+
+  /// 详情页（套餐详情 / 支付详情）：标题块 + 几张信息卡（标题行 + 若干键值行）。
+  detail,
+}
+
+/// 固定尺寸骨架块（圆角灰块 + shimmer，复用 [XbSkeletonBar] 的扫光）。
+class XbSkeletonBox extends StatelessWidget {
+  const XbSkeletonBox(
+      {super.key, required this.width, required this.height, this.radius = 8});
+  final double width;
+  final double height;
+  final double radius;
+
+  @override
+  Widget build(BuildContext context) => SizedBox(
+      width: width, child: XbSkeletonBar(height: height, radius: radius));
+}
+
+/// 框架化骨架屏：按 [kind] 渲染对应加载占位，全 app 复用（接到 [XbAsyncView] 的 loading 分支）。
+class XbSkeletonView extends StatelessWidget {
+  const XbSkeletonView(
+      {super.key, this.kind = XbSkeletonKind.list, this.count = 5});
+
+  final XbSkeletonKind kind;
+
+  /// list 形态的占位卡数量。
+  final int count;
+
+  @override
+  Widget build(BuildContext context) {
+    return switch (kind) {
+      XbSkeletonKind.list => ListView.separated(
+          padding: const EdgeInsets.all(16),
+          itemCount: count,
+          separatorBuilder: (_, _) => const SizedBox(height: 10),
+          itemBuilder: (_, _) => const _SkeletonCard(),
+        ),
+      XbSkeletonKind.detail => ListView(
+          padding: const EdgeInsets.all(16),
+          children: const [
+            _SkeletonInfoCard(lines: 2),
+            SizedBox(height: 14),
+            _SkeletonInfoCard(lines: 4),
+            SizedBox(height: 14),
+            _SkeletonInfoCard(lines: 3),
+          ],
+        ),
+    };
+  }
+}
+
+/// 列表卡骨架（原型 .skcard）：左圆角图标块 + 中两行文字 + 右金额块。
+class _SkeletonCard extends StatelessWidget {
+  const _SkeletonCard();
+
+  @override
+  Widget build(BuildContext context) {
+    final t = XbTokens.of(context);
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: t.card,
+        borderRadius: BorderRadius.circular(XbTokens.rMd),
+        border: Border.all(color: t.line),
+        boxShadow: t.shadow1,
+      ),
+      child: Row(
+        children: const [
+          XbSkeletonBox(width: 38, height: 38, radius: 8),
+          SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                XbSkeletonBar(widthFactor: 0.55, height: 13),
+                SizedBox(height: 8),
+                XbSkeletonBar(widthFactor: 0.78, height: 11),
+              ],
+            ),
+          ),
+          SizedBox(width: 12),
+          XbSkeletonBox(width: 54, height: 15),
+        ],
+      ),
+    );
+  }
+}
+
+/// 信息卡骨架（详情页 .dcard）：标题块 + N 行键值占位。
+class _SkeletonInfoCard extends StatelessWidget {
+  const _SkeletonInfoCard({required this.lines});
+  final int lines;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = XbTokens.of(context);
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: t.card,
+        borderRadius: BorderRadius.circular(XbTokens.rCard),
+        border: Border.all(color: t.line),
+        boxShadow: t.shadow1,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const XbSkeletonBox(width: 96, height: 15),
+          const SizedBox(height: 14),
+          for (var i = 0; i < lines; i++) ...[
+            if (i > 0) const SizedBox(height: 11),
+            const Row(
+              children: [
+                XbSkeletonBox(width: 64, height: 12),
+                Spacer(),
+                XbSkeletonBox(width: 80, height: 12),
+              ],
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
 // ═══════════════════════════════ 说明弹窗（共用） ═══════════════════════════════
 
 /// 说明弹窗的单条解释项数据（原型 `.modeexp`：图标 + 标题 + 说明）。

@@ -74,6 +74,7 @@ class _OrderListPageState extends ConsumerState<OrderListPage> {
               retrying: _retrying,
               error: done ? snap.error : null,
               errorFallback: '加载订单失败',
+              skeleton: XbSkeletonKind.list,
               onRetry: _reload,
               builder: (context) {
                 final orders = snap.data ?? const <OrderSummary>[];

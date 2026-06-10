@@ -109,6 +109,7 @@ class _PlanRenewLoaderState extends ConsumerState<PlanRenewLoader> {
             retrying: _retrying,
             error: done ? snap.error : null,
             errorFallback: '加载套餐失败',
+            skeleton: XbSkeletonKind.detail,
             onRetry: _reload,
             builder: (_) => const SizedBox.shrink(),
           ),
@@ -304,27 +305,34 @@ class _PlanDetailPageState extends ConsumerState<PlanDetailPage> {
 
   Widget _periodSection(BuildContext context) {
     final sorted = _purchasablePrices;
-    // Wrap + 半宽卡片：内容自适应高度（大字号 1.5/2.0 不溢出）。
-    // **杜绝变形的关键**：每张卡各自预留顶部 11px 空间（containing 浮标上探），浮标浮进
-    // 「自己这张卡」的预留区，而非飘进上一行间隙 → 不管哪张卡有无「省N%」标签，行间距完全一致、
-    // 不再出现「有标签/无标签的卡视觉错位」。runSpacing 因此可收小。
-    return LayoutBuilder(builder: (context, constraints) {
-      const spacing = 10.0;
-      final cardWidth = (constraints.maxWidth - spacing) / 2;
-      return Wrap(
-        spacing: spacing,
-        runSpacing: 6,
-        children: sorted
-            .map((p) => SizedBox(
-                  width: cardWidth,
-                  child: Padding(
-                    padding: const EdgeInsets.only(top: 11),
-                    child: _periodCard(context, p),
-                  ),
-                ))
-            .toList(),
-      );
-    });
+    // 显式 2 列网格（不用 Wrap——Wrap 行高内容驱动、与原型 grid 难对齐）：
+    // 每行一个 Row + 两个 Expanded，严格等宽；奇数末行补等宽空占位保持左卡宽度一致。
+    // 行/列间距固定，「省 N%」浮标交给卡自身（Stack Clip.none），整齐可控、与原型一致。
+    const gap = 10.0;
+    const rowGap = 12.0;
+    final rows = <Widget>[];
+    for (var i = 0; i < sorted.length; i += 2) {
+      final left = sorted[i];
+      final right = (i + 1 < sorted.length) ? sorted[i + 1] : null;
+      rows.add(Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(child: _periodCard(context, left)),
+          const SizedBox(width: gap),
+          Expanded(
+            child: right == null
+                ? const SizedBox.shrink()
+                : _periodCard(context, right),
+          ),
+        ],
+      ));
+      if (i + 2 < sorted.length) rows.add(const SizedBox(height: rowGap));
+    }
+    return Padding(
+      // 顶部留白：首行「省 N%」浮标（上探 ~11px）不顶到「选择计费周期」标题。
+      padding: const EdgeInsets.only(top: 11),
+      child: Column(children: rows),
+    );
   }
 
   Widget _periodCard(BuildContext context, PricePlan p) {

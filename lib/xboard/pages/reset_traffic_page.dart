@@ -99,6 +99,7 @@ class _ResetTrafficPageState extends ConsumerState<ResetTrafficPage> {
         retrying: _retrying,
         error: _loadError,
         errorFallback: '加载失败',
+        skeleton: XbSkeletonKind.detail,
         onRetry: () => _load(retry: true),
         builder: (context) => _resetPrice == null
             ? _unavailable(context)

@@ -21,7 +21,8 @@ import 'package:flutter/material.dart';
 
 import '../models/xb_domain_error.dart';
 import '../util/error_text.dart';
-import 'xb_components.dart' show XbSyncBanner, XbErrorRetry;
+import 'xb_components.dart'
+    show XbSyncBanner, XbErrorRetry, XbSkeletonView, XbSkeletonKind;
 
 /// 异步四分支纯展示组件。状态由调用方持有（Future/Provider/手写 bool 皆可）。
 class XbAsyncView extends StatelessWidget {
@@ -35,6 +36,7 @@ class XbAsyncView extends StatelessWidget {
     this.retryingText = '正在刷新服务，请稍候…',
     this.errorFallback = '加载失败',
     this.loadingWidget,
+    this.skeleton,
   });
 
   /// 首次加载中（非重试）。
@@ -58,8 +60,12 @@ class XbAsyncView extends StatelessWidget {
   /// 错误兜底文案（error 非 XbDomainError 时）。
   final String errorFallback;
 
-  /// 自定义首次加载 widget（默认居中 spinner）。
+  /// 自定义首次加载 widget（优先级高于 [skeleton]；默认居中 spinner）。
   final Widget? loadingWidget;
+
+  /// 首次加载骨架屏形态（框架化）：设了它，loading 分支自动渲染对应 [XbSkeletonView]，
+  /// 各页无需手写骨架。[loadingWidget] 非空时优先用 loadingWidget。
+  final XbSkeletonKind? skeleton;
 
   @override
   Widget build(BuildContext context) {
@@ -70,10 +76,11 @@ class XbAsyncView extends StatelessWidget {
         children: [XbSyncBanner(text: retryingText)],
       );
     }
-    // 2. 首次加载：spinner。
+    // 2. 首次加载：自定义 widget > 骨架屏 > 默认 spinner。
     if (loading) {
-      return loadingWidget ??
-          const Center(child: CircularProgressIndicator());
+      if (loadingWidget != null) return loadingWidget!;
+      if (skeleton != null) return XbSkeletonView(kind: skeleton!);
+      return const Center(child: CircularProgressIndicator());
     }
     // 3. 错误：失败重试块（领域错误解析文案）。
     final err = error;
