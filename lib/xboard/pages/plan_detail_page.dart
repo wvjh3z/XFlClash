@@ -600,14 +600,43 @@ class _SwitchPlanDialog extends StatelessWidget {
           ),
         ],
       ),
+      // 两按钮等宽对称：「再想想」用浅灰填充按钮（明显可点，不再是低对比纯文字），
+      // 「确认更换」品牌实心。避免纯 TextButton 挨着实心按钮时显得很弱。
+      actionsPadding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
       actions: [
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(false),
-          child: const Text('再想想'),
-        ),
-        FilledButton(
-          onPressed: () => Navigator.of(context).pop(true),
-          child: const Text('确认更换'),
+        Row(
+          children: [
+            Expanded(
+              child: SizedBox(
+                height: 46,
+                child: FilledButton(
+                  onPressed: () => Navigator.of(context).pop(false),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: t.sfc,
+                    foregroundColor: t.on,
+                    elevation: 0,
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(XbTokens.rMd)),
+                  ),
+                  child: const Text('再想想'),
+                ),
+              ),
+            ),
+            const SizedBox(width: 11),
+            Expanded(
+              child: SizedBox(
+                height: 46,
+                child: FilledButton(
+                  onPressed: () => Navigator.of(context).pop(true),
+                  style: FilledButton.styleFrom(
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(XbTokens.rMd)),
+                  ),
+                  child: const Text('确认更换'),
+                ),
+              ),
+            ),
+          ],
         ),
       ],
     );
