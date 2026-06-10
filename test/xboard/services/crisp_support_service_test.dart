@@ -67,6 +67,8 @@ void main() {
       final calls = <MethodCall>[];
       mockCrispChannel((c) {
         calls.add(c);
+        // session 立即就绪 → 轮询第一次即命中，触发会话数据写入。
+        if (c.method == 'getSessionIdentifier') return 'sess-1';
         return null;
       });
       final sub = XbDomainSubscription(
@@ -79,12 +81,12 @@ void main() {
         planId: 1,
       );
       expect(await CrispSupportService.open(sub: sub), isTrue);
-      await Future<void>.delayed(const Duration(milliseconds: 10)); // flush fire-and-forget setSession*
+      await Future<void>.delayed(const Duration(milliseconds: 50)); // 等后台轮询写完会话数据
       final methods = calls.map((c) => c.method).toList();
       expect(methods, contains('setSessionString'));
       expect(methods, contains('openCrispChat'));
       // 锁死顺序：openCrispChat（=Crisp.configure）必须在 setSessionString 之前，
-      // 否则原生 SDK 丢弃会话数据（曾导致套餐/到期/流量传不过去的根因）。
+      // 且 setSessionString 在 session 就绪（getSessionIdentifier 命中）之后。
       expect(methods.indexOf('openCrispChat') < methods.indexOf('setSessionString'),
           isTrue,
           reason: 'setSessionString 必须在 openCrispChat/configure 之后调');
@@ -101,10 +103,11 @@ void main() {
       final calls = <MethodCall>[];
       mockCrispChannel((c) {
         calls.add(c);
+        if (c.method == 'getSessionIdentifier') return 'sess-1';
         return null;
       });
       expect(await CrispSupportService.open(), isTrue);
-      await Future<void>.delayed(const Duration(milliseconds: 10)); // flush fire-and-forget setSession*
+      await Future<void>.delayed(const Duration(milliseconds: 50)); // 等后台轮询写完会话数据
       final strKeys = calls
           .where((c) => c.method == 'setSessionString')
           .map((c) => (c.arguments as Map)['key'])

@@ -23,6 +23,7 @@
 /// 全捕获，仅 debugPrint，不让客服入口崩溃波及「我的」页。
 library;
 
+import 'dart:async' show unawaited;
 import 'dart:io' show Platform;
 import 'dart:ui' show PlatformDispatcher;
 
@@ -73,9 +74,35 @@ class CrispSupportService {
       // 先 open（内部 Crisp.configure 建立 session + 设置 user/segment）。
       await FlutterCrispChat.openCrispChat(config: config);
 
-      // ⚠️ 会话自定义数据必须在 openCrispChat（= Crisp.configure）**之后**设置——
-      // Crisp 原生 SDK 要求 session 就绪后 setSessionString 才生效（之前调会被丢弃，
-      // 这是套餐/到期/流量曾传不过去的根因）。每次点击都重设一次（数据随最新订阅刷新）。
+      // ⚠️ Crisp session 是 open 后**异步**向服务端创建的（configure 后还要网络往返才
+      // "loaded"）；插件无「session 就绪」回调，立即调 setSessionString 会被丢弃
+      // （logcat: "Session not found for website"）。改为后台轮询 getSessionIdentifier，
+      // 待 session 就绪后再写会话数据。fire-and-forget（不阻塞聊天界面），永不抛。
+      unawaited(_applySessionDataWhenReady(sub));
+      return true;
+    } catch (e, s) {
+      debugPrint('[CrispSupportService] open failed: $e\n$s');
+      return false;
+    }
+  }
+
+  /// 后台轮询 session 就绪后写会话数据（套餐/到期/流量/来源）。
+  ///
+  /// Crisp session 在 openCrispChat 后异步向服务端创建；用 [getSessionIdentifier] 返非空
+  /// 作为「就绪」信号，最多轮询 ~15s（30×500ms）。就绪后写一次 setSessionString/Int。
+  /// 永不抛（DD-2），fire-and-forget 不阻塞聊天界面。
+  static Future<void> _applySessionDataWhenReady(XbDomainSubscription? sub) async {
+    try {
+      String? sid;
+      for (var i = 0; i < 30; i++) {
+        sid = await _safeSessionId();
+        if (sid != null && sid.isNotEmpty) break;
+        await Future<void>.delayed(const Duration(milliseconds: 500));
+      }
+      if (sid == null || sid.isEmpty) {
+        debugPrint('[CrispSupportService] session 未就绪（~15s），会话数据跳过');
+        return;
+      }
       _setStr('source', sourcePlatform);
       if (sub != null) {
         _setStr('plan', sub.planName ?? '未订阅');
@@ -83,10 +110,17 @@ class CrispSupportService {
         _setStr('remaining_traffic', '${xbGb(sub.remainingBytes)} GB');
         _setInt('used_percent', _usedPercent(sub));
       }
-      return true;
     } catch (e, s) {
-      debugPrint('[CrispSupportService] open failed: $e\n$s');
-      return false;
+      debugPrint('[CrispSupportService] apply session data failed: $e\n$s');
+    }
+  }
+
+  /// 取 session id（永不抛；无 session 返 null）。
+  static Future<String?> _safeSessionId() async {
+    try {
+      return await FlutterCrispChat.getSessionIdentifier();
+    } catch (_) {
+      return null;
     }
   }
 
