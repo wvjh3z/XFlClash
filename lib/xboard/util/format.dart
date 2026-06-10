@@ -30,18 +30,29 @@ String xbDateMinute(DateTime d) =>
 /// 百分比整数（四舍五入）：`62`（不带 % 号，调用方自行拼）。
 int xbPercentInt(double ratio0to1) => (ratio0to1 * 100).round();
 
-/// 流量重置行文案：`每月N号HH:mm分（剩余N天）`。
-///
-/// [nextResetAt] = 后端 next_reset_at（下次重置时刻）。N号/时分取自它本身（不用后端 reset_day，
-/// 那个口径与实际下次重置日对不上、会误导）。剩余天数 = `ceil((nextResetAt - now)/天)` **向上取整**，
-/// 最少 1 天（剩 1 小时也显示「剩余1天」，绝不显示「剩余0天」）。已过期 → `剩余0天`（兜底，正常不出现）。
-String xbResetText(DateTime nextResetAt, {DateTime? now}) {
+/// 剩余时间统一文案（到期 / 流量重置共用，框架化单一真源）：
+/// - 剩余 >1 天 → `剩余N天`（向下取整）；
+/// - 不足 1 天 → `剩余N小时`（向上取整，最少 1 小时）；
+/// - 已过（diff<=0）→ 返回 [expiredText]（到期传「已过期」语义由调用方拼；流量重置每月循环、
+///   target 恒在未来不会触发，默认 `剩余0小时` 仅兜底）。
+String xbRemainLabel(DateTime target, {DateTime? now, String? expiredText}) {
   final base = now ?? DateTime.now();
+  final ms = target.difference(base).inMilliseconds;
+  if (ms <= 0) return expiredText ?? '剩余0小时';
+  const dayMs = 86400000;
+  if (ms >= dayMs) return '剩余${ms ~/ dayMs}天';
+  final hours = (ms + 3600000 - 1) ~/ 3600000; // 向上取整
+  return '剩余${hours < 1 ? 1 : hours}小时';
+}
+
+/// 流量重置行文案：`流量重置 每月N号HH:mm分（剩余N天/N小时）`。
+///
+/// [nextResetAt] = 后端 next_reset_at（下次重置时刻）。N号/时分取自它本身。剩余时间统一走
+/// [xbRemainLabel]（与到期同口径，按真实时间差，不再「向上取整最少1天」）。每月循环故恒在未来。
+String xbResetText(DateTime nextResetAt, {DateTime? now}) {
   final hm = '${_pad2(nextResetAt.hour)}:${_pad2(nextResetAt.minute)}';
-  final ms = nextResetAt.difference(base).inMilliseconds;
-  // 向上取整：未过期(ms>0)时 ceil 必 ≥1，故「剩 1 小时」也得「剩余1天」；已过期 → 0。
-  final left = ms <= 0 ? 0 : ((ms + 86400000 - 1) ~/ 86400000);
-  return '流量重置 每月${nextResetAt.day}号$hm分（剩余$left天）';
+  final remain = xbRemainLabel(nextResetAt, now: now);
+  return '流量重置 每月${nextResetAt.day}号$hm分（$remain）';
 }
 
 /// 两位补零。

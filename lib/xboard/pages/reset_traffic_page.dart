@@ -155,7 +155,8 @@ class _ResetTrafficPageState extends ConsumerState<ResetTrafficPage> {
                   style: TextStyle(
                       fontSize: 21,
                       fontWeight: FontWeight.w700,
-                      color: scheme.primary)),
+                      color: scheme.primary,
+                      fontFeatures: const [FontFeature.tabularFigures()])),
             ],
           ),
         ),

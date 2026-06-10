@@ -182,7 +182,10 @@ class _PlanOptCard extends StatelessWidget {
                             style: TextStyle(
                                 fontSize: 22,
                                 fontWeight: FontWeight.w700,
-                                color: scheme.primary),
+                                color: scheme.primary,
+                                fontFeatures: const [
+                                  FontFeature.tabularFigures()
+                                ]),
                           ),
                           TextSpan(
                             text: ' /${planPeriodLabel(min.period)} 起',

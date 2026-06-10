@@ -271,13 +271,9 @@ class _AccountCard extends StatelessWidget {
     if (sub.expiredAt == null) return '长期有效';
     final d = sub.expiredAt!;
     final ymd = xbDateMinute(d);
-    // 剩余天数（原型：到期 YYYY-MM-DD HH:mm（剩 N 天））。
-    final days = d
-        .difference(DateTime(
-            DateTime.now().year, DateTime.now().month, DateTime.now().day))
-        .inDays;
-    if (days < 0) return '已到期 $ymd';
-    return '到期 $ymd（剩 $days 天）';
+    // 已过期 → 「已过期 日期」（不显示剩余）；未过期 → 「到期 日期（剩余N天/N小时）」。
+    if (!d.isAfter(DateTime.now())) return '已过期 $ymd';
+    return '到期 $ymd（${xbRemainLabel(d)}）';
   }
 
   /// 流量重置行：有重置日才显示（一次性套餐无）。`每月N号HH:mm分（剩余N天）`。
@@ -430,7 +426,17 @@ class _ResetCard extends StatelessWidget {
           ),
           child: Row(
             children: [
-              const Icon(Icons.warning_rounded, color: warn, size: 21),
+              // 琥珀圆角徽标包警示图标（与全 app 徽标语言统一，不裸放）。
+              Container(
+                width: 34,
+                height: 34,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: warn.withValues(alpha: 0.16),
+                  borderRadius: BorderRadius.circular(XbTokens.rSm),
+                ),
+                child: const Icon(Icons.warning_rounded, color: warn, size: 19),
+              ),
               const SizedBox(width: 11),
               Expanded(
                 child: Column(
@@ -738,6 +744,7 @@ class _SettingsSection extends ConsumerWidget {
       message: '退出后需重新登录才能连接和管理套餐，确定退出吗？',
       confirmLabel: '退出登录',
       destructive: true,
+      icon: Icons.logout_rounded,
     );
     if (!ok || !context.mounted) return;
     // 登出编排有网络耗时（服务端撤销 token）→ 弹不可关闭 loading，完成后自动消失（切游客态重建树）。

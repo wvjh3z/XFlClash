@@ -349,7 +349,8 @@ class _PlanDetailPageState extends ConsumerState<PlanDetailPage> {
               style: TextStyle(
                   fontSize: 18,
                   color: selected ? scheme.primary : t.on,
-                  fontWeight: FontWeight.w700)),
+                  fontWeight: FontWeight.w700,
+                  fontFeatures: const [FontFeature.tabularFigures()])),
         ],
       ),
     );
@@ -377,14 +378,21 @@ class _PlanDetailPageState extends ConsumerState<PlanDetailPage> {
               ),
             ),
             const SizedBox(width: 10),
-            FilledButton(
+            // 验证按钮：次级（品牌淡底描边），让输入框成为该行主体（主次平衡，原型 .cbtn）。
+            OutlinedButton(
               onPressed: _checkingCoupon ? null : _checkCoupon,
+              style: OutlinedButton.styleFrom(
+                foregroundColor: scheme.primary,
+                backgroundColor: scheme.primary.withValues(alpha: 0.10),
+                side: BorderSide(
+                    color: scheme.primary.withValues(alpha: 0.30), width: 1.5),
+              ),
               child: _checkingCoupon
-                  ? const SizedBox(
+                  ? SizedBox(
                       width: 16,
                       height: 16,
-                      child:
-                          CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                      child: CircularProgressIndicator(
+                          strokeWidth: 2, color: scheme.primary))
                   : const Text('验证'),
             ),
           ],

@@ -425,7 +425,9 @@ class XbKeyValueRow extends StatelessWidget {
               style: TextStyle(
                   fontSize: total ? 21 : 14,
                   fontWeight: total ? FontWeight.w700 : FontWeight.w600,
-                  color: valueColor ?? (total ? scheme.primary : t.on))),
+                  color: valueColor ?? (total ? scheme.primary : t.on),
+                  // 键值右值多为金额/数字 → 等宽（tabular）：竖排对齐、跳变不抖动（商用支付场景规范）。
+                  fontFeatures: const [FontFeature.tabularFigures()])),
         ],
       ),
     );
@@ -537,8 +539,18 @@ class XbPendingOrderBanner extends StatelessWidget {
         children: [
           Row(
             children: [
-              const Icon(Icons.schedule, color: warn, size: 22),
-              const SizedBox(width: 10),
+              // 琥珀圆角徽标包时钟图标（全 app 徽标语言统一）。
+              Container(
+                width: 36,
+                height: 36,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: warn.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(XbTokens.rSm),
+                ),
+                child: const Icon(Icons.schedule, color: warn, size: 20),
+              ),
+              const SizedBox(width: 11),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -559,7 +571,10 @@ class XbPendingOrderBanner extends StatelessWidget {
               const SizedBox(width: 10),
               Text(amountText,
                   style: const TextStyle(
-                      fontSize: 17, fontWeight: FontWeight.w700, color: warn)),
+                      fontSize: 17,
+                      fontWeight: FontWeight.w700,
+                      color: warn,
+                      fontFeatures: [FontFeature.tabularFigures()])),
             ],
           ),
           const SizedBox(height: 13),
@@ -632,11 +647,24 @@ class XbInfoCard extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(icon, size: 22, color: scheme.primary),
+          // 品牌圆角徽标包说明图标（全 app 徽标语言统一，不裸放）。
+          Container(
+            width: 38,
+            height: 38,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: scheme.primary.withValues(alpha: 0.13),
+              borderRadius: BorderRadius.circular(XbTokens.rSm),
+            ),
+            child: Icon(icon, size: 21, color: scheme.primary),
+          ),
           const SizedBox(width: 12),
           Expanded(
-            child: Text(text,
-                style: TextStyle(fontSize: 13, height: 1.55, color: t.on)),
+            child: Padding(
+              padding: const EdgeInsets.only(top: 1),
+              child: Text(text,
+                  style: TextStyle(fontSize: 13, height: 1.55, color: t.on)),
+            ),
           ),
         ],
       ),
