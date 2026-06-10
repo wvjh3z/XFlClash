@@ -66,11 +66,16 @@ class CrispSupportService {
       final config = CrispConfig(
         websiteID: websiteId,
         user: user,
-        sessionSegment: sourcePlatform, // 来源平台分段（Crisp 后台可筛选）。
+        sessionSegment: sourcePlatform, // 来源平台分段（configure 后由 setCrispData 设置）。
         enableNotifications: false, // 第一版不接推送（mobile FCM/APNs 未配置）。
       );
 
-      // 会话自定义数据（客服后台「会话数据」面板可见）——必须在 openCrispChat 之前写。
+      // 先 open（内部 Crisp.configure 建立 session + 设置 user/segment）。
+      await FlutterCrispChat.openCrispChat(config: config);
+
+      // ⚠️ 会话自定义数据必须在 openCrispChat（= Crisp.configure）**之后**设置——
+      // Crisp 原生 SDK 要求 session 就绪后 setSessionString 才生效（之前调会被丢弃，
+      // 这是套餐/到期/流量曾传不过去的根因）。每次点击都重设一次（数据随最新订阅刷新）。
       _setStr('source', sourcePlatform);
       if (sub != null) {
         _setStr('plan', sub.planName ?? '未订阅');
@@ -78,8 +83,6 @@ class CrispSupportService {
         _setStr('remaining_traffic', '${xbGb(sub.remainingBytes)} GB');
         _setInt('used_percent', _usedPercent(sub));
       }
-
-      await FlutterCrispChat.openCrispChat(config: config);
       return true;
     } catch (e, s) {
       debugPrint('[CrispSupportService] open failed: $e\n$s');
