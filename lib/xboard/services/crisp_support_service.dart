@@ -9,12 +9,17 @@
 /// `XB_CRISP_WEBSITE_ID`，NFR-2 零硬编码）。空串 = 未配置 → [isEnabled] false，
 /// 「帮助与客服」入口隐藏（不暴露空会话）。
 ///
-/// **带给客服的上下文**（已登录用户，关联工单）：
-/// - 邮箱 → `User.email`（身份卡，便于客服检索）；昵称取邮箱前缀（会话列表易读）。
-/// - 套餐名 / 到期时间 / 剩余流量 → `setSessionString`（客服后台「会话数据」面板可见）。
-/// - 来源平台（Android/Windows/macOS/Linux）→ `sessionSegment` + 会话数据「来源」。
+/// **带给客服的上下文**（已登录用户，关联工单）—— 字段对齐 EZ-Xbaord / Crisp_bot 格式：
+/// - 邮箱 → `User.email`（身份卡，bot 读顶层 email）；昵称取邮箱前缀（会话列表易读）。
+/// - 会话数据（`setSessionString`，Crisp 后台「会话数据」面板可见，bot `_META_FIELDS` 消费）：
+///   `Email` / `Plan`(套餐名) / `Expires`(到期) / `Traffic`(剩余流量 GB) / `Source`(来源平台+客户端版本)。
 /// - 设备区域（locale 国家码，如 CN/US）→ `GeoLocation.country`。**诚实局限**：app 不采集
 ///   用户精确城市，city 留空；Crisp 服务端本身会按访客 IP 自动定位，此处仅补设备区域信号。
+///
+/// > **字段对齐说明**：键名严格用 Crisp_bot `formatters._META_FIELDS` 的大写键（`Plan/Expires/
+/// > Traffic/Balance`）+ EZ-Xbaord `CustomerService.vue` 的 `{Email,Plan,Expires,Traffic}`。
+/// > `Balance`(余额) 本端无数据源（SDK getSubscribe 不含余额），暂不发；`Source` 是本端附加
+/// > （bot 默认不渲染，需在 bot `_META_FIELDS` 加 `Source` 才在 TG 显示，Crisp 后台始终可见）。
 ///
 /// **复用边界**：本服务是 ◇ Xboard 自有代码（不经 FlClash adapter，无风险②）。
 /// 游客（无订阅）只带来源平台，不带账号数据（匿名会话）。
@@ -32,7 +37,8 @@ import 'package:flutter/foundation.dart';
 
 import '../config/xboard_config.dart';
 import '../models/xb_domain_subscription.dart';
-import '../util/format.dart';
+import '../util/app_version.dart' show myClientVersionLabel;
+import '../util/format.dart' show xbDate;
 
 /// Crisp 在线客服服务（静态封装，无状态）。
 class CrispSupportService {
@@ -103,12 +109,13 @@ class CrispSupportService {
         debugPrint('[CrispSupportService] session 未就绪（~15s），会话数据跳过');
         return;
       }
-      _setStr('source', sourcePlatform);
+      // 字段名对齐 Crisp_bot/EZ-Xbaord 格式（大写键，bot _META_FIELDS 消费）。
+      _setStr('Source', _sourceLabel); // 来源平台 + 客户端版本（本端附加）。
       if (sub != null) {
-        _setStr('plan', sub.planName ?? '未订阅');
-        _setStr('expire', _expireText(sub));
-        _setStr('remaining_traffic', '${xbGb(sub.remainingBytes)} GB');
-        _setInt('used_percent', _usedPercent(sub));
+        _setStr('Email', sub.email);
+        _setStr('Plan', sub.planName ?? '未订阅套餐');
+        _setStr('Expires', _expiresText(sub));
+        _setStr('Traffic', '${_remainingGb(sub)} GB');
       }
     } catch (e, s) {
       debugPrint('[CrispSupportService] apply session data failed: $e\n$s');
@@ -134,35 +141,29 @@ class CrispSupportService {
     return '未知客户端';
   }
 
+  /// 来源标签（会话数据 `Source`）：`来源平台 · v{产品版本}-{buildTag}`，如
+  /// `Android 客户端 · v0.0.1-202606110552`。客服可一眼看出端 + 客户端版本（排障用）。
+  static String get _sourceLabel => '$sourcePlatform · ${myClientVersionLabel()}';
+
   /// 设备区域国家码（locale countryCode，如 CN/US；缺失返 null）。真实设备区域设置，不编造。
   static String? _deviceCountry() {
     final cc = PlatformDispatcher.instance.locale.countryCode?.trim();
     return (cc == null || cc.isEmpty) ? null : cc;
   }
 
-  /// 到期文案：长期有效 / 已过期 日期 / 日期（与账号卡口径一致）。
-  static String _expireText(XbDomainSubscription sub) {
+  /// 到期文案（会话数据 `Expires`）：对齐 EZ-Xbaord —— 无到期 → `无限期`；否则 `YYYY-MM-DD`。
+  static String _expiresText(XbDomainSubscription sub) {
     final d = sub.expiredAt;
-    if (d == null) return '长期有效';
-    final ymd = xbDateMinute(d);
-    return d.isAfter(DateTime.now()) ? ymd : '已过期 $ymd';
+    return d == null ? '无限期' : xbDate(d);
   }
 
-  /// 已用流量百分比（整数，0~100）。
-  static int _usedPercent(XbDomainSubscription sub) {
-    if (sub.totalBytes <= 0) return 0;
-    return xbPercentInt((sub.usedBytes / sub.totalBytes).clamp(0.0, 1.0));
-  }
+  /// 剩余流量 GB（保留 2 位小数，对齐 EZ-Xbaord `remainingGB.toFixed(2)`）。
+  static String _remainingGb(XbDomainSubscription sub) =>
+      (sub.remainingBytes / (1024 * 1024 * 1024)).toStringAsFixed(2);
 
   static void _setStr(String key, String value) {
     try {
       FlutterCrispChat.setSessionString(key: key, value: value);
-    } catch (_) {/* 永不抛 */}
-  }
-
-  static void _setInt(String key, int value) {
-    try {
-      FlutterCrispChat.setSessionInt(key: key, value: value);
     } catch (_) {/* 永不抛 */}
   }
 }

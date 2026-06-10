@@ -94,8 +94,18 @@ void main() {
           .where((c) => c.method == 'setSessionString')
           .map((c) => (c.arguments as Map)['key'])
           .toList();
+      // 字段名对齐 Crisp_bot/EZ-Xbaord：Email/Plan/Expires/Traffic + Source。
       expect(strKeys,
-          containsAll(['plan', 'expire', 'remaining_traffic', 'source']));
+          containsAll(['Email', 'Plan', 'Expires', 'Traffic', 'Source']));
+      // 不再发 used_percent / 小写旧键。
+      expect(strKeys, isNot(contains('used_percent')));
+      expect(strKeys, isNot(contains('plan')));
+      // Source 带客户端版本（含 v 前缀）。
+      final source = calls.firstWhere((c) =>
+          c.method == 'setSessionString' &&
+          (c.arguments as Map)['key'] == 'Source');
+      expect((source.arguments as Map)['value'] as String, contains('客户端'));
+      expect((source.arguments as Map)['value'] as String, contains('v'));
     });
 
     test('游客（sub=null）→ 仅带来源，仍返 true', () async {
@@ -112,8 +122,8 @@ void main() {
           .where((c) => c.method == 'setSessionString')
           .map((c) => (c.arguments as Map)['key'])
           .toList();
-      expect(strKeys, contains('source'));
-      expect(strKeys, isNot(contains('plan')), reason: '游客不带套餐数据');
+      expect(strKeys, contains('Source'));
+      expect(strKeys, isNot(contains('Plan')), reason: '游客不带套餐数据');
     });
 
     test('平台抛异常 → 捕获返 false（永不抛）', () async {
