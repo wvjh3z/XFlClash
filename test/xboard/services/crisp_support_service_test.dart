@@ -51,9 +51,11 @@ void main() {
     });
   });
 
-  test('sourcePlatform 非空（含「客户端」字样）', () {
+  test('sourcePlatform 非空（平台名）', () {
     expect(CrispSupportService.sourcePlatform, isNotEmpty);
-    expect(CrispSupportService.sourcePlatform, contains('客户端'));
+    expect(
+        ['Android', 'iOS', 'Windows', 'macOS', 'Linux', '未知'],
+        contains(CrispSupportService.sourcePlatform));
   });
 
   group('open', () {
@@ -100,12 +102,13 @@ void main() {
       // 不再发 used_percent / 小写旧键。
       expect(strKeys, isNot(contains('used_percent')));
       expect(strKeys, isNot(contains('plan')));
-      // Source 带客户端版本（含 v 前缀）。
+      // Source 带客户端版本，格式 `平台(v...)`，如 Android(v0.0.1-...)。
       final source = calls.firstWhere((c) =>
           c.method == 'setSessionString' &&
           (c.arguments as Map)['key'] == 'Source');
-      expect((source.arguments as Map)['value'] as String, contains('客户端'));
-      expect((source.arguments as Map)['value'] as String, contains('v'));
+      final srcVal = (source.arguments as Map)['value'] as String;
+      expect(srcVal, contains('(v'));
+      expect(srcVal, endsWith(')'));
     });
 
     test('游客（sub=null）→ 仅带来源，仍返 true', () async {

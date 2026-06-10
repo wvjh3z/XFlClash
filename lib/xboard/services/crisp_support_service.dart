@@ -133,17 +133,17 @@ class CrispSupportService {
 
   /// 来源平台标识（客服一眼看出用户从哪个端来）。
   static String get sourcePlatform {
-    if (Platform.isAndroid) return 'Android 客户端';
-    if (Platform.isIOS) return 'iOS 客户端';
-    if (Platform.isWindows) return 'Windows 客户端';
-    if (Platform.isMacOS) return 'macOS 客户端';
-    if (Platform.isLinux) return 'Linux 客户端';
-    return '未知客户端';
+    if (Platform.isAndroid) return 'Android';
+    if (Platform.isIOS) return 'iOS';
+    if (Platform.isWindows) return 'Windows';
+    if (Platform.isMacOS) return 'macOS';
+    if (Platform.isLinux) return 'Linux';
+    return '未知';
   }
 
-  /// 来源标签（会话数据 `Source`）：`来源平台 · v{产品版本}-{buildTag}`，如
-  /// `Android 客户端 · v0.0.1-202606110552`。客服可一眼看出端 + 客户端版本（排障用）。
-  static String get _sourceLabel => '$sourcePlatform · ${myClientVersionLabel()}';
+  /// 来源标签（会话数据 `Source`）：`平台(v{产品版本}-{buildTag})`，如
+  /// `Android(v0.0.1-202606110630)`。客服可一眼看出端 + 客户端版本（排障用）。
+  static String get _sourceLabel => '$sourcePlatform(${myClientVersionLabel()})';
 
   /// 设备区域国家码（locale countryCode，如 CN/US；缺失返 null）。真实设备区域设置，不编造。
   static String? _deviceCountry() {
