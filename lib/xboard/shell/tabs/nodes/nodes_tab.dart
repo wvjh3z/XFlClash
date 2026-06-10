@@ -271,24 +271,31 @@ class _NodesHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final t = XbTokens.of(context);
     final scheme = Theme.of(context).colorScheme;
+    // 节点页专属紧凑标题行（不用共享 XbScreenTitle —— 它底部留白 12px 太大，与下方吸顶分组 tab
+    // 间距过宽，和原型不符）。标题 + 右侧刷新，底部仅 2px 间距。
     return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 4, 12, 0),
-      child: XbScreenTitle(
-        '选择线路',
-        trailing: TextButton.icon(
-          // 刷新中禁用（null onPressed → 自动变灰不可点）。
-          onPressed: refreshing ? null : onRefresh,
-          icon: refreshing
-              ? const SizedBox(
-                  width: 16,
-                  height: 16,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
-              : const Icon(Icons.refresh, size: 16),
-          label: Text(refreshing ? '刷新中…' : '刷新节点'),
-          style: TextButton.styleFrom(foregroundColor: scheme.primary),
-        ),
+      padding: const EdgeInsets.fromLTRB(16, 8, 8, 2),
+      child: Row(
+        children: [
+          Text('选择线路',
+              style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: -0.4,
+                  color: t.on)),
+          const Spacer(),
+          TextButton.icon(
+            // 刷新中禁用（null onPressed → 自动变灰不可点）。
+            onPressed: refreshing ? null : onRefresh,
+            icon: refreshing
+                ? const XbSpinner(color: XbTokens.warn, size: 16, stroke: 2)
+                : const Icon(Icons.refresh, size: 16),
+            label: Text(refreshing ? '刷新中…' : '刷新节点'),
+            style: TextButton.styleFrom(foregroundColor: scheme.primary),
+          ),
+        ],
       ),
     );
   }
