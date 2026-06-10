@@ -669,31 +669,28 @@ class _TotalRow extends StatelessWidget {
         Container(
             height: 1,
             margin: const EdgeInsets.only(top: 10),
-            color: t.hair),
+            color: t.line),
         Padding(
           padding: const EdgeInsets.only(top: 8),
           child: Row(
             children: [
+              // 标签占剩余宽（超长才省略），把金额顶到右侧。
               Expanded(
                 child: Text(label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                     style:
                         text.bodyLarge?.copyWith(fontWeight: FontWeight.w600)),
               ),
               const SizedBox(width: 8),
-              // 行内合计金额：显式 21px（不用 titleLarge=屏幕大标题 24，避免大字号缩放溢出）；
-              // 用 Flexible+FittedBox 让超大缩放时金额自适应收缩而非撑破布局。等宽数字。
-              Flexible(
-                child: FittedBox(
-                  fit: BoxFit.scaleDown,
-                  alignment: Alignment.centerRight,
-                  child: Text('¥${yuan.toStringAsFixed(2)}',
-                      style: TextStyle(
-                          fontSize: 21,
-                          fontWeight: FontWeight.w700,
-                          color: scheme.primary,
-                          fontFeatures: const [FontFeature.tabularFigures()])),
-                ),
-              ),
+              // 金额固定 21px（不用 FittedBox 缩放——它会把总额缩得比明细行金额还小、视觉错位）；
+              // 金额很短不会溢出，等宽对齐。
+              Text('¥${yuan.toStringAsFixed(2)}',
+                  style: TextStyle(
+                      fontSize: 21,
+                      fontWeight: FontWeight.w700,
+                      color: scheme.primary,
+                      fontFeatures: const [FontFeature.tabularFigures()])),
             ],
           ),
         ),
