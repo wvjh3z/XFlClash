@@ -34,6 +34,7 @@ import 'services/bootstrap_fetcher.dart';
 import 'services/bootstrap_local_loader.dart';
 import 'services/endpoint_race_controller.dart';
 import 'services/sentry_bootstrap.dart';
+import 'services/crisp_support_service.dart';
 import 'services/subscription_triggers.dart';
 import 'services/xboard_lifecycle_observer.dart';
 import 'widgets/xboard_consent_dialog.dart' show kXbConsentKey;
@@ -380,6 +381,19 @@ class XboardModule {
             if (prev != AuthState.authenticated &&
                 next == AuthState.authenticated) {
               SubscriptionTriggers.onAuthenticated(container);
+              // 登录（游客→登录）：清掉之前的匿名/旧 Crisp 会话——否则游客在 chatbox
+              // 手动填的邮箱 A 会残留，B 登录后开客服可能仍归到 A（身份串号，D9）。
+              // 注：冷启动恢复登录态的 markAuthenticated 在本监听注册之前发生（step6<step7），
+              // 故此分支只在「真实游客→登录」动作触发，不会每次冷启动误清已登录用户历史。
+              // ignore: discarded_futures
+              CrispSupportService.reset();
+            }
+            // 登出（含 token 失效自动登出）→ 清 Crisp 本地会话，避免下个用户/游客
+            // 残留上一账号的身份与会话数据（换号 / 退出客服信息不清问题，D9）。
+            if (prev == AuthState.authenticated &&
+                next != AuthState.authenticated) {
+              // ignore: discarded_futures
+              CrispSupportService.reset();
             }
           },
         );

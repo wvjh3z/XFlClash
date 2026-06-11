@@ -92,6 +92,20 @@ class CrispSupportService {
     }
   }
 
+  /// 重置 Crisp 本地会话（登出/换号时调）。
+  ///
+  /// Crisp session 在设备上持久（含访客身份 email + 会话数据 + 聊天历史）。不 reset 的话：
+  /// ① 登出后游客打开客服仍残留上一用户的 email/套餐等；② 换号登录后打开客服仍是旧 session
+  /// 带旧账号信息。reset 后下次 open 会建全新 session（新账号带新数据 / 游客匿名）。
+  /// 永不抛（DD-2）：无 session / 测试无插件时静默吞掉。
+  static Future<void> reset() async {
+    try {
+      await FlutterCrispChat.resetCrispChatSession();
+    } catch (e, s) {
+      debugPrint('[CrispSupportService] reset failed: $e\n$s');
+    }
+  }
+
   /// 后台轮询 session 就绪后写会话数据（套餐/到期/流量/来源）。
   ///
   /// Crisp session 在 openCrispChat 后异步向服务端创建；用 [getSessionIdentifier] 返非空

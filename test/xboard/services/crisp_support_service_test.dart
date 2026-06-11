@@ -140,4 +140,22 @@ void main() {
       expect(await CrispSupportService.open(), isFalse);
     });
   });
+
+  group('reset（登出/换号清会话）', () {
+    test('调 resetCrispChatSession 平台方法', () async {
+      final calls = <MethodCall>[];
+      mockCrispChannel((c) {
+        calls.add(c);
+        return null;
+      });
+      await CrispSupportService.reset();
+      expect(calls.map((c) => c.method), contains('resetCrispChatSession'));
+    });
+
+    test('平台抛异常 → 静默吞掉（永不抛）', () async {
+      mockCrispChannel((c) => throw PlatformException(code: 'no-session'));
+      // 不应抛。
+      await CrispSupportService.reset();
+    });
+  });
 }
