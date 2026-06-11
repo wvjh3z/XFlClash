@@ -46,9 +46,17 @@ void main() {
     expect(find.text('点击连接'), findsOneWidget);
   });
 
-  testWidgets('connecting → 「连接中」', (tester) async {
+  testWidgets('connecting + 冷启动核心预热（isStart=false，无连接意图）→ 「准备中」（防误显连接中）',
+      (tester) async {
     await pumpOrb(tester,
         ready: true, core: CoreStatus.connecting, isStart: false);
+    expect(find.text('准备中'), findsOneWidget);
+    expect(find.text('连接中'), findsNothing);
+  });
+
+  testWidgets('connecting + VPN 已开启（isStart=true，重连）→ 「连接中」', (tester) async {
+    await pumpOrb(tester,
+        ready: true, core: CoreStatus.connecting, isStart: true);
     expect(find.text('连接中'), findsOneWidget);
   });
 

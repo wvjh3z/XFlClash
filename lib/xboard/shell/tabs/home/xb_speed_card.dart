@@ -109,7 +109,12 @@ class _Metric extends StatelessWidget {
         ? _richValue(scheme, placeholder ?? '--', '')
         : XbCountUp(
             value: value!,
-            duration: XbMotion.base,
+            // 速率每 1 秒更新一帧：滚动时长 ≈ 刷新间隔 + 线性曲线 → 帧与帧之间持续平滑滚动，
+            // 不出现「滚一下停一会」的台阶感。延迟变化少，用短时长即可。
+            duration: isLatency
+                ? XbMotion.base
+                : const Duration(milliseconds: 1000),
+            curve: isLatency ? XbMotion.standard : Curves.linear,
             builder: (context, v) {
               final ({String value, String unit}) f = isLatency
                   ? (value: v.round().toString(), unit: 'ms')

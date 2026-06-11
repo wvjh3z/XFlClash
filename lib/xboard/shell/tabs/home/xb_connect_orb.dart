@@ -66,6 +66,13 @@ class _XbConnectOrbState extends ConsumerState<XbConnectOrb>
     with SingleTickerProviderStateMixin {
   bool _pressed = false;
 
+  /// 用户是否主动发起了连接（点击连接球/线路卡连接）。
+  ///
+  /// **为何需要**：FlClash 的 `coreStatus==connecting` 在**冷启动预热 clash 核心**时也会出现
+  /// （`connectCore()`，与用户连 VPN 无关）。若直接映射成「连接中」，冷启动没开 VPN 也会闪一下
+  /// 「正在建立加密隧道」。故仅在用户主动连接时才认作「连接中」，否则核心预热 → 显示「准备中」。
+  bool _connectIntent = false;
+
   /// 连上瞬间的回弹 pop（一次性）：scale 0.9 → 1.08 → 1.0。
   /// 静止值 = 1.0（controller 初始 value=1.0 → TweenSequence 末态 1.0），
   /// 未触发时核心保持原尺寸；forward(from:0) 才播放回弹。
@@ -94,7 +101,14 @@ class _XbConnectOrbState extends ConsumerState<XbConnectOrb>
   @override
   Widget build(BuildContext context) {
     final adapter = ref.watch(xbConnectAdapterProvider);
-    final state = adapter.connState(ref);
+    final raw = adapter.connState(ref);
+    // 冷启动核心预热（connecting，但既非用户发起、VPN 也未开启）→ 当作「准备中」，
+    // 不显示「连接中/建立加密隧道」。用户发起连接(_connectIntent) 或 VPN 已开(startIntended) 才认作连接中。
+    final state = (raw == XbConnState.connecting &&
+            !_connectIntent &&
+            !adapter.startIntended(ref))
+        ? XbConnState.booting
+        : raw;
     final scheme = Theme.of(context).colorScheme;
     final size = widget.size;
     final reduced = XbMotion.reduced(context);
@@ -188,6 +202,8 @@ class _XbConnectOrbState extends ConsumerState<XbConnectOrb>
       final block = widget.onBlocked!();
       if (block != null) return; // 被拦截（回调内已弹提示），不连接。
     }
+    // 记录连接意图：发起连接 → true（让 connecting 态认作真实连接中）；断开 → false。
+    _connectIntent = initiatingConnect;
     adapter.toggle(ref);
     // 发起连接时测一次当前生效节点延迟（3 次取最低，刷到首页速度卡）。fire-and-forget。
     if (initiatingConnect) {

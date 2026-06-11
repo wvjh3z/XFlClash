@@ -26,7 +26,6 @@ import 'package:fl_clash/xboard/util/format.dart';
 import 'package:fl_clash/xboard/widgets/xb_components.dart';
 import 'package:fl_clash/xboard/widgets/xb_feedback.dart'
     show xbConfirm, xbBrandColor, xbToast;
-import 'package:fl_clash/xboard/widgets/xb_motion.dart';
 import 'package:fl_clash/xboard/widgets/xb_theme.dart'
     show xbPush, xbShowDialog, XbTokens;
 
@@ -37,10 +36,14 @@ const _resetThreshold = 0.90;
 
 /// 我的 Tab。
 class MineTab extends ConsumerWidget {
-  const MineTab({super.key, this.onTapLogin});
+  const MineTab({super.key, this.onTapLogin, this.active = true});
 
   /// 游客点击登录（shell 注入，W5 接线）。
   final VoidCallback? onTapLogin;
+
+  /// 当前是否为可见 Tab（shell 注入 `_tabIndex==2`）：变可见时账号卡播放流量填充动画。
+  /// 默认 true（标准/golden 直接渲染场景照常播放并 settle 到终值）。
+  final bool active;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -56,7 +59,7 @@ class MineTab extends ConsumerWidget {
           if (isGuest)
             _GuestCard(onTapLogin: onTapLogin)
           else
-            const _AccountSection(),
+            _AccountSection(active: active),
           const SizedBox(height: 16),
           _SettingsSection(isGuest: isGuest),
         ],
@@ -67,7 +70,10 @@ class MineTab extends ConsumerWidget {
 
 /// 已登录账号区：账号卡（loading 骨架 / data）+ 续费购买分流 + 重置入口。
 class _AccountSection extends ConsumerStatefulWidget {
-  const _AccountSection();
+  const _AccountSection({required this.active});
+
+  /// 当前是否可见 Tab（透传给账号卡触发填充动画）。
+  final bool active;
 
   @override
   ConsumerState<_AccountSection> createState() => _AccountSectionState();
@@ -107,7 +113,7 @@ class _AccountSectionState extends ConsumerState<_AccountSection> {
       error: (e, _) => _AccountErrorCard(onRetry: _retry),
       data: (sub) => Column(
         children: [
-          _AccountCard(sub: sub),
+          _AccountCard(sub: sub, active: widget.active),
           const SizedBox(height: 12),
           _PlanActions(sub: sub),
         ],
@@ -117,21 +123,73 @@ class _AccountSectionState extends ConsumerState<_AccountSection> {
 }
 
 /// 账号卡（原型 .plan：品牌渐变卡 + 白字 + 大号流量数字 + 到期/重置两行，R6.1/R6.2）。
-class _AccountCard extends StatelessWidget {
-  const _AccountCard({required this.sub});
+class _AccountCard extends StatefulWidget {
+  const _AccountCard({required this.sub, this.active = true});
 
   final XbDomainSubscription sub;
 
+  /// 变为可见时播放「流量数字 count-up + 进度条填充」动画（从 0 到终值）。
+  final bool active;
+
+  @override
+  State<_AccountCard> createState() => _AccountCardState();
+}
+
+class _AccountCardState extends State<_AccountCard>
+    with SingleTickerProviderStateMixin {
+  /// 填充进度 0→1：同时驱动已用流量数字 count-up、已用百分比、进度条填充。
+  /// 在卡片变可见（active=true）时从 0 重放；reduce-motion 时直接置 1（无动画）。
+  late final AnimationController _fill = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 700),
+    value: widget.active ? 0.0 : 1.0,
+  );
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.active) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _play();
+      });
+    }
+  }
+
+  @override
+  void didUpdateWidget(_AccountCard old) {
+    super.didUpdateWidget(old);
+    // Tab 变为可见（不可见→可见）→ 重放填充。
+    if (widget.active && !old.active) _play();
+  }
+
+  void _play() {
+    if (_reduced) {
+      _fill.value = 1.0;
+    } else {
+      _fill.forward(from: 0);
+    }
+  }
+
+  bool get _reduced =>
+      MediaQuery.maybeDisableAnimationsOf(context) ?? false;
+
+  @override
+  void dispose() {
+    _fill.dispose();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
+    final sub = widget.sub;
     final scheme = Theme.of(context).colorScheme;
     final usedPct = sub.totalBytes == 0
         ? 0.0
         : (sub.usedBytes / sub.totalBytes).clamp(0.0, 1.0);
-    final pctInt = (usedPct * 100).round();
     final hot = usedPct >= _resetThreshold;
     const white = Colors.white;
     final white70 = Colors.white.withValues(alpha: 0.88);
+    final usedGb = sub.usedBytes / (1024 * 1024 * 1024);
 
     return Container(
       padding: const EdgeInsets.fromLTRB(18, 16, 18, 16),
@@ -210,11 +268,11 @@ class _AccountCard extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.baseline,
             textBaseline: TextBaseline.alphabetic,
             children: [
-              // 已用流量 GB：count-up 滚动到终值（有限动画，golden settle 后值不变）。
-              XbCountUp(
-                value: sub.usedBytes / (1024 * 1024 * 1024),
-                builder: (context, v) => Text(
-                  v.toStringAsFixed(1),
+              // 已用流量 GB：随 _fill 从 0 count-up 到终值（变可见时重放，golden settle 后不变）。
+              AnimatedBuilder(
+                animation: _fill,
+                builder: (context, _) => Text(
+                  (usedGb * _fill.value).toStringAsFixed(1),
                   style: const TextStyle(
                     fontSize: 23,
                     fontWeight: FontWeight.w700,
@@ -233,27 +291,28 @@ class _AccountCard extends StatelessWidget {
                 ),
               ),
               const Spacer(),
-              Text(
-                '已用 $pctInt%',
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                  color: hot ? const Color(0xFFFFE1DA) : white70,
-                  fontFeatures: const [FontFeature.tabularFigures()],
+              AnimatedBuilder(
+                animation: _fill,
+                builder: (context, _) => Text(
+                  '已用 ${(usedPct * 100 * _fill.value).round()}%',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: hot ? const Color(0xFFFFE1DA) : white70,
+                    fontFeatures: const [FontFeature.tabularFigures()],
+                  ),
                 ),
               ),
             ],
           ),
           const SizedBox(height: 9),
-          // 进度条（白色填充）：animated 填充到终值（有限动画，golden settle 后不变）。
+          // 进度条（白色填充）：随 _fill 从 0 填充到终值（变可见时重放，golden settle 后不变）。
           ClipRRect(
             borderRadius: BorderRadius.circular(6),
-            child: TweenAnimationBuilder<double>(
-              tween: Tween<double>(end: usedPct),
-              duration: XbMotion.reduced(context) ? Duration.zero : XbMotion.slow,
-              curve: XbMotion.standard,
-              builder: (context, v, _) => LinearProgressIndicator(
-                value: v,
+            child: AnimatedBuilder(
+              animation: _fill,
+              builder: (context, _) => LinearProgressIndicator(
+                value: usedPct * _fill.value,
                 minHeight: 10,
                 backgroundColor: Colors.white.withValues(alpha: 0.25),
                 valueColor: AlwaysStoppedAnimation(

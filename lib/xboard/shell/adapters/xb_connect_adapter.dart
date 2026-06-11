@@ -58,6 +58,12 @@ class XbConnectAdapter {
   /// 当前是否「已连接」（便捷判断，等价 connState==connected）。
   bool isConnected(WidgetRef ref) => connState(ref) == XbConnState.connected;
 
+  /// VPN 是否处于「应开启」意图（runTime 已置位）。
+  ///
+  /// 用于区分「用户/系统让 VPN 开着」(true) 与「冷启动核心预热」(false)：后者 `coreStatus`
+  /// 也会短暂为 connecting，但 `isStart` 为 false → 外形层据此把预热判为「准备中」而非「连接中」。
+  bool startIntended(WidgetRef ref) => ref.watch(isStartProvider);
+
   /// 连接操作是否可用（booting 态禁用，R2.5）。
   bool canToggle(WidgetRef ref) => connState(ref) != XbConnState.booting;
 

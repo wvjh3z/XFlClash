@@ -106,7 +106,10 @@ class _XboardAppShellState extends ConsumerState<XboardAppShell> {
             ),
             XbErrorBoundary(
               label: '我的',
-              child: MineTab(onTapLogin: () => showLoginSheet(context)),
+              child: MineTab(
+                active: _tabIndex == 2,
+                onTapLogin: () => showLoginSheet(context),
+              ),
             ),
           ],
         ),

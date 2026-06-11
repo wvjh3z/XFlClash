@@ -58,6 +58,9 @@ Future<void> pumpMine(
   await tester.pump(); // 触发 provider future
   await tester.pump(const Duration(milliseconds: 50));
   await tester.pump(const Duration(milliseconds: 50));
+  // 账号卡进入时有「流量数字 count-up + 进度条填充」入场动画（_fill 700ms 有限动画）。
+  // 再 pump 让它跑完，断言取终值（用量%/流量数字）。
+  await tester.pump(const Duration(milliseconds: 800));
 }
 
 void main() {
