@@ -787,9 +787,14 @@ class XbEmptyState extends StatelessWidget {
   Widget build(BuildContext context) {
     final t = XbTokens.of(context);
     final scheme = Theme.of(context).colorScheme;
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(32),
+    // 高度够时居中、不够时可滚（横屏/分屏/多窗口/折叠屏/超大字体下不再底部溢出）。
+    return LayoutBuilder(
+      builder: (context, constraints) => SingleChildScrollView(
+        child: ConstrainedBox(
+          constraints: BoxConstraints(minHeight: constraints.maxHeight),
+          child: Center(
+            child: Padding(
+              padding: const EdgeInsets.all(32),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -845,7 +850,10 @@ class XbEmptyState extends StatelessWidget {
           ],
         ),
       ),
-    );
+              ),
+            ),
+          ),
+        );
   }
 }
 

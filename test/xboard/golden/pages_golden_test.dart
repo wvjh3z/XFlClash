@@ -217,7 +217,8 @@ void main() {
         ],
         child: app(const XbBrandTheme(
           brandColor: Color(0xFFD92E1A),
-          child: MineTab(),
+          // active:false → 账号卡填充动画直接置终态（不播放），golden 像素确定、不因动画末帧抖动。
+          child: MineTab(active: false),
         )),
       ),
     );
