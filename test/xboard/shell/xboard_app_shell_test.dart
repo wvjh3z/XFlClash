@@ -77,7 +77,7 @@ void main() {
     ErrorWidget.builder = original;
   });
 
-  testWidgets('点击底栏切换到节点 Tab', (tester) async {
+  testWidgets('点击底栏横滑切换到节点 Tab', (tester) async {
     final original = ErrorWidget.builder;
     final container = _container();
     addTearDown(container.dispose);
@@ -85,18 +85,24 @@ void main() {
     // 点底栏「节点」（用 XbBottomBar 内的，避开页面标题歧义）。
     await tester.tap(find.text('节点').last);
     await tester.pumpAndSettle();
-    final stack = tester.widget<IndexedStack>(find.byType(IndexedStack));
-    expect(stack.index, 1);
+    // 横滑落定 → 节点页内容（「选择线路」标题）可见。
+    expect(find.text('选择线路'), findsOneWidget);
     ErrorWidget.builder = original;
   });
 
-  testWidgets('IndexedStack 保活：三 Tab 子树同时在树上', (tester) async {
+  testWidgets('PageView 保活：切到节点再切回首页，首页状态不丢', (tester) async {
     final original = ErrorWidget.builder;
     final container = _container();
     addTearDown(container.dispose);
     await pump(tester, container);
-    final stack = tester.widget<IndexedStack>(find.byType(IndexedStack));
-    expect(stack.children.length, 3);
+    expect(find.byType(PageView), findsOneWidget);
+    // 切到节点。
+    await tester.tap(find.text('节点').last);
+    await tester.pumpAndSettle();
+    // 切回首页 → 连接球仍在（keep-alive，未因重建丢状态）。
+    await tester.tap(find.text('首页').last);
+    await tester.pumpAndSettle();
+    expect(find.text('未连接'), findsOneWidget);
     ErrorWidget.builder = original;
   });
 }

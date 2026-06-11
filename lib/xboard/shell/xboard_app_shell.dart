@@ -38,6 +38,14 @@ class _XboardAppShellState extends ConsumerState<XboardAppShell> {
   /// （接口约定，避免与 FlClash 导航状态机耦合）。
   int _tabIndex = 0;
 
+  /// 三 Tab 横向滑动控制（点底栏/线路卡 → 页面横滑过去，带方向感）。
+  /// 各 Tab 用 keep-alive 保活（切走不重建，状态/滚动位置不丢）。
+  final PageController _pager = PageController();
+
+  /// Tab 切换横滑时长/曲线。
+  static const _slideDur = Duration(milliseconds: 300);
+  static const _slideCurve = Curves.easeOutCubic;
+
   /// 首页「当前线路」点击 → 节点页定位目标（分组 + 节点）+ 自增请求序号
   /// （序号自增让 NodesTab 即便目标相同也能再次触发定位）。
   String? _nodeTargetGroup;
@@ -55,16 +63,40 @@ class _XboardAppShellState extends ConsumerState<XboardAppShell> {
     print('[XB-VERSION] ${myClientVersionLabel()}');
   }
 
-  void _onTabSelected(int index) => setState(() => _tabIndex = index);
+  @override
+  void dispose() {
+    _pager.dispose();
+    super.dispose();
+  }
 
-  /// 首页点「当前线路」：记录定位目标 + 自增序号 → 切到节点 Tab。
+  /// 底栏点击 → 横滑到目标页。
+  void _onTabSelected(int index) {
+    if (index == _tabIndex) return;
+    _slideTo(index);
+  }
+
+  /// 页面横滑落定（含手指滑动）→ 同步选中态。
+  void _onPageChanged(int index) {
+    if (index != _tabIndex) setState(() => _tabIndex = index);
+  }
+
+  void _slideTo(int index) {
+    setState(() => _tabIndex = index);
+    if (MediaQuery.maybeDisableAnimationsOf(context) ?? false) {
+      _pager.jumpToPage(index); // 减弱动态效果 → 瞬切。
+    } else {
+      _pager.animateToPage(index, duration: _slideDur, curve: _slideCurve);
+    }
+  }
+
+  /// 首页点「当前线路」：记录定位目标 + 自增序号 → 横滑到节点 Tab。
   void _onTapToNodes(String? group, String? node) {
     setState(() {
       _nodeTargetGroup = group;
       _nodeTargetNode = node;
       _nodeTargetNonce++;
-      _tabIndex = 1;
     });
+    _slideTo(1);
   }
 
   @override
@@ -79,36 +111,44 @@ class _XboardAppShellState extends ConsumerState<XboardAppShell> {
   }
 
   Widget _buildScaffold(BuildContext context) {
-    // body 用 IndexedStack 保活（切 Tab 不重建，R1.4）。
+    // body 用 PageView 横向滑动切换（点底栏 animateToPage / 手指左右滑）。
+    // 每个 Tab 用 _KeepAliveTab 保活（切走不 dispose，状态/滚动位置不丢，等价原 IndexedStack）。
     return Scaffold(
       body: SafeArea(
         bottom: false,
-        child: IndexedStack(
-          index: _tabIndex,
+        child: PageView(
+          controller: _pager,
+          onPageChanged: _onPageChanged,
           children: [
             // 每个 Tab body 外包 XbErrorBoundary（R1.7：单 Tab 崩不波及内核 / 其它 Tab）。
-            XbErrorBoundary(
-              label: '首页',
-              child: HomeTab(
-                onTapToNodes: _onTapToNodes,
-                onTapLogin: () => showLoginSheet(context),
+            _KeepAliveTab(
+              child: XbErrorBoundary(
+                label: '首页',
+                child: HomeTab(
+                  onTapToNodes: _onTapToNodes,
+                  onTapLogin: () => showLoginSheet(context),
+                ),
               ),
             ),
-            XbErrorBoundary(
-              label: '节点',
-              child: NodesTab(
-                onTapRenew: () => _onTabSelected(2),
-                onTapLogin: () => showLoginSheet(context),
-                targetGroup: _nodeTargetGroup,
-                targetNode: _nodeTargetNode,
-                targetNonce: _nodeTargetNonce,
+            _KeepAliveTab(
+              child: XbErrorBoundary(
+                label: '节点',
+                child: NodesTab(
+                  onTapRenew: () => _onTabSelected(2),
+                  onTapLogin: () => showLoginSheet(context),
+                  targetGroup: _nodeTargetGroup,
+                  targetNode: _nodeTargetNode,
+                  targetNonce: _nodeTargetNonce,
+                ),
               ),
             ),
-            XbErrorBoundary(
-              label: '我的',
-              child: MineTab(
-                active: _tabIndex == 2,
-                onTapLogin: () => showLoginSheet(context),
+            _KeepAliveTab(
+              child: XbErrorBoundary(
+                label: '我的',
+                child: MineTab(
+                  active: _tabIndex == 2,
+                  onTapLogin: () => showLoginSheet(context),
+                ),
               ),
             ),
           ],
@@ -120,5 +160,28 @@ class _XboardAppShellState extends ConsumerState<XboardAppShell> {
         onTap: _onTabSelected,
       ),
     );
+  }
+}
+
+/// PageView 子页保活包装：让滑走的 Tab 不被 dispose（保留滚动位置 / State），
+/// 等价原 IndexedStack 的保活语义。
+class _KeepAliveTab extends StatefulWidget {
+  const _KeepAliveTab({required this.child});
+
+  final Widget child;
+
+  @override
+  State<_KeepAliveTab> createState() => _KeepAliveTabState();
+}
+
+class _KeepAliveTabState extends State<_KeepAliveTab>
+    with AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive => true;
+
+  @override
+  Widget build(BuildContext context) {
+    super.build(context); // AutomaticKeepAliveClientMixin 要求调用。
+    return widget.child;
   }
 }
