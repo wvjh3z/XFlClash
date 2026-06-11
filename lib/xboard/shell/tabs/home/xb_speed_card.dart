@@ -19,54 +19,14 @@ import 'package:fl_clash/xboard/widgets/xb_motion.dart';
 import '../../adapters/xb_traffic_adapter.dart';
 
 /// 速度卡。
-class XbSpeedCard extends ConsumerWidget {
+class XbSpeedCard extends ConsumerStatefulWidget {
   const XbSpeedCard({super.key, this.latencyMs});
 
   /// 当前线路延迟（ms）；null = 未连接 / 未知（显示 `--`）。
   final int? latencyMs;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final scheme = Theme.of(context).colorScheme;
-    final adapter = ref.watch(xbTrafficAdapterProvider);
-    final traffic = adapter.currentTraffic(ref);
-
-    final hasLatency = latencyMs != null;
-    // 三张独立卡（各带圆角 + 细边 + 阴影），单行横排。
-    return Row(
-      children: [
-        Expanded(
-          child: _Metric(
-            icon: Icons.south,
-            iconColor: scheme.primary,
-            // 下载：按比特率 kbps count-up，逐帧格式化（避免 Kbps/Mbps 边界数值跳变）。
-            value: traffic.down * 8 / 1000,
-            placeholder: null,
-          ),
-        ),
-        const SizedBox(width: 9),
-        Expanded(
-          child: _Metric(
-            icon: Icons.north,
-            iconColor: XbTokens.ok,
-            value: traffic.up * 8 / 1000,
-            placeholder: null,
-          ),
-        ),
-        const SizedBox(width: 9),
-        Expanded(
-          child: _Metric(
-            icon: Icons.network_ping,
-            iconColor: scheme.onSurfaceVariant,
-            // 延迟：直接 ms 数值 count-up；未连接显 `--`。
-            value: hasLatency ? latencyMs!.toDouble() : null,
-            isLatency: true,
-            placeholder: '--',
-          ),
-        ),
-      ],
-    );
-  }
+  ConsumerState<XbSpeedCard> createState() => _XbSpeedCardState();
 
   /// 比特率(kbps) → 速率串 + 单位：<1Mbps 显 **Kbps**，≥1Mbps 显 **Mbps**。
   /// 逐帧调用（接收 count-up 的当前插值），保证单位/精度按当前帧值决定、平滑过渡。
@@ -77,6 +37,75 @@ class XbSpeedCard extends ConsumerWidget {
     return (
       value: mbps >= 100 ? mbps.round().toString() : mbps.toStringAsFixed(1),
       unit: 'Mbps',
+    );
+  }
+}
+
+class _XbSpeedCardState extends ConsumerState<XbSpeedCard> {
+  // —— EMA 平滑（kbps）——
+  // 真实网速逐秒采样抖动大，直接显示会「乱跳」。对下载/上传各做指数加权平均（EMA）压抖动，
+  // 再喂给 count-up 滚动 → 数字平缓变化、不毛躁。首帧不平滑（=原值，单测/初见即真值）。
+  static const double _emaAlpha = 0.35; // 越小越平缓（惯性越大）
+  double? _down; // 平滑后下载 kbps
+  double? _up; // 平滑后上传 kbps
+  num? _lastRawDown;
+  num? _lastRawUp;
+
+  double _smooth(double prev, double target) =>
+      prev + _emaAlpha * (target - prev);
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final adapter = ref.watch(xbTrafficAdapterProvider);
+    final traffic = adapter.currentTraffic(ref);
+
+    // 仅在采样真正变化时推进 EMA（避免无关 rebuild 反复平滑同一帧）。
+    final rawDownKbps = traffic.down * 8 / 1000;
+    final rawUpKbps = traffic.up * 8 / 1000;
+    if (_lastRawDown != traffic.down) {
+      _down = _down == null ? rawDownKbps : _smooth(_down!, rawDownKbps);
+      _lastRawDown = traffic.down;
+    }
+    if (_lastRawUp != traffic.up) {
+      _up = _up == null ? rawUpKbps : _smooth(_up!, rawUpKbps);
+      _lastRawUp = traffic.up;
+    }
+
+    final hasLatency = widget.latencyMs != null;
+    // 三张独立卡（各带圆角 + 细边 + 阴影），单行横排。
+    return Row(
+      children: [
+        Expanded(
+          child: _Metric(
+            icon: Icons.south,
+            iconColor: scheme.primary,
+            // 下载：平滑后比特率 kbps，count-up 逐帧格式化（避免 Kbps/Mbps 边界数值跳变）。
+            value: _down ?? rawDownKbps,
+            placeholder: null,
+          ),
+        ),
+        const SizedBox(width: 9),
+        Expanded(
+          child: _Metric(
+            icon: Icons.north,
+            iconColor: XbTokens.ok,
+            value: _up ?? rawUpKbps,
+            placeholder: null,
+          ),
+        ),
+        const SizedBox(width: 9),
+        Expanded(
+          child: _Metric(
+            icon: Icons.network_ping,
+            iconColor: scheme.onSurfaceVariant,
+            // 延迟：直接 ms 数值 count-up；未连接显 `--`。
+            value: hasLatency ? widget.latencyMs!.toDouble() : null,
+            isLatency: true,
+            placeholder: '--',
+          ),
+        ),
+      ],
     );
   }
 }
