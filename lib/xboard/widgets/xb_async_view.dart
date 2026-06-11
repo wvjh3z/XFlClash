@@ -69,6 +69,29 @@ class XbAsyncView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final reduced = MediaQuery.maybeDisableAnimationsOf(context) ?? false;
+    // 各分支带稳定 key → AnimatedSwitcher 在 骨架/重试/错误 → 数据 间做淡入淡出 crossfade，
+    // 避免骨架瞬切到内容的生硬跳变。settle 后只剩目标分支满不透明度（golden 安全）。
+    return AnimatedSwitcher(
+      duration: reduced ? Duration.zero : const Duration(milliseconds: 280),
+      switchInCurve: Curves.easeOut,
+      switchOutCurve: Curves.easeIn,
+      child: KeyedSubtree(
+        key: ValueKey(_branchKey),
+        child: _buildBranch(context),
+      ),
+    );
+  }
+
+  /// 当前分支标识（驱动 AnimatedSwitcher 切换）。
+  String get _branchKey {
+    if (retrying) return 'retrying';
+    if (loading) return 'loading';
+    if (error != null) return 'error';
+    return 'data';
+  }
+
+  Widget _buildBranch(BuildContext context) {
     // 1. 重试中（优先级最高）：黄横幅。
     if (retrying) {
       return ListView(

@@ -8,6 +8,8 @@ library;
 
 import 'package:flutter/material.dart';
 
+import '../../widgets/xb_motion.dart';
+
 /// 底栏单项数据。
 class XbBottomBarItem {
   const XbBottomBarItem({
@@ -110,6 +112,7 @@ class _XbBottomBarSlot extends StatelessWidget {
           // 选中态图标底加品牌色药丸（原型 .nav .it.on .ic{background:brand 13%}）。
           AnimatedContainer(
             duration: const Duration(milliseconds: 180),
+            curve: Curves.easeOutCubic,
             width: 60,
             height: 32,
             alignment: Alignment.center,
@@ -119,8 +122,16 @@ class _XbBottomBarSlot extends StatelessWidget {
                   : Colors.transparent,
               borderRadius: BorderRadius.circular(16),
             ),
-            child: Icon(selected ? item.selectedIcon : item.icon,
-                color: color, size: 24),
+            // 选中图标轻微放大回弹（未选中 0.9 → 选中 1.0，emphasized 带过冲 = pop）。
+            child: AnimatedScale(
+              scale: selected ? 1.0 : 0.9,
+              duration: XbMotion.reduced(context)
+                  ? Duration.zero
+                  : const Duration(milliseconds: 260),
+              curve: XbMotion.emphasized,
+              child: Icon(selected ? item.selectedIcon : item.icon,
+                  color: color, size: 24),
+            ),
           ),
           const SizedBox(height: 4),
           Text(

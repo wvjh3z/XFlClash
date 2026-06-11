@@ -104,8 +104,13 @@ class _ToastWidgetState extends State<_ToastWidget>
             child: FadeTransition(
               opacity: _c,
               child: ScaleTransition(
-                scale: Tween<double>(begin: 0.96, end: 1).animate(
-                  CurvedAnimation(parent: _c, curve: Curves.easeOut),
+                scale: Tween<double>(begin: 0.82, end: 1).animate(
+                  CurvedAnimation(
+                    parent: _c,
+                    // 入场用回弹曲线（带过冲）更俏皮；退场线性淡出即可。
+                    curve: Curves.easeOutBack,
+                    reverseCurve: Curves.easeOut,
+                  ),
                 ),
                 // Material 包裹：Overlay 直挂根、无 Material 祖先 → 裸 Text 会渲染黄黑下划线
                 // （Flutter「missing Material」提示）。透明 Material 提供文本渲染祖先，消下划线。

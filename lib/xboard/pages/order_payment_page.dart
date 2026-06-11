@@ -23,6 +23,7 @@ import '../util/error_text.dart';
 import '../util/format.dart';
 import '../util/period_label.dart';
 import '../widgets/xb_feedback.dart' show xbToast, xbConfirm, xbBrandColor;
+import '../widgets/xb_motion.dart';
 import '../widgets/xb_submit_guard.dart';
 import '../widgets/xb_theme.dart' show xbShowDialog, XbTokens;
 import '../widgets/xb_async_view.dart';
@@ -516,7 +517,7 @@ class _StatusCard extends StatelessWidget {
               shape: BoxShape.circle,
               color: color.withValues(alpha: 0.16),
             ),
-            child: Icon(icon, color: color, size: 26),
+            child: _StatusIcon(icon: icon, color: color, status: status),
           ),
           const SizedBox(width: 14),
           Expanded(
@@ -535,6 +536,37 @@ class _StatusCard extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// 状态图标：成功态（已完成 / 已抵扣）入场轻微回弹放大（庆祝时刻），其余状态静态。
+/// 一次性动画（settle 到 scale 1.0，golden 安全）；尊重「减弱动态效果」。
+class _StatusIcon extends StatelessWidget {
+  const _StatusIcon({
+    required this.icon,
+    required this.color,
+    required this.status,
+  });
+
+  final IconData icon;
+  final Color color;
+  final XbOrderStatus status;
+
+  @override
+  Widget build(BuildContext context) {
+    final isSuccess = status == XbOrderStatus.completed ||
+        status == XbOrderStatus.discounted;
+    final iconWidget = Icon(icon, color: color, size: 26);
+    if (!isSuccess || XbMotion.reduced(context)) return iconWidget;
+    return TweenAnimationBuilder<double>(
+      // key 绑定状态：仅在切到成功态时重建并从 0.4 回弹放大到 1.0。
+      key: ValueKey(status),
+      tween: Tween<double>(begin: 0.4, end: 1.0),
+      duration: const Duration(milliseconds: 520),
+      curve: Curves.elasticOut,
+      builder: (context, v, child) => Transform.scale(scale: v, child: child),
+      child: iconWidget,
     );
   }
 }

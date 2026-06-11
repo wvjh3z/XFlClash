@@ -354,11 +354,40 @@ Future<T?> xbPush<T>(
     }
     _lastPushAt = now;
   }
-  final route = MaterialPageRoute<T>(
-    builder: (_) => _XbBrandThemeHost(brandColor: brandColor, child: page),
+  final route = _xbFadeThroughRoute<T>(
+    _XbBrandThemeHost(brandColor: brandColor, child: page),
   );
   final nav = Navigator.of(context);
   return replace ? nav.pushReplacement(route) : nav.push(route);
+}
+
+/// 形态 A 页面转场：fade-through（淡出旧 + 淡入新 + 新页轻微上浮/放大），比系统左滑更柔和现代。
+///
+/// reduce-motion（无障碍）时降级为瞬切（无淡入/位移）。golden 直接渲染页面、不经此路由，不受影响。
+PageRoute<T> _xbFadeThroughRoute<T>(Widget child) {
+  return PageRouteBuilder<T>(
+    transitionDuration: const Duration(milliseconds: 280),
+    reverseTransitionDuration: const Duration(milliseconds: 200),
+    pageBuilder: (context, animation, secondaryAnimation) => child,
+    transitionsBuilder: (context, animation, secondaryAnimation, child) {
+      if (MediaQuery.maybeDisableAnimationsOf(context) ?? false) {
+        return child; // 减弱动态效果 → 瞬切。
+      }
+      final fade = CurvedAnimation(
+        parent: animation,
+        curve: const Interval(0.30, 1.0, curve: Curves.easeOut),
+        reverseCurve: Curves.easeIn,
+      );
+      final slide = Tween<Offset>(
+        begin: const Offset(0, 0.018),
+        end: Offset.zero,
+      ).animate(CurvedAnimation(parent: animation, curve: Curves.easeOutCubic));
+      return FadeTransition(
+        opacity: fade,
+        child: SlideTransition(position: slide, child: child),
+      );
+    },
+  );
 }
 
 /// 内部：给 push 的页面套品牌主题（避免 xb_theme 依赖 xb_ui_kit，防循环 import）。

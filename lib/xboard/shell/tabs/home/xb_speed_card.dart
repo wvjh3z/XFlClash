@@ -15,6 +15,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:fl_clash/xboard/widgets/xb_theme.dart' show XbTokens;
+import 'package:fl_clash/xboard/widgets/xb_motion.dart';
 import '../../adapters/xb_traffic_adapter.dart';
 
 /// 速度卡。
@@ -30,8 +31,6 @@ class XbSpeedCard extends ConsumerWidget {
     final adapter = ref.watch(xbTrafficAdapterProvider);
     final traffic = adapter.currentTraffic(ref);
 
-    final down = _fmtSpeed(traffic.down);
-    final up = _fmtSpeed(traffic.up);
     final hasLatency = latencyMs != null;
     // 三张独立卡（各带圆角 + 细边 + 阴影），单行横排。
     return Row(
@@ -40,8 +39,9 @@ class XbSpeedCard extends ConsumerWidget {
           child: _Metric(
             icon: Icons.south,
             iconColor: scheme.primary,
-            value: down.value,
-            unit: down.unit,
+            // 下载：按比特率 kbps count-up，逐帧格式化（避免 Kbps/Mbps 边界数值跳变）。
+            value: traffic.down * 8 / 1000,
+            placeholder: null,
           ),
         ),
         const SizedBox(width: 9),
@@ -49,8 +49,8 @@ class XbSpeedCard extends ConsumerWidget {
           child: _Metric(
             icon: Icons.north,
             iconColor: XbTokens.ok,
-            value: up.value,
-            unit: up.unit,
+            value: traffic.up * 8 / 1000,
+            placeholder: null,
           ),
         ),
         const SizedBox(width: 9),
@@ -58,18 +58,19 @@ class XbSpeedCard extends ConsumerWidget {
           child: _Metric(
             icon: Icons.network_ping,
             iconColor: scheme.onSurfaceVariant,
-            value: hasLatency ? latencyMs.toString() : '--',
-            unit: hasLatency ? 'ms' : '',
+            // 延迟：直接 ms 数值 count-up；未连接显 `--`。
+            value: hasLatency ? latencyMs!.toDouble() : null,
+            isLatency: true,
+            placeholder: '--',
           ),
         ),
       ],
     );
   }
 
-  /// 字节/秒 → 速率串 + 单位：<1Mbps 显 **Kbps**，≥1Mbps 显 **Mbps**（R2.6 仍是比特/秒口径，
-  /// ×8）。低网速用 Kbps 更直观，达到 1Mbps 才切 Mbps。
-  static ({String value, String unit}) _fmtSpeed(num bytesPerSec) {
-    final kbps = bytesPerSec * 8 / 1000;
+  /// 比特率(kbps) → 速率串 + 单位：<1Mbps 显 **Kbps**，≥1Mbps 显 **Mbps**。
+  /// 逐帧调用（接收 count-up 的当前插值），保证单位/精度按当前帧值决定、平滑过渡。
+  static ({String value, String unit}) _fmtKbps(double kbps) {
     if (kbps <= 0) return (value: '0', unit: 'Kbps');
     if (kbps < 1000) return (value: kbps.round().toString(), unit: 'Kbps');
     final mbps = kbps / 1000;
@@ -85,17 +86,37 @@ class _Metric extends StatelessWidget {
     required this.icon,
     required this.iconColor,
     required this.value,
-    required this.unit,
+    this.isLatency = false,
+    this.placeholder,
   });
 
   final IconData icon;
   final Color iconColor;
-  final String value;
-  final String unit;
+
+  /// 目标数值：速率卡=比特率 kbps；延迟卡=毫秒数；null=无值（显 [placeholder]）。
+  final double? value;
+
+  /// 延迟卡：直接显示整数 ms + 「ms」单位（区别于速率卡的 Kbps/Mbps 逐帧判定）。
+  final bool isLatency;
+
+  /// 无值时的占位串（如 `--`）。
+  final String? placeholder;
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    final Widget valueWidget = value == null
+        ? _richValue(scheme, placeholder ?? '--', '')
+        : XbCountUp(
+            value: value!,
+            duration: XbMotion.base,
+            builder: (context, v) {
+              final ({String value, String unit}) f = isLatency
+                  ? (value: v.round().toString(), unit: 'ms')
+                  : XbSpeedCard._fmtKbps(v);
+              return _richValue(scheme, f.value, f.unit);
+            },
+          );
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 7, horizontal: 6),
       decoration: BoxDecoration(
@@ -116,32 +137,36 @@ class _Metric extends StatelessWidget {
         children: [
           Icon(icon, size: 15, color: iconColor),
           const SizedBox(width: 6),
-          // 数值（单位内联，小一号灰色）；等宽数字（R8.4）。
-          RichText(
-            text: TextSpan(
-              text: value,
-              style: TextStyle(
-                fontSize: 15,
-                fontWeight: FontWeight.w600,
-                // 上传不标绿（R2.7）：数值统一 onSurface。
-                color: scheme.onSurface,
-                fontFeatures: const [FontFeature.tabularFigures()],
-              ),
-              children: unit.isEmpty
-                  ? null
-                  : [
-                      TextSpan(
-                        text: ' $unit',
-                        style: TextStyle(
-                          fontSize: 10,
-                          fontWeight: FontWeight.w500,
-                          color: scheme.onSurfaceVariant,
-                        ),
-                      ),
-                    ],
-            ),
-          ),
+          valueWidget,
         ],
+      ),
+    );
+  }
+
+  /// 数值（单位内联，小一号灰色）；等宽数字（R8.4）。
+  Widget _richValue(ColorScheme scheme, String value, String unit) {
+    return RichText(
+      text: TextSpan(
+        text: value,
+        style: TextStyle(
+          fontSize: 15,
+          fontWeight: FontWeight.w600,
+          // 上传不标绿（R2.7）：数值统一 onSurface。
+          color: scheme.onSurface,
+          fontFeatures: const [FontFeature.tabularFigures()],
+        ),
+        children: unit.isEmpty
+            ? null
+            : [
+                TextSpan(
+                  text: ' $unit',
+                  style: TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w500,
+                    color: scheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
       ),
     );
   }

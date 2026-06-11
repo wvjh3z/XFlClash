@@ -18,6 +18,7 @@ library;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../widgets/xb_motion.dart';
 import '../../adapters/xb_connect_adapter.dart';
 import '../../adapters/xb_nodes_adapter.dart';
 import '../../adapters/xb_network_adapter.dart';
@@ -35,7 +36,7 @@ enum XbConnectBlock {
 }
 
 /// 连接球四态外形。
-class XbConnectOrb extends ConsumerWidget {
+class XbConnectOrb extends ConsumerStatefulWidget {
   const XbConnectOrb({
     super.key,
     this.size = 177,
@@ -58,60 +59,121 @@ class XbConnectOrb extends ConsumerWidget {
   final XbConnectBlock? Function()? onBlocked;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<XbConnectOrb> createState() => _XbConnectOrbState();
+}
+
+class _XbConnectOrbState extends ConsumerState<XbConnectOrb>
+    with SingleTickerProviderStateMixin {
+  bool _pressed = false;
+
+  /// 连上瞬间的回弹 pop（一次性）：scale 0.9 → 1.08 → 1.0。
+  /// 静止值 = 1.0（controller 初始 value=1.0 → TweenSequence 末态 1.0），
+  /// 未触发时核心保持原尺寸；forward(from:0) 才播放回弹。
+  late final AnimationController _pop = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 560),
+    value: 1.0,
+  );
+  late final Animation<double> _popScale = TweenSequence<double>([
+    TweenSequenceItem(tween: Tween(begin: 0.9, end: 1.08), weight: 45),
+    TweenSequenceItem(tween: Tween(begin: 1.08, end: 1.0), weight: 55),
+  ]).animate(CurvedAnimation(parent: _pop, curve: Curves.easeOut));
+
+  XbConnState? _prevState;
+
+  @override
+  void dispose() {
+    _pop.dispose();
+    super.dispose();
+  }
+
+  void _set(bool v) {
+    if (_pressed != v) setState(() => _pressed = v);
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final adapter = ref.watch(xbConnectAdapterProvider);
     final state = adapter.connState(ref);
     final scheme = Theme.of(context).colorScheme;
+    final size = widget.size;
+    final reduced = XbMotion.reduced(context);
+
+    // 状态跃迁 → 连上瞬间触发 pop（reduce-motion 跳过）。
+    if (_prevState != null &&
+        _prevState != XbConnState.connected &&
+        state == XbConnState.connected &&
+        !reduced) {
+      _pop.forward(from: 0);
+    }
+    _prevState = state;
 
     final enabled = state != XbConnState.booting;
+    final connecting = state == XbConnState.connecting;
+    final pressScale = (_pressed && !reduced) ? 0.96 : 1.0;
+
     return Semantics(
       button: true,
       enabled: enabled,
       label: _semanticLabel(state),
       child: GestureDetector(
         onTap: enabled ? () => _handleTap(ref, state) : null,
-        child: SizedBox(
-          width: size,
-          height: size,
-          child: Stack(
-            alignment: Alignment.center,
-            children: [
-              // 轨道环（静态细环，留白底）。
-              _TrackRing(size: size, color: scheme.surfaceContainerHighest),
-              // 进度环（连接态主题色满环 / 连接中主题色弧转动）。
-              _ProgressRing(size: size, state: state, color: scheme.primary),
-              // 核心（留白 + 图标 + 状态文字）。
-              _OrbCore(
-                size: size * 0.79,
-                state: state,
-                scheme: scheme,
-                guest: guest,
-              ),
-              // 游客锁徽章（右下角，原型 guest orb）。
-              if (showLock)
-                Positioned(
-                  right: size * 0.08,
-                  bottom: size * 0.04,
-                  child: Container(
-                    width: size * 0.18,
-                    height: size * 0.18,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: scheme.surfaceContainerLow,
-                      border: Border.all(color: scheme.outlineVariant),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withValues(alpha: 0.18),
-                          blurRadius: 12,
-                          offset: const Offset(0, 5),
-                        ),
-                      ],
-                    ),
-                    child: Icon(Icons.lock,
-                        size: size * 0.085, color: scheme.onSurfaceVariant),
+        onTapDown: enabled ? (_) => _set(true) : null,
+        onTapUp: enabled ? (_) => _set(false) : null,
+        onTapCancel: () => _set(false),
+        child: AnimatedScale(
+          scale: pressScale,
+          duration: XbMotion.fast,
+          curve: XbMotion.standard,
+          child: SizedBox(
+            width: size,
+            height: size,
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                // 连接中：向外扩散的声呐脉冲（比单纯转圈更"正在建立连接"）。
+                if (connecting && !reduced)
+                  _SonarLayer(size: size, color: scheme.primary),
+                // 轨道环（静态细环，留白底）。
+                _TrackRing(size: size, color: scheme.surfaceContainerHighest),
+                // 进度环（连接态主题色满环 / 连接中主题色弧转动）。
+                _ProgressRing(size: size, state: state, color: scheme.primary),
+                // 核心（留白 + 图标 + 状态文字）；连上回弹 pop。
+                ScaleTransition(
+                  scale: _popScale,
+                  child: _OrbCore(
+                    size: size * 0.79,
+                    state: state,
+                    scheme: scheme,
+                    guest: widget.guest,
                   ),
                 ),
-            ],
+                // 游客锁徽章（右下角，原型 guest orb）。
+                if (widget.showLock)
+                  Positioned(
+                    right: size * 0.08,
+                    bottom: size * 0.04,
+                    child: Container(
+                      width: size * 0.18,
+                      height: size * 0.18,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: scheme.surfaceContainerLow,
+                        border: Border.all(color: scheme.outlineVariant),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.18),
+                            blurRadius: 12,
+                            offset: const Offset(0, 5),
+                          ),
+                        ],
+                      ),
+                      child: Icon(Icons.lock,
+                          size: size * 0.085, color: scheme.onSurfaceVariant),
+                    ),
+                  ),
+              ],
+            ),
           ),
         ),
       ),
@@ -122,8 +184,8 @@ class XbConnectOrb extends ConsumerWidget {
   void _handleTap(WidgetRef ref, XbConnState state) {
     final adapter = ref.read(xbConnectAdapterProvider);
     final initiatingConnect = state == XbConnState.disconnected;
-    if (initiatingConnect && onBlocked != null) {
-      final block = onBlocked!();
+    if (initiatingConnect && widget.onBlocked != null) {
+      final block = widget.onBlocked!();
       if (block != null) return; // 被拦截（回调内已弹提示），不连接。
     }
     adapter.toggle(ref);
@@ -142,6 +204,75 @@ class XbConnectOrb extends ConsumerWidget {
         XbConnState.connecting => '连接中',
         XbConnState.connected => '已连接，点击断开',
       };
+}
+
+/// 连接中声呐脉冲层：两层向外扩散的环（错相），表达「正在建立连接」。
+/// 仅 connecting 时挂载 → 仅此时循环（与进度环 spinner 同款 golden 安全性）。
+class _SonarLayer extends StatefulWidget {
+  const _SonarLayer({required this.size, required this.color});
+
+  final double size;
+  final Color color;
+
+  @override
+  State<_SonarLayer> createState() => _SonarLayerState();
+}
+
+class _SonarLayerState extends State<_SonarLayer>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _c = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 1800),
+  )..repeat();
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _c,
+      builder: (context, _) {
+        return CustomPaint(
+          size: Size(widget.size, widget.size),
+          painter: _SonarPainter(progress: _c.value, color: widget.color),
+        );
+      },
+    );
+  }
+}
+
+class _SonarPainter extends CustomPainter {
+  _SonarPainter({required this.progress, required this.color});
+
+  /// 0→1 循环进度。
+  final double progress;
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = size.center(Offset.zero);
+    final baseR = size.width / 2;
+    // 两层错相（相差半个周期）。
+    for (final phase in [0.0, 0.5]) {
+      final t = (progress + phase) % 1.0;
+      final r = baseR * (0.72 + 0.62 * t); // 0.72→1.34 扩散
+      final opacity = (0.5 * (1 - t)).clamp(0.0, 0.5);
+      if (opacity <= 0.01) continue;
+      final paint = Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2
+        ..color = color.withValues(alpha: opacity);
+      canvas.drawCircle(center, r, paint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(_SonarPainter old) =>
+      old.progress != progress || old.color != color;
 }
 
 class _TrackRing extends StatelessWidget {

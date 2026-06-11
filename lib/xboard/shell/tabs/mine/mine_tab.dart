@@ -26,6 +26,7 @@ import 'package:fl_clash/xboard/util/format.dart';
 import 'package:fl_clash/xboard/widgets/xb_components.dart';
 import 'package:fl_clash/xboard/widgets/xb_feedback.dart'
     show xbConfirm, xbBrandColor, xbToast;
+import 'package:fl_clash/xboard/widgets/xb_motion.dart';
 import 'package:fl_clash/xboard/widgets/xb_theme.dart'
     show xbPush, xbShowDialog, XbTokens;
 
@@ -209,13 +210,17 @@ class _AccountCard extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.baseline,
             textBaseline: TextBaseline.alphabetic,
             children: [
-              Text(
-                _gb(sub.usedBytes),
-                style: const TextStyle(
-                  fontSize: 23,
-                  fontWeight: FontWeight.w700,
-                  color: white,
-                  fontFeatures: [FontFeature.tabularFigures()],
+              // 已用流量 GB：count-up 滚动到终值（有限动画，golden settle 后值不变）。
+              XbCountUp(
+                value: sub.usedBytes / (1024 * 1024 * 1024),
+                builder: (context, v) => Text(
+                  v.toStringAsFixed(1),
+                  style: const TextStyle(
+                    fontSize: 23,
+                    fontWeight: FontWeight.w700,
+                    color: white,
+                    fontFeatures: [FontFeature.tabularFigures()],
+                  ),
                 ),
               ),
               const SizedBox(width: 6),
@@ -240,15 +245,20 @@ class _AccountCard extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 9),
-          // 进度条（白色填充）。
+          // 进度条（白色填充）：animated 填充到终值（有限动画，golden settle 后不变）。
           ClipRRect(
             borderRadius: BorderRadius.circular(6),
-            child: LinearProgressIndicator(
-              value: usedPct,
-              minHeight: 10,
-              backgroundColor: Colors.white.withValues(alpha: 0.25),
-              valueColor: AlwaysStoppedAnimation(
-                hot ? const Color(0xFFFFD9D2) : Colors.white,
+            child: TweenAnimationBuilder<double>(
+              tween: Tween<double>(end: usedPct),
+              duration: XbMotion.reduced(context) ? Duration.zero : XbMotion.slow,
+              curve: XbMotion.standard,
+              builder: (context, v, _) => LinearProgressIndicator(
+                value: v,
+                minHeight: 10,
+                backgroundColor: Colors.white.withValues(alpha: 0.25),
+                valueColor: AlwaysStoppedAnimation(
+                  hot ? const Color(0xFFFFD9D2) : Colors.white,
+                ),
               ),
             ),
           ),
