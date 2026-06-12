@@ -111,6 +111,8 @@ void main() {
     await tester.pump();
     expect(copied, 'demo@example.com', reason: '点复制应把邮箱写入剪贴板');
     expect(find.text('已复制邮箱'), findsOneWidget, reason: 'toast 提示');
+    // 消耗 xbToast 的 2s 自动消失 timer,避免 pending timer 报错。
+    await tester.pump(const Duration(seconds: 3));
   });
 
   testWidgets('游客态 → 无复制按钮（无邮箱）', (tester) async {

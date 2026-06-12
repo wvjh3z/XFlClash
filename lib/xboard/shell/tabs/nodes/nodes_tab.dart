@@ -7,6 +7,8 @@
 /// 内核数据（延迟/选中/选择/测速）经 [XbNodesAdapter] 收口（适配层铁律），不直接碰 `lib/views/**`。
 library;
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -50,10 +52,38 @@ class NodesTab extends ConsumerStatefulWidget {
   ConsumerState<NodesTab> createState() => _NodesTabState();
 }
 
+/// 刷新节点节流窗口（60s，与「我的」刷新信息一致）。
+const int _kNodesRefreshCooldownSec = 60;
+
 class _NodesTabState extends ConsumerState<NodesTab> {
   /// 正在刷新节点（重拉订阅 + 解密 + 写入新 profile）。期间刷新按钮禁用 + 顶部横幅；
   /// 旧节点保留显示（不清空），写入成功后 profile 重载自动覆盖。
   bool _refreshing = false;
+
+  /// 60s 节流单调时钟（防改钟）：上次刷新完成后开始计时。
+  Stopwatch? _refreshThrottle;
+
+  /// 冷却剩余秒数（0=可点，>0=按钮灰+倒计时）。由 _ticker 驱动。
+  int _cooldownSec = 0;
+  Timer? _ticker;
+
+  int get _remainingSec {
+    final sw = _refreshThrottle;
+    if (sw == null) return 0;
+    final remain = _kNodesRefreshCooldownSec - sw.elapsed.inSeconds;
+    return remain > 0 ? remain : 0;
+  }
+
+  void _startCooldownTicker() {
+    _ticker?.cancel();
+    _cooldownSec = _remainingSec;
+    if (_cooldownSec <= 0) return;
+    _ticker = Timer.periodic(const Duration(seconds: 1), (_) {
+      final r = _remainingSec;
+      if (r != _cooldownSec) setState(() => _cooldownSec = r);
+      if (r <= 0) _ticker?.cancel();
+    });
+  }
 
   /// 当前选中的分组名（顶部 tab）。null = 用首个可见分组。
   String? _selectedGroup;
@@ -87,10 +117,20 @@ class _NodesTabState extends ConsumerState<NodesTab> {
     }
   }
 
+  @override
+  void dispose() {
+    _ticker?.cancel();
+    super.dispose();
+  }
+
   /// 刷新 = 重拉订阅并解密写入新节点（2-A）。await sync(force) 拿 `ok`（新 profile 写入成功）
-  /// 才算完成；期间按钮禁用、显示横幅，完成后恢复。旧节点在写入成功前保持不变。
+  /// 才算完成；期间按钮禁用、显示横幅，完成后恢复并开始 60s 冷却。旧节点在写入成功前保持不变。
   Future<void> _refreshNodes() async {
     if (_refreshing) return;
+    if (_remainingSec > 0) {
+      xbToast(context, '节点刚刷新过，请稍后再试');
+      return;
+    }
     setState(() => _refreshing = true);
     var outcome = XbSyncOutcome.failed;
     try {
@@ -101,6 +141,8 @@ class _NodesTabState extends ConsumerState<NodesTab> {
       // 永不抛（Property 1）；当作失败处理。
     }
     if (!mounted) return;
+    _refreshThrottle = Stopwatch()..start();
+    _startCooldownTicker();
     setState(() => _refreshing = false);
     if (outcome != XbSyncOutcome.ok) {
       final msg = switch (outcome) {
@@ -127,7 +169,7 @@ class _NodesTabState extends ConsumerState<NodesTab> {
     if (view.isEmpty) {
       return Column(
         children: [
-          _NodesHeader(onRefresh: _refreshNodes, refreshing: _refreshing),
+          _NodesHeader(onRefresh: _refreshNodes, refreshing: _refreshing, cooldownSec: _cooldownSec),
           if (_refreshing)
             const Padding(
               padding: EdgeInsets.fromLTRB(16, 4, 16, 0),
@@ -155,7 +197,7 @@ class _NodesTabState extends ConsumerState<NodesTab> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        _NodesHeader(onRefresh: _refreshNodes, refreshing: _refreshing),
+        _NodesHeader(onRefresh: _refreshNodes, refreshing: _refreshing, cooldownSec: _cooldownSec),
         if (_refreshing)
           const Padding(
             padding: EdgeInsets.fromLTRB(16, 4, 16, 0),
@@ -264,15 +306,29 @@ class _GroupTabBar extends StatelessWidget {
 
 /// 顶部刷新条（R4.5）—— 原型「选择线路」标题 + 「刷新节点」。刷新中按钮禁用 + 文案「刷新中…」。
 class _NodesHeader extends StatelessWidget {
-  const _NodesHeader({required this.onRefresh, this.refreshing = false});
+  const _NodesHeader({
+    required this.onRefresh,
+    this.refreshing = false,
+    this.cooldownSec = 0,
+  });
 
   final VoidCallback onRefresh;
   final bool refreshing;
+  final int cooldownSec;
 
   @override
   Widget build(BuildContext context) {
     final t = XbTokens.of(context);
     final scheme = Theme.of(context).colorScheme;
+    final coolingDown = cooldownSec > 0;
+    final String label;
+    if (refreshing) {
+      label = '刷新中…';
+    } else if (coolingDown) {
+      label = '刷新节点 ${cooldownSec}s';
+    } else {
+      label = '刷新节点';
+    }
     // 节点页专属紧凑标题行（不用共享 XbScreenTitle —— 它底部留白 12px 太大，与下方吸顶分组 tab
     // 间距过宽，和原型不符）。标题 + 右侧刷新，底部仅 2px 间距。
     return Padding(
@@ -287,13 +343,22 @@ class _NodesHeader extends StatelessWidget {
                   color: t.on)),
           const Spacer(),
           TextButton.icon(
-            // 刷新中禁用（null onPressed → 自动变灰不可点）。
+            // 真正刷新中才禁用（null）；冷却中保持可点 → 触发 _refreshNodes 内的冷却 toast，
+            // 仅用灰色外观表达「不可刷新」（与「我的」刷新按钮一致：冷却内点击弹提示）。
             onPressed: refreshing ? null : onRefresh,
             icon: refreshing
                 ? const XbSpinner(color: XbTokens.warn, size: 16, stroke: 2)
-                : const Icon(Icons.refresh, size: 16),
-            label: Text(refreshing ? '刷新中…' : '刷新节点'),
-            style: TextButton.styleFrom(foregroundColor: scheme.primary),
+                : Icon(Icons.refresh,
+                    size: 16,
+                    color: coolingDown
+                        ? scheme.onSurfaceVariant.withValues(alpha: 0.5)
+                        : scheme.primary),
+            label: Text(label),
+            style: TextButton.styleFrom(
+              foregroundColor: coolingDown
+                  ? scheme.onSurfaceVariant.withValues(alpha: 0.5)
+                  : scheme.primary,
+            ),
           ),
         ],
       ),

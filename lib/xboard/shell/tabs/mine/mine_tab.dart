@@ -8,6 +8,8 @@
 /// 不经 adapter，无风险②）；仅设置入口（原生 ToolsView）= ◆ 经 `XbNativePageAdapter`。
 library;
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -21,6 +23,7 @@ import 'package:fl_clash/xboard/providers/auth_state_provider.dart';
 import 'package:fl_clash/xboard/providers/user_profile_provider.dart';
 import 'package:fl_clash/xboard/providers/xboard_providers.dart';
 import 'package:fl_clash/xboard/services/crisp_support_service.dart';
+import 'package:fl_clash/xboard/services/xb_update_service.dart';
 import 'package:fl_clash/xboard/util/app_version.dart';
 import 'package:fl_clash/xboard/util/format.dart';
 import 'package:fl_clash/xboard/widgets/xb_components.dart';
@@ -37,7 +40,7 @@ import 'xb_settings_page.dart';
 const _resetThreshold = 0.90;
 
 /// 我的 Tab。
-class MineTab extends ConsumerWidget {
+class MineTab extends ConsumerStatefulWidget {
   const MineTab({super.key, this.onTapLogin, this.active = true});
 
   /// 游客点击登录（shell 注入，W5 接线）。
@@ -48,7 +51,85 @@ class MineTab extends ConsumerWidget {
   final bool active;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<MineTab> createState() => _MineTabState();
+}
+
+/// 刷新信息节流窗口（60s，用户 2026-06-13 决策）。
+const int _kRefreshCooldownSec = 60;
+
+class _MineTabState extends ConsumerState<MineTab> {
+  /// 上次刷新完成时间戳（单调时钟）。null=从未刷新。
+  Stopwatch? _refreshThrottle;
+
+  /// 刷新中（点按钮到反腐层落定）。
+  bool _refreshing = false;
+
+  /// 冷却剩余秒数（0=可点，>0=冷却中按钮灰+倒计时）。由 _ticker 驱动。
+  int _cooldownSec = 0;
+  Timer? _ticker;
+
+  int get _remainingSec {
+    final sw = _refreshThrottle;
+    if (sw == null) return 0;
+    final elapsed = sw.elapsed.inSeconds;
+    final remain = _kRefreshCooldownSec - elapsed;
+    return remain > 0 ? remain : 0;
+  }
+
+  void _startCooldownTicker() {
+    _ticker?.cancel();
+    _cooldownSec = _remainingSec;
+    if (_cooldownSec <= 0) return;
+    _ticker = Timer.periodic(const Duration(seconds: 1), (_) {
+      final r = _remainingSec;
+      if (r != _cooldownSec) {
+        setState(() => _cooldownSec = r);
+      }
+      if (r <= 0) _ticker?.cancel();
+    });
+  }
+
+  @override
+  void dispose() {
+    _ticker?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _onRefresh() async {
+    if (_refreshing) return;
+    if (_remainingSec > 0) {
+      xbToast(context, '信息刚刷新过，请稍后再试');
+      return;
+    }
+    setState(() => _refreshing = true);
+    // 并行：① 刷新账号订阅（反腐层 getSubscription，内置 apiFailover + 5s 超时，永不抛）
+    //       ② 检查应用更新（带 failover；检测到则点亮徽章/触发弹窗）。
+    await Future.wait<void>([
+      ref.read(xboardServiceProvider).getSubscription().then((_) {}),
+      _checkAppUpdate(),
+    ]);
+    if (!mounted) return;
+    ref.invalidate(userProfileProvider);
+    _refreshThrottle = Stopwatch()..start();
+    _startCooldownTicker();
+    setState(() => _refreshing = false);
+  }
+
+  /// 检查应用更新（刷新信息附带）：带 failover，检测到更新写入 provider（点亮徽章 + shell 弹窗）。
+  Future<void> _checkAppUpdate() async {
+    final sdk = ref.read(xboardSdkProvider);
+    if (sdk == null) return;
+    final race = ref.read(injectedRaceControllerProvider);
+    final result =
+        await XbUpdateService.check(sdk, apiFailover: race?.failOverApi);
+    if (!mounted) return;
+    if (result is UpdateAvailable) {
+      ref.read(availableUpdateProvider.notifier).set(result.info);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final isGuest =
         ref.watch(authStateProvider) != AuthState.authenticated;
 
@@ -56,15 +137,84 @@ class MineTab extends ConsumerWidget {
       child: ListView(
         padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
         children: [
-          Text('我的', style: Theme.of(context).textTheme.headlineSmall),
+          // 标题行：左「我的」+ 右「刷新信息」（已登录才显示）。
+          Row(
+            children: [
+              Text('我的', style: Theme.of(context).textTheme.headlineSmall),
+              const Spacer(),
+              if (!isGuest) _RefreshButton(
+                refreshing: _refreshing,
+                cooldownSec: _cooldownSec,
+                onTap: _onRefresh,
+              ),
+            ],
+          ),
           const SizedBox(height: 16),
+          // 刷新中：顶部黄色横幅（与 11d 原型一致）
+          if (_refreshing && !isGuest)
+            const Padding(
+              padding: EdgeInsets.only(bottom: 12),
+              child: XbSyncBanner(text: '正在刷新服务，请稍候…'),
+            ),
           if (isGuest)
-            _GuestCard(onTapLogin: onTapLogin)
+            _GuestCard(onTapLogin: widget.onTapLogin)
           else
-            _AccountSection(active: active),
+            _AccountSection(active: widget.active),
           const SizedBox(height: 16),
           _SettingsSection(isGuest: isGuest),
         ],
+      ),
+    );
+  }
+}
+
+/// 标题右侧「刷新信息」按钮：刷新中→「刷新中…」置灰；冷却中→「刷新信息 Ns」置灰；正常→品牌色可点。
+class _RefreshButton extends StatelessWidget {
+  const _RefreshButton({
+    required this.refreshing,
+    required this.cooldownSec,
+    required this.onTap,
+  });
+
+  final bool refreshing;
+  final int cooldownSec;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final disabled = refreshing || cooldownSec > 0;
+    final color = disabled
+        ? scheme.onSurfaceVariant.withValues(alpha: 0.5)
+        : scheme.primary;
+    final String label;
+    if (refreshing) {
+      label = '刷新中…';
+    } else if (cooldownSec > 0) {
+      label = '刷新信息 ${cooldownSec}s';
+    } else {
+      label = '刷新信息';
+    }
+    return GestureDetector(
+      onTap: onTap,
+      behavior: HitTestBehavior.opaque,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 2),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.refresh, size: 16, color: color),
+            const SizedBox(width: 4),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 13.5,
+                fontWeight: FontWeight.w500,
+                color: color,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

@@ -73,6 +73,10 @@ class _XbConnectOrbState extends ConsumerState<XbConnectOrb>
   /// 「正在建立加密隧道」。故仅在用户主动连接时才认作「连接中」，否则核心预热 → 显示「准备中」。
   bool _connectIntent = false;
 
+  /// 上次点击连接球的时间戳（防抖：800ms 内的重复点击视为误触/连点，忽略）。
+  /// 防止「未连接→发起连接」后手抖再点把刚建立的连接立刻 toggle 掐断；窗口外仍可点（允许主动取消）。
+  DateTime? _lastTapAt;
+
   /// 连上瞬间的回弹 pop（一次性）：scale 0.9 → 1.08 → 1.0。
   /// 静止值 = 1.0（controller 初始 value=1.0 → TweenSequence 末态 1.0），
   /// 未触发时核心保持原尺寸；forward(from:0) 才播放回弹。
@@ -196,6 +200,14 @@ class _XbConnectOrbState extends ConsumerState<XbConnectOrb>
 
   /// 点击处理：仅在「未连接 → 连接」方向先过拦截 gate；已连接（断开）/ 连接中直接放行。
   void _handleTap(WidgetRef ref, XbConnState state) {
+    // 防抖：800ms 内的重复点击忽略（防双击/手抖连点导致 toggle 抖动、误掐断刚建立的连接）。
+    final now = DateTime.now();
+    if (_lastTapAt != null &&
+        now.difference(_lastTapAt!) < const Duration(milliseconds: 800)) {
+      return;
+    }
+    _lastTapAt = now;
+
     final adapter = ref.read(xbConnectAdapterProvider);
     final initiatingConnect = state == XbConnState.disconnected;
     if (initiatingConnect && widget.onBlocked != null) {

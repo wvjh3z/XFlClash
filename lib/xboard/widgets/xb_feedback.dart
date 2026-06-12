@@ -7,17 +7,16 @@ library;
 import 'package:flutter/material.dart';
 
 import '../config/xboard_config.dart';
+import 'xb_center_toast.dart';
 import 'xb_theme.dart' show xbShowDialog, XbTokens;
 
 /// 当前 flavor 品牌色（替代散落的 `Color(XboardConfig.current.brandColor)`）。
 Color xbBrandColor() => Color(XboardConfig.current.brandColor);
 
-/// 轻提示（SnackBar）—— 替代各页逐字复制的私有 `_toast`。
-/// 内部用根 messenger，避免 sheet/dialog pop 后 context 失效丢提示。
+/// 轻提示（居中琥珀色浮层，与 C1/C2 连接拦截同风格）—— 替代各页逐字复制的私有 `_toast`。
+/// 委托给 [XbCenterToast]（淡入淡出 + 2 秒自动消失 + 同一时刻只保留一个）。
 void xbToast(BuildContext context, String message) {
-  final messenger = ScaffoldMessenger.maybeOf(context);
-  if (messenger == null) return;
-  messenger.showSnackBar(SnackBar(content: Text(message)));
+  XbCenterToast.show(context, message, duration: const Duration(seconds: 2));
 }
 
 /// 二次确认对话框（取消订单 / 退出登录 等）—— 统一标题/内容/取消·确认两键。
