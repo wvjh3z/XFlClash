@@ -11,10 +11,13 @@ library;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_xboard_sdk/flutter_xboard_sdk.dart' show AppUpdateModel;
 
 import 'package:fl_clash/xboard/config/xboard_config.dart';
+import 'package:fl_clash/xboard/providers/xboard_providers.dart';
 import 'package:fl_clash/xboard/util/app_version.dart';
 import 'package:fl_clash/xboard/widgets/xb_ui_kit.dart' show XbBrandTheme;
+import 'package:fl_clash/xboard/widgets/xb_update_dialog.dart';
 
 import 'sheets/login_sheet.dart';
 import 'tabs/home/home_tab.dart';
@@ -51,6 +54,9 @@ class _XboardAppShellState extends ConsumerState<XboardAppShell> {
   String? _nodeTargetGroup;
   String? _nodeTargetNode;
   int _nodeTargetNonce = 0;
+
+  /// 本会话是否已自动弹过更新弹窗（一次会话只自动弹一次，避免反复打扰）。
+  bool _updateDialogShown = false;
 
   @override
   void initState() {
@@ -101,6 +107,18 @@ class _XboardAppShellState extends ConsumerState<XboardAppShell> {
 
   @override
   Widget build(BuildContext context) {
+    // 检测到更新 → 在三 Tab 主界面自动弹一次更新弹窗（页面控制 + 一次会话一次）。
+    // 监听 provider 变化（VPN 连上/onResume 后检测到）+ build 时补查（冷启动已检测到）。
+    ref.listen<AppUpdateModel?>(availableUpdateProvider, (prev, next) {
+      if (next != null) _maybeAutoShowUpdate(next);
+    });
+    final existing = ref.watch(availableUpdateProvider);
+    if (existing != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _maybeAutoShowUpdate(existing);
+      });
+    }
+
     // 形态 A 品牌主题（W3 接线漏项修复）：用 flavor brandColor 锁死强调色族（primary=品牌红），
     // 中性灰出底，让整个外壳呈现品牌视觉，而非 FlClash 顶层 M3 动态色。
     // 不套则三 Tab 跟随 FlClash 主题 → 品牌红被冲淡成灰/暗粉（与原型差异的根因）。
@@ -108,6 +126,28 @@ class _XboardAppShellState extends ConsumerState<XboardAppShell> {
       brandColor: Color(XboardConfig.current.brandColor),
       child: _buildScaffold(context),
     );
+  }
+
+  /// 自动弹更新弹窗（页面控制 + 一次会话一次）。
+  ///
+  /// 条件：本会话未弹过 + shell 在栈顶（无子页/sheet 盖着，即用户在三 Tab 主界面）。
+  /// 支付/详情/登录 sheet 等盖在上面时 isCurrent==false → 不弹，等回到 Tab 再弹。
+  void _maybeAutoShowUpdate(AppUpdateModel info) {
+    if (_updateDialogShown) return;
+    // shell 不在栈顶（有子页/sheet 覆盖）→ 不弹。
+    final route = ModalRoute.of(context);
+    if (route != null && !route.isCurrent) return;
+    _updateDialogShown = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      // 再次确认在栈顶（post-frame 期间可能 push 了子页）。
+      final r = ModalRoute.of(context);
+      if (r != null && !r.isCurrent) {
+        _updateDialogShown = false; // 复位，等下次回到 Tab 再弹
+        return;
+      }
+      showXbUpdateDialog(context, info);
+    });
   }
 
   Widget _buildScaffold(BuildContext context) {
@@ -127,6 +167,7 @@ class _XboardAppShellState extends ConsumerState<XboardAppShell> {
                 child: HomeTab(
                   onTapToNodes: _onTapToNodes,
                   onTapLogin: () => showLoginSheet(context),
+                  onTapRenew: () => _slideTo(2),
                 ),
               ),
             ),

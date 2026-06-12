@@ -47,7 +47,8 @@ class _AboutBodyState extends ConsumerState<_AboutBody> {
         }
         return;
       }
-      final result = await XbUpdateService.check(sdk);
+      final race = ref.read(injectedRaceControllerProvider);
+      final result = await XbUpdateService.check(sdk, apiFailover: race?.failOverApi);
       if (!mounted) return;
       switch (result) {
         case UpdateAvailable(:final info):

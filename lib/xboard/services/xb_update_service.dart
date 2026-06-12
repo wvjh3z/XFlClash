@@ -44,19 +44,39 @@ class XbUpdateService {
   /// 执行一次更新检查。
   ///
   /// [sdk] — 已 initialize 的 SDK 实例。
+  /// [apiFailover] — 可选,域名故障转移函数(来自竞速控制器)。请求失败时
+  /// 自动切到备用域名重试一次。
   /// 返回 sealed [UpdateCheckResult]。调用方决定如何展示（弹窗/toast/静默）。
-  static Future<UpdateCheckResult> check(XBoardSDK sdk) async {
+  static Future<UpdateCheckResult> check(XBoardSDK sdk, {
+    Future<void> Function()? apiFailover,
+  }) async {
     try {
       // 编译期注入的原始 build number（不受 ABI split 前缀影响）。
       const buildNumber = int.fromEnvironment('XB_BUILD_NUMBER', defaultValue: 0);
-      final currentCode = buildNumber;
+      const currentCode = buildNumber;
       debugPrint('[XbUpdateService] currentCode=$currentCode (dart-define XB_BUILD_NUMBER)');
 
-      final info = await sdk.appUpdate.checkUpdate(
-        platform: _platform,
-        abi: _abi,
-        currentVersionCode: currentCode,
-      );
+      AppUpdateModel? info;
+      try {
+        info = await sdk.appUpdate.checkUpdate(
+          platform: _platform,
+          abi: _abi,
+          currentVersionCode: currentCode,
+        );
+      } catch (e) {
+        // 首次请求失败 → 尝试 failover 切域名后重试一次。
+        if (apiFailover != null) {
+          debugPrint('[XbUpdateService] first attempt failed ($e), trying failover...');
+          await apiFailover();
+          info = await sdk.appUpdate.checkUpdate(
+            platform: _platform,
+            abi: _abi,
+            currentVersionCode: currentCode,
+          );
+        } else {
+          rethrow;
+        }
+      }
 
       debugPrint('[XbUpdateService] response: info=${info == null ? "null" : "versionCode=${info.versionCode}"}');
 
@@ -78,10 +98,57 @@ class XbUpdateService {
   static Future<void> autoCheck(ProviderContainer container) async {
     final sdk = container.read(xboardSdkProvider);
     if (sdk == null) return;
-    final result = await check(sdk);
+    final race = container.read(injectedRaceControllerProvider);
+    final result = await check(sdk, apiFailover: race?.failOverApi);
     if (result is UpdateAvailable) {
       container.read(availableUpdateProvider.notifier).set(result.info);
     }
+  }
+
+  // ───────── 触发时机 + 24h 节流（全异步 fire-and-forget，绝不阻塞）─────────
+
+  /// 24h 节流单调时钟（θ-7：距上次成功检查 ≥24h 才真请求；防改系统时间绕过）。
+  /// null = 从未检查过（首次直接放行）。
+  static Stopwatch? _throttle;
+
+  /// single-flight：检查进行中标志，避免并发请求。
+  static bool _checking = false;
+
+  /// 节流检查窗口（24h，与订阅同节奏）。
+  static const Duration kCheckThrottle = Duration(hours: 24);
+
+  /// 节流自动检查（onResume / VPN 连上触发）：距上次成功检查 ≥24h 才真请求。
+  ///
+  /// fire-and-forget，永不抛、永不阻塞。已有可用更新时跳过（已点亮徽章，无需重查）。
+  static Future<void> autoCheckThrottled(ProviderContainer container) async {
+    // 已检测到更新 → 无需重查（徽章已亮）。
+    if (container.read(availableUpdateProvider) != null) return;
+    if (_checking) return; // single-flight
+    final sw = _throttle;
+    if (sw != null && sw.elapsed < kCheckThrottle) return; // 节流窗口内
+
+    _checking = true;
+    try {
+      final sdk = container.read(xboardSdkProvider);
+      if (sdk == null) return;
+      final race = container.read(injectedRaceControllerProvider);
+      final result = await check(sdk, apiFailover: race?.failOverApi);
+      if (result is UpdateAvailable) {
+        container.read(availableUpdateProvider.notifier).set(result.info);
+        _throttle = Stopwatch()..start(); // 成功且有更新 → 重置节流时钟
+      } else if (result is UpdateNotAvailable) {
+        _throttle = Stopwatch()..start(); // 成功但无更新 → 也重置（避免频繁查）
+      }
+      // 检查失败（网络/被墙）→ 不重置时钟，下次触发仍可重试
+    } finally {
+      _checking = false;
+    }
+  }
+
+  /// 重置节流时钟（退出登录 / 测试 teardown）。
+  static void resetThrottle() {
+    _throttle = null;
+    _checking = false;
   }
 
   /// 当前平台标识（后端 API 接受的 platform 参数）。

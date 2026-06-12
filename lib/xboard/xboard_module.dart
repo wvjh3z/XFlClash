@@ -371,7 +371,12 @@ class XboardModule {
         raceController: _raceController!,
         // R4.6 step2b-fix：切回前台 → 订阅 + 账号刷新（24h 节流内部判定）。始终存活，
         // 不依赖任何 UI 页面构建。observer 已在监听 resumed 事件，这里把空回调填上。
-        onResumeTimers: () => SubscriptionTriggers.onResume(container),
+        // 同时触发更新检查（24h 节流，fire-and-forget）。
+        onResumeTimers: () {
+          SubscriptionTriggers.onResume(container);
+          // ignore: discarded_futures
+          XbUpdateService.autoCheckThrottled(container);
+        },
       )..attach();
 
       // R4.6 step2a：注入 race controller（订阅服务 provider 据此取 subscriptionCandidates）。
@@ -423,7 +428,15 @@ class XboardModule {
       try {
         _vpnStateListener = container.listen<bool>(
           isStartProvider,
-          (prev, next) => _raceController?.setVpnActive(next),
+          (prev, next) {
+            _raceController?.setVpnActive(next);
+            // VPN 连上跃迁（false→true）→ 触发更新检查（解决冷启动域名被墙检测失败，
+            // 连上 VPN 后出口可达再查；24h 节流内部判定，fire-and-forget 不阻塞）。
+            if (prev != true && next) {
+              // ignore: discarded_futures
+              XbUpdateService.autoCheckThrottled(container);
+            }
+          },
           fireImmediately: true,
         );
       } catch (e, s) {
