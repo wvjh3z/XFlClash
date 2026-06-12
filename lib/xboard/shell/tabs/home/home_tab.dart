@@ -21,6 +21,7 @@ import '../../adapters/xb_mode_adapter.dart';
 import '../../adapters/xb_nodes_adapter.dart';
 import '../../adapters/xb_network_adapter.dart';
 import 'xb_connect_orb.dart';
+import 'xb_expiry_card.dart';
 import 'home_latency_provider.dart';
 import 'xb_ip_card.dart';
 import 'xb_line_card.dart';
@@ -29,13 +30,16 @@ import 'xb_speed_card.dart';
 
 /// 首页 Tab。
 class HomeTab extends ConsumerStatefulWidget {
-  const HomeTab({super.key, this.onTapToNodes, this.onTapLogin});
+  const HomeTab({super.key, this.onTapToNodes, this.onTapLogin, this.onTapRenew});
 
   /// 点击线路卡 → 切节点 Tab（shell 注入）。带上选中节点的所属分组 + 节点名供定位。
   final void Function(String? group, String? node)? onTapToNodes;
 
   /// 点击登录 banner → 弹登录 sheet（shell 注入，W5 接线）。
   final VoidCallback? onTapLogin;
+
+  /// 点击到期卡「去续费」→ 跳「我的」Tab（shell 注入）。
+  final VoidCallback? onTapRenew;
 
   @override
   ConsumerState<HomeTab> createState() => _HomeTabState();
@@ -130,7 +134,7 @@ class _HomeTabState extends ConsumerState<HomeTab> {
                           borderRadius: BorderRadius.circular(20),
                         ),
                         child: const Text(
-                          '🎉 有新版本啦',
+                          '🎉 有新版本啦，巨大更新',
                           style: TextStyle(
                             fontSize: 11,
                             fontWeight: FontWeight.w600,
@@ -147,6 +151,8 @@ class _HomeTabState extends ConsumerState<HomeTab> {
               _GuestBanner(onTapLogin: widget.onTapLogin),
               const SizedBox(height: 12),
             ],
+            // 套餐到期提醒卡（已登录 + 剩≤7天/已过期才显示）。
+            XbExpiryCard(onTapRenew: widget.onTapRenew),
             const SizedBox(height: 8),
             Center(
               child: XbConnectOrb(

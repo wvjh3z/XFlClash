@@ -19,6 +19,8 @@ import 'package:fl_clash/providers/state.dart';
 import 'package:fl_clash/providers/providers.dart'
     show selectedMapProvider, groupsProvider, currentProfileProvider;
 import 'package:fl_clash/xboard/providers/auth_state_provider.dart';
+import 'package:fl_clash/xboard/providers/user_profile_provider.dart';
+import 'package:fl_clash/xboard/models/xb_domain_subscription.dart';
 import 'package:fl_clash/xboard/providers/xboard_providers.dart';
 import 'package:fl_clash/xboard/shell/tabs/home/home_tab.dart';
 import '../shell/_net_detection_stub.dart';
@@ -69,6 +71,7 @@ Future<void> pumpHome(
   required AuthState auth,
   required CoreStatus core,
   required bool isStart,
+  XbDomainSubscription? sub,
 }) async {
   tester.view.physicalSize = const Size(390 * 3, 844 * 3);
   tester.view.devicePixelRatio = 3.0;
@@ -81,6 +84,8 @@ Future<void> pumpHome(
       isStartProvider.overrideWith((ref) => isStart),
       proxiesTabStateProvider.overrideWith((ref) => _tab()),
       netDetectionOverride(),
+      if (sub != null)
+        userProfileProvider.overrideWith((ref) => Future.value(sub)),
       groupsProvider.overrideWithValue(const [
         Group(
           type: GroupType.Selector,
@@ -150,4 +155,39 @@ void main() {
     await expectLater(
         find.byType(HomeTab), matchesGoldenFile('goldens/home_connected.png'));
   });
+
+  testWidgets('首页 · 套餐到期提醒（剩7天）golden', (t) async {
+    final now = DateTime.now();
+    await pumpHome(t,
+        auth: AuthState.authenticated,
+        core: CoreStatus.disconnected,
+        isStart: false,
+        sub: _subExpiring(now.add(const Duration(days: 7, hours: 12))));
+    expect(t.takeException(), isNull);
+    await expectLater(find.byType(HomeTab),
+        matchesGoldenFile('goldens/home_expiry_7d.png'));
+  });
+
+  testWidgets('首页 · 套餐已过期 golden', (t) async {
+    final now = DateTime.now();
+    await pumpHome(t,
+        auth: AuthState.authenticated,
+        core: CoreStatus.disconnected,
+        isStart: false,
+        sub: _subExpiring(now.subtract(const Duration(days: 1))));
+    expect(t.takeException(), isNull);
+    await expectLater(find.byType(HomeTab),
+        matchesGoldenFile('goldens/home_expiry_expired.png'));
+  });
 }
+
+/// 构造带指定到期时间的订阅（其余字段固定，避免像素漂移）。
+XbDomainSubscription _subExpiring(DateTime expiredAt) => XbDomainSubscription(
+      email: 'test@example.com',
+      uuid: 'uuid-0000',
+      planName: '标准套餐',
+      totalBytes: 250 * 1024 * 1024 * 1024,
+      usedBytes: 50 * 1024 * 1024 * 1024,
+      expiredAt: expiredAt,
+      planId: 1,
+    );

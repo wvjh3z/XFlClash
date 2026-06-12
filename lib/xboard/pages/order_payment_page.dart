@@ -18,6 +18,7 @@ import '../models/order_summary.dart';
 import '../models/xb_domain_types.dart';
 import '../models/xb_result.dart';
 import '../providers/xboard_providers.dart';
+import '../providers/user_profile_provider.dart';
 import '../services/subscription_triggers.dart';
 import '../util/error_text.dart';
 import '../util/format.dart';
@@ -52,6 +53,9 @@ class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage>
   bool _retrying = false; // 重试中 → 顶部「正在刷新服务」黄条
   Timer? _pollTimer;
 
+  /// 缓存 ProviderContainer（dispose 时 context 已 deactivated 不能再查 ancestor）。
+  late final ProviderContainer _container;
+
   @override
   void initState() {
     super.initState();
@@ -59,8 +63,17 @@ class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage>
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _container = ProviderScope.containerOf(context, listen: false);
+  }
+
+  @override
   void dispose() {
     _pollTimer?.cancel();
+    // 缺口 1 兜底：用户从支付页 pop 回 Tab 时 invalidate userProfileProvider,
+    // 确保三张卡(账号卡/到期卡/流量卡)最终刷新。幂等(多一次 getSubscription 无害)。
+    _container.invalidate(userProfileProvider);
     super.dispose();
   }
 

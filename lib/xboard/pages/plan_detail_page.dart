@@ -170,8 +170,13 @@ class _PlanDetailPageState extends ConsumerState<PlanDetailPage> {
   @override
   void initState() {
     super.initState();
-    // 默认选最小周期（index 最小 = 周期最短）。
-    _selected = _purchasablePrices.first;
+    // 默认优先选年付（用户 2026-06-13 决策：有年付则默认年付，引导长周期）；
+    // 无年付 → 退回最小周期（index 最小 = 周期最短）。
+    final prices = _purchasablePrices;
+    _selected = prices.firstWhere(
+      (p) => p.period == XbPlanPeriod.yearly,
+      orElse: () => prices.first,
+    );
   }
 
   @override
