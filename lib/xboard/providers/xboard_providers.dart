@@ -16,7 +16,8 @@
 /// - bootstrapReady / firstLaunch：✅ UI 可 watch
 library;
 
-import 'package:flutter_xboard_sdk/flutter_xboard_sdk.dart' show TokenStorage, XBoardSDK;
+import 'package:flutter_xboard_sdk/flutter_xboard_sdk.dart'
+    show AppUpdateModel, TokenStorage, XBoardSDK;
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../config/xboard_config.dart';
@@ -177,4 +178,20 @@ XboardSubscriptionService subscriptionService(Ref ref) {
         ref.read(injectedRaceControllerProvider)?.subscriptionCandidates() ??
         const <String>[],
   );
+}
+
+// ───────── 客户端更新状态 ─────────
+
+/// 可用更新信息（冷启动自动检查/手动检查后写入）。null = 无更新/未检查。
+///
+/// ✅ UI 可 watch（首页 badge / 我的关于行 tag / 弹窗触发）。keepAlive 保证切 Tab 不丢失。
+@Riverpod(keepAlive: true)
+class AvailableUpdate extends _$AvailableUpdate {
+  @override
+  AppUpdateModel? build() => null;
+
+  // ignore: use_setters_to_change_properties
+  void set(AppUpdateModel? model) => state = model;
+
+  void clear() => state = null;
 }

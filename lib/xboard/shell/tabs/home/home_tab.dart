@@ -8,12 +8,14 @@ library;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_xboard_sdk/flutter_xboard_sdk.dart' show AppUpdateModel;
 
 import 'package:fl_clash/xboard/providers/auth_state_provider.dart';
 import 'package:fl_clash/xboard/providers/xboard_providers.dart';
 import 'package:fl_clash/xboard/widgets/xb_center_toast.dart';
 import 'package:fl_clash/xboard/widgets/xb_theme.dart' show XbTokens;
 import 'package:fl_clash/xboard/widgets/xb_ui_kit.dart' show XbIconBadge;
+import 'package:fl_clash/xboard/widgets/xb_update_dialog.dart';
 
 import '../../adapters/xb_mode_adapter.dart';
 import '../../adapters/xb_nodes_adapter.dart';
@@ -81,6 +83,11 @@ class _HomeTabState extends ConsumerState<HomeTab> {
     return XbConnectBlock.noNodes;
   }
 
+  /// 弹出更新弹窗。
+  void _showUpdateDialog(BuildContext ctx, AppUpdateModel info) {
+    showXbUpdateDialog(ctx, info);
+  }
+
   @override
   Widget build(BuildContext context) {
     final isGuest =
@@ -97,15 +104,43 @@ class _HomeTabState extends ConsumerState<HomeTab> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // AppBar 标题「MyClient」（原型 abar，左对齐大标题 24/w700，与节点/我的页一致）。
+            // AppBar 标题「MyClient」+ 右侧更新提示（有新版时）。
             Padding(
               padding: const EdgeInsets.fromLTRB(4, 8, 4, 14),
-              child: Align(
-                alignment: Alignment.centerLeft,
-                child: Text(
-                  'MyClient',
-                  style: Theme.of(context).textTheme.headlineSmall,
-                ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    'MyClient',
+                    style: Theme.of(context).textTheme.headlineSmall,
+                  ),
+                  // 有新版本时显示绿色胶囊提示
+                  Consumer(builder: (ctx, r, _) {
+                    final update = r.watch(availableUpdateProvider);
+                    if (update == null) return const SizedBox.shrink();
+                    return GestureDetector(
+                      onTap: () => _showUpdateDialog(ctx, update),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 10, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: const Color(0x1E2E8B57),
+                          border: Border.all(
+                              color: const Color(0x382E8B57), width: 1),
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: const Text(
+                          '🎉 有新版本啦',
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                            color: Color(0xFF2E8B57),
+                          ),
+                        ),
+                      ),
+                    );
+                  }),
+                ],
               ),
             ),
             if (isGuest) ...[

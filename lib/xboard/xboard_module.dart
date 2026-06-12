@@ -36,6 +36,7 @@ import 'services/endpoint_race_controller.dart';
 import 'services/sentry_bootstrap.dart';
 import 'services/crisp_support_service.dart';
 import 'services/subscription_triggers.dart';
+import 'services/xb_update_service.dart';
 import 'services/xboard_lifecycle_observer.dart';
 import 'widgets/xboard_consent_dialog.dart' show kXbConsentKey;
 
@@ -130,6 +131,9 @@ class XboardModule {
     if (race == null) {
       // 同步阶段 race controller 未就绪（如 bootstrap 失败）→ 无法竞速，沿用出厂 endpoint。
       debugPrint('[XboardModule] async: race controller 未就绪，跳过竞速');
+      // 仍尝试检查更新（SDK 同步阶段已 initialize，出厂 endpoint 可能可达）。
+      // ignore: discarded_futures
+      XbUpdateService.autoCheck(container);
       return;
     }
 
@@ -160,7 +164,10 @@ class XboardModule {
     payload ??= _localPayload;
     if (payload == null || !payload.isValid) {
       SentryBootstrap.tagBootstrap(stage: 'async_no_endpoints');
-      return; // 无任何 endpoint 候选 → 沿用同步阶段出厂 endpoint。
+      // 无 endpoint 候选 → 沿用同步阶段出厂 endpoint，但仍尝试检查更新（出厂 endpoint 可用）。
+      // ignore: discarded_futures
+      XbUpdateService.autoCheck(container);
+      return;
     }
 
     // 3. endpoint 竞速 → 最快可达者经 onApiSwitch 回调热替换 SDK baseUrl + 写 provider。
@@ -168,6 +175,10 @@ class XboardModule {
     await race.raceSubscription(payload.subscriptionEndpoints);
 
     SentryBootstrap.tagBootstrap(stage: 'async_done');
+
+    // 4. 冷启动自动检查更新（竞速完成后 endpoint 已就绪，fire-and-forget 不阻塞）。
+    // ignore: discarded_futures
+    XbUpdateService.autoCheck(container);
   }
 
   /// R4.6 step2a：合并镜像列表 —— 缓存的 next_bootstrap_urls 优先，编译期 flavor bootstrapUrls 兜底，去重保序。

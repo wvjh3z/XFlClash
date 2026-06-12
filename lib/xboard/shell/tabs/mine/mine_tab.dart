@@ -28,6 +28,8 @@ import 'package:fl_clash/xboard/widgets/xb_feedback.dart'
     show xbConfirm, xbBrandColor, xbToast;
 import 'package:fl_clash/xboard/widgets/xb_theme.dart'
     show xbPush, xbShowDialog, XbTokens;
+import 'package:fl_clash/xboard/pages/xb_about_page.dart';
+
 
 import 'xb_settings_page.dart';
 
@@ -901,17 +903,52 @@ class _SettingsSection extends ConsumerWidget {
   }
 }
 
-/// 「关于」条目：显示 MyClient 自有产品版本 + 构建时间戳（`v0.0.1-{tag}`）。
-/// 注意与「设置 → 关于」（FlClash 原生页，显示底座版本 0.8.93）不同源。
-class _AboutRow extends StatelessWidget {
+/// 「关于」条目：显示 MyClient 自有产品版本 + 有新版本时显示「可更新」绿色标签。
+/// 点击进入自定义关于页（含检查更新按钮）。
+class _AboutRow extends ConsumerWidget {
   const _AboutRow();
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final hasUpdate = ref.watch(availableUpdateProvider) != null;
     return XbListRow(
       icon: Icons.info_outline,
       label: '关于',
-      badge: myClientVersionLabel(),
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            myClientVersionLabel(),
+            style: TextStyle(
+              fontSize: 12.5,
+              fontWeight: FontWeight.w600,
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
+          ),
+          if (hasUpdate) ...[
+            const SizedBox(width: 6),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+              decoration: BoxDecoration(
+                color: const Color(0x1E2E8B57),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Text(
+                '可更新',
+                style: TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.w600,
+                  color: Color(0xFF2E8B57),
+                ),
+              ),
+            ),
+          ],
+          const SizedBox(width: 6),
+          Icon(Icons.chevron_right,
+              color: Theme.of(context).colorScheme.onSurfaceVariant, size: 20),
+        ],
+      ),
+      onTap: () => xbPush(context, const XbAboutPage(), brandColor: xbBrandColor()),
     );
   }
 }

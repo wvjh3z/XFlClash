@@ -396,7 +396,7 @@ final class XboardServiceProvider
   }
 }
 
-String _$xboardServiceHash() => r'24045bd92428eca0faf65f86c90564595add1487';
+String _$xboardServiceHash() => r'aa66c033024a07870b7ecc0642be40b58d48a353';
 
 /// 注入的 TokenStorage（bootstrap step4 写真实实现：SecureStorage / AES-SharedPrefs / Memory）。
 ///
@@ -695,3 +695,69 @@ final class SubscriptionServiceProvider
 
 String _$subscriptionServiceHash() =>
     r'e83e51769eed41263c625fc502ec47113a3ee220';
+
+/// 可用更新信息（冷启动自动检查/手动检查后写入）。null = 无更新/未检查。
+///
+/// ✅ UI 可 watch（首页 badge / 我的关于行 tag / 弹窗触发）。keepAlive 保证切 Tab 不丢失。
+
+@ProviderFor(AvailableUpdate)
+final availableUpdateProvider = AvailableUpdateProvider._();
+
+/// 可用更新信息（冷启动自动检查/手动检查后写入）。null = 无更新/未检查。
+///
+/// ✅ UI 可 watch（首页 badge / 我的关于行 tag / 弹窗触发）。keepAlive 保证切 Tab 不丢失。
+final class AvailableUpdateProvider
+    extends $NotifierProvider<AvailableUpdate, AppUpdateModel?> {
+  /// 可用更新信息（冷启动自动检查/手动检查后写入）。null = 无更新/未检查。
+  ///
+  /// ✅ UI 可 watch（首页 badge / 我的关于行 tag / 弹窗触发）。keepAlive 保证切 Tab 不丢失。
+  AvailableUpdateProvider._()
+    : super(
+        from: null,
+        argument: null,
+        retry: null,
+        name: r'availableUpdateProvider',
+        isAutoDispose: false,
+        dependencies: null,
+        $allTransitiveDependencies: null,
+      );
+
+  @override
+  String debugGetCreateSourceHash() => _$availableUpdateHash();
+
+  @$internal
+  @override
+  AvailableUpdate create() => AvailableUpdate();
+
+  /// {@macro riverpod.override_with_value}
+  Override overrideWithValue(AppUpdateModel? value) {
+    return $ProviderOverride(
+      origin: this,
+      providerOverride: $SyncValueProvider<AppUpdateModel?>(value),
+    );
+  }
+}
+
+String _$availableUpdateHash() => r'9c10d56a468f19582066e4ff4b26a082a4de7d19';
+
+/// 可用更新信息（冷启动自动检查/手动检查后写入）。null = 无更新/未检查。
+///
+/// ✅ UI 可 watch（首页 badge / 我的关于行 tag / 弹窗触发）。keepAlive 保证切 Tab 不丢失。
+
+abstract class _$AvailableUpdate extends $Notifier<AppUpdateModel?> {
+  AppUpdateModel? build();
+  @$mustCallSuper
+  @override
+  void runBuild() {
+    final ref = this.ref as $Ref<AppUpdateModel?, AppUpdateModel?>;
+    final element =
+        ref.element
+            as $ClassProviderElement<
+              AnyNotifier<AppUpdateModel?, AppUpdateModel?>,
+              AppUpdateModel?,
+              Object?,
+              Object?
+            >;
+    element.handleCreate(ref, build);
+  }
+}

@@ -51,6 +51,7 @@ COMMON_DEFINES=(
   --dart-define=XB_FORM_A=true
   --dart-define=XB_BUILD_TAG="$TAG"
   --dart-define=XB_PRODUCT_VERSION="$VERSION_NAME"
+  --dart-define=XB_BUILD_NUMBER="$BUILD_NUMBER"
 )
 
 echo "=== build: mode=$MODE arch=$ARCH ==="
