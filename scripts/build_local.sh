@@ -117,3 +117,23 @@ echo "  MyClient 产品版本 v$VERSION_NAME (build $BUILD_NUMBER) · 底座 $BA
 echo "  buildTag : $TAG"
 echo "  apk      : $OUT"
 ls -la "$OUT" 2>/dev/null || echo "  (产物未找到，检查上面构建日志)"
+
+# === 自动部署到 nginx 下载站（仅 release arm64）===
+# nginx 监听 8080，root=/www/wwwroot/apkdl，开机自启、进程稳定（替代易挂的 python http.server）。
+# 下载 URL：http://147.135.105.62:8080/MyClient-{versionName}-android-arm64-v8a.apk（插件命名规则）。
+if [ "$MODE" = "release" ] && [ "$ARCH" = "arm64" ]; then
+  DEPLOY_DIR="/www/wwwroot/apkdl"
+  DEPLOY_NAME="MyClient-${VERSION_NAME}-android-arm64-v8a.apk"
+  if [ -f "$OUT" ] && [ -d "$DEPLOY_DIR" ]; then
+    cp "$OUT" "$DEPLOY_DIR/$DEPLOY_NAME"
+    chown www:www "$DEPLOY_DIR/$DEPLOY_NAME" 2>/dev/null || true
+    SHA256="$(sha256sum "$DEPLOY_DIR/$DEPLOY_NAME" | cut -d' ' -f1)"
+    echo "=== ✓ 已部署到 nginx 下载站 ==="
+    echo "  路径   : $DEPLOY_DIR/$DEPLOY_NAME"
+    echo "  URL    : http://147.135.105.62:8080/$DEPLOY_NAME"
+    echo "  sha256 : $SHA256"
+    echo "  → 后台配置 version_code=$BUILD_NUMBER + android_arm64_sha256=$SHA256，然后 octane:reload"
+  else
+    echo "⚠ 跳过 nginx 部署（产物或目录不存在：$DEPLOY_DIR）"
+  fi
+fi
