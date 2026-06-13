@@ -83,3 +83,7 @@ devtools_options.yaml
 /.secrets/
 *.secrets.md
 test/xboard/golden/failures/
+
+# 品牌私密配置（不进 git，CI 从 BRAND_*_FLAVOR_YAML_B64 / BRAND_*_FALLBACK_BIN_B64 secret 还原；本地保留）
+flavors/*/flavor.yaml
+flavors/*/assets/fallback.bin

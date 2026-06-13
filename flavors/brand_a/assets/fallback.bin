@@ -1,1 +1,0 @@
-FALLBACK_PLACEHOLDER — W5.1 BootstrapFetcher 生成真实 AES-256-GCM 加密 envelope；AES key 由 CI 注入后填充。
