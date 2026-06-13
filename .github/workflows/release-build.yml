@@ -49,12 +49,16 @@ jobs:
       - name: Checkout client (XFlClash)
         uses: actions/checkout@v4
 
+      # actions/checkout 不允许 path 在 workspace 外（`..`）；SDK 是平级 path 依赖
+      # （pubspec: flutter_xboard_sdk path: ../Xboard_sdk），须 clone 到真正的 sibling 目录。
+      # SIBLING_SDK_TOKEN 是 secret，Actions 自动在日志里打码，URL 内嵌不泄露。
       - name: Checkout Xboard_sdk (sibling, private)
-        uses: actions/checkout@v4
-        with:
-          repository: wvjh3z/Xboard_sdk
-          path: ../Xboard_sdk
-          token: ${{ secrets.SIBLING_SDK_TOKEN }}
+        run: |
+          set -euo pipefail
+          git clone --depth 1 \
+            "https://x-access-token:${{ secrets.SIBLING_SDK_TOKEN }}@github.com/wvjh3z/Xboard_sdk.git" \
+            "${GITHUB_WORKSPACE}/../Xboard_sdk"
+          echo "✓ Xboard_sdk 已 clone 到 $(cd "${GITHUB_WORKSPACE}/.." && pwd)/Xboard_sdk"
 
       # 从 secrets 还原已移出仓库的 flavor 机密（base64 → 文件）。
       - name: Restore brand_a flavor secrets

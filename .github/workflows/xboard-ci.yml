@@ -28,13 +28,11 @@ jobs:
           # sibling SDK 也需 checkout（path 依赖）。
           submodules: false
 
-      # sibling Xboard_sdk 与 XFlClash 平级；CI 需把 SDK clone 到上级目录。
+      # actions/checkout 不允许 path 在 workspace 外（`..`）；SDK 是平级 path 依赖，
+      # 须手动 clone 到真正的 sibling 目录。SIBLING_SDK_TOKEN 为 secret，日志自动打码。
       - name: Checkout Xboard_sdk (sibling)
-        uses: actions/checkout@v4
-        with:
-          repository: wvjh3z/Xboard_sdk
-          path: ../Xboard_sdk
-          token: ${{ secrets.SIBLING_SDK_TOKEN }}
+        run: |
+          git clone --depth 1 "https://x-access-token:${{ secrets.SIBLING_SDK_TOKEN }}@github.com/wvjh3z/Xboard_sdk.git" "${GITHUB_WORKSPACE}/../Xboard_sdk"
 
       - uses: subosito/flutter-action@v2
         with:
@@ -84,12 +82,11 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+      # actions/checkout 不允许 path 在 workspace 外（`..`）；SDK 是平级 path 依赖，
+      # 须手动 clone 到真正的 sibling 目录。SIBLING_SDK_TOKEN 为 secret，日志自动打码。
       - name: Checkout Xboard_sdk (sibling)
-        uses: actions/checkout@v4
-        with:
-          repository: wvjh3z/Xboard_sdk
-          path: ../Xboard_sdk
-          token: ${{ secrets.SIBLING_SDK_TOKEN }}
+        run: |
+          git clone --depth 1 "https://x-access-token:${{ secrets.SIBLING_SDK_TOKEN }}@github.com/wvjh3z/Xboard_sdk.git" "${GITHUB_WORKSPACE}/../Xboard_sdk"
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
@@ -124,12 +121,11 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0 # diff 断言需完整历史
+      # actions/checkout 不允许 path 在 workspace 外（`..`）；SDK 是平级 path 依赖，
+      # 须手动 clone 到真正的 sibling 目录。SIBLING_SDK_TOKEN 为 secret，日志自动打码。
       - name: Checkout Xboard_sdk (sibling)
-        uses: actions/checkout@v4
-        with:
-          repository: wvjh3z/Xboard_sdk
-          path: ../Xboard_sdk
-          token: ${{ secrets.SIBLING_SDK_TOKEN }}
+        run: |
+          git clone --depth 1 "https://x-access-token:${{ secrets.SIBLING_SDK_TOKEN }}@github.com/wvjh3z/Xboard_sdk.git" "${GITHUB_WORKSPACE}/../Xboard_sdk"
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
