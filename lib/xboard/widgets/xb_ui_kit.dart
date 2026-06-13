@@ -53,6 +53,8 @@ class XbBrandScaffold extends StatelessWidget {
     required this.body,
     this.bottomNavigationBar,
     this.actions,
+    this.embedded = false,
+    this.maxContentWidth,
   });
 
   final String title;
@@ -60,16 +62,40 @@ class XbBrandScaffold extends StatelessWidget {
   final Widget? bottomNavigationBar;
   final List<Widget>? actions;
 
+  /// 桌面「面板模式」：去掉 Scaffold/AppBar（由宿主面板提供窗口 chrome 与标题/返回），
+  /// 仅渲染品牌主题下的 [body]（+ 可选 [bottomNavigationBar]）。默认 false = 移动端整屏页（不变）。
+  final bool embedded;
+
+  /// 内容最大宽度（桌面宽面板下居中收窄，避免卡片拉太宽）。null = 不约束（移动端全宽，不变）。
+  final double? maxContentWidth;
+
   @override
   Widget build(BuildContext context) {
+    final content = maxContentWidth == null
+        ? body
+        : Center(
+            child: ConstrainedBox(
+              constraints: BoxConstraints(maxWidth: maxContentWidth!),
+              child: body,
+            ),
+          );
     return XbBrandTheme(
       brandColor: Color(XboardConfig.current.brandColor),
       child: Builder(
-        builder: (context) => Scaffold(
-          appBar: AppBar(title: Text(title), actions: actions),
-          body: body,
-          bottomNavigationBar: bottomNavigationBar,
-        ),
+        builder: (context) {
+          if (embedded) {
+            // 面板模式：无 Scaffold/AppBar（宿主面板负责窗口 chrome / 标题 / 返回）。
+            final bar = bottomNavigationBar;
+            return bar == null
+                ? content
+                : Column(children: [Expanded(child: content), bar]);
+          }
+          return Scaffold(
+            appBar: AppBar(title: Text(title), actions: actions),
+            body: content,
+            bottomNavigationBar: bottomNavigationBar,
+          );
+        },
       ),
     );
   }

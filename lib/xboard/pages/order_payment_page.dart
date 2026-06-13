@@ -174,15 +174,10 @@ class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage>
 
   @override
   Widget build(BuildContext context) {
-    return XbBrandTheme(
-      brandColor: xbBrandColor(),
-      child: Builder(builder: _buildScaffold),
-    );
-  }
-
-  Widget _buildScaffold(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('支付订单')),
+    // 统一用 XbBrandScaffold（与其它二级页一致 → 桌面面板化时一处生效）；
+    // 品牌色源与原 xbBrandColor() 完全一致，渲染逐像素不变。
+    return XbBrandScaffold(
+      title: '支付订单',
       body: XbAsyncView(
         loading: _loading && !_retrying,
         retrying: _retrying,
