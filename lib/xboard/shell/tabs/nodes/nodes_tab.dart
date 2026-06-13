@@ -233,16 +233,36 @@ class _GroupTabBar extends StatelessWidget {
     required this.groups,
     required this.selected,
     required this.onSelect,
+    // ignore: unused_element_parameter  竖版由后续桌面节点布局接入使用（C-分支）。
+    this.axis = Axis.horizontal,
   });
 
   final List<XbGroupSummary> groups;
   final String selected;
   final ValueChanged<String> onSelect;
 
+  /// 排布方向：移动端顶部横向 chips（默认）；桌面 master-detail 左栏竖向列表。
+  /// 竖版由后续桌面节点布局接入（C-分支）使用。
+  final Axis axis;
+
   @override
   Widget build(BuildContext context) {
     final t = XbTokens.of(context);
     final scheme = Theme.of(context).colorScheme;
+    if (axis == Axis.vertical) {
+      // 桌面左栏：竖向全宽 pill 列表。
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          for (final g in groups) ...[
+            _chip(context, t, scheme, g, g.name == selected),
+            const SizedBox(height: 8),
+          ],
+        ],
+      );
+    }
+    // 移动端：顶部横向滚动 chips。
     return SizedBox(
       height: 42,
       child: ListView.separated(
@@ -252,53 +272,63 @@ class _GroupTabBar extends StatelessWidget {
         separatorBuilder: (_, _) => const SizedBox(width: 8),
         itemBuilder: (context, i) {
           final g = groups[i];
-          final on = g.name == selected;
-          return GestureDetector(
-            onTap: () => onSelect(g.name),
-            child: Container(
-              alignment: Alignment.center,
-              padding: const EdgeInsets.symmetric(horizontal: 15),
-              decoration: BoxDecoration(
-                gradient: on
-                    ? LinearGradient(
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                        colors: [
-                          Color.alphaBlend(
-                              Colors.white.withValues(alpha: 0.12),
-                              scheme.primary),
-                          scheme.primary,
-                        ],
-                      )
-                    : null,
-                // 未选：白卡底 + 细描边（清晰是可点 chip，深色下也跳出来）；选中：品牌渐变。
-                color: on ? null : t.card,
-                border: on
-                    ? null
-                    : Border.all(color: t.line, width: 1.4),
-                borderRadius: BorderRadius.circular(30),
-                boxShadow: on
-                    ? [
-                        BoxShadow(
-                          color: scheme.primary.withValues(alpha: 0.45),
-                          blurRadius: 16,
-                          offset: const Offset(0, 6),
-                          spreadRadius: -6,
-                        ),
-                      ]
-                    : null,
-              ),
-              child: Text(
-                g.name,
-                style: TextStyle(
-                  fontSize: 13.5,
-                  fontWeight: FontWeight.w700,
-                  color: on ? Colors.white : t.on,
-                ),
-              ),
-            ),
-          );
+          return _chip(context, t, scheme, g, g.name == selected);
         },
+      ),
+    );
+  }
+
+  /// 单个分组 chip（横/竖通用；竖向左对齐全宽，横向居中自适应）。
+  Widget _chip(
+    BuildContext context,
+    XbTokens t,
+    ColorScheme scheme,
+    XbGroupSummary g,
+    bool on,
+  ) {
+    final vertical = axis == Axis.vertical;
+    return GestureDetector(
+      onTap: () => onSelect(g.name),
+      child: Container(
+        alignment: vertical ? Alignment.centerLeft : Alignment.center,
+        padding: vertical
+            ? const EdgeInsets.symmetric(horizontal: 16, vertical: 12)
+            : const EdgeInsets.symmetric(horizontal: 15),
+        decoration: BoxDecoration(
+          gradient: on
+              ? LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [
+                    Color.alphaBlend(
+                        Colors.white.withValues(alpha: 0.12), scheme.primary),
+                    scheme.primary,
+                  ],
+                )
+              : null,
+          // 未选：白卡底 + 细描边（清晰是可点 chip，深色下也跳出来）；选中：品牌渐变。
+          color: on ? null : t.card,
+          border: on ? null : Border.all(color: t.line, width: 1.4),
+          borderRadius: BorderRadius.circular(vertical ? 12 : 30),
+          boxShadow: on
+              ? [
+                  BoxShadow(
+                    color: scheme.primary.withValues(alpha: 0.45),
+                    blurRadius: 16,
+                    offset: const Offset(0, 6),
+                    spreadRadius: -6,
+                  ),
+                ]
+              : null,
+        ),
+        child: Text(
+          g.name,
+          style: TextStyle(
+            fontSize: 13.5,
+            fontWeight: FontWeight.w700,
+            color: on ? Colors.white : t.on,
+          ),
+        ),
       ),
     );
   }

@@ -78,7 +78,7 @@ class _XboardAppShellState extends ConsumerState<XboardAppShell> {
   /// 底栏点击 → 横滑到目标页。
   void _onTabSelected(int index) {
     if (index == _tabIndex) return;
-    _slideTo(index);
+    _goTo(index);
   }
 
   /// 页面横滑落定（含手指滑动）→ 同步选中态。
@@ -86,7 +86,9 @@ class _XboardAppShellState extends ConsumerState<XboardAppShell> {
     if (index != _tabIndex) setState(() => _tabIndex = index);
   }
 
-  void _slideTo(int index) {
+  /// 切换到目标 Tab（统一入口）。移动端有 PageController → 横滑；
+  /// 桌面分支（无 PageController）后续直接换 IndexedStack 的 index（C-分支）。
+  void _goTo(int index) {
     setState(() => _tabIndex = index);
     if (MediaQuery.maybeDisableAnimationsOf(context) ?? false) {
       _pager.jumpToPage(index); // 减弱动态效果 → 瞬切。
@@ -102,7 +104,7 @@ class _XboardAppShellState extends ConsumerState<XboardAppShell> {
       _nodeTargetNode = node;
       _nodeTargetNonce++;
     });
-    _slideTo(1);
+    _goTo(1);
   }
 
   @override
@@ -150,9 +152,45 @@ class _XboardAppShellState extends ConsumerState<XboardAppShell> {
     });
   }
 
+  /// 三个 Tab 子树（含 XbErrorBoundary，R1.7：单 Tab 崩不波及内核 / 其它 Tab）。
+  ///
+  /// 抽出供「移动端 PageView」与「桌面 IndexedStack」两种外壳复用（C-分支）。
+  /// 不含 _KeepAliveTab：PageView 分支按需包保活；IndexedStack 天然全保活。
+  List<Widget> _tabBodies(BuildContext context) {
+    return [
+      XbErrorBoundary(
+        label: '首页',
+        child: HomeTab(
+          onTapToNodes: _onTapToNodes,
+          onTapLogin: () => showLoginSheet(context),
+          onTapRenew: () => _goTo(2),
+        ),
+      ),
+      XbErrorBoundary(
+        label: '节点',
+        child: NodesTab(
+          onTapRenew: () => _onTabSelected(2),
+          onTapLogin: () => showLoginSheet(context),
+          targetGroup: _nodeTargetGroup,
+          targetNode: _nodeTargetNode,
+          targetNonce: _nodeTargetNonce,
+        ),
+      ),
+      XbErrorBoundary(
+        label: '我的',
+        child: MineTab(
+          active: _tabIndex == 2,
+          onTapLogin: () => showLoginSheet(context),
+        ),
+      ),
+    ];
+  }
+
   Widget _buildScaffold(BuildContext context) {
-    // body 用 PageView 横向滑动切换（点底栏 animateToPage / 手指左右滑）。
+    // 移动端：body 用 PageView 横向滑动切换（点底栏 animateToPage / 手指左右滑）。
     // 每个 Tab 用 _KeepAliveTab 保活（切走不 dispose，状态/滚动位置不丢，等价原 IndexedStack）。
+    // （桌面左侧栏 + IndexedStack 分支后续接入，复用 _tabBodies + _goTo。）
+    final bodies = _tabBodies(context);
     return Scaffold(
       body: SafeArea(
         bottom: false,
@@ -160,38 +198,7 @@ class _XboardAppShellState extends ConsumerState<XboardAppShell> {
           controller: _pager,
           onPageChanged: _onPageChanged,
           children: [
-            // 每个 Tab body 外包 XbErrorBoundary（R1.7：单 Tab 崩不波及内核 / 其它 Tab）。
-            _KeepAliveTab(
-              child: XbErrorBoundary(
-                label: '首页',
-                child: HomeTab(
-                  onTapToNodes: _onTapToNodes,
-                  onTapLogin: () => showLoginSheet(context),
-                  onTapRenew: () => _slideTo(2),
-                ),
-              ),
-            ),
-            _KeepAliveTab(
-              child: XbErrorBoundary(
-                label: '节点',
-                child: NodesTab(
-                  onTapRenew: () => _onTabSelected(2),
-                  onTapLogin: () => showLoginSheet(context),
-                  targetGroup: _nodeTargetGroup,
-                  targetNode: _nodeTargetNode,
-                  targetNonce: _nodeTargetNonce,
-                ),
-              ),
-            ),
-            _KeepAliveTab(
-              child: XbErrorBoundary(
-                label: '我的',
-                child: MineTab(
-                  active: _tabIndex == 2,
-                  onTapLogin: () => showLoginSheet(context),
-                ),
-              ),
-            ),
+            for (final body in bodies) _KeepAliveTab(child: body),
           ],
         ),
       ),

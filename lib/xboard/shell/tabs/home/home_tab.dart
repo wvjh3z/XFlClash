@@ -8,7 +8,6 @@ library;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter_xboard_sdk/flutter_xboard_sdk.dart' show AppUpdateModel;
 
 import 'package:fl_clash/xboard/providers/auth_state_provider.dart';
 import 'package:fl_clash/xboard/providers/xboard_providers.dart';
@@ -87,11 +86,6 @@ class _HomeTabState extends ConsumerState<HomeTab> {
     return XbConnectBlock.noNodes;
   }
 
-  /// 弹出更新弹窗。
-  void _showUpdateDialog(BuildContext ctx, AppUpdateModel info) {
-    showXbUpdateDialog(ctx, info);
-  }
-
   @override
   Widget build(BuildContext context) {
     final isGuest =
@@ -109,44 +103,7 @@ class _HomeTabState extends ConsumerState<HomeTab> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             // AppBar 标题「MyClient」+ 右侧更新提示（有新版时）。
-            Padding(
-              padding: const EdgeInsets.fromLTRB(4, 8, 4, 14),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    'MyClient',
-                    style: Theme.of(context).textTheme.headlineSmall,
-                  ),
-                  // 有新版本时显示绿色胶囊提示
-                  Consumer(builder: (ctx, r, _) {
-                    final update = r.watch(availableUpdateProvider);
-                    if (update == null) return const SizedBox.shrink();
-                    return GestureDetector(
-                      onTap: () => _showUpdateDialog(ctx, update),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 10, vertical: 4),
-                        decoration: BoxDecoration(
-                          color: const Color(0x1E2E8B57),
-                          border: Border.all(
-                              color: const Color(0x382E8B57), width: 1),
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                        child: const Text(
-                          '🎉 有新版本啦，巨大更新',
-                          style: TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w600,
-                            color: Color(0xFF2E8B57),
-                          ),
-                        ),
-                      ),
-                    );
-                  }),
-                ],
-              ),
-            ),
+            const _HomeHeader(),
             if (isGuest) ...[
               _GuestBanner(onTapLogin: widget.onTapLogin),
               const SizedBox(height: 12),
@@ -187,6 +144,53 @@ class _HomeTabState extends ConsumerState<HomeTab> {
             const XbIpCard(),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// 首页头部：标题「MyClient」+ 右侧「有新版本」绿色胶囊（点击弹更新弹窗）。
+/// 抽出供移动端单列 / 桌面双栏复用（C-分支）。
+class _HomeHeader extends StatelessWidget {
+  const _HomeHeader();
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(4, 8, 4, 14),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(
+            'MyClient',
+            style: Theme.of(context).textTheme.headlineSmall,
+          ),
+          // 有新版本时显示绿色胶囊提示。
+          Consumer(builder: (ctx, r, _) {
+            final update = r.watch(availableUpdateProvider);
+            if (update == null) return const SizedBox.shrink();
+            return GestureDetector(
+              onTap: () => showXbUpdateDialog(ctx, update),
+              child: Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(
+                  color: const Color(0x1E2E8B57),
+                  border: Border.all(color: const Color(0x382E8B57), width: 1),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: const Text(
+                  '🎉 有新版本啦，巨大更新',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                    color: Color(0xFF2E8B57),
+                  ),
+                ),
+              ),
+            );
+          }),
+        ],
       ),
     );
   }

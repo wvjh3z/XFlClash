@@ -116,7 +116,10 @@ class _ToastWidgetState extends State<_ToastWidget>
                 // （Flutter「missing Material」提示）。透明 Material 提供文本渲染祖先，消下划线。
                 child: Material(
                   type: MaterialType.transparency,
-                  child: Container(
+                  child: ConstrainedBox(
+                    // 桌面宽窗口下限制最大宽度，避免横向拉得过宽（移动端窄屏不受影响）。
+                    constraints: const BoxConstraints(maxWidth: 420),
+                    child: Container(
                     margin: const EdgeInsets.symmetric(horizontal: 36),
                     padding:
                         const EdgeInsets.symmetric(horizontal: 18, vertical: 15),
@@ -152,6 +155,7 @@ class _ToastWidgetState extends State<_ToastWidget>
                         ),
                       ],
                     ),
+                  ),
                   ),
                 ),
               ),

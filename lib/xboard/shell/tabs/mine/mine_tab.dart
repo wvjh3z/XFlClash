@@ -138,16 +138,11 @@ class _MineTabState extends ConsumerState<MineTab> {
         padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
         children: [
           // 标题行：左「我的」+ 右「刷新信息」（已登录才显示）。
-          Row(
-            children: [
-              Text('我的', style: Theme.of(context).textTheme.headlineSmall),
-              const Spacer(),
-              if (!isGuest) _RefreshButton(
-                refreshing: _refreshing,
-                cooldownSec: _cooldownSec,
-                onTap: _onRefresh,
-              ),
-            ],
+          _MineHeader(
+            isGuest: isGuest,
+            refreshing: _refreshing,
+            cooldownSec: _cooldownSec,
+            onRefresh: _onRefresh,
           ),
           const SizedBox(height: 16),
           // 刷新中：顶部黄色横幅（与 11d 原型一致）
@@ -164,6 +159,38 @@ class _MineTabState extends ConsumerState<MineTab> {
           _SettingsSection(isGuest: isGuest),
         ],
       ),
+    );
+  }
+}
+
+/// 「我的」头部：左标题 + 右「刷新信息」按钮（已登录才显示）。
+/// 抽出供移动端单列 / 桌面双栏复用（C-分支）。
+class _MineHeader extends StatelessWidget {
+  const _MineHeader({
+    required this.isGuest,
+    required this.refreshing,
+    required this.cooldownSec,
+    required this.onRefresh,
+  });
+
+  final bool isGuest;
+  final bool refreshing;
+  final int cooldownSec;
+  final VoidCallback onRefresh;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Text('我的', style: Theme.of(context).textTheme.headlineSmall),
+        const Spacer(),
+        if (!isGuest)
+          _RefreshButton(
+            refreshing: refreshing,
+            cooldownSec: cooldownSec,
+            onTap: onRefresh,
+          ),
+      ],
     );
   }
 }
