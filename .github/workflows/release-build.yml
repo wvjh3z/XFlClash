@@ -44,7 +44,6 @@ jobs:
       matrix:
         include:
           - { os: windows-2022, platform: windows }
-          - { os: ubuntu-22.04, platform: linux }
     steps:
       - name: Checkout client (XFlClash)
         uses: actions/checkout@v4
