@@ -48,6 +48,8 @@ jobs:
     steps:
       - name: Checkout client (XFlClash)
         uses: actions/checkout@v4
+        with:
+          submodules: recursive # plugins/tray_manager·flutter_distributor + core/Clash.Meta（Go 核心源码）均为 submodule
 
       # actions/checkout 不允许 path 在 workspace 外（`..`）；SDK 是平级 path 依赖
       # （pubspec: flutter_xboard_sdk path: ../Xboard_sdk），须 clone 到真正的 sibling 目录。
