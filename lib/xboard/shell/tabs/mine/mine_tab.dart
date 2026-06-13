@@ -41,7 +41,7 @@ const _resetThreshold = 0.90;
 
 /// 我的 Tab。
 class MineTab extends ConsumerStatefulWidget {
-  const MineTab({super.key, this.onTapLogin, this.active = true});
+  const MineTab({super.key, this.onTapLogin, this.active = true, this.now});
 
   /// 游客点击登录（shell 注入，W5 接线）。
   final VoidCallback? onTapLogin;
@@ -49,6 +49,10 @@ class MineTab extends ConsumerStatefulWidget {
   /// 当前是否为可见 Tab（shell 注入 `_tabIndex==2`）：变可见时账号卡播放流量填充动画。
   /// 默认 true（标准/golden 直接渲染场景照常播放并 settle 到终值）。
   final bool active;
+
+  /// 测试注入的固定「当前时刻」（透传给账号卡算到期/重置剩余，保证 golden 不随真实日期漂移）。
+  /// 生产为 null → 账号卡用 `DateTime.now()`，行为完全不变。
+  final DateTime? now;
 
   @override
   ConsumerState<MineTab> createState() => _MineTabState();
@@ -154,7 +158,7 @@ class _MineTabState extends ConsumerState<MineTab> {
           if (isGuest)
             _GuestCard(onTapLogin: widget.onTapLogin)
           else
-            _AccountSection(active: widget.active),
+            _AccountSection(active: widget.active, now: widget.now),
           const SizedBox(height: 16),
           _SettingsSection(isGuest: isGuest),
         ],
@@ -249,10 +253,13 @@ class _RefreshButton extends StatelessWidget {
 
 /// 已登录账号区：账号卡（loading 骨架 / data）+ 续费购买分流 + 重置入口。
 class _AccountSection extends ConsumerStatefulWidget {
-  const _AccountSection({required this.active});
+  const _AccountSection({required this.active, this.now});
 
   /// 当前是否可见 Tab（透传给账号卡触发填充动画）。
   final bool active;
+
+  /// 测试注入的固定时刻（透传给账号卡算到期/重置剩余）；生产 null → DateTime.now()。
+  final DateTime? now;
 
   @override
   ConsumerState<_AccountSection> createState() => _AccountSectionState();
@@ -292,7 +299,7 @@ class _AccountSectionState extends ConsumerState<_AccountSection> {
       error: (e, _) => _AccountErrorCard(onRetry: _retry),
       data: (sub) => Column(
         children: [
-          _AccountCard(sub: sub, active: widget.active),
+          _AccountCard(sub: sub, active: widget.active, now: widget.now),
           const SizedBox(height: 12),
           _PlanActions(sub: sub),
         ],
@@ -303,12 +310,16 @@ class _AccountSectionState extends ConsumerState<_AccountSection> {
 
 /// 账号卡（原型 .plan：品牌渐变卡 + 白字 + 大号流量数字 + 到期/重置两行，R6.1/R6.2）。
 class _AccountCard extends StatefulWidget {
-  const _AccountCard({required this.sub, this.active = true});
+  const _AccountCard({required this.sub, this.active = true, this.now});
 
   final XbDomainSubscription sub;
 
   /// 变为可见时播放「流量数字 count-up + 进度条填充」动画（从 0 到终值）。
   final bool active;
+
+  /// 计算「到期/重置剩余」用的当前时刻（测试注入固定值保证 golden 稳定）；
+  /// 生产为 null → 用 `DateTime.now()`，行为不变。
+  final DateTime? now;
 
   @override
   State<_AccountCard> createState() => _AccountCardState();
@@ -502,12 +513,17 @@ class _AccountCardState extends State<_AccountCard>
           ),
           const SizedBox(height: 11),
           // 到期行（保持原风格）。
-          _InfoRow(icon: Icons.event, text: _expireText(sub), color: white70),
+          _InfoRow(
+              icon: Icons.event,
+              text: _expireText(sub, now: widget.now),
+              color: white70),
           // 流量重置行（有重置日才显示，保持原风格）。
-          if (_resetText(sub) != null) ...[
+          if (_resetText(sub, now: widget.now) != null) ...[
             const SizedBox(height: 3),
             _InfoRow(
-                icon: Icons.autorenew, text: _resetText(sub)!, color: white70),
+                icon: Icons.autorenew,
+                text: _resetText(sub, now: widget.now)!,
+                color: white70),
           ],
         ],
       ),
@@ -516,19 +532,20 @@ class _AccountCardState extends State<_AccountCard>
 
   static String _gb(int bytes) => xbGb(bytes);
 
-  static String _expireText(XbDomainSubscription sub) {
+  static String _expireText(XbDomainSubscription sub, {DateTime? now}) {
     if (sub.expiredAt == null) return '长期有效';
     final d = sub.expiredAt!;
+    final ref = now ?? DateTime.now();
     final ymd = xbDateMinute(d);
     // 已过期 → 「已过期 日期」（不显示剩余）；未过期 → 「到期 日期（剩余N天/N小时）」。
-    if (!d.isAfter(DateTime.now())) return '已过期 $ymd';
-    return '到期 $ymd（${xbRemainLabel(d)}）';
+    if (!d.isAfter(ref)) return '已过期 $ymd';
+    return '到期 $ymd（${xbRemainLabel(d, now: ref)}）';
   }
 
   /// 流量重置行：有重置日才显示（一次性套餐无）。`每月N号HH:mm分（剩余N天）`。
-  static String? _resetText(XbDomainSubscription sub) {
+  static String? _resetText(XbDomainSubscription sub, {DateTime? now}) {
     final d = sub.nextResetAt;
-    if (d != null) return xbResetText(d);
+    if (d != null) return xbResetText(d, now: now);
     // 无 nextResetAt 但有 resetDay（理论少见）→ 仅显示重置日。
     if (sub.resetDay != null) return '流量重置 每月 ${sub.resetDay} 号';
     return null;

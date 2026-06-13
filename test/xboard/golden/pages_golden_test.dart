@@ -53,9 +53,13 @@ final _fixedCreated = DateTime(2026, 6, 5, 12, 30);
 // 真实账号那份数据（98% 用量，触发流量重置告警卡）。
 // 到期/重置时间用「相对当前日期的固定偏移」→ 「剩 N 天」恒定，golden 不随运行日期飘移
 // （xbResetText / _expireText 内部用 DateTime.now() 算剩余天数，固定日期会导致每天像素漂移）。
+/// golden 固定基准时刻（绝对,不随真实日期漂移）。账号卡到期/重置「剩余N天」按它计算。
+final _goldenNow = DateTime(2026, 1, 1, 12, 0);
+
 XbDomainSubscription get _sub {
-  final today = DateTime.now();
-  final base = DateTime(today.year, today.month, today.day);
+  // 固定绝对基准（不再用 DateTime.now()）：保证「到期绝对日期」与「剩余N天」双双稳定，
+  // 配合下方 MineTab(now: _goldenNow) 渲染，golden 任何一天跑都一致。
+  final base = DateTime(2026, 1, 1);
   return XbDomainSubscription(
       email: '123456@qq.com',
       uuid: 'uid-real',
@@ -215,10 +219,11 @@ void main() {
           authStateProvider.overrideWith(_FakeAuth.new),
           userProfileProvider.overrideWith((ref) async => _sub),
         ],
-        child: app(const XbBrandTheme(
-          brandColor: Color(0xFFD92E1A),
+        child: app(XbBrandTheme(
+          brandColor: const Color(0xFFD92E1A),
           // active:false → 账号卡填充动画直接置终态（不播放），golden 像素确定、不因动画末帧抖动。
-          child: MineTab(active: false),
+          // now:_goldenNow → 到期/重置剩余按固定时刻算，golden 不随真实日期漂移（根治）。
+          child: MineTab(active: false, now: _goldenNow),
         )),
       ),
     );
