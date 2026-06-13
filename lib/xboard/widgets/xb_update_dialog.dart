@@ -168,26 +168,32 @@ class _UpdateDialogState extends ConsumerState<_UpdateDialog> {
     final t = XbTokens.of(context);
     final scheme = Theme.of(context).colorScheme;
 
-    return AlertDialog(
-      title: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            '🎉 发现新版本',
-            style: TextStyle(
-              fontSize: 17,
-              fontWeight: FontWeight.w700,
-              color: scheme.onSurface,
+    // 下载中禁止「点外部 / 返回键」关闭弹窗（否则误触会触发 dispose→cancelToken.cancel 取消下载）。
+    // barrier-tap 走 Navigator.maybePop（受 PopScope 约束），按钮用的直接 Navigator.pop 不受影响。
+    // 初始/失败态 canPop=true，非强制更新仍可点外部「稍后再说」。
+    return PopScope(
+      canPop: _state != _DialogState.downloading,
+      child: AlertDialog(
+        title: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              '🎉 发现新版本',
+              style: TextStyle(
+                fontSize: 17,
+                fontWeight: FontWeight.w700,
+                color: scheme.onSurface,
+              ),
             ),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            '${_info.versionName} 可用',
-            style: TextStyle(fontSize: 13, color: scheme.onSurfaceVariant),
-          ),
-        ],
+            const SizedBox(height: 6),
+            Text(
+              '${_info.versionName} 可用',
+              style: TextStyle(fontSize: 13, color: scheme.onSurfaceVariant),
+            ),
+          ],
+        ),
+        content: _buildContent(t, scheme),
       ),
-      content: _buildContent(t, scheme),
     );
   }
 
