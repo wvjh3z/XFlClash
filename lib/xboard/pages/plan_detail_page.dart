@@ -10,7 +10,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../widgets/xb_async_view.dart';
 import '../widgets/xb_components.dart';
-import '../widgets/xb_feedback.dart' show xbToast, xbBrandColor;
+import '../widgets/xb_feedback.dart' show xbBrandColor, XbStateToast;
 import '../widgets/xb_theme.dart' show xbPush, xbShowDialog, XbTokens;
 import '../models/plan_item.dart';
 import '../models/xb_domain_subscription.dart';
@@ -561,7 +561,7 @@ class _PlanDetailPageState extends ConsumerState<PlanDetailPage> {
             replace: true,
           );
         case XbFailure(:final error):
-          _toast('提交订单失败：${resolveErrorText(error, fallback: "请稍后重试")}');
+          xbToastSafe('提交订单失败：${resolveErrorText(error, fallback: "请稍后重试")}');
       }
     } finally {
       if (mounted) setState(() => _submitting = false);
@@ -589,11 +589,6 @@ class _PlanDetailPageState extends ConsumerState<PlanDetailPage> {
       ),
     );
     return ok ?? false;
-  }
-
-  void _toast(String msg) {
-    if (!mounted) return;
-    xbToast(context, msg);
   }
 }
 

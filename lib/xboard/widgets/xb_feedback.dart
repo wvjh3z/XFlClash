@@ -19,6 +19,16 @@ void xbToast(BuildContext context, String message) {
   XbCenterToast.show(context, message, duration: const Duration(seconds: 2));
 }
 
+/// State 扩展：带 `mounted` 守卫的 toast —— 收口各页逐字复制的私有
+/// `void _toast(String){ if(!mounted) return; xbToast(context, msg); }`（§1.5/§11.4 单一来源）。
+/// 异步回调里调用安全（State 已 dispose 则静默跳过，不报错）。
+extension XbStateToast on State {
+  void xbToastSafe(String message) {
+    if (!mounted) return;
+    xbToast(context, message);
+  }
+}
+
 /// 二次确认对话框（取消订单 / 退出登录 等）—— 统一标题/内容/取消·确认两键。
 ///
 /// [destructive] = true 时确认键用 destructive 红（不可逆操作，如退出登录、取消订单）。

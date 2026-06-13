@@ -23,7 +23,7 @@ import '../services/subscription_triggers.dart';
 import '../util/error_text.dart';
 import '../util/format.dart';
 import '../util/period_label.dart';
-import '../widgets/xb_feedback.dart' show xbToast, xbConfirm, xbBrandColor;
+import '../widgets/xb_feedback.dart' show xbConfirm, xbBrandColor, XbStateToast;
 import '../widgets/xb_motion.dart';
 import '../widgets/xb_submit_guard.dart';
 import '../widgets/xb_theme.dart' show xbShowDialog, XbTokens;
@@ -214,11 +214,11 @@ class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage>
             _copyableRow('订单号', s.tradeNo),
             _row('创建时间', _fmtDateTime(s.createdAt)),
             if (detail.balanceAmountYuan != null)
-              _row('余额抵扣', '¥${detail.balanceAmountYuan!.toStringAsFixed(2)}'),
+              _row('余额抵扣', xbYuan(detail.balanceAmountYuan!)),
             if (detail.discountAmountYuan != null)
-              _row('优惠券', '¥${detail.discountAmountYuan!.toStringAsFixed(2)}'),
+              _row('优惠券', xbYuan(detail.discountAmountYuan!)),
             if (detail.handlingAmountYuan != null)
-              _row('手续费', '¥${detail.handlingAmountYuan!.toStringAsFixed(2)}'),
+              _row('手续费', xbYuan(detail.handlingAmountYuan!)),
             _totalRow('含手续费总额', s.totalAmountYuan),
           ],
         ),
@@ -275,7 +275,7 @@ class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage>
         final feeText = (m.feePercent != null && m.feePercent! > 0)
             ? '手续费: ${m.feePercent!.toStringAsFixed(2)}%'
             : (m.feeFixedYuan != null && m.feeFixedYuan! > 0)
-                ? '手续费: ¥${m.feeFixedYuan!.toStringAsFixed(2)}'
+                ? '手续费: ${xbYuan(m.feeFixedYuan!)}'
                 : null;
         return Padding(
           padding: const EdgeInsets.only(bottom: 8),
@@ -370,7 +370,7 @@ class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage>
       final result =
           await ref.read(xboardServiceProvider).checkout(widget.tradeNo, method);
       if (result case XbFailure(:final error)) {
-        _toast('支付失败：${resolveErrorText(error, fallback: '请稍后重试')}');
+        xbToastSafe('支付失败：${resolveErrorText(error, fallback: '请稍后重试')}');
         return;
       }
       if (!mounted) return;
@@ -384,20 +384,20 @@ class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage>
         final uri = Uri.tryParse(url);
         if (uri != null && await canLaunchUrl(uri)) {
           await launchUrl(uri, mode: LaunchMode.externalApplication);
-          _toast('已打开支付页面，完成后返回点「检测支付状态」');
+          xbToastSafe('已打开支付页面，完成后返回点「检测支付状态」');
         } else {
-          _toast('无法打开支付页面');
+          xbToastSafe('无法打开支付页面');
         }
       case CheckoutQrCode(:final qrCodeUrl):
         if (mounted) await _showQrDialog(qrCodeUrl);
       case CheckoutPaid():
         SubscriptionTriggers.onOrderCompleted(ref); // T3：订阅同步 + 账号刷新
-        _toast('支付成功');
+        xbToastSafe('支付成功');
         await _refreshStatus();
       case CheckoutCanceled(:final message):
-        _toast(message ?? '已取消');
+        xbToastSafe(message ?? '已取消');
       case CheckoutFailed(:final message):
-        _toast('支付失败：$message');
+        xbToastSafe('支付失败：$message');
     }
   }
 
@@ -442,10 +442,10 @@ class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage>
           await ref.read(xboardServiceProvider).cancelOrder(widget.tradeNo);
       switch (result) {
         case XbSuccess():
-          _toast('订单已取消');
+          xbToastSafe('订单已取消');
           await _refreshStatus();
         case XbFailure(:final error):
-          _toast('取消失败：${resolveErrorText(error, fallback: '请稍后重试')}');
+          xbToastSafe('取消失败：${resolveErrorText(error, fallback: '请稍后重试')}');
       }
     });
   }
@@ -458,11 +458,6 @@ class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage>
   Widget _totalRow(String label, double yuan) => _TotalRow(label: label, yuan: yuan);
 
   String _fmtDateTime(DateTime d) => xbDateTime(d);
-
-  void _toast(String msg) {
-    if (!mounted) return;
-    xbToast(context, msg);
-  }
 }
 
 /// 订单状态卡（顶部，按状态变色 + 文案）。
@@ -727,7 +722,7 @@ class _TotalRow extends StatelessWidget {
               const SizedBox(width: 8),
               // 金额固定 21px（不用 FittedBox 缩放——它会把总额缩得比明细行金额还小、视觉错位）；
               // 金额很短不会溢出，等宽对齐。
-              Text('¥${yuan.toStringAsFixed(2)}',
+              Text(xbYuan(yuan),
                   style: TextStyle(
                       fontSize: 21,
                       fontWeight: FontWeight.w700,

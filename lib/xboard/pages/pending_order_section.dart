@@ -17,7 +17,7 @@ import '../providers/xboard_providers.dart';
 import '../util/error_text.dart';
 import '../util/period_label.dart';
 import '../widgets/xb_components.dart';
-import '../widgets/xb_feedback.dart' show xbToast, xbConfirm, xbBrandColor;
+import '../widgets/xb_feedback.dart' show xbConfirm, xbBrandColor, XbStateToast;
 import '../widgets/xb_submit_guard.dart';
 import '../widgets/xb_theme.dart' show xbPush;
 import '../util/format.dart';
@@ -104,15 +104,10 @@ class _PendingOrderSectionState extends ConsumerState<PendingOrderSection>
         case XbSuccess():
           _cancelledTradeNos.add(o.tradeNo); // 乐观隐藏，立即消失
           ref.invalidate(pendingOrderProvider); // 后台重查对齐后端
-          _toast('订单已取消');
+          xbToastSafe('订单已取消');
         case XbFailure(:final error):
-          _toast('取消失败：${resolveErrorText(error, fallback: '请稍后重试')}');
+          xbToastSafe('取消失败：${resolveErrorText(error, fallback: '请稍后重试')}');
       }
     });
-  }
-
-  void _toast(String msg) {
-    if (!mounted) return;
-    xbToast(context, msg);
   }
 }
