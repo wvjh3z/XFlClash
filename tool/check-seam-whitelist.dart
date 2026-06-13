@@ -41,6 +41,7 @@ const _ourAdditions = <String>[
   '.githooks/',
   'scripts/', // 形态 A 本地构建脚本（新增「加而不改」，build_local.sh 等）
   '.github/workflows/xboard-ci.yml', // W9.8 Xboard 专属 CI（新增文件，不改 upstream workflow）
+  '.github/workflows/release-build.yml', // 形态 A 桌面出包 CI（新增文件，不改 upstream workflow）
   '.github/BUILD_AND_RELEASE.md', // 构建/版本管理规范文档（新增）
   '.github/UPDATE_MECHANISM.md', // 更新机制说明文档（新增,屏蔽上游更新+自更新系统设计参考）
   '.github/UI_FRAMEWORK.md', // 形态 A UI 框架参考文档（新增,token/组件/mixin 速查）
@@ -52,6 +53,11 @@ const _ourAdditions = <String>[
   // W8.5.4 品牌图标/标签 flavor sourceSet（新增「加而不改」，不触碰上游 main/debug，PATCHES.md #4.ter 已登记）。
   'android/app/src/brand_a/',
   'android/app/src/brand_aDebug/',
+  // 应用内更新（档2）Android 原生支撑：新增 plugin/provider/资源（PATCHES.md #4.quater 登记，
+  // MainActivity.kt 注册行为接缝点 modification 单独登记）。
+  'android/app/src/main/kotlin/com/follow/clash/plugins/ApkInstallerPlugin.kt',
+  'android/app/src/main/kotlin/com/follow/clash/UpdateFileProvider.kt',
+  'android/app/src/main/res/xml/update_file_paths.xml',
 ];
 
 /// pub get 机械衍生文件（seam #3 连带，PATCHES.md「seam #3 衍生改动」已登记，不单列接缝点）。

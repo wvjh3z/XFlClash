@@ -3,12 +3,15 @@
 # 命名 xboard-ci.yml（不碰 upstream FlClash 既有 workflow，加而不改）。
 # 🔴 当前仅手动触发（workflow_dispatch）：v0.1 开发期 + sibling SDK 需 SIBLING_SDK_TOKEN secret，
 #    自动跑会失败。配齐 secrets 后改回 push/pull_request 触发（见下方注释块）。
+#
+# 依赖 secrets（与 release-build.yml 统一命名，brand 前缀为未来 brand_b 留位）：
+#   SIBLING_SDK_TOKEN / BRAND_A_FLAVOR_YAML_B64 / BRAND_A_FALLBACK_BIN_B64 / BRAND_A_AES_KEY_B64
 name: Xboard CI
 
 on:
   workflow_dispatch:
 
-# 配齐 secrets（SIBLING_SDK_TOKEN / XBOARD_BOOTSTRAP_AES_KEY）后启用：
+# 配齐 secrets（SIBLING_SDK_TOKEN / BRAND_A_*）后启用：
 #  push:
 #    branches: [main]
 #    paths: ['lib/xboard/**', 'test/xboard/**', 'test/sdk_contract_test.dart', 'tool/**', '.kiro/**']
@@ -95,11 +98,19 @@ jobs:
         run: dart pub get && dart run build_runner build --delete-conflicting-outputs
       - name: Client deps + codegen
         run: flutter pub get && dart run build_runner build --delete-conflicting-outputs
-      # prepare_flavor 注入 flavor（AES key / endpoint 走 CI secrets，θ-4）。
+      # 层1 后 flavor.yaml / fallback.bin 已移出仓库 → 从 secrets 还原（prepare_flavor 需要）。
+      - name: Restore brand_a flavor secrets
+        run: |
+          mkdir -p flavors/brand_a/assets
+          echo "${{ secrets.BRAND_A_FLAVOR_YAML_B64 }}"  | base64 -d > flavors/brand_a/flavor.yaml
+          echo "${{ secrets.BRAND_A_FALLBACK_BIN_B64 }}" | base64 -d > flavors/brand_a/assets/fallback.bin
+        continue-on-error: true # secrets 未配齐时不阻断（与下方 prepare_flavor 同为 best-effort）
+      # prepare_flavor 生成 flavor_defines.json（target=test 与 build_local.sh 一致，aesKey 空放宽）。
+      # AES key 经 BRAND_A_AES_KEY_B64 在生成后注入 flavor_defines.json（见 release-build.yml 完整链路）。
       - name: Prepare flavor
-        run: dart run tool/prepare_flavor.dart --flavor brand_a --target release
-        env:
-          XBOARD_BOOTSTRAP_AES_KEY: ${{ secrets.XBOARD_BOOTSTRAP_AES_KEY }}
+        run: |
+          dart run tool/prepare_flavor.dart --flavor brand_a --target test
+          jq --arg k "${{ secrets.BRAND_A_AES_KEY_B64 }}" '.XB_AES_KEY_B64 = $k' flavor_defines.json > flavor_defines.tmp && mv flavor_defines.tmp flavor_defines.json
         continue-on-error: true # flavor 资产未齐时不阻断（W8.5 完善后转 required）
       - name: Build ${{ matrix.platform }}
         run: flutter build ${{ matrix.platform }} --release

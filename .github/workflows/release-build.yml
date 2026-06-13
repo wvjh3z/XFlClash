@@ -1,0 +1,192 @@
+# release-build.yml — 形态 A / brand_a 桌面出包 CI（新增「加而不改」，不碰 upstream build.yaml）。
+#
+# 目的：headless dev 环境无法编 Windows/Linux 桌面包；本 workflow 在 GitHub runner 上出包。
+#   Android 本地 build_local.sh 已可出包，CI 不重复（如需可后续加 android matrix + 签名 secrets）。
+#
+# 设计铁律（用户强约束）：
+#   1. 绝不修改 setup.dart / build_local.sh / 任何 upstream 文件 —— 本文件是纯新增。
+#   2. 不走 `dart setup.dart`（它会把 env.json 覆盖成 {APP_ENV,CORE_SHA256}，丢掉所有 XB_* define）。
+#      改为直接 `flutter build <platform>`，define 经 --dart-define-from-file=env.json 注入，
+#      与本地 build_local.sh 的 flutter build 调用等价（已验证可出可用包）。
+#   3. Go 核心：CMake buildkit（plugins/setup/buildkit/cmake/buildkit.cmake）在 flutter build 时
+#      自动编译 libclash（linux/windows 均如此，需 Go 在 PATH）。windows 额外先跑 build_tool 取
+#      CORE_SHA256（编译期 dart-define，运行时核心完整性校验用，对齐 setup.dart 行为）。
+#
+# 机密链路（GitHub repository secrets，brand 前缀为未来 brand_b 留位）：
+#   BRAND_A_FLAVOR_YAML_B64   flavors/brand_a/flavor.yaml（已从仓库移除，base64）
+#   BRAND_A_FALLBACK_BIN_B64  flavors/brand_a/assets/fallback.bin（已从仓库移除，base64）
+#   BRAND_A_AES_KEY_B64       AES-256 主密钥（32 字节 base64，prepare_flavor 后注入 flavor_defines.json）
+#   SIBLING_SDK_TOKEN         只读 private wvjh3z/Xboard_sdk 的 fine-grained PAT
+#
+# 触发：仅手动（workflow_dispatch）。产物在 run 的 Artifacts 区下载。
+
+name: Release Build (brand_a)
+
+on:
+  workflow_dispatch:
+
+# 全平台统一用 bash（windows runner 用 Git Bash），保证 base64 / jq / cp 行为一致。
+defaults:
+  run:
+    shell: bash
+
+env:
+  FLUTTER_VERSION: 3.41.9
+  GO_VERSION: 1.24.0
+  APP_ENV: stable
+
+jobs:
+  build:
+    name: Build ${{ matrix.platform }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: windows-2022, platform: windows }
+          - { os: ubuntu-22.04, platform: linux }
+    steps:
+      - name: Checkout client (XFlClash)
+        uses: actions/checkout@v4
+
+      - name: Checkout Xboard_sdk (sibling, private)
+        uses: actions/checkout@v4
+        with:
+          repository: wvjh3z/Xboard_sdk
+          path: ../Xboard_sdk
+          token: ${{ secrets.SIBLING_SDK_TOKEN }}
+
+      # 从 secrets 还原已移出仓库的 flavor 机密（base64 → 文件）。
+      - name: Restore brand_a flavor secrets
+        run: |
+          set -euo pipefail
+          mkdir -p flavors/brand_a/assets
+          echo "${{ secrets.BRAND_A_FLAVOR_YAML_B64 }}"  | base64 -d > flavors/brand_a/flavor.yaml
+          echo "${{ secrets.BRAND_A_FALLBACK_BIN_B64 }}" | base64 -d > flavors/brand_a/assets/fallback.bin
+          # 自检：还原对了 flavor.yaml 应含 appName 字段（防 secret 配错/为空）。
+          grep -q 'appName' flavors/brand_a/flavor.yaml || { echo "✗ flavor.yaml 还原失败（缺 appName，检查 BRAND_A_FLAVOR_YAML_B64）"; exit 1; }
+          echo "✓ flavor.yaml / fallback.bin 已还原"
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: core/go.sum
+
+      - name: Enable git long paths (Windows)
+        if: matrix.platform == 'windows'
+        run: git config --global core.longpaths true
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+
+      - name: Enable desktop
+        run: |
+          flutter config --enable-windows-desktop --enable-linux-desktop
+
+      # Linux 桌面原生依赖（对齐 setup.dart 的 _ensureLinuxDependencies 必装项）。
+      - name: Install Linux build deps
+        if: matrix.platform == 'linux'
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y ninja-build libgtk-3-dev libayatana-appindicator3-dev libkeybinder-3.0-dev
+
+      # µ-8 顺序：SDK build_runner → client pub get → client build_runner。
+      - name: SDK build_runner
+        working-directory: ../Xboard_sdk
+        run: |
+          dart pub get
+          dart run build_runner build --delete-conflicting-outputs
+
+      - name: Client deps + codegen
+        run: |
+          flutter pub get
+          dart run build_runner build --delete-conflicting-outputs
+
+      # prepare_flavor 生成 flavor_defines.json。target=test 与本地 build_local.sh 一致：
+      # flavor.yaml 按设计不存 aesKey（D58），target=prod 会因 aesKey 空校验失败；test 放宽，
+      # 密钥随后注入。
+      - name: Prepare flavor (generate flavor_defines.json)
+        run: dart run tool/prepare_flavor.dart --flavor brand_a --target test
+
+      # 注入真实 AES key（prepare_flavor 之后；对齐 build_local.sh 的 python patch）。
+      - name: Inject AES key into flavor_defines.json
+        run: |
+          set -euo pipefail
+          jq --arg k "${{ secrets.BRAND_A_AES_KEY_B64 }}" '.XB_AES_KEY_B64 = $k' flavor_defines.json > flavor_defines.tmp
+          mv flavor_defines.tmp flavor_defines.json
+          # 自检：注入后非空。
+          test -n "$(jq -r '.XB_AES_KEY_B64' flavor_defines.json)" || { echo "✗ AES key 注入失败（检查 BRAND_A_AES_KEY_B64）"; exit 1; }
+          echo "✓ AES key 已注入"
+
+      # Windows：先跑 build_tool 编核心 + 取 CORE_SHA256（编译期 define）。
+      - name: Build Go core + read CORE_SHA256 (Windows)
+        if: matrix.platform == 'windows'
+        working-directory: plugins/setup/buildkit/build_tool
+        run: |
+          set -euo pipefail
+          dart pub get
+          dart run build_tool windows --root-dir "$GITHUB_WORKSPACE"
+
+      # 合并 flavor_defines.json + 构建期 define → env.json（flutter build 单文件注入）。
+      # 与 build_local.sh 的 COMMON_DEFINES 等价（XB_FORM_A/XB_BUILD_TAG/XB_PRODUCT_VERSION/XB_BUILD_NUMBER）。
+      - name: Compose env.json
+        run: |
+          set -euo pipefail
+          TAG="$(date +%Y%m%d%H%M)"
+          PV="$(grep -m1 -E '^\s*versionName:' flavors/brand_a/flavor.yaml | sed -E 's/.*versionName:\s*"?([^"#]+)"?.*/\1/' | xargs)"
+          BN="$(cat scripts/build_number.txt 2>/dev/null || echo 1)"
+          SHA=""
+          if [ -f core_sha256.json ]; then
+            SHA="$(jq -r '.CORE_SHA256 // ""' core_sha256.json)"
+          fi
+          jq -n \
+            --argjson flavor "$(cat flavor_defines.json)" \
+            --arg env "$APP_ENV" \
+            --arg sha "$SHA" \
+            --arg tag "$TAG" \
+            --arg pv "$PV" \
+            --arg bn "$BN" \
+            '$flavor + {APP_ENV:$env, CORE_SHA256:$sha, XB_FORM_A:"true", XB_BUILD_TAG:$tag, XB_PRODUCT_VERSION:$pv, XB_BUILD_NUMBER:$bn}' \
+            > env.json
+          echo "=== env.json (脱敏 XB_AES_KEY_B64) ==="
+          jq 'del(.XB_AES_KEY_B64)' env.json
+          echo "PRODUCT_VERSION=$PV" >> "$GITHUB_ENV"
+          echo "BUILD_NUMBER=$BN" >> "$GITHUB_ENV"
+          echo "BASE_VERSION=$(grep -m1 -E '^version:' pubspec.yaml | sed -E 's/^version:\s*([0-9.]+).*/\1/' | xargs)" >> "$GITHUB_ENV"
+
+      - name: Build Windows
+        if: matrix.platform == 'windows'
+        run: |
+          flutter build windows --release \
+            --dart-define-from-file=env.json \
+            --build-name="$BASE_VERSION" \
+            --build-number="$BUILD_NUMBER"
+
+      - name: Build Linux
+        if: matrix.platform == 'linux'
+        run: |
+          flutter build linux --release \
+            --dart-define-from-file=env.json \
+            --build-name="$BASE_VERSION" \
+            --build-number="$BUILD_NUMBER"
+
+      - name: Upload Windows artifact
+        if: matrix.platform == 'windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: MyClient-windows-x64-v${{ env.PRODUCT_VERSION }}-build${{ env.BUILD_NUMBER }}
+          path: build/windows/x64/runner/Release
+          if-no-files-found: error
+
+      - name: Upload Linux artifact
+        if: matrix.platform == 'linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: MyClient-linux-x64-v${{ env.PRODUCT_VERSION }}-build${{ env.BUILD_NUMBER }}
+          path: build/linux/x64/release/bundle
+          if-no-files-found: error
