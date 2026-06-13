@@ -5,7 +5,7 @@ import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:fl_clash/xboard/shell/adapters/xb_nodes_adapter.dart';
+import 'package:fl_clash/xboard/util/pooled_concurrent.dart';
 
 void main() {
   test('并发上限 = concurrency（同时在飞的任务数不超过 10）', () async {

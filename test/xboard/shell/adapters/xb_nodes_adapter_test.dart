@@ -13,6 +13,7 @@ import 'package:fl_clash/enum/enum.dart';
 import 'package:fl_clash/models/models.dart' show Group, Proxy, ProxiesTabState;
 import 'package:fl_clash/providers/state.dart';
 import 'package:fl_clash/xboard/shell/adapters/xb_nodes_adapter.dart';
+import 'package:fl_clash/xboard/util/pooled_concurrent.dart';
 
 ProxiesTabState _tabState(List<Group> groups) => ProxiesTabState(
       groups: groups,

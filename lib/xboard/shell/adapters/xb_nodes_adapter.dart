@@ -25,6 +25,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../tabs/home/home_latency_provider.dart';
+import '../../util/pooled_concurrent.dart';
+
+/// 内置代理名（非真实节点）：选中解析 / 测速目标判定时跳过（单一来源，原在 3 个方法内各写一份）。
+const _kBuiltinProxies = {'DIRECT', 'REJECT', 'GLOBAL', 'PASS', 'COMPATIBLE'};
 
 /// 形态 A 节点分组类型（primitive，对应 FlClash GroupType；UI 据此分别渲染/说明）。
 enum XbGroupKind {
@@ -173,7 +177,7 @@ class XbNodesAdapter {
             orElse: () => groups.first,
           );
 
-    const builtin = {'DIRECT', 'REJECT', 'GLOBAL', 'PASS', 'COMPATIBLE'};
+    const builtin = _kBuiltinProxies;
     String? leaf;
     String? parentGroup;
     final seen = <String>{}; // 防环。
@@ -211,7 +215,7 @@ class XbNodesAdapter {
   /// （子组名也算候选，下钻会继续解析）。**不兜底 all.first** —— 避免在用户未选时
   /// 默认落到 DIRECT（直连违背用 VPN 的初衷）。无真实候选 → 返回 ''（视为未选）。
   String _firstRealNode(Group group) {
-    const builtin = {'DIRECT', 'REJECT', 'GLOBAL', 'PASS', 'COMPATIBLE'};
+    const builtin = _kBuiltinProxies;
     for (final p in group.all) {
       if (builtin.contains(p.name)) continue;
       return p.name;
@@ -308,7 +312,7 @@ class XbNodesAdapter {
     WidgetRef ref, {
     String? explicitNode,
   }) {
-    const builtin = {'DIRECT', 'REJECT', 'GLOBAL', 'PASS', 'COMPATIBLE'};
+    const builtin = _kBuiltinProxies;
     final selNode = (explicitNode != null && explicitNode.isNotEmpty)
         ? explicitNode
         : currentSelection(ref).node;
@@ -507,39 +511,4 @@ class XbMeasuringNodesNotifier extends Notifier<Set<String>> {
   void start(String name) => state = {...state, name};
 
   void finish(String name) => state = {...state}..remove(name);
-}
-
-/// 并发池执行（纯函数，可单测）：按 [items] 原始顺序取任务，**始终保持最多 [concurrency] 个
-/// 在跑**——任一任务完成立刻补下一个进来（滑动窗口），而非固定批次「批内并发、批间串行」。
-///
-/// **相比固定批次的优势**：固定批次下一批要等上批最慢任务才开始，单个卡住的任务会阻塞后续
-/// 整批；并发池下慢任务只占 1 个槽，其余槽继续推进，整体不被个别慢任务拖死。
-/// [task] 对单个元素执行异步操作（不应抛；如抛会中断整体）。[concurrency] ≤0 时按 1 处理（全串行）。
-Future<void> runPooledConcurrent<T>(
-  List<T> items,
-  int concurrency,
-  Future<void> Function(T item) task,
-) async {
-  final limit = concurrency < 1 ? 1 : concurrency;
-  var next = 0; // 下一个待派发的任务下标。
-  final active = <Future<void>>{};
-
-  void spawn() {
-    final i = next++;
-    late final Future<void> f;
-    f = task(items[i]).whenComplete(() => active.remove(f));
-    active.add(f);
-  }
-
-  // 先填满并发池。
-  while (next < items.length && active.length < limit) {
-    spawn();
-  }
-  // 任一完成 → 立刻补一个，保持池满，直至全部派发并跑完。
-  while (active.isNotEmpty) {
-    await Future.any(active);
-    while (next < items.length && active.length < limit) {
-      spawn();
-    }
-  }
 }
