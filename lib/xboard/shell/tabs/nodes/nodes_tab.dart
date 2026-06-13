@@ -7,7 +7,6 @@
 /// 内核数据（延迟/选中/选择/测速）经 [XbNodesAdapter] 收口（适配层铁律），不直接碰 `lib/views/**`。
 library;
 
-import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -17,6 +16,7 @@ import 'package:fl_clash/xboard/providers/xboard_providers.dart';
 import 'package:fl_clash/xboard/services/xboard_subscription_service.dart';
 import 'package:fl_clash/xboard/widgets/xb_components.dart';
 import 'package:fl_clash/xboard/widgets/xb_feedback.dart' show xbToast;
+import 'package:fl_clash/xboard/widgets/xb_refresh_throttle_guard.dart';
 import 'package:fl_clash/xboard/widgets/xb_theme.dart' show XbTokens;
 
 import '../../adapters/xb_nodes_adapter.dart';
@@ -52,38 +52,11 @@ class NodesTab extends ConsumerStatefulWidget {
   ConsumerState<NodesTab> createState() => _NodesTabState();
 }
 
-/// 刷新节点节流窗口（60s，与「我的」刷新信息一致）。
-const int _kNodesRefreshCooldownSec = 60;
-
-class _NodesTabState extends ConsumerState<NodesTab> {
+class _NodesTabState extends ConsumerState<NodesTab>
+    with XbRefreshThrottleGuard {
   /// 正在刷新节点（重拉订阅 + 解密 + 写入新 profile）。期间刷新按钮禁用 + 顶部横幅；
   /// 旧节点保留显示（不清空），写入成功后 profile 重载自动覆盖。
   bool _refreshing = false;
-
-  /// 60s 节流单调时钟（防改钟）：上次刷新完成后开始计时。
-  Stopwatch? _refreshThrottle;
-
-  /// 冷却剩余秒数（0=可点，>0=按钮灰+倒计时）。由 _ticker 驱动。
-  int _cooldownSec = 0;
-  Timer? _ticker;
-
-  int get _remainingSec {
-    final sw = _refreshThrottle;
-    if (sw == null) return 0;
-    final remain = _kNodesRefreshCooldownSec - sw.elapsed.inSeconds;
-    return remain > 0 ? remain : 0;
-  }
-
-  void _startCooldownTicker() {
-    _ticker?.cancel();
-    _cooldownSec = _remainingSec;
-    if (_cooldownSec <= 0) return;
-    _ticker = Timer.periodic(const Duration(seconds: 1), (_) {
-      final r = _remainingSec;
-      if (r != _cooldownSec) setState(() => _cooldownSec = r);
-      if (r <= 0) _ticker?.cancel();
-    });
-  }
 
   /// 当前选中的分组名（顶部 tab）。null = 用首个可见分组。
   String? _selectedGroup;
@@ -117,17 +90,11 @@ class _NodesTabState extends ConsumerState<NodesTab> {
     }
   }
 
-  @override
-  void dispose() {
-    _ticker?.cancel();
-    super.dispose();
-  }
-
   /// 刷新 = 重拉订阅并解密写入新节点（2-A）。await sync(force) 拿 `ok`（新 profile 写入成功）
   /// 才算完成；期间按钮禁用、显示横幅，完成后恢复并开始 60s 冷却。旧节点在写入成功前保持不变。
   Future<void> _refreshNodes() async {
     if (_refreshing) return;
-    if (_remainingSec > 0) {
+    if (throttled) {
       xbToast(context, '节点刚刷新过，请稍后再试');
       return;
     }
@@ -141,8 +108,7 @@ class _NodesTabState extends ConsumerState<NodesTab> {
       // 永不抛（Property 1）；当作失败处理。
     }
     if (!mounted) return;
-    _refreshThrottle = Stopwatch()..start();
-    _startCooldownTicker();
+    startThrottle();
     setState(() => _refreshing = false);
     if (outcome != XbSyncOutcome.ok) {
       final msg = switch (outcome) {
@@ -169,7 +135,7 @@ class _NodesTabState extends ConsumerState<NodesTab> {
     if (view.isEmpty) {
       return Column(
         children: [
-          _NodesHeader(onRefresh: _refreshNodes, refreshing: _refreshing, cooldownSec: _cooldownSec),
+          _NodesHeader(onRefresh: _refreshNodes, refreshing: _refreshing, cooldownSec: cooldownSeconds),
           if (_refreshing)
             const Padding(
               padding: EdgeInsets.fromLTRB(16, 4, 16, 0),
@@ -197,7 +163,7 @@ class _NodesTabState extends ConsumerState<NodesTab> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        _NodesHeader(onRefresh: _refreshNodes, refreshing: _refreshing, cooldownSec: _cooldownSec),
+        _NodesHeader(onRefresh: _refreshNodes, refreshing: _refreshing, cooldownSec: cooldownSeconds),
         if (_refreshing)
           const Padding(
             padding: EdgeInsets.fromLTRB(16, 4, 16, 0),

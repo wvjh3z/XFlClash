@@ -8,8 +8,6 @@
 /// 不经 adapter，无风险②）；仅设置入口（原生 ToolsView）= ◆ 经 `XbNativePageAdapter`。
 library;
 
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -29,6 +27,7 @@ import 'package:fl_clash/xboard/util/format.dart';
 import 'package:fl_clash/xboard/widgets/xb_components.dart';
 import 'package:fl_clash/xboard/widgets/xb_feedback.dart'
     show xbConfirm, xbBrandColor, xbToast;
+import 'package:fl_clash/xboard/widgets/xb_refresh_throttle_guard.dart';
 import 'package:fl_clash/xboard/widgets/xb_theme.dart'
     show xbPush, xbShowDialog, XbTokens;
 import 'package:fl_clash/xboard/pages/xb_about_page.dart';
@@ -58,50 +57,16 @@ class MineTab extends ConsumerStatefulWidget {
   ConsumerState<MineTab> createState() => _MineTabState();
 }
 
-/// 刷新信息节流窗口（60s，用户 2026-06-13 决策）。
-const int _kRefreshCooldownSec = 60;
+/// 刷新信息节流窗口默认 60s（节流逻辑见 XbRefreshThrottleGuard）。
 
-class _MineTabState extends ConsumerState<MineTab> {
-  /// 上次刷新完成时间戳（单调时钟）。null=从未刷新。
-  Stopwatch? _refreshThrottle;
-
+class _MineTabState extends ConsumerState<MineTab>
+    with XbRefreshThrottleGuard {
   /// 刷新中（点按钮到反腐层落定）。
   bool _refreshing = false;
 
-  /// 冷却剩余秒数（0=可点，>0=冷却中按钮灰+倒计时）。由 _ticker 驱动。
-  int _cooldownSec = 0;
-  Timer? _ticker;
-
-  int get _remainingSec {
-    final sw = _refreshThrottle;
-    if (sw == null) return 0;
-    final elapsed = sw.elapsed.inSeconds;
-    final remain = _kRefreshCooldownSec - elapsed;
-    return remain > 0 ? remain : 0;
-  }
-
-  void _startCooldownTicker() {
-    _ticker?.cancel();
-    _cooldownSec = _remainingSec;
-    if (_cooldownSec <= 0) return;
-    _ticker = Timer.periodic(const Duration(seconds: 1), (_) {
-      final r = _remainingSec;
-      if (r != _cooldownSec) {
-        setState(() => _cooldownSec = r);
-      }
-      if (r <= 0) _ticker?.cancel();
-    });
-  }
-
-  @override
-  void dispose() {
-    _ticker?.cancel();
-    super.dispose();
-  }
-
   Future<void> _onRefresh() async {
     if (_refreshing) return;
-    if (_remainingSec > 0) {
+    if (throttled) {
       xbToast(context, '信息刚刷新过，请稍后再试');
       return;
     }
@@ -114,8 +79,7 @@ class _MineTabState extends ConsumerState<MineTab> {
     ]);
     if (!mounted) return;
     ref.invalidate(userProfileProvider);
-    _refreshThrottle = Stopwatch()..start();
-    _startCooldownTicker();
+    startThrottle();
     setState(() => _refreshing = false);
   }
 
@@ -145,7 +109,7 @@ class _MineTabState extends ConsumerState<MineTab> {
           _MineHeader(
             isGuest: isGuest,
             refreshing: _refreshing,
-            cooldownSec: _cooldownSec,
+            cooldownSec: cooldownSeconds,
             onRefresh: _onRefresh,
           ),
           const SizedBox(height: 16),
