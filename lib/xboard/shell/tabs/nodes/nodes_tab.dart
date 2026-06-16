@@ -324,7 +324,7 @@ class _GroupRail extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     return SizedBox(
-      width: 200,
+      width: 160,
       child: SingleChildScrollView(
         padding: const EdgeInsets.fromLTRB(0, 2, 0, 16),
         child: Column(
