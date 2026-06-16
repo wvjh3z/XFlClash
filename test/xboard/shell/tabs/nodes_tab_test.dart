@@ -102,10 +102,11 @@ void main() {
 
   testWidgets('已登录 + 无分组 → 空态引导续费（R4.6）', (tester) async {
     await pumpNodes(tester, auth: AuthState.authenticated);
-    expect(find.text('当前套餐无可用线路'), findsOneWidget);
-    expect(find.text('前往续费'), findsOneWidget);
-    // 空态提供「刷新重试」次要链接（原型一致）。
-    expect(find.text('刷新重试'), findsOneWidget);
+    expect(find.text('当前无可用线路'), findsOneWidget);
+    // 按钮文案：续费 / 购买（用户可能无套餐需新购）。
+    expect(find.text('前往续费 / 购买'), findsOneWidget);
+    // 空态内不再放「刷新重试」（右上角已有「刷新节点」）。
+    expect(find.text('刷新重试'), findsNothing);
     // 空态顶部保留「刷新节点」按钮（原型 nodes('empty') abar 一致，触发重拉订阅）。
     expect(find.text('刷新节点'), findsOneWidget);
   });

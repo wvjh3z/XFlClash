@@ -17,7 +17,10 @@ import 'mode_info_sheet.dart';
 
 /// 代理模式切换段。
 class XbModeSegment extends ConsumerWidget {
-  const XbModeSegment({super.key});
+  const XbModeSegment({super.key, this.showTitle = true});
+
+  /// 是否显示自带「代理模式」标题行（含 ⓘ）。桌面右栏标题卡已提供标题 → 传 false 只渲染胶囊段。
+  final bool showTitle;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -34,26 +37,29 @@ class XbModeSegment extends ConsumerWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              Text(
-                '代理模式',
-                style: Theme.of(context).textTheme.titleMedium,
-              ),
-              const SizedBox(width: 4),
-              // ⓘ 模式说明（R3.3）。
-              IconButton(
-                visualDensity: VisualDensity.compact,
-                iconSize: 18,
-                padding: EdgeInsets.zero,
-                constraints: const BoxConstraints(),
-                icon: Icon(Icons.help_outline, color: scheme.onSurfaceVariant),
-                onPressed: () => showModeInfoSheet(context),
-                tooltip: '代理模式说明',
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
+          if (showTitle) ...[
+            Row(
+              children: [
+                Text(
+                  '代理模式',
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+                const SizedBox(width: 4),
+                // ⓘ 模式说明（R3.3）。
+                IconButton(
+                  visualDensity: VisualDensity.compact,
+                  iconSize: 18,
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
+                  icon: Icon(Icons.help_outline,
+                      color: scheme.onSurfaceVariant),
+                  onPressed: () => showModeInfoSheet(context),
+                  tooltip: '代理模式说明',
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+          ],
           // 自定义胶囊段（原型 .modeseg）：圆角槽 + 选中态主题色高亮卡，替代原生 SegmentedButton。
           Container(
             padding: const EdgeInsets.all(5),

@@ -18,6 +18,7 @@ import '../models/xb_domain_types.dart';
 import '../models/xb_result.dart';
 import '../providers/user_profile_provider.dart';
 import '../providers/xboard_providers.dart';
+import '../shell/widgets/xb_responsive.dart';
 import '../util/error_text.dart';
 import '../util/format.dart';
 import '../util/period_label.dart';
@@ -203,28 +204,117 @@ class _PlanDetailPageState extends ConsumerState<PlanDetailPage> {
 
   @override
   Widget build(BuildContext context) {
+    // 桌面双栏（原型屏5）：可用宽 ≥ 840 → 左套餐说明+周期网格 / 右优惠码+摘要+提交；
+    // 窄屏维持移动单列 + 底部固定提交栏（原布局）。
+    final wide = xbIsDesktopWidth(MediaQuery.sizeOf(context).width);
     return XbBrandScaffold(
       title: widget.renew ? '续费当前套餐' : plan.name,
-      bottomNavigationBar: XbBottomActionBar(
-        secondaryLabel: '返回',
-        primaryLabel: widget.renew ? '确认续费' : '提交订单',
-        primaryIcon: Icons.shopping_cart_checkout_rounded,
-        primaryLoading: _submitting,
-        onPrimary: _submitOrder,
-      ),
-      body: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+      maxContentWidth: wide ? 1000 : null,
+      bottomNavigationBar: wide
+          ? null
+          : XbBottomActionBar(
+              secondaryLabel: '返回',
+              primaryLabel: widget.renew ? '确认续费' : '提交订单',
+              primaryIcon: Icons.shopping_cart_checkout_rounded,
+              primaryLoading: _submitting,
+              onPrimary: _submitOrder,
+            ),
+      body: wide ? _desktopBody(context) : _mobileBody(context),
+    );
+  }
+
+  /// 移动端单列（原布局）。
+  Widget _mobileBody(BuildContext context) {
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+      children: [
+        const PendingOrderSection(),
+        _headerCard(context),
+        const SizedBox(height: 14),
+        XbSectionCard(
+            title: widget.renew ? '选择续费时长' : '选择计费周期',
+            child: _periodSection(context)),
+        const SizedBox(height: 14),
+        XbSectionCard(title: '优惠码', child: _couponSection(context)),
+        const SizedBox(height: 14),
+        XbSectionCard(title: '订单摘要', child: _summarySection(context)),
+      ],
+    );
+  }
+
+  /// 桌面双栏（原型屏5：标准结算布局，提交栏在右栏底部）。
+  Widget _desktopBody(BuildContext context) {
+    final periodCard = XbSectionCard(
+        title: widget.renew ? '选择续费时长' : '选择计费周期',
+        // 续费在左栏（宽）→ 3 列；购买移到右栏（窄）→ 2 列，避免拥挤。
+        child: _periodSection(context, columns: widget.renew ? 3 : 2));
+    final couponCard =
+        XbSectionCard(title: '优惠码', child: _couponSection(context));
+    final summaryCard =
+        XbSectionCard(title: '订单摘要', child: _summarySection(context));
+    final submitBtn = XbPrimaryButton(
+      label: widget.renew ? '确认续费' : '提交订单',
+      icon: Icons.shopping_cart_checkout_rounded,
+      loading: _submitting,
+      onPressed: _submitOrder,
+    );
+
+    // 续费：左 头部(锁定套餐)+续费时长 / 右 优惠码+摘要+提交（不变）。
+    // 购买：计费周期移到右栏（用户要求）→ 左 套餐说明 / 右 周期+优惠码+摘要+提交。
+    final List<Widget> leftChildren;
+    final List<Widget> rightChildren;
+    if (widget.renew) {
+      leftChildren = [
+        _headerCard(context),
+        const SizedBox(height: 14),
+        periodCard,
+      ];
+      rightChildren = [
+        couponCard,
+        const SizedBox(height: 14),
+        summaryCard,
+        const SizedBox(height: 16),
+        submitBtn,
+      ];
+    } else {
+      leftChildren = [_headerCard(context)];
+      rightChildren = [
+        periodCard,
+        const SizedBox(height: 14),
+        couponCard,
+        const SizedBox(height: 14),
+        summaryCard,
+        const SizedBox(height: 16),
+        submitBtn,
+      ];
+    }
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.fromLTRB(28, 24, 28, 28),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           const PendingOrderSection(),
-          _headerCard(context),
-          const SizedBox(height: 14),
-          XbSectionCard(
-              title: widget.renew ? '选择续费时长' : '选择计费周期',
-              child: _periodSection(context)),
-          const SizedBox(height: 14),
-          XbSectionCard(title: '优惠码', child: _couponSection(context)),
-          const SizedBox(height: 14),
-          XbSectionCard(title: '订单摘要', child: _summarySection(context)),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                flex: 11,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: leftChildren,
+                ),
+              ),
+              const SizedBox(width: 18),
+              Expanded(
+                flex: 9,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: rightChildren,
+                ),
+              ),
+            ],
+          ),
         ],
       ),
     );
@@ -308,32 +398,27 @@ class _PlanDetailPageState extends ConsumerState<PlanDetailPage> {
     );
   }
 
-  Widget _periodSection(BuildContext context) {
+  Widget _periodSection(BuildContext context, {int columns = 2}) {
     final sorted = _purchasablePrices;
-    // 显式 2 列网格（不用 Wrap——Wrap 行高内容驱动、与原型 grid 难对齐）：
-    // 每行一个 Row + 两个 Expanded，严格等宽；奇数末行补等宽空占位保持左卡宽度一致。
-    // 行/列间距固定，「省 N%」浮标交给卡自身（Stack Clip.none），整齐可控、与原型一致。
+    // 显式网格（不用 Wrap——Wrap 行高内容驱动、与原型 grid 难对齐）：每行 [columns] 个
+    // Expanded 严格等宽；末行不足补等宽空占位保持卡宽一致。桌面 3 列（原型 .pgrid），移动 2 列。
     const gap = 10.0;
     const rowGap = 12.0;
     final rows = <Widget>[];
-    for (var i = 0; i < sorted.length; i += 2) {
-      final left = sorted[i];
-      final right = (i + 1 < sorted.length) ? sorted[i + 1] : null;
-      rows.add(Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Expanded(child: _periodCard(context, left)),
-          const SizedBox(width: gap),
-          Expanded(
-            child: right == null
-                ? const SizedBox.shrink()
-                : _periodCard(context, right),
-          ),
-        ],
-      ));
-      if (i + 2 < sorted.length) rows.add(const SizedBox(height: rowGap));
+    for (var i = 0; i < sorted.length; i += columns) {
+      final cells = <Widget>[];
+      for (var c = 0; c < columns; c++) {
+        final idx = i + c;
+        if (c > 0) cells.add(const SizedBox(width: gap));
+        cells.add(Expanded(
+          child: idx < sorted.length
+              ? _periodCard(context, sorted[idx])
+              : const SizedBox.shrink(),
+        ));
+      }
+      rows.add(Row(crossAxisAlignment: CrossAxisAlignment.start, children: cells));
+      if (i + columns < sorted.length) rows.add(const SizedBox(height: rowGap));
     }
-    // 卡片自身已预留顶部浮标空间（XbSelectableOption 内 Padding top:11），此处无需再留白。
     return Column(children: rows);
   }
 
@@ -626,7 +711,9 @@ class _SwitchPlanDialog extends StatelessWidget {
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
         ],
       ),
-      content: Column(
+      content: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 320),
+        child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
           Text.rich(
@@ -669,6 +756,7 @@ class _SwitchPlanDialog extends StatelessWidget {
             ),
           ),
         ],
+        ),
       ),
       // 两按钮等宽对称：「再想想」用浅灰填充按钮（明显可点，不再是低对比纯文字），
       // 「确认更换」品牌实心。避免纯 TextButton 挨着实心按钮时显得很弱。

@@ -10,11 +10,11 @@ library;
 import 'package:flutter/material.dart';
 
 import '../../../widgets/xb_components.dart' show XbInfoSheet, XbInfoItem;
-import '../../sheets/sheet_scaffold.dart' show showXbBottomSheet;
+import '../../sheets/sheet_scaffold.dart' show showXbInfoPopup;
 
-/// 弹出模式说明底部 sheet（走统一入口 showXbBottomSheet：自动套品牌主题 + 白底，不逃逸主题）。
+/// 弹出模式说明弹窗（响应式：桌面居中对话框 / 移动底部 sheet；自动套品牌主题）。
 Future<void> showModeInfoSheet(BuildContext context) {
-  return showXbBottomSheet<void>(
+  return showXbInfoPopup<void>(
     context: context,
     builder: (context) => const XbInfoSheet(
       title: '代理模式说明',

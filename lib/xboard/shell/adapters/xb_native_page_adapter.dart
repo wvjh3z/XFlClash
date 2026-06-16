@@ -37,6 +37,11 @@ class XbNativePageAdapter {
   Future<void> openNativeTools(BuildContext context) =>
       _push(context, const ToolsView());
 
+  /// 桌面「设置」Tab 内嵌用：返回 FlClash 原生 `ToolsView` 供 IndexedStack 直接挂载
+  /// （整体复用工具页，加而不改）。与 [openNativeTools]（push 整页）区别仅在于此处**返回
+  /// widget** 内嵌，菜单项、原生子页 push 行为完全沿用 FlClash 自身（含 isMobileView 路由）。
+  Widget toolsView() => const ToolsView();
+
   // —— 各 FlClash 原生子页 push（唯一允许 import lib/views/** 的收口点）——
 
   Future<void> openTheme(BuildContext context) =>

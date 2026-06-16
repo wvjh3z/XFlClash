@@ -11,14 +11,17 @@ import 'package:fl_clash/xboard/config/xboard_config.dart';
 import '../../widgets/xb_theme.dart' show XbTokens;
 import '../../widgets/xb_ui_kit.dart' show XbBrandTheme;
 
-/// 弹出形态 A 风格底部 sheet（圆角 + 拖拽手柄 + 随键盘抬升 + 可滚动）。
+/// 弹出形态 A 风格弹窗（**响应式**：宽窗口居中模态对话框 / 窄窗口底部 sheet）。
 ///
-/// **关键**：builder 自动包 [XbBrandTheme] —— sheet 挂根 Navigator（FlClash MaterialApp 下），
+/// **桌面惯例**：宽窗口（≥600，桌面）用**居中模态对话框**（与 PC 原型 `.dlg` 一致）；
+/// 底部 sheet 是移动端手势交互，不合桌面。窄窗口（移动 / 桌面小窗）仍用底部 sheet。
+/// 全部弹窗（登录 / 注册 / 忘记密码 / 模式说明 / 分组类型说明…）统一走此入口，自动适配。
+///
+/// **关键**：builder 自动包 [XbBrandTheme] —— 弹窗挂根 Navigator（FlClash MaterialApp 下），
 /// 不在 shell 子树内，不包则拿不到品牌主题 → 徽标/按钮退回 FlClash 灰褐色。
 ///
-/// **背景显式钉死**：M3 modal sheet 默认按 surfaceTint(品牌红) 做高度叠色 → 白底被染粉红。
-/// 这里直接传 backgroundColor=纯白(sf2) + surfaceTintColor=transparent + elevation=0，
-/// 不依赖主题 bottomSheetTheme（modal 路径不完全吃 tint 设置）。
+/// **背景显式钉死**：M3 默认按 surfaceTint(品牌红) 做高度叠色 → 白底被染粉红。
+/// 这里直接传纯白(sf2) + surfaceTintColor=transparent + elevation=0。
 Future<T?> showXbBottomSheet<T>({
   required BuildContext context,
   required WidgetBuilder builder,
@@ -26,18 +29,53 @@ Future<T?> showXbBottomSheet<T>({
   final t = Theme.of(context).brightness == Brightness.dark
       ? XbTokens.dark
       : XbTokens.light;
+  final wide = MediaQuery.sizeOf(context).width >= 600;
+  Widget themed(BuildContext c) => XbBrandTheme(
+        brandColor: Color(XboardConfig.current.brandColor),
+        child: Builder(builder: builder),
+      );
+
+  // 桌面：居中模态对话框（固定窄宽 380，内容可滚动；原型 .dlg）。
+  if (wide) {
+    return showDialog<T>(
+      context: context,
+      builder: (ctx) => Dialog(
+        backgroundColor: t.sf2,
+        surfaceTintColor: Colors.transparent,
+        elevation: 0,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(XbTokens.rLg),
+        ),
+        child: ConstrainedBox(
+          // 高度上限留余量，超出则内部 SingleChildScrollView 滚动。
+          constraints: BoxConstraints(
+            maxWidth: 380,
+            maxHeight: MediaQuery.sizeOf(ctx).height * 0.86,
+          ),
+          child: themed(ctx),
+        ),
+      ),
+    );
+  }
+
+  // 移动 / 窄窗：底部 sheet（随键盘抬升 + 可滚动）。
   return showModalBottomSheet<T>(
     context: context,
-    isScrollControlled: true, // 随键盘抬升 + 内容可超过半屏
-    backgroundColor: t.sf2, // 纯白面（原型 --sf2），不透明 → 无高度叠色泛粉红
+    isScrollControlled: true,
+    backgroundColor: t.sf2,
     elevation: 0,
     showDragHandle: true,
-    builder: (ctx) => XbBrandTheme(
-      brandColor: Color(XboardConfig.current.brandColor),
-      child: Builder(builder: builder),
-    ),
+    builder: themed,
   );
 }
+
+/// 形态 A 说明弹窗入口（语义别名）：等价 [showXbBottomSheet]，已响应式（桌面居中 / 移动 sheet）。
+/// 保留独立名仅为「纯信息说明弹窗」语义可读性，行为与 showXbBottomSheet 完全一致。
+Future<T?> showXbInfoPopup<T>({
+  required BuildContext context,
+  required WidgetBuilder builder,
+}) =>
+    showXbBottomSheet<T>(context: context, builder: builder);
 
 /// sheet 内容外壳：标题 + 可选错误 banner + 子内容；随键盘 padding + 可滚动。
 class XbSheetScaffold extends StatelessWidget {

@@ -12,6 +12,8 @@ import 'package:fl_clash/xboard/providers/xboard_providers.dart';
 import 'package:fl_clash/xboard/services/xb_update_service.dart';
 import 'package:fl_clash/xboard/util/app_version.dart';
 import 'package:fl_clash/xboard/widgets/xb_center_toast.dart';
+import 'package:fl_clash/xboard/widgets/xb_components.dart'
+    show XbListCard, XbListRow;
 import 'package:fl_clash/xboard/widgets/xb_ui_kit.dart' show XbBrandScaffold;
 import 'package:fl_clash/xboard/widgets/xb_update_dialog.dart';
 
@@ -73,14 +75,18 @@ class _AboutBodyState extends ConsumerState<_AboutBody> {
 
     return SingleChildScrollView(
       padding: const EdgeInsets.fromLTRB(20, 40, 20, 24),
-      child: Column(
-        children: [
-          // App Logo
+      child: Center(
+        child: ConstrainedBox(
+          // 原型 .aboutwrap：限宽 480 居中块。
+          constraints: const BoxConstraints(maxWidth: 480),
+          child: Column(
+            children: [
+              // App Logo
           Container(
-            width: 72,
-            height: 72,
+            width: 76,
+            height: 76,
             decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(18),
+              borderRadius: BorderRadius.circular(20),
               gradient: LinearGradient(
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
@@ -101,7 +107,7 @@ class _AboutBodyState extends ConsumerState<_AboutBody> {
             child: const Center(
               child: Text('M',
                   style: TextStyle(
-                      fontSize: 32,
+                      fontSize: 34,
                       fontWeight: FontWeight.w900,
                       color: Colors.white)),
             ),
@@ -110,7 +116,7 @@ class _AboutBodyState extends ConsumerState<_AboutBody> {
           // App Name
           Text('MyClient',
               style: TextStyle(
-                  fontSize: 18,
+                  fontSize: 19,
                   fontWeight: FontWeight.w700,
                   color: scheme.onSurface)),
           const SizedBox(height: 4),
@@ -121,26 +127,29 @@ class _AboutBodyState extends ConsumerState<_AboutBody> {
           Text('内核 FlClash 0.8.93',
               style: TextStyle(fontSize: 11, color: scheme.onSurfaceVariant)),
           const SizedBox(height: 24),
-          // Check Update Button
-          SizedBox(
-            width: double.infinity,
-            child: FilledButton(
-              onPressed: _checking ? null : _checkForUpdate,
-              style: FilledButton.styleFrom(
-                padding: const EdgeInsets.symmetric(vertical: 13),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(14),
+          // Check Update Button（原型 .achk：限宽 300 居中）。
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 300),
+            child: SizedBox(
+              width: double.infinity,
+              child: FilledButton(
+                onPressed: _checking ? null : _checkForUpdate,
+                style: FilledButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 13),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14),
+                  ),
                 ),
+                child: _checking
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(
+                            strokeWidth: 2, color: Colors.white))
+                    : const Text('检查更新',
+                        style: TextStyle(
+                            fontSize: 14, fontWeight: FontWeight.w600)),
               ),
-              child: _checking
-                  ? const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(
-                          strokeWidth: 2, color: Colors.white))
-                  : const Text('检查更新',
-                      style:
-                          TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
             ),
           ),
           // Update available pill
@@ -166,65 +175,39 @@ class _AboutBodyState extends ConsumerState<_AboutBody> {
               ),
             ),
           const SizedBox(height: 32),
-          // Links section
-          _LinkTile(
-            icon: Icons.gavel,
-            label: '免责声明',
-            onTap: () {},
-          ),
-          _LinkTile(
-            icon: Icons.description_outlined,
-            label: '用户协议',
-            onTap: () {},
-          ),
-          _LinkTile(
-            icon: Icons.shield_outlined,
-            label: '隐私政策',
-            onTap: () {},
+          // Links section（原型 .alinks：minelist 卡，限宽 340 居中）。
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 340),
+            child: XbListCard(
+              rows: [
+                XbListRow(
+                  icon: Icons.gavel,
+                  label: '免责声明',
+                  onTap: () {},
+                ),
+                XbListRow(
+                  icon: Icons.description_outlined,
+                  label: '用户协议',
+                  onTap: () {},
+                ),
+                XbListRow(
+                  icon: Icons.shield_outlined,
+                  label: '隐私政策',
+                  onTap: () {},
+                ),
+              ],
+            ),
           ),
           const SizedBox(height: 24),
           Text(
             '© 2025 MyClient · All rights reserved',
             style: TextStyle(fontSize: 10, color: scheme.onSurfaceVariant),
           ),
-        ],
-      ),
-    );
-  }
-}
-
-class _LinkTile extends StatelessWidget {
-  const _LinkTile({
-    required this.icon,
-    required this.label,
-    required this.onTap,
-  });
-
-  final IconData icon;
-  final String label;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(12),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 13),
-        child: Row(
-          children: [
-            Icon(icon, size: 20, color: scheme.onSurfaceVariant),
-            const SizedBox(width: 12),
-            Expanded(
-                child: Text(label,
-                    style: TextStyle(
-                        fontSize: 14, color: scheme.onSurface))),
-            Icon(Icons.chevron_right,
-                size: 20, color: scheme.onSurfaceVariant),
-          ],
+            ],
+          ),
         ),
       ),
     );
   }
 }
+

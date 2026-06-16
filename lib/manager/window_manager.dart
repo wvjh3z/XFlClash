@@ -4,6 +4,9 @@ import 'package:fl_clash/common/common.dart';
 import 'package:fl_clash/enum/enum.dart';
 import 'package:fl_clash/providers/providers.dart';
 import 'package:fl_clash/state.dart';
+// === Xboard 接缝点 #11（形态 A 标题栏主题统一）===
+import 'package:fl_clash/xboard/config/xboard_config.dart';
+import 'package:fl_clash/xboard/widgets/xb_ui_kit.dart' show XbBrandTheme;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:window_ext/window_ext.dart';
@@ -187,7 +190,10 @@ class _WindowHeaderState extends State<WindowHeader> {
     isPinNotifier.value = await windowManager.isAlwaysOnTop();
   }
 
-  Widget _buildActions() {
+  Widget _buildActions(BuildContext context) {
+    // formA：窗口控制图标统一中性色（onSurfaceVariant），含关闭 X（避免它单独发红，
+    // 接缝点 #11）。直接写在 Icon 上，优先级最高，不受按钮态/上游样式影响。
+    final ic = context.colorScheme.onSurfaceVariant;
     return Row(
       children: [
         IconButton(
@@ -198,8 +204,8 @@ class _WindowHeaderState extends State<WindowHeader> {
             valueListenable: isPinNotifier,
             builder: (_, value, _) {
               return value
-                  ? const Icon(Icons.push_pin)
-                  : const Icon(Icons.push_pin_outlined);
+                  ? Icon(Icons.push_pin, color: ic)
+                  : Icon(Icons.push_pin_outlined, color: ic);
             },
           ),
         ),
@@ -207,7 +213,7 @@ class _WindowHeaderState extends State<WindowHeader> {
           onPressed: () {
             windowManager.minimize();
           },
-          icon: const Icon(Icons.remove),
+          icon: Icon(Icons.remove, color: ic),
         ),
         IconButton(
           onPressed: () async {
@@ -217,8 +223,8 @@ class _WindowHeaderState extends State<WindowHeader> {
             valueListenable: isMaximizedNotifier,
             builder: (_, value, _) {
               return value
-                  ? const Icon(Icons.filter_none, size: 20)
-                  : const Icon(Icons.crop_square);
+                  ? Icon(Icons.filter_none, size: 20, color: ic)
+                  : Icon(Icons.crop_square, color: ic);
             },
           ),
         ),
@@ -228,7 +234,7 @@ class _WindowHeaderState extends State<WindowHeader> {
                 .read(systemActionProvider.notifier)
                 .handleBackOrExit();
           },
-          icon: const Icon(Icons.close),
+          icon: Icon(Icons.close, color: ic),
         ),
         // const SizedBox(
         //   width: 8,
@@ -239,6 +245,20 @@ class _WindowHeaderState extends State<WindowHeader> {
 
   @override
   Widget build(BuildContext context) {
+    // === Xboard 接缝点 #11（形态 A 标题栏主题统一）===
+    // formA 下让自绘标题栏吃品牌主题（XbBrandTheme）→ 颜色/控件图标与内容区一致，
+    // 不再用 FlClash 顶层 M3 动态色（暗色下偏色、与内容不统一）。**仅罩标题栏**（不波及
+    // 下方内容 / FlClash 内部页），非 formA 行为完全不变。
+    if (XboardConfig.current.formA) {
+      return XbBrandTheme(
+        brandColor: Color(XboardConfig.current.brandColor),
+        child: Builder(builder: _buildBar),
+      );
+    }
+    return _buildBar(context);
+  }
+
+  Widget _buildBar(BuildContext context) {
     return Material(
       child: Stack(
         alignment: AlignmentDirectional.center,
@@ -252,7 +272,9 @@ class _WindowHeaderState extends State<WindowHeader> {
                 _updateMaximized();
               },
               child: Container(
-                color: context.colorScheme.secondary.opacity15,
+                // formA：用内容区的中性 surface 色（XbBrandTheme 下 = 品牌主题中性底），
+                // 与下方内容无缝统一，不再用 secondary 红色调（接缝点 #11）。
+                color: context.colorScheme.surface,
                 alignment: Alignment.centerLeft,
                 height: kHeaderHeight,
               ),
@@ -261,7 +283,19 @@ class _WindowHeaderState extends State<WindowHeader> {
           if (system.isMacOS)
             const Text(appName)
           else ...[
-            Positioned(right: 0, child: _buildActions()),
+            Positioned(
+              right: 0,
+              // formA：窗口控制图标用中性色（onSurfaceVariant），与中性标题栏统一，
+              // 不带品牌红（接缝点 #11）。
+              child: IconButtonTheme(
+                data: IconButtonThemeData(
+                  style: IconButton.styleFrom(
+                    foregroundColor: context.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+                child: _buildActions(context),
+              ),
+            ),
           ],
         ],
       ),

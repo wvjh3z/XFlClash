@@ -23,7 +23,7 @@ import 'package:fl_clash/xboard/widgets/xb_feedback.dart' show xbToast;
 import 'package:fl_clash/xboard/widgets/xb_theme.dart' show XbTokens;
 
 import '../../adapters/xb_nodes_adapter.dart';
-import '../../sheets/sheet_scaffold.dart' show showXbBottomSheet;
+import '../../sheets/sheet_scaffold.dart' show showXbInfoPopup;
 
 /// 测延迟全局冷却窗口（60s）：跨所有分组共享——测完任意分组延迟后，所有分组的「测延迟」
 /// 按钮一起进入冷却（防止用户反复整组测速打爆服务器）。单节点测速（闪电按钮）不受限。
@@ -48,9 +48,13 @@ class XbNodeGroup extends ConsumerStatefulWidget {
     required this.group,
     this.scrollToNode,
     this.scrollNonce = 0,
+    this.columns = 1,
   });
 
   final XbGroupSummary group;
+
+  /// 节点行列数：移动端 1（单列，默认，行为不变）；桌面 master-detail 右栏传 2（双列网格）。
+  final int columns;
 
   /// 进入时滚动到该节点并尽量上下居中（不强制：靠顶/底则就近）。null = 不定位。
   final String? scrollToNode;
@@ -196,13 +200,42 @@ class _XbNodeGroupState extends ConsumerState<XbNodeGroup> {
     // 不再读延迟表统计「非0节点数」（重测时会 M↔M-1 横跳，见 _testedCount 注释）。
     final tested = _testedCount;
 
+    // 节点行（单列直排 / 多列网格）。
+    final rows = group.nodes
+        .map(
+          (n) => _NodeRow(
+            key: widget.scrollToNode == n.name ? _targetKey : null,
+            group: group,
+            node: n,
+            // 桌面双列（columns>1）行更高（原型 PC .node padding 13 vs 移动 11）。
+            large: widget.columns > 1,
+            // 计算选择组：选中=当前生效节点；selector：选中=手选名。
+            isSelected: group.isSelectable && selected == n.name,
+            // 「自动」标签：computed 组自动模式下，标在 core 当前命中的那个节点（=selected），
+            // 而非固定第一项（修「自动恒在第一个、不随延迟变」）。
+            isAutoHit: autoMode && selected == n.name,
+            onTap: group.isSelectable
+                ? () => adapter.selectNode(
+                      ref,
+                      group.name,
+                      n.name,
+                      computed: group.isComputed,
+                    )
+                : null,
+          ),
+        )
+        .toList();
+
     // 选中分组的节点列表（可滚动）；头部为「类型标签 + 测延迟」行（分组名已由顶部 tab 显示）。
+    // 桌面 master-detail（columns>1）：去掉列表左右内边距 —— 否则它叠加在 rail↔列表的 20px
+    // 间隔上（20+16≈36），看起来分组栏离节点列表过远（原型 .md gap 仅 20）。
+    final desktop = widget.columns > 1;
     return ListView(
       controller: _scrollCtrl,
       // 定位场景：放大缓存范围，确保目标行（可能在视口外）已 build → GlobalKey 可解析居中。
       // ignore: deprecated_member_use
       cacheExtent: widget.scrollToNode != null ? 5000.0 : null,
-      padding: const EdgeInsets.fromLTRB(16, 2, 16, 24),
+      padding: EdgeInsets.fromLTRB(desktop ? 0 : 16, 2, desktop ? 0 : 16, 24),
       children: [
         // 分组头：类型标签（带 ? 说明）左、测延迟右（所有分组都可测）。
         Padding(
@@ -223,27 +256,23 @@ class _XbNodeGroupState extends ConsumerState<XbNodeGroup> {
             ],
           ),
         ),
-        // 节点行。
-        ...group.nodes.map(
-          (n) => _NodeRow(
-            key: widget.scrollToNode == n.name ? _targetKey : null,
-            group: group,
-            node: n,
-            // 计算选择组：选中=当前生效节点；selector：选中=手选名。
-            isSelected: group.isSelectable && selected == n.name,
-            // 「自动」标签：computed 组自动模式下，标在 core 当前命中的那个节点（=selected），
-            // 而非固定第一项（修「自动恒在第一个、不随延迟变」）。
-            isAutoHit: autoMode && selected == n.name,
-            onTap: group.isSelectable
-                ? () => adapter.selectNode(
-                      ref,
-                      group.name,
-                      n.name,
-                      computed: group.isComputed,
-                    )
-                : null,
+        // 节点行：单列直接铺；多列用 Wrap + 等宽 SizedBox（桌面双列网格，复用同一 _NodeRow）。
+        if (widget.columns <= 1)
+          ...rows
+        else
+          LayoutBuilder(
+            builder: (context, c) {
+              const gap = 9.0; // 原型 .ngrid gap:9
+              final w =
+                  (c.maxWidth - gap * (widget.columns - 1)) / widget.columns;
+              return Wrap(
+                spacing: gap,
+                children: [
+                  for (final r in rows) SizedBox(width: w, child: r),
+                ],
+              );
+            },
           ),
-        ),
       ],
     );
   }
@@ -286,7 +315,7 @@ class _TypeChip extends StatelessWidget {
   }
 
   void _showInfo(BuildContext context) {
-    showXbBottomSheet<void>(
+    showXbInfoPopup<void>(
       context: context,
       builder: (_) => XbGroupTypeInfoSheet(kind: kind),
     );
@@ -371,11 +400,15 @@ class _NodeRow extends ConsumerWidget {
     required this.isSelected,
     this.isAutoHit = false,
     this.onTap,
+    this.large = false,
   });
 
   final XbGroupSummary group;
   final XbNodeItem node;
   final bool isSelected;
+
+  /// 桌面双列态：行内距竖向 11→13（原型 PC `.node` 比移动端高）。
+  final bool large;
 
   /// computed 组自动模式下，本节点是否 core 当前命中节点（标「自动」标签）。
   final bool isAutoHit;
@@ -390,60 +423,70 @@ class _NodeRow extends ConsumerWidget {
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
-      child: Material(
-          color: isSelected
-              ? Color.alphaBlend(scheme.primary.withValues(alpha: 0.07), t.card)
-              : t.card,
+      child: DecoratedBox(
+        // 原型 .node 有 sd1 轻微阴影（白卡在浅灰底上微微浮起）。
+        decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(XbTokens.rMd),
-          child: InkWell(
-            onTap: onTap,
+          boxShadow: t.shadow1,
+        ),
+        child: Material(
+            color: isSelected
+                ? Color.alphaBlend(
+                    scheme.primary.withValues(alpha: 0.07), t.card)
+                : t.card,
             borderRadius: BorderRadius.circular(XbTokens.rMd),
-            child: Ink(
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(XbTokens.rMd),
-                border: Border.all(
-                  color: isSelected ? scheme.primary : t.line,
-                  width: isSelected ? 1.4 : 1,
+            child: InkWell(
+              onTap: onTap,
+              borderRadius: BorderRadius.circular(XbTokens.rMd),
+              child: Ink(
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(XbTokens.rMd),
+                  border: Border.all(
+                    color: isSelected ? scheme.primary : t.line,
+                    width: isSelected ? 1.4 : 1,
+                  ),
                 ),
-              ),
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
-              child: Row(
-                children: [
-                  // 节点名占据剩余空间（Expanded，单独 ellipsis），右侧依次「自动」/延迟/勾。
-                  Expanded(
-                    child: Text(
-                      node.name,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontSize: 14,
-                        fontWeight: isSelected
-                            ? FontWeight.w600
-                            : FontWeight.w500,
-                        color: t.on,
+                padding:
+                    EdgeInsets.symmetric(horizontal: 14, vertical: large ? 13 : 11),
+                child: Row(
+                  children: [
+                    // 节点名占据剩余空间（Expanded，单独 ellipsis），右侧依次「自动」/延迟/勾。
+                    Expanded(
+                      child: Text(
+                        node.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight:
+                              isSelected ? FontWeight.w600 : FontWeight.w500,
+                          color: t.on,
+                        ),
                       ),
                     ),
-                  ),
-                  if (isAutoHit) ...[
-                    const SizedBox(width: 8),
-                    const XbTag('自动'),
+                    if (isAutoHit) ...[
+                      const SizedBox(width: 8),
+                      const XbTag('自动'),
+                    ],
+                    const SizedBox(width: 10),
+                    // 延迟按自然宽度紧跟名字（不再定宽右对齐 —— 那样会在名字与延迟间留空白、
+                    // 把名字过早挤成省略号；名字优先完整展示）。
+                    _DelayText(
+                      proxyName: node.name,
+                      type: node.type,
+                      testUrl: node.testUrl,
+                      adapter: adapter,
+                    ),
+                    if (isSelected) ...[
+                      const SizedBox(width: 7),
+                      Icon(Icons.check, size: 20, color: scheme.primary),
+                    ],
                   ],
-                  const SizedBox(width: 10),
-                  _DelayText(
-                    proxyName: node.name,
-                    type: node.type,
-                    testUrl: node.testUrl,
-                    adapter: adapter,
-                  ),
-                  if (isSelected) ...[
-                    const SizedBox(width: 7),
-                    Icon(Icons.check, size: 20, color: scheme.primary),
-                  ],
-                ],
+                ),
               ),
             ),
           ),
-        ),
+      ),
     );
   }
 }
@@ -513,7 +556,7 @@ class XbGroupTypeInfoSheet extends StatelessWidget {
         XbGroupKind.urlTest => (
             Icons.bolt,
             'url-test',
-            '自动测速，始终用延迟最低的节点；也可手动点定某个节点锁定（再点一次该节点恢复自动）。日常推荐。',
+            '自动测速，始终用延迟最低的节点；也可手动点定某个节点锁定（再点一次「自动」恢复）。日常推荐。',
           ),
         XbGroupKind.selector => (
             Icons.touch_app,
@@ -541,6 +584,7 @@ class XbGroupTypeInfoSheet extends StatelessWidget {
   Widget build(BuildContext context) {
     final (icon, title, desc) = _entry(kind);
     // 共用说明弹窗：顶部该类型图标圆徽 + 标题居中 + 纯文字说明卡（不重复图标）+ 品牌「知道了」。
+    // 文案与移动端原型一致（full.js groupTypeInfoSheet）。
     return XbInfoSheet(
       title: '线路分组类型说明',
       subtitle: title, // 副标题 = 该类型名（如 url-test）

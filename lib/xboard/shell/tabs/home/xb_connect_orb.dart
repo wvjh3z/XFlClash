@@ -43,6 +43,7 @@ class XbConnectOrb extends ConsumerStatefulWidget {
     this.showLock = false,
     this.guest = false,
     this.onBlocked,
+    this.statusBelow = false,
   });
 
   /// 连接球直径。
@@ -57,6 +58,10 @@ class XbConnectOrb extends ConsumerStatefulWidget {
   /// 连接拦截回调（HomeTab 注入）：返回拦截原因则**不连接**、走该回调（弹居中提示）；
   /// 返回 null 表示放行 → 正常 toggle。仅在「未连接 → 发起连接」方向拦截（断开不拦）。
   final XbConnectBlock? Function()? onBlocked;
+
+  /// 桌面 hero 模式：核心圆只放图标，大号状态文字「已连接 / 数据已加密保护」渲染在球**下方**
+  /// （原型 .herocard：`.stt{display:none}` + `.statusbig`/`.statussub`）。移动端默认 false（文字在球内）。
+  final bool statusBelow;
 
   @override
   ConsumerState<XbConnectOrb> createState() => _XbConnectOrbState();
@@ -130,7 +135,7 @@ class _XbConnectOrbState extends ConsumerState<XbConnectOrb>
     final connecting = state == XbConnState.connecting;
     final pressScale = (_pressed && !reduced) ? 0.96 : 1.0;
 
-    return Semantics(
+    final Widget orb = Semantics(
       button: true,
       enabled: enabled,
       label: _semanticLabel(state),
@@ -164,6 +169,8 @@ class _XbConnectOrbState extends ConsumerState<XbConnectOrb>
                     state: state,
                     scheme: scheme,
                     guest: widget.guest,
+                    // 桌面 hero：核心只放图标，大字在球下方。
+                    showText: !widget.statusBelow,
                   ),
                 ),
                 // 游客锁徽章（右下角，原型 guest orb）。
@@ -195,6 +202,37 @@ class _XbConnectOrbState extends ConsumerState<XbConnectOrb>
           ),
         ),
       ),
+    );
+
+    if (!widget.statusBelow) return orb;
+
+    // 桌面 hero：球下方渲染大号状态文字（原型 .statusbig / .statussub）。
+    final connectedOrConnecting =
+        state == XbConnState.connected || state == XbConnState.connecting;
+    final guestIdle = widget.guest && state == XbConnState.disconnected;
+    final bigColor = connectedOrConnecting
+        ? scheme.primary
+        : scheme.onSurfaceVariant;
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        orb,
+        const SizedBox(height: 18),
+        Text(
+          guestIdle ? '未登录' : _orbStatusText(state),
+          style: TextStyle(
+            fontSize: 22,
+            fontWeight: FontWeight.w700,
+            letterSpacing: 1.5,
+            color: bigColor,
+          ),
+        ),
+        const SizedBox(height: 6),
+        Text(
+          guestIdle ? '登录后开启加密保护' : _orbSubText(state),
+          style: TextStyle(fontSize: 13.5, color: scheme.onSurfaceVariant),
+        ),
+      ],
     );
   }
 
@@ -445,12 +483,16 @@ class _OrbCore extends StatelessWidget {
     required this.state,
     required this.scheme,
     this.guest = false,
+    this.showText = true,
   });
 
   final double size;
   final XbConnState state;
   final ColorScheme scheme;
   final bool guest;
+
+  /// 是否在核心圆内渲染状态文字（移动端 true）；桌面 hero 大字在球下方 → 传 false，核心只放图标。
+  final bool showText;
 
   @override
   Widget build(BuildContext context) {
@@ -488,45 +530,47 @@ class _OrbCore extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(_icon(state), size: size * 0.316, color: iconColor),
-          const SizedBox(height: 10),
-          Text(
-            guestIdle ? '未登录' : _statusText(state),
-            style: TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.w700,
-              letterSpacing: 2,
-              color: active ? scheme.primary : scheme.onSurface,
+          Icon(_orbIcon(state), size: size * 0.316, color: iconColor),
+          if (showText) ...[
+            const SizedBox(height: 10),
+            Text(
+              guestIdle ? '未登录' : _orbStatusText(state),
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 2,
+                color: active ? scheme.primary : scheme.onSurface,
+              ),
             ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            guestIdle ? '点击登录' : _subText(state),
-            style: TextStyle(fontSize: 11.5, color: scheme.onSurfaceVariant),
-          ),
+            const SizedBox(height: 4),
+            Text(
+              guestIdle ? '点击登录' : _orbSubText(state),
+              style: TextStyle(fontSize: 11.5, color: scheme.onSurfaceVariant),
+            ),
+          ],
         ],
       ),
     );
   }
-
-  IconData _icon(XbConnState state) => switch (state) {
-        XbConnState.connected => Icons.verified_user,
-        XbConnState.connecting => Icons.shield_outlined,
-        XbConnState.booting => Icons.hourglass_empty,
-        XbConnState.disconnected => Icons.power_settings_new,
-      };
-
-  String _statusText(XbConnState state) => switch (state) {
-        XbConnState.connected => '已连接',
-        XbConnState.connecting => '连接中',
-        XbConnState.booting => '准备中',
-        XbConnState.disconnected => '未连接',
-      };
-
-  String _subText(XbConnState state) => switch (state) {
-        XbConnState.connected => '数据已加密保护',
-        XbConnState.connecting => '正在建立加密隧道…',
-        XbConnState.booting => '正在准备服务',
-        XbConnState.disconnected => '点击连接',
-      };
 }
+
+IconData _orbIcon(XbConnState state) => switch (state) {
+      XbConnState.connected => Icons.verified_user,
+      XbConnState.connecting => Icons.shield_outlined,
+      XbConnState.booting => Icons.hourglass_empty,
+      XbConnState.disconnected => Icons.power_settings_new,
+    };
+
+String _orbStatusText(XbConnState state) => switch (state) {
+      XbConnState.connected => '已连接',
+      XbConnState.connecting => '连接中',
+      XbConnState.booting => '准备中',
+      XbConnState.disconnected => '未连接',
+    };
+
+String _orbSubText(XbConnState state) => switch (state) {
+      XbConnState.connected => '数据已加密保护',
+      XbConnState.connecting => '正在建立加密隧道…',
+      XbConnState.booting => '正在准备服务',
+      XbConnState.disconnected => '点击连接',
+    };

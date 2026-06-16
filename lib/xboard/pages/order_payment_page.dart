@@ -20,6 +20,7 @@ import '../models/xb_result.dart';
 import '../providers/xboard_providers.dart';
 import '../providers/user_profile_provider.dart';
 import '../services/subscription_triggers.dart';
+import '../shell/widgets/xb_responsive.dart';
 import '../util/error_text.dart';
 import '../util/format.dart';
 import '../util/period_label.dart';
@@ -174,10 +175,14 @@ class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage>
 
   @override
   Widget build(BuildContext context) {
-    // 统一用 XbBrandScaffold（与其它二级页一致 → 桌面面板化时一处生效）；
-    // 品牌色源与原 xbBrandColor() 完全一致，渲染逐像素不变。
+    // 桌面双栏（原型屏6）：宽 ≥ 840 且待支付 → 左状态/产品/订单 + 右支付方式/操作；
+    // 终态或窄屏 → 单列。统一 XbBrandScaffold（桌面面板化一处生效）。
+    final wide = xbIsDesktopWidth(MediaQuery.sizeOf(context).width);
+    // 待支付（双栏）用宽 1000；终态/加载（单列）用窄 640（原型屏36 .dwrap max-width:640）。
+    final isPending = _detail?.summary.status == XbOrderStatus.pending;
     return XbBrandScaffold(
-      title: '支付订单',
+      title: '订单详情',
+      maxContentWidth: wide ? (isPending ? 1000 : 640) : null,
       body: XbAsyncView(
         loading: _loading && !_retrying,
         retrying: _retrying,
@@ -187,41 +192,86 @@ class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage>
         onRetry: () => _initialLoad(retry: true),
         builder: (context) => _detail == null
             ? const Center(child: Text('订单不存在'))
-            : _content(context, _detail!),
+            : _content(context, _detail!, wide),
       ),
     );
   }
 
-  Widget _content(BuildContext context, OrderDetail detail) {
+  Widget _content(BuildContext context, OrderDetail detail, bool wide) {
     final s = detail.summary;
     final isPending = s.status == XbOrderStatus.pending;
+    final statusCard = _StatusCard(status: s.status);
+    final productCard = _SectionCard(
+      title: '产品信息',
+      children: [
+        _row('套餐名称', s.planName ?? '套餐订单'),
+        _row('周期', planPeriodLabel(s.period)),
+      ],
+    );
+    final orderCard = _SectionCard(
+      title: '订单信息',
+      children: [
+        _copyableRow('订单号', s.tradeNo),
+        _row('创建时间', _fmtDateTime(s.createdAt)),
+        if (detail.balanceAmountYuan != null)
+          _row('余额抵扣', xbYuan(detail.balanceAmountYuan!)),
+        if (detail.discountAmountYuan != null)
+          _row('优惠券', xbYuan(detail.discountAmountYuan!)),
+        if (detail.handlingAmountYuan != null)
+          _row('手续费', xbYuan(detail.handlingAmountYuan!)),
+        _totalRow('含手续费总额', s.totalAmountYuan),
+      ],
+    );
+
+    // 桌面 + 待支付：双栏（原型屏6）。
+    if (wide && isPending) {
+      return SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(28, 24, 28, 28),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              flex: 21,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  statusCard,
+                  const SizedBox(height: 16),
+                  productCard,
+                  const SizedBox(height: 16),
+                  orderCard,
+                ],
+              ),
+            ),
+            const SizedBox(width: 18),
+            Expanded(
+              flex: 19,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  _SectionCard(
+                    title: '支付方式',
+                    children: [_paymentMethods(context)],
+                  ),
+                  const SizedBox(height: 20),
+                  _actions(context),
+                ],
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    // 终态 或 窄屏：单列。
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
       children: [
-        _StatusCard(status: s.status),
+        statusCard,
         const SizedBox(height: 16),
-        _SectionCard(
-          title: '产品信息',
-          children: [
-            _row('套餐名称', s.planName ?? '套餐订单'),
-            _row('周期', planPeriodLabel(s.period)),
-          ],
-        ),
+        productCard,
         const SizedBox(height: 16),
-        _SectionCard(
-          title: '订单信息',
-          children: [
-            _copyableRow('订单号', s.tradeNo),
-            _row('创建时间', _fmtDateTime(s.createdAt)),
-            if (detail.balanceAmountYuan != null)
-              _row('余额抵扣', xbYuan(detail.balanceAmountYuan!)),
-            if (detail.discountAmountYuan != null)
-              _row('优惠券', xbYuan(detail.discountAmountYuan!)),
-            if (detail.handlingAmountYuan != null)
-              _row('手续费', xbYuan(detail.handlingAmountYuan!)),
-            _totalRow('含手续费总额', s.totalAmountYuan),
-          ],
-        ),
+        orderCard,
         if (isPending) ...[
           const SizedBox(height: 16),
           _SectionCard(
@@ -582,13 +632,17 @@ class _SectionCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
+    final t = XbTokens.of(context);
     final text = Theme.of(context).textTheme;
-    return Card(
-      elevation: 0,
-      margin: EdgeInsets.zero,
-      color: scheme.surfaceContainerHigh,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+    // 原型 .secard：白底卡（--card）+ 细描边（--line）+ 轻阴影（sd1）。
+    // 不用 scheme.surfaceContainerHigh（M3 灰）——那会让卡片发灰、与原型背景观感不符。
+    return Container(
+      decoration: BoxDecoration(
+        color: t.card,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: t.line),
+        boxShadow: t.shadow1,
+      ),
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(

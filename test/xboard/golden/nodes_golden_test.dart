@@ -14,7 +14,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:fl_clash/enum/enum.dart';
 import 'package:fl_clash/models/models.dart' show ProxiesTabState, Group, Proxy;
 import 'package:fl_clash/providers/state.dart';
+import 'package:fl_clash/xboard/models/xb_domain_subscription.dart';
 import 'package:fl_clash/xboard/providers/auth_state_provider.dart';
+import 'package:fl_clash/xboard/providers/user_profile_provider.dart';
 import 'package:fl_clash/xboard/shell/tabs/nodes/nodes_tab.dart';
 import 'package:fl_clash/xboard/widgets/xb_ui_kit.dart' show XbBrandTheme;
 
@@ -76,6 +78,7 @@ Future<void> pumpNodes(
   WidgetTester tester, {
   required AuthState auth,
   ProxiesTabState? tab,
+  XbDomainSubscription? sub,
 }) async {
   tester.view.physicalSize = const Size(390 * 3, 844 * 3);
   tester.view.devicePixelRatio = 3.0;
@@ -86,6 +89,7 @@ Future<void> pumpNodes(
   final overrides = [
     authStateProvider.overrideWith(() => _FakeAuth(auth)),
     proxiesTabStateProvider.overrideWith((ref) => state),
+    if (sub != null) userProfileProvider.overrideWith((ref) async => sub),
   ];
   // 固定每组选中态 + 每节点延迟（good 档），避免触达真实内核。
   // 去重：不同分组可能含同名节点（同 proxyName+testUrl），delayProvider 不能重复 override。
@@ -162,4 +166,59 @@ void main() {
     await expectLater(
         find.byType(NodesTab), matchesGoldenFile('goldens/nodes_empty.png'));
   });
+
+  testWidgets('节点 · 套餐已过期 → 清空节点 + 引导续费/购买 golden', (t) async {
+    // 有缓存节点（_tab 默认带分组），但订阅已过期 → 应清空并显示空态。
+    await pumpNodes(
+      t,
+      auth: AuthState.authenticated,
+      sub: _subscription(
+        expiredAt: DateTime(2020, 1, 1), // 过去 → 已过期
+        usedBytes: 30 * 1024 * 1024 * 1024,
+        totalBytes: 100 * 1024 * 1024 * 1024,
+      ),
+    );
+    expect(t.takeException(), isNull);
+    // 过期 → 清空节点，显示无可用线路空态（引导续费/购买），节点名不再出现。
+    expect(find.text('当前无可用线路'), findsOneWidget);
+    expect(find.text('前往续费 / 购买'), findsOneWidget);
+    expect(find.text('🇯🇵 东京 IEPL 02'), findsNothing);
+    await expectLater(find.byType(NodesTab),
+        matchesGoldenFile('goldens/nodes_expired.png'));
+  });
+
+  testWidgets('节点 · 流量已用尽 → 清空节点 + 购买流量包/套餐 golden', (t) async {
+    await pumpNodes(
+      t,
+      auth: AuthState.authenticated,
+      sub: _subscription(
+        expiredAt: DateTime(2030, 1, 1), // 未来 → 未过期
+        usedBytes: 100 * 1024 * 1024 * 1024,
+        totalBytes: 100 * 1024 * 1024 * 1024, // 用尽
+      ),
+    );
+    expect(t.takeException(), isNull);
+    expect(find.text('当前套餐流量已用尽'), findsOneWidget);
+    expect(find.text('购买流量包'), findsOneWidget);
+    expect(find.text('购买 / 更改套餐'), findsOneWidget);
+    expect(find.text('🇯🇵 东京 IEPL 02'), findsNothing);
+    await expectLater(find.byType(NodesTab),
+        matchesGoldenFile('goldens/nodes_exhausted.png'));
+  });
 }
+
+/// 构造测试订阅（过期/用尽场景）。
+XbDomainSubscription _subscription({
+  required DateTime expiredAt,
+  required int usedBytes,
+  required int totalBytes,
+}) =>
+    XbDomainSubscription(
+      email: 'demo@example.com',
+      uuid: 'uid-1',
+      planName: '标准套餐',
+      totalBytes: totalBytes,
+      usedBytes: usedBytes,
+      expiredAt: expiredAt,
+      planId: 1,
+    );

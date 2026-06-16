@@ -16,6 +16,7 @@ import '../models/plan_item.dart';
 import '../models/xb_domain_types.dart';
 import '../models/xb_result.dart';
 import '../providers/xboard_providers.dart';
+import '../shell/widgets/xb_responsive.dart';
 import '../util/error_text.dart';
 import '../util/format.dart';
 import '../widgets/xb_ui_kit.dart';
@@ -91,9 +92,12 @@ class _ResetTrafficPageState extends ConsumerState<ResetTrafficPage> {
 
   @override
   Widget build(BuildContext context) {
+    // 桌面（原型屏37）：内容单列居中限宽 560 + 提交按钮内联列底；窄屏维持固定底栏。
+    final wide = xbIsDesktopWidth(MediaQuery.sizeOf(context).width);
     return XbBrandScaffold(
       title: '购买流量重置包',
-      bottomNavigationBar: _bottomBar(context),
+      maxContentWidth: wide ? 560 : null,
+      bottomNavigationBar: wide ? null : _bottomBar(context),
       body: XbAsyncView(
         loading: _loading && !_retrying,
         retrying: _retrying,
@@ -103,7 +107,7 @@ class _ResetTrafficPageState extends ConsumerState<ResetTrafficPage> {
         onRetry: () => _load(retry: true),
         builder: (context) => _resetPrice == null
             ? _unavailable(context)
-            : _content(context, _plan!, _resetPrice!),
+            : _content(context, _plan!, _resetPrice!, wide),
       ),
     );
   }
@@ -119,7 +123,7 @@ class _ResetTrafficPageState extends ConsumerState<ResetTrafficPage> {
     );
   }
 
-  Widget _content(BuildContext context, PlanItem plan, PricePlan reset) {
+  Widget _content(BuildContext context, PlanItem plan, PricePlan reset, bool wide) {
     final scheme = Theme.of(context).colorScheme;
     final text = Theme.of(context).textTheme;
     return ListView(
@@ -161,6 +165,16 @@ class _ResetTrafficPageState extends ConsumerState<ResetTrafficPage> {
             ],
           ),
         ),
+        // 桌面：提交按钮内联列底（原型屏37 `.pbtn fill`）；窄屏用固定底栏（见 _bottomBar）。
+        if (wide) ...[
+          const SizedBox(height: 16),
+          XbPrimaryButton(
+            label: '提交订单',
+            icon: Icons.shopping_cart_checkout_rounded,
+            loading: _submitting,
+            onPressed: _submitOrder,
+          ),
+        ],
       ],
     );
   }

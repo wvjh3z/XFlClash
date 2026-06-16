@@ -379,6 +379,7 @@ class XbListRow extends StatelessWidget {
     this.onTap,
     this.danger = false,
     this.showChevron = true,
+    this.large = false,
   });
 
   final IconData icon;
@@ -393,6 +394,9 @@ class XbListRow extends StatelessWidget {
   final VoidCallback? onTap;
   final bool danger;
   final bool showChevron;
+
+  /// 桌面放大态（原型 `.minelist .li` 桌面精修）：行内距 9→14、图标 32→38、字号 14.5→15。
+  final bool large;
 
   @override
   Widget build(BuildContext context) {
@@ -413,16 +417,16 @@ class XbListRow extends StatelessWidget {
       onTap: onTap,
       borderRadius: BorderRadius.circular(10),
       child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 9, horizontal: 4),
+        padding: EdgeInsets.symmetric(vertical: large ? 14 : 9, horizontal: 4),
         child: Row(
           children: [
             XbIconBadge(
               icon: icon,
-              size: 32,
-              radius: 8,
+              size: large ? 38 : 32,
+              radius: large ? 11 : 8,
               background: t.sfc,
               iconColor: danger ? scheme.error : t.on,
-              iconSize: 17,
+              iconSize: large ? 19 : 17,
             ),
             const SizedBox(width: 12),
             Expanded(
@@ -430,7 +434,8 @@ class XbListRow extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Text(label, style: TextStyle(fontSize: 14.5, color: fg)),
+                  Text(label,
+                      style: TextStyle(fontSize: large ? 15 : 14.5, color: fg)),
                   if (subtitle != null) ...[
                     const SizedBox(height: 2),
                     Text(subtitle!,
@@ -770,6 +775,7 @@ class XbEmptyState extends StatelessWidget {
     this.onAction,
     this.secondaryLabel,
     this.onSecondary,
+    this.secondaryIcon,
   });
 
   final IconData icon;
@@ -779,9 +785,12 @@ class XbEmptyState extends StatelessWidget {
   final IconData? actionIcon;
   final VoidCallback? onAction;
 
-  /// 次要文字链接（原型空态的「刷新重试」），显示在主按钮下方。
+  /// 次要操作（原型空态的次按钮）：显示在主按钮下方的描边按钮。
   final String? secondaryLabel;
   final VoidCallback? onSecondary;
+
+  /// 次按钮图标（默认刷新；流量用尽空态传 shopping_cart 等）。
+  final IconData? secondaryIcon;
 
   @override
   Widget build(BuildContext context) {
@@ -839,12 +848,18 @@ class XbEmptyState extends StatelessWidget {
                     ),
             ],
             if (secondaryLabel != null) ...[
-              const SizedBox(height: 10),
-              TextButton.icon(
+              const SizedBox(height: 11),
+              OutlinedButton.icon(
                 onPressed: onSecondary,
-                icon: const Icon(Icons.refresh, size: 16),
+                icon: Icon(secondaryIcon ?? Icons.refresh, size: 18),
                 label: Text(secondaryLabel!),
-                style: TextButton.styleFrom(foregroundColor: scheme.primary),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: scheme.primary,
+                  side: BorderSide(
+                      color: scheme.primary.withValues(alpha: 0.4), width: 1.5),
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 26, vertical: 12),
+                ),
               ),
             ],
           ],

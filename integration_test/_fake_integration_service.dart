@@ -128,7 +128,7 @@ class FakeIntegrationService implements XboardService {
 
   @override
   Future<XbResult<XbPagedList<OrderSummary>>> getOrders(
-      {int page = 1, int pageSize = 20}) async {
+      {bool forceRefresh = false, int page = 1, int pageSize = 20}) async {
     await _delay;
     return XbResult.success(XbPagedList(
       items: [

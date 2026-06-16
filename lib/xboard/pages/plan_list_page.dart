@@ -62,6 +62,8 @@ class _PlanListPageState extends ConsumerState<PlanListPage> {
   Widget build(BuildContext context) {
     return XbBrandScaffold(
       title: '购买套餐',
+      // 桌面套餐卡双列网格（原型屏4 .ngrid）；移动 <1000 不受影响。
+      maxContentWidth: 1000,
       body: FutureBuilder<List<PlanItem>>(
         future: _plansFuture,
         builder: (context, snap) {
@@ -78,19 +80,57 @@ class _PlanListPageState extends ConsumerState<PlanListPage> {
               if (plans.isEmpty) {
                 return const Center(child: Text('暂无可购买套餐'));
               }
-              return ListView.builder(
-                padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
-                itemCount: plans.length + 2,
-                itemBuilder: (_, i) {
-                  if (i == 0) return const PendingOrderSection();
-                  if (i == 1) return const XbGroupLabel('选择套餐');
-                  final plan = plans[i - 2];
-                  return Padding(
-                    padding: const EdgeInsets.only(bottom: 11),
-                    child: _PlanOptCard(
-                      plan: plan,
-                      onTap: () => xbPush(context, PlanDetailPage(plan: plan),
-                          brandColor: xbBrandColor()),
+              return LayoutBuilder(
+                builder: (context, c) {
+                  // 宽内容区（桌面，原型屏4）→ 套餐卡双列网格；窄（移动）→ 单列列表。
+                  final twoCol = c.maxWidth >= 700;
+                  if (!twoCol) {
+                    return ListView.builder(
+                      padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+                      itemCount: plans.length + 2,
+                      itemBuilder: (_, i) {
+                        if (i == 0) return const PendingOrderSection();
+                        if (i == 1) return const XbGroupLabel('选择套餐');
+                        final plan = plans[i - 2];
+                        return Padding(
+                          padding: const EdgeInsets.only(bottom: 11),
+                          child: _PlanOptCard(
+                            plan: plan,
+                            onTap: () => xbPush(context,
+                                PlanDetailPage(plan: plan),
+                                brandColor: xbBrandColor()),
+                          ),
+                        );
+                      },
+                    );
+                  }
+                  const gap = 12.0;
+                  final w = (c.maxWidth - 32 - gap) / 2;
+                  return SingleChildScrollView(
+                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        const PendingOrderSection(),
+                        const XbGroupLabel('选择套餐'),
+                        const SizedBox(height: 4),
+                        Wrap(
+                          spacing: gap,
+                          runSpacing: gap,
+                          children: [
+                            for (final plan in plans)
+                              SizedBox(
+                                width: w,
+                                child: _PlanOptCard(
+                                  plan: plan,
+                                  onTap: () => xbPush(context,
+                                      PlanDetailPage(plan: plan),
+                                      brandColor: xbBrandColor()),
+                                ),
+                              ),
+                          ],
+                        ),
+                      ],
                     ),
                   );
                 },

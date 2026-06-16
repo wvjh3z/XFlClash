@@ -55,15 +55,25 @@ class _PendingOrderSectionState extends ConsumerState<PendingOrderSection>
       return const SizedBox.shrink();
     }
 
+    final banner = XbPendingOrderBanner(
+      subtitle: _subtitle(order),
+      amountText: xbYuan(order.totalAmountYuan),
+      cancelling: submitting,
+      onPay: () => _pay(order),
+      onCancel: () => _confirmCancel(order),
+    );
+    // 桌面（原型 .pendcard max-width:400;margin:0 auto）：横幅收窄居中，不撑满整宽（避免过长）。
+    final wide = MediaQuery.sizeOf(context).width >= 840;
     return Padding(
       padding: const EdgeInsets.only(bottom: 15),
-      child: XbPendingOrderBanner(
-        subtitle: _subtitle(order),
-        amountText: xbYuan(order.totalAmountYuan),
-        cancelling: submitting,
-        onPay: () => _pay(order),
-        onCancel: () => _confirmCancel(order),
-      ),
+      child: wide
+          ? Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 400),
+                child: banner,
+              ),
+            )
+          : banner,
     );
   }
 

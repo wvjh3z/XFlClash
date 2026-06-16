@@ -15,7 +15,10 @@ import '../../adapters/xb_network_adapter.dart';
 
 /// 出口 IP 卡。
 class XbIpCard extends ConsumerWidget {
-  const XbIpCard({super.key});
+  const XbIpCard({super.key, this.embedded = false});
+
+  /// 嵌入模式（桌面右栏「出口信息」标题卡内）：去掉自身卡片外壳，只渲染内部行。
+  final bool embedded;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -38,16 +41,7 @@ class XbIpCard extends ConsumerWidget {
       value = '检测失败';
     }
 
-    return Container(
-      margin: const EdgeInsets.only(top: 11),
-      padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 13),
-      decoration: BoxDecoration(
-        color: t.card,
-        borderRadius: BorderRadius.circular(XbTokens.rMd),
-        border: Border.all(color: t.line),
-        boxShadow: t.shadow1,
-      ),
-      child: Row(
+    final row = Row(
         children: [
           // 国旗块（有 IP 显示国旗 emoji，否则通用网络图标）。
           flag != null
@@ -83,9 +77,10 @@ class XbIpCard extends ConsumerWidget {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
-                    fontSize: 14.5,
+                    // 占位态（检测中…/检测失败）字号调小，不与真实 IP 同样醒目。
+                    fontSize: status.hasIp ? 14.5 : 12.5,
                     fontWeight: FontWeight.w500,
-                    color: t.on,
+                    color: status.hasIp ? t.on : t.onv,
                     fontFeatures: const [FontFeature.tabularFigures()],
                   ),
                 ),
@@ -107,7 +102,20 @@ class XbIpCard extends ConsumerWidget {
                 : Icon(Icons.refresh, size: 20, color: scheme.primary),
           ),
         ],
+      );
+
+    if (embedded) return row;
+
+    return Container(
+      margin: const EdgeInsets.only(top: 11),
+      padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 13),
+      decoration: BoxDecoration(
+        color: t.card,
+        borderRadius: BorderRadius.circular(XbTokens.rMd),
+        border: Border.all(color: t.line),
+        boxShadow: t.shadow1,
       ),
+      child: row,
     );
   }
 

@@ -11,16 +11,24 @@ library;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'package:fl_clash/xboard/models/xb_domain_subscription.dart';
 import 'package:fl_clash/xboard/providers/auth_state_provider.dart';
+import 'package:fl_clash/xboard/providers/user_profile_provider.dart';
 import 'package:fl_clash/xboard/providers/xboard_providers.dart';
+import 'package:fl_clash/xboard/pages/plan_list_page.dart';
+import 'package:fl_clash/xboard/pages/reset_traffic_page.dart';
 import 'package:fl_clash/xboard/services/xboard_subscription_service.dart';
 import 'package:fl_clash/xboard/widgets/xb_components.dart';
-import 'package:fl_clash/xboard/widgets/xb_feedback.dart' show xbToast;
+import 'package:fl_clash/xboard/widgets/xb_feedback.dart' show xbToast, xbBrandColor;
 import 'package:fl_clash/xboard/widgets/xb_refresh_throttle_guard.dart';
-import 'package:fl_clash/xboard/widgets/xb_theme.dart' show XbTokens;
+import 'package:fl_clash/xboard/widgets/xb_theme.dart' show XbTokens, xbPush;
 
 import '../../adapters/xb_nodes_adapter.dart';
+import '../../widgets/xb_content_header.dart';
+import '../../widgets/xb_responsive.dart';
 import 'xb_node_group.dart';
+
+/// 节点页 master-detail：可用宽 ≥ [XbBreakpoints.desktop] 才双栏（策略见 xb_responsive）。
 
 /// 节点 Tab。
 class NodesTab extends ConsumerStatefulWidget {
@@ -94,6 +102,13 @@ class _NodesTabState extends ConsumerState<NodesTab>
   /// 才算完成；期间按钮禁用、显示横幅，完成后恢复并开始 60s 冷却。旧节点在写入成功前保持不变。
   Future<void> _refreshNodes() async {
     if (_refreshing) return;
+    // 套餐已过期 → 刷新无意义（不会有可用节点）。直接提示前往续费，不发刷新请求
+    // （修「过期时刷新误报『登录已过期，请重新登录』」）。
+    final sub = ref.read(userProfileProvider).asData?.value;
+    if (sub != null && !sub.hasNoPlan && _isExpired(sub)) {
+      xbToast(context, '套餐已过期，无法刷新节点，请前往续费');
+      return;
+    }
     if (throttled) {
       xbToast(context, '节点刚刷新过，请稍后再试');
       return;
@@ -120,6 +135,29 @@ class _NodesTabState extends ConsumerState<NodesTab>
     }
   }
 
+  /// 套餐是否已过期（expiredAt 非空且不在未来）。expiredAt==null = 长期有效（不算过期）。
+  bool _isExpired(XbDomainSubscription sub) =>
+      sub.expiredAt != null && !sub.expiredAt!.isAfter(DateTime.now());
+
+  /// 空态外壳：顶部标题栏（含刷新节点）+ 刷新中横幅 + 居中空态体。
+  /// 无可用线路 / 套餐过期 / 流量用尽三种空态共用（结构一致，仅 body 不同）。
+  Widget _emptyShell(Widget body) {
+    return Column(
+      children: [
+        _NodesHeader(
+            onRefresh: _refreshNodes,
+            refreshing: _refreshing,
+            cooldownSec: cooldownSeconds),
+        if (_refreshing)
+          const Padding(
+            padding: EdgeInsets.fromLTRB(16, 4, 16, 0),
+            child: XbSyncBanner(text: '正在刷新节点，请稍候…'),
+          ),
+        Expanded(child: body),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final isGuest =
@@ -128,28 +166,38 @@ class _NodesTabState extends ConsumerState<NodesTab>
       return _GuestNodes(onTapLogin: widget.onTapLogin);
     }
 
+    // 账号到期 / 流量用尽 → 清空节点显示（即便有缓存节点也不再展示，避免误连失效线路）。
+    // 优先级：套餐过期 > 流量用尽（过期时买流量包无意义，应引导续费/购买）。loading/无套餐不 gate。
+    final sub = ref.watch(userProfileProvider).asData?.value;
+    if (sub != null && !sub.hasNoPlan) {
+      if (_isExpired(sub)) {
+        return _emptyShell(_EmptyNodes(onTapRenew: widget.onTapRenew));
+      }
+      final exhausted = sub.totalBytes > 0 && sub.usedBytes >= sub.totalBytes;
+      if (exhausted) {
+        return _emptyShell(_ExhaustedNodes(
+          onBuyResetPack: () {
+            final id = sub.planId;
+            if (id != null) {
+              xbPush(context,
+                  ResetTrafficPage(planId: id, planName: sub.planName),
+                  brandColor: xbBrandColor());
+            } else {
+              xbPush(context, const PlanListPage(), brandColor: xbBrandColor());
+            }
+          },
+          onBuyPlan: () =>
+              xbPush(context, const PlanListPage(), brandColor: xbBrandColor()),
+        ));
+      }
+    }
+
     final adapter = ref.watch(xbNodesAdapterProvider);
     final view = adapter.nodesView(ref);
 
     // 空态：一个节点都没有。刷新中仍显示空态 + 横幅（旧节点本就为空，无可保留）。
     if (view.isEmpty) {
-      return Column(
-        children: [
-          _NodesHeader(onRefresh: _refreshNodes, refreshing: _refreshing, cooldownSec: cooldownSeconds),
-          if (_refreshing)
-            const Padding(
-              padding: EdgeInsets.fromLTRB(16, 4, 16, 0),
-              child: XbSyncBanner(text: '正在刷新节点，请稍候…'),
-            ),
-          Expanded(
-            child: _EmptyNodes(
-              onTapRenew: widget.onTapRenew,
-              // 空态「刷新重试」也走重拉订阅（与顶部刷新同链路）。
-              onRefresh: _refreshNodes,
-            ),
-          ),
-        ],
-      );
+      return _emptyShell(_EmptyNodes(onTapRenew: widget.onTapRenew));
     }
 
     // 选中分组：选中名不在当前可见分组里（刷新后分组变化）→ 回退首个。
@@ -159,36 +207,150 @@ class _NodesTabState extends ConsumerState<NodesTab>
       orElse: () => groups.first,
     );
 
-    // 顶部分组 tab（横向滚动）+ 只显示选中分组的节点（不再所有组堆叠）。
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        _NodesHeader(onRefresh: _refreshNodes, refreshing: _refreshing, cooldownSec: cooldownSeconds),
-        if (_refreshing)
-          const Padding(
+    // 顶部分组 tab：窄窗口横向；宽窗口 master-detail（左竖排分组栏 + 右双列节点网格，C-分支）。
+    final scrollNode = (_pendingScrollNode != null &&
+            current.nodes.any((n) => n.name == _pendingScrollNode))
+        ? _pendingScrollNode
+        : null;
+    final header = _NodesHeader(
+        onRefresh: _refreshNodes,
+        refreshing: _refreshing,
+        cooldownSec: cooldownSeconds);
+    final banner = _refreshing
+        ? const Padding(
             padding: EdgeInsets.fromLTRB(16, 4, 16, 0),
             child: XbSyncBanner(text: '正在刷新节点，请稍候…'),
-          ),
-        _GroupTabBar(
-          groups: groups,
-          selected: current.name,
-          onSelect: (name) => setState(() => _selectedGroup = name),
+          )
+        : null;
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final masterDetail =
+            xbIsDesktopWidth(constraints.maxWidth);
+        if (masterDetail) {
+          // 标题栏与下方内容区用同一 maxW（同居中限宽）→ 顶部「刷新节点」与分组头「测延迟」
+          // 右缘严格对齐（修宽窗口下 md 限 1000 居中、而标题栏全宽导致的错位）。
+          final maxW = xbContentMaxWidth(constraints.maxWidth);
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // 桌面固定标题栏（原型 .chd）：标题「选择线路」+ 右侧刷新，带底部分隔线。
+              XbContentHeader(
+                title: '选择线路',
+                maxContentWidth: maxW,
+                trailing: _NodesRefreshAction(
+                  onRefresh: _refreshNodes,
+                  refreshing: _refreshing,
+                  cooldownSec: cooldownSeconds,
+                ),
+              ),
+              ?banner,
+              Expanded(
+                // 原型 .md：max-width 1000 居中，rail 与节点网格之间 20px 留白（无分隔线）。
+                child: Center(
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(maxWidth: maxW),
+                    child: Padding(
+                      // 横向 28 与固定标题栏 XbContentHeader（padding 28）对齐 → 顶部「刷新节点」
+                      // 与分组头「测延迟」右缘对齐、rail 左缘与标题对齐（原型屏2）。
+                      padding: const EdgeInsets.symmetric(horizontal: 28),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          _GroupRail(
+                            groups: groups,
+                            selected: current.name,
+                            onSelect: (name) =>
+                                setState(() => _selectedGroup = name),
+                          ),
+                          const SizedBox(width: 20),
+                          Expanded(
+                            child: XbNodeGroup(
+                              key: ValueKey(current.name),
+                              group: current,
+                              columns: 2,
+                              scrollToNode: scrollNode,
+                              scrollNonce: _handledNonce,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          );
+        }
+        // 移动端：顶部横向分组 tab + 单列节点列表。
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            header,
+            ?banner,
+            _GroupTabBar(
+              groups: groups,
+              selected: current.name,
+              onSelect: (name) => setState(() => _selectedGroup = name),
+            ),
+            Expanded(
+              child: XbNodeGroup(
+                key: ValueKey(current.name),
+                group: current,
+                scrollToNode: scrollNode,
+                scrollNonce: _handledNonce,
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+/// 桌面 master-detail 左侧分组栏（原型屏2 `.md-rail`）：「线路分组」小标题 + 竖排分组 pill。
+class _GroupRail extends StatelessWidget {
+  const _GroupRail({
+    required this.groups,
+    required this.selected,
+    required this.onSelect,
+  });
+
+  final List<XbGroupSummary> groups;
+  final String selected;
+  final ValueChanged<String> onSelect;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return SizedBox(
+      width: 200,
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(0, 2, 0, 16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(4, 0, 4, 10),
+              child: Text(
+                '线路分组',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 1,
+                  color: scheme.onSurfaceVariant,
+                ),
+              ),
+            ),
+            _GroupTabBar(
+              groups: groups,
+              selected: selected,
+              onSelect: onSelect,
+              axis: Axis.vertical,
+            ),
+          ],
         ),
-        Expanded(
-          child: XbNodeGroup(
-            // key 让切换分组时重建状态（测速态不串组）。
-            key: ValueKey(current.name),
-            group: current,
-            // 仅当待定位节点确实属于当前分组时传入（滚动到它并尽量居中，只用一次）。
-            scrollToNode: (_pendingScrollNode != null &&
-                    current.nodes.any((n) => n.name == _pendingScrollNode))
-                ? _pendingScrollNode
-                : null,
-            // 定位请求序号：同组重复点击线路卡也能再次触发居中（XbNodeGroup.didUpdateWidget）。
-            scrollNonce: _handledNonce,
-          ),
-        ),
-      ],
+      ),
     );
   }
 }
@@ -199,7 +361,6 @@ class _GroupTabBar extends StatelessWidget {
     required this.groups,
     required this.selected,
     required this.onSelect,
-    // ignore: unused_element_parameter  竖版由后续桌面节点布局接入使用（C-分支）。
     this.axis = Axis.horizontal,
   });
 
@@ -223,7 +384,7 @@ class _GroupTabBar extends StatelessWidget {
         children: [
           for (final g in groups) ...[
             _chip(context, t, scheme, g, g.name == selected),
-            const SizedBox(height: 8),
+            const SizedBox(height: 6),
           ],
         ],
       );
@@ -258,7 +419,7 @@ class _GroupTabBar extends StatelessWidget {
       child: Container(
         alignment: vertical ? Alignment.centerLeft : Alignment.center,
         padding: vertical
-            ? const EdgeInsets.symmetric(horizontal: 16, vertical: 12)
+            ? const EdgeInsets.symmetric(horizontal: 14, vertical: 12)
             : const EdgeInsets.symmetric(horizontal: 15),
         decoration: BoxDecoration(
           gradient: on
@@ -275,7 +436,7 @@ class _GroupTabBar extends StatelessWidget {
           // 未选：白卡底 + 细描边（清晰是可点 chip，深色下也跳出来）；选中：品牌渐变。
           color: on ? null : t.card,
           border: on ? null : Border.all(color: t.line, width: 1.4),
-          borderRadius: BorderRadius.circular(vertical ? 12 : 30),
+          borderRadius: BorderRadius.circular(vertical ? 16 : 30),
           boxShadow: on
               ? [
                   BoxShadow(
@@ -287,13 +448,62 @@ class _GroupTabBar extends StatelessWidget {
                 ]
               : null,
         ),
-        child: Text(
-          g.name,
-          style: TextStyle(
-            fontSize: 13.5,
-            fontWeight: FontWeight.w700,
-            color: on ? Colors.white : t.on,
-          ),
+        // 竖排（桌面分组栏）：名左 + 节点数徽标右（原型 .vtab .cnt）。横排只显示名。
+        child: vertical
+            ? Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      g.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: on ? Colors.white : t.on,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  _CountBadge(count: g.nodes.length, selected: on),
+                ],
+              )
+            : Text(
+                g.name,
+                style: TextStyle(
+                  fontSize: 13.5,
+                  fontWeight: FontWeight.w700,
+                  color: on ? Colors.white : t.on,
+                ),
+              ),
+      ),
+    );
+  }
+}
+
+/// 分组栏节点数徽标（原型 `.vtab .cnt`）：选中态白色半透明底，未选 sfc 底。
+class _CountBadge extends StatelessWidget {
+  const _CountBadge({required this.count, required this.selected});
+
+  final int count;
+  final bool selected;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = XbTokens.of(context);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 1),
+      decoration: BoxDecoration(
+        color: selected ? Colors.white.withValues(alpha: 0.22) : t.sfc,
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Text(
+        '$count',
+        style: TextStyle(
+          fontSize: 11,
+          fontWeight: FontWeight.w600,
+          color: selected ? Colors.white : t.onv,
+          fontFeatures: const [FontFeature.tabularFigures()],
         ),
       ),
     );
@@ -315,16 +525,6 @@ class _NodesHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = XbTokens.of(context);
-    final scheme = Theme.of(context).colorScheme;
-    final coolingDown = cooldownSec > 0;
-    final String label;
-    if (refreshing) {
-      label = '刷新中…';
-    } else if (coolingDown) {
-      label = '刷新节点 ${cooldownSec}s';
-    } else {
-      label = '刷新节点';
-    }
     // 节点页专属紧凑标题行（不用共享 XbScreenTitle —— 它底部留白 12px 太大，与下方吸顶分组 tab
     // 间距过宽，和原型不符）。标题 + 右侧刷新，底部仅 2px 间距。
     return Padding(
@@ -338,23 +538,10 @@ class _NodesHeader extends StatelessWidget {
                   letterSpacing: -0.4,
                   color: t.on)),
           const Spacer(),
-          TextButton.icon(
-            // 真正刷新中才禁用（null）；冷却中保持可点 → 触发 _refreshNodes 内的冷却 toast，
-            // 仅用灰色外观表达「不可刷新」（与「我的」刷新按钮一致：冷却内点击弹提示）。
-            onPressed: refreshing ? null : onRefresh,
-            icon: refreshing
-                ? const XbSpinner(color: XbTokens.warn, size: 16, stroke: 2)
-                : Icon(Icons.refresh,
-                    size: 16,
-                    color: coolingDown
-                        ? scheme.onSurfaceVariant.withValues(alpha: 0.5)
-                        : scheme.primary),
-            label: Text(label),
-            style: TextButton.styleFrom(
-              foregroundColor: coolingDown
-                  ? scheme.onSurfaceVariant.withValues(alpha: 0.5)
-                  : scheme.primary,
-            ),
+          _NodesRefreshAction(
+            onRefresh: onRefresh,
+            refreshing: refreshing,
+            cooldownSec: cooldownSec,
           ),
         ],
       ),
@@ -362,23 +549,69 @@ class _NodesHeader extends StatelessWidget {
   }
 }
 
+/// 「刷新节点」操作按钮（移动端标题行 / 桌面 .chd 标题栏共用）。
+/// 刷新中→「刷新中…」转圈禁用；冷却中→「刷新节点 Ns」灰色（仍可点弹冷却提示）。
+class _NodesRefreshAction extends StatelessWidget {
+  const _NodesRefreshAction({
+    required this.onRefresh,
+    this.refreshing = false,
+    this.cooldownSec = 0,
+  });
+
+  final VoidCallback onRefresh;
+  final bool refreshing;
+  final int cooldownSec;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final coolingDown = cooldownSec > 0;
+    final String label;
+    if (refreshing) {
+      label = '刷新中…';
+    } else if (coolingDown) {
+      label = '刷新节点 ${cooldownSec}s';
+    } else {
+      label = '刷新节点';
+    }
+    return TextButton.icon(
+      // 真正刷新中才禁用（null）；冷却中保持可点 → 触发 _refreshNodes 内的冷却 toast。
+      onPressed: refreshing ? null : onRefresh,
+      icon: refreshing
+          ? const XbSpinner(color: XbTokens.warn, size: 16, stroke: 2)
+          : Icon(Icons.refresh,
+              size: 16,
+              color: coolingDown
+                  ? scheme.onSurfaceVariant.withValues(alpha: 0.5)
+                  : scheme.primary),
+      label: Text(label),
+      style: TextButton.styleFrom(
+        foregroundColor: coolingDown
+            ? scheme.onSurfaceVariant.withValues(alpha: 0.5)
+            : scheme.primary,
+        // 与分组头「测延迟」按钮同款紧凑内距 → 两者文字右缘严格对齐。
+        padding: const EdgeInsets.symmetric(horizontal: 8),
+        minimumSize: Size.zero,
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      ),
+    );
+  }
+}
+
 /// 空态：无可用分组 → 引导续费 + 刷新重试（R4.6，复用 XbEmptyState）。
 class _EmptyNodes extends StatelessWidget {
-  const _EmptyNodes({this.onTapRenew, this.onRefresh});
+  const _EmptyNodes({this.onTapRenew});
 
   final VoidCallback? onTapRenew;
-  final VoidCallback? onRefresh;
 
   @override
   Widget build(BuildContext context) {
     return XbEmptyState(
       icon: Icons.cloud_off,
-      title: '当前套餐无可用线路',
-      description: '套餐可能已到期或未生效，\n续费后线路将自动同步。',
-      actionLabel: '前往续费',
+      title: '当前无可用线路',
+      description: '套餐可能已到期或未生效，\n续费 / 购买套餐后即可同步线路。',
+      actionLabel: '前往续费 / 购买',
       onAction: onTapRenew,
-      secondaryLabel: '刷新重试',
-      onSecondary: onRefresh,
     );
   }
 }
@@ -401,3 +634,31 @@ class _GuestNodes extends StatelessWidget {
     );
   }
 }
+
+/// 流量用尽空态（原型桌面屏26b / 移动屏10a）：套餐流量已用尽 → 清空节点，引导
+/// 购买流量包恢复本周期流量，或购买 / 更改套餐。复用 XbEmptyState（主+次按钮）。
+class _ExhaustedNodes extends StatelessWidget {
+  const _ExhaustedNodes({this.onBuyResetPack, this.onBuyPlan});
+
+  /// 购买流量包（恢复本周期流量）。
+  final VoidCallback? onBuyResetPack;
+
+  /// 购买 / 更改套餐。
+  final VoidCallback? onBuyPlan;
+
+  @override
+  Widget build(BuildContext context) {
+    return XbEmptyState(
+      icon: Icons.error_outline,
+      title: '当前套餐流量已用尽',
+      description: '流量用尽后线路暂不可用。\n可购买流量包恢复本周期流量，或购买 / 更改其他套餐。',
+      actionLabel: '购买流量包',
+      actionIcon: Icons.bolt,
+      onAction: onBuyResetPack,
+      secondaryLabel: '购买 / 更改套餐',
+      secondaryIcon: Icons.shopping_cart,
+      onSecondary: onBuyPlan,
+    );
+  }
+}
+

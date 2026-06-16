@@ -31,12 +31,14 @@ import 'package:fl_clash/xboard/widgets/xb_refresh_throttle_guard.dart';
 import 'package:fl_clash/xboard/widgets/xb_theme.dart'
     show xbPush, xbShowDialog, XbTokens;
 import 'package:fl_clash/xboard/pages/xb_about_page.dart';
-
-
+import '../../widgets/xb_content_header.dart';
+import '../../widgets/xb_responsive.dart';
 import 'xb_settings_page.dart';
 
 /// 用量达此比例才显示「流量重置」入口（R6.3）。
 const _resetThreshold = 0.90;
+
+/// 「我的」双栏布局：可用宽 ≥ [XbBreakpoints.desktop] 才双栏（策略见 xb_responsive）。
 
 /// 我的 Tab。
 class MineTab extends ConsumerStatefulWidget {
@@ -102,30 +104,104 @@ class _MineTabState extends ConsumerState<MineTab>
         ref.watch(authStateProvider) != AuthState.authenticated;
 
     return SafeArea(
-      child: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
-        children: [
-          // 标题行：左「我的」+ 右「刷新信息」（已登录才显示）。
-          _MineHeader(
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final header = _MineHeader(
             isGuest: isGuest,
             refreshing: _refreshing,
             cooldownSec: cooldownSeconds,
             onRefresh: _onRefresh,
-          ),
-          const SizedBox(height: 16),
-          // 刷新中：顶部黄色横幅（与 11d 原型一致）
-          if (_refreshing && !isGuest)
-            const Padding(
-              padding: EdgeInsets.only(bottom: 12),
-              child: XbSyncBanner(text: '正在刷新服务，请稍候…'),
-            ),
-          if (isGuest)
-            _GuestCard(onTapLogin: widget.onTapLogin)
-          else
-            _AccountSection(active: widget.active, now: widget.now),
-          const SizedBox(height: 16),
-          _SettingsSection(isGuest: isGuest),
-        ],
+          );
+          final banner = (_refreshing && !isGuest)
+              ? const Padding(
+                  padding: EdgeInsets.only(bottom: 12),
+                  child: XbSyncBanner(text: '正在刷新服务，请稍候…'),
+                )
+              : null;
+          final isDesktop = xbIsDesktopWidth(constraints.maxWidth);
+          final accountBlock = isGuest
+              ? _GuestCard(onTapLogin: widget.onTapLogin)
+              : _AccountSection(
+                  active: widget.active, now: widget.now, large: isDesktop);
+
+          // 宽窗口双栏（C-分支，原型对齐）：左=信息卡/按钮/重置 + 账户组；右=应用组。
+          if (isDesktop) {
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                // 桌面固定标题栏（原型 .chd）：标题「我的」+ 右侧刷新信息，带底部分隔线。
+                XbContentHeader(
+                  title: '我的',
+                  trailing: isGuest
+                      ? null
+                      : _RefreshButton(
+                          refreshing: _refreshing,
+                          cooldownSec: cooldownSeconds,
+                          onTap: _onRefresh,
+                        ),
+                ),
+                Expanded(
+                  child: SingleChildScrollView(
+                    padding: const EdgeInsets.fromLTRB(28, 24, 28, 28),
+                    child: Center(
+                      child: ConstrainedBox(
+                        constraints: BoxConstraints(
+                            maxWidth:
+                                xbContentMaxWidth(constraints.maxWidth)),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            ?banner,
+                            Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.stretch,
+                                    children: [
+                                      accountBlock,
+                                      const SizedBox(height: 8),
+                                      _SettingsSection(
+                                          isGuest: isGuest,
+                                          showApp: false,
+                                          large: true),
+                                    ],
+                                  ),
+                                ),
+                                const SizedBox(width: 22),
+                                Expanded(
+                                  child: _SettingsSection(
+                                      isGuest: isGuest,
+                                      showAccount: false,
+                                      large: true,
+                                      hideSettingsEntry: true),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            );
+          }
+
+          // 窄窗口单列（原布局）。
+          return ListView(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+            children: [
+              header,
+              const SizedBox(height: 16),
+              ?banner,
+              accountBlock,
+              const SizedBox(height: 16),
+              _SettingsSection(isGuest: isGuest),
+            ],
+          );
+        },
       ),
     );
   }
@@ -178,38 +254,30 @@ class _RefreshButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final disabled = refreshing || cooldownSec > 0;
-    final color = disabled
+    final coolingDown = cooldownSec > 0;
+    final color = coolingDown
         ? scheme.onSurfaceVariant.withValues(alpha: 0.5)
         : scheme.primary;
     final String label;
     if (refreshing) {
       label = '刷新中…';
-    } else if (cooldownSec > 0) {
+    } else if (coolingDown) {
       label = '刷新信息 ${cooldownSec}s';
     } else {
       label = '刷新信息';
     }
-    return GestureDetector(
-      onTap: onTap,
-      behavior: HitTestBehavior.opaque,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 2),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.refresh, size: 16, color: color),
-            const SizedBox(width: 4),
-            Text(
-              label,
-              style: TextStyle(
-                fontSize: 13.5,
-                fontWeight: FontWeight.w500,
-                color: color,
-              ),
-            ),
-          ],
-        ),
+    // 与节点页「刷新节点」(_NodesRefreshAction) 同款 TextButton.icon → 字体/样式统一。
+    return TextButton.icon(
+      onPressed: refreshing ? null : onTap,
+      icon: refreshing
+          ? const XbSpinner(color: XbTokens.warn, size: 16, stroke: 2)
+          : Icon(Icons.refresh, size: 16, color: color),
+      label: Text(label),
+      style: TextButton.styleFrom(
+        foregroundColor: color,
+        padding: const EdgeInsets.symmetric(horizontal: 8),
+        minimumSize: Size.zero,
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
       ),
     );
   }
@@ -217,13 +285,16 @@ class _RefreshButton extends StatelessWidget {
 
 /// 已登录账号区：账号卡（loading 骨架 / data）+ 续费购买分流 + 重置入口。
 class _AccountSection extends ConsumerStatefulWidget {
-  const _AccountSection({required this.active, this.now});
+  const _AccountSection({required this.active, this.now, this.large = false});
 
   /// 当前是否可见 Tab（透传给账号卡触发填充动画）。
   final bool active;
 
   /// 测试注入的固定时刻（透传给账号卡算到期/重置剩余）；生产 null → DateTime.now()。
   final DateTime? now;
+
+  /// 桌面放大态（原型 `.dcol .plan` / `.dcol .brow`）：套餐卡 padding/数字、按钮高度放大。
+  final bool large;
 
   @override
   ConsumerState<_AccountSection> createState() => _AccountSectionState();
@@ -263,9 +334,13 @@ class _AccountSectionState extends ConsumerState<_AccountSection> {
       error: (e, _) => _AccountErrorCard(onRetry: _retry),
       data: (sub) => Column(
         children: [
-          _AccountCard(sub: sub, active: widget.active, now: widget.now),
-          const SizedBox(height: 12),
-          _PlanActions(sub: sub),
+          _AccountCard(
+              sub: sub,
+              active: widget.active,
+              now: widget.now,
+              large: widget.large),
+          SizedBox(height: widget.large ? 13 : 12),
+          _PlanActions(sub: sub, large: widget.large),
         ],
       ),
     );
@@ -274,7 +349,7 @@ class _AccountSectionState extends ConsumerState<_AccountSection> {
 
 /// 账号卡（原型 .plan：品牌渐变卡 + 白字 + 大号流量数字 + 到期/重置两行，R6.1/R6.2）。
 class _AccountCard extends StatefulWidget {
-  const _AccountCard({required this.sub, this.active = true, this.now});
+  const _AccountCard({required this.sub, this.active = true, this.now, this.large = false});
 
   final XbDomainSubscription sub;
 
@@ -284,6 +359,9 @@ class _AccountCard extends StatefulWidget {
   /// 计算「到期/重置剩余」用的当前时刻（测试注入固定值保证 golden 稳定）；
   /// 生产为 null → 用 `DateTime.now()`，行为不变。
   final DateTime? now;
+
+  /// 桌面放大态（原型 `.dcol .plan`）：padding 22/24、套餐名 17、流量数字 30、进度条 11。
+  final bool large;
 
   @override
   State<_AccountCard> createState() => _AccountCardState();
@@ -336,6 +414,7 @@ class _AccountCardState extends State<_AccountCard>
   @override
   Widget build(BuildContext context) {
     final sub = widget.sub;
+    final large = widget.large;
     final scheme = Theme.of(context).colorScheme;
     final usedPct = sub.totalBytes == 0
         ? 0.0
@@ -346,7 +425,9 @@ class _AccountCardState extends State<_AccountCard>
     final usedGb = sub.usedBytes / (1024 * 1024 * 1024);
 
     return Container(
-      padding: const EdgeInsets.fromLTRB(18, 16, 18, 16),
+      padding: large
+          ? const EdgeInsets.fromLTRB(24, 22, 24, 22)
+          : const EdgeInsets.fromLTRB(18, 16, 18, 16),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(XbTokens.rLg),
         gradient: LinearGradient(
@@ -381,8 +462,8 @@ class _AccountCardState extends State<_AccountCard>
                 flex: 0,
                 child: Text(
                   sub.planName ?? '未订阅套餐',
-                  style: const TextStyle(
-                    fontSize: 15,
+                  style: TextStyle(
+                    fontSize: large ? 17 : 15,
                     fontWeight: FontWeight.w600,
                     color: white,
                   ),
@@ -427,11 +508,11 @@ class _AccountCardState extends State<_AccountCard>
                 animation: _fill,
                 builder: (context, _) => Text(
                   (usedGb * _fill.value).toStringAsFixed(1),
-                  style: const TextStyle(
-                    fontSize: 23,
+                  style: TextStyle(
+                    fontSize: large ? 30 : 23,
                     fontWeight: FontWeight.w700,
                     color: white,
-                    fontFeatures: [FontFeature.tabularFigures()],
+                    fontFeatures: const [FontFeature.tabularFigures()],
                   ),
                 ),
               ),
@@ -467,7 +548,7 @@ class _AccountCardState extends State<_AccountCard>
               animation: _fill,
               builder: (context, _) => LinearProgressIndicator(
                 value: usedPct * _fill.value,
-                minHeight: 10,
+                minHeight: large ? 11 : 10,
                 backgroundColor: Colors.white.withValues(alpha: 0.25),
                 valueColor: AlwaysStoppedAnimation(
                   hot ? const Color(0xFFFFD9D2) : Colors.white,
@@ -540,9 +621,12 @@ class _InfoRow extends StatelessWidget {
 
 /// 续费/购买分流（R6.4/R6.5/R6.6）+ 流量重置入口（≥90%，R6.3）。
 class _PlanActions extends ConsumerWidget {
-  const _PlanActions({required this.sub});
+  const _PlanActions({required this.sub, this.large = false});
 
   final XbDomainSubscription sub;
+
+  /// 桌面放大态（原型 `.dcol .brow .b{height:50px}`）：按钮高度 42→50。
+  final bool large;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -556,7 +640,7 @@ class _PlanActions extends ConsumerWidget {
     return Column(
       children: [
         SizedBox(
-          height: 42,
+          height: large ? 50 : 42,
           child: Row(
             children: [
               // 续费当前套餐（R6.4）：有套餐才显示，实心品牌按钮。
@@ -907,40 +991,50 @@ class _GuestCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final white70 = Colors.white.withValues(alpha: 0.88);
+    // 暗色模式优化：浅灰渐变在深背景上过亮刺眼 → 改用低饱和深灰卡 + 品牌色 CTA；
+    // 亮色保持原型 mineGuest 灰渐变（#8a909e → #5a606e）+ 白底按钮。
+    final gradientColors = isDark
+        ? const [Color(0xFF333845), Color(0xFF24272F)]
+        : const [Color(0xFF8A909E), Color(0xFF5A606E)];
     return Container(
       padding: const EdgeInsets.fromLTRB(18, 16, 18, 16),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(XbTokens.rLg),
-        // 原型 mineGuest 灰渐变（#8a909e → #5a606e）。
-        gradient: const LinearGradient(
+        gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [Color(0xFF8A909E), Color(0xFF5A606E)],
+          colors: gradientColors,
         ),
-        boxShadow: const [
+        border: isDark ? Border.all(color: scheme.outlineVariant) : null,
+        boxShadow: [
           BoxShadow(
-            color: Color(0x4D3C4250),
-            blurRadius: 44,
-            offset: Offset(0, 22),
+            color: isDark
+                ? Colors.black.withValues(alpha: 0.35)
+                : const Color(0x4D3C4250),
+            blurRadius: isDark ? 24 : 44,
+            offset: const Offset(0, 14),
             spreadRadius: -16,
           ),
         ],
       ),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          // 未登录标题（无头像，紧凑版）。
+          // 未登录标题（无头像，紧凑版）—— 文案居中（与原型一致）。
           const Text('未登录',
+              textAlign: TextAlign.center,
               style: TextStyle(
                   fontSize: 15,
                   fontWeight: FontWeight.w600,
                   color: Colors.white)),
           const SizedBox(height: 4),
           Text('登录后同步专属节点与套餐',
+              textAlign: TextAlign.center,
               style: TextStyle(fontSize: 12, color: white70)),
           const SizedBox(height: 13),
-          // 白底登录按钮（灰卡上的高对比 CTA）。
+          // CTA：亮色=白底/品牌字（灰卡高对比，原型）；暗色=品牌红底/白字（不刺眼、更协调）。
           SizedBox(
             width: double.infinity,
             child: FilledButton.icon(
@@ -948,8 +1042,8 @@ class _GuestCard extends StatelessWidget {
               icon: const Icon(Icons.login, size: 18),
               label: const Text('登录 / 注册'),
               style: FilledButton.styleFrom(
-                backgroundColor: Colors.white,
-                foregroundColor: scheme.primary,
+                backgroundColor: isDark ? scheme.primary : Colors.white,
+                foregroundColor: isDark ? Colors.white : scheme.primary,
               ),
             ),
           ),
@@ -961,9 +1055,25 @@ class _GuestCard extends StatelessWidget {
 
 /// 设置入口区（原型分「账户 / 应用」两组，R6.8/R6.11）。
 class _SettingsSection extends ConsumerWidget {
-  const _SettingsSection({required this.isGuest});
+  const _SettingsSection({
+    required this.isGuest,
+    this.showAccount = true,
+    this.showApp = true,
+    this.large = false,
+    this.hideSettingsEntry = false,
+  });
 
   final bool isGuest;
+  /// 桌面双栏：左栏只渲染账户组、右栏只渲染应用组；移动端两者都渲染。
+  final bool showAccount;
+  final bool showApp;
+
+  /// 桌面放大态（原型 `.minelist .li` 桌面精修）：列表行更高、图标更大、字号更大。
+  final bool large;
+
+  /// 隐藏「设置」入口（桌面有独立「设置」Tab → 我的 Tab 不再重复；移动端 3-Tab 无独立
+  /// 设置 Tab → 必须保留，默认 false）。仅影响应用组内「设置」行，关于/退出登录不受影响。
+  final bool hideSettingsEntry;
 
   /// 退出登录二次确认（破坏性操作，原型 15b）：destructive 红确认键。确认后执行登出编排
   /// （清 token/profile + 服务端撤销，永不抛）+ 全程 loading 遮罩（编排有网络耗时，避免无反馈）。
@@ -1009,13 +1119,15 @@ class _SettingsSection extends ConsumerWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        // ── 账户组 ──
-        const XbGroupLabel('账户'),
+        if (showAccount) ...[
+          // ── 账户组 ──
+          const XbGroupLabel('账户'),
         XbListCard(
           rows: [
             XbListRow(
               icon: Icons.receipt_long,
               label: '我的订单',
+              large: large,
               badge: isGuest ? '登录后可见' : null,
               showChevron: !isGuest,
               onTap: isGuest
@@ -1029,26 +1141,33 @@ class _SettingsSection extends ConsumerWidget {
               XbListRow(
                 icon: Icons.support_agent,
                 label: '在线客服',
+                large: large,
                 onTap: () => _openSupport(context, ref),
               ),
           ],
         ),
+        ],
+        if (showApp) ...[
         // ── 应用组 ──
         const XbGroupLabel('应用'),
         XbListCard(
           rows: [
-            XbListRow(
-              icon: Icons.settings,
-              label: '设置',
-              // 设置 → 形态 A 风格设置页（组件库列表 → FlClash 原生子页，R6.8）。
-              onTap: () => xbPush(context, const XbSettingsPage(),
-                  brandColor: xbBrandColor()),
-            ),
-            const _AboutRow(),
+            // 「设置」入口：仅在无独立设置 Tab 时显示（移动端）。桌面有独立设置 Tab → 隐藏去重。
+            if (!hideSettingsEntry)
+              XbListRow(
+                icon: Icons.settings,
+                label: '设置',
+                large: large,
+                // 设置 → 形态 A 风格设置页（组件库列表 → FlClash 原生子页，R6.8）。
+                onTap: () => xbPush(context, const XbSettingsPage(),
+                    brandColor: xbBrandColor()),
+              ),
+            _AboutRow(large: large),
             if (!isGuest)
               XbListRow(
                 icon: Icons.logout,
                 label: '退出登录',
+                large: large,
                 danger: true,
                 showChevron: false,
                 // 破坏性操作二次确认（与「取消订单」一致），确认后执行登出（◇ 复用形态 B 编排，R6.11）。
@@ -1056,6 +1175,7 @@ class _SettingsSection extends ConsumerWidget {
               ),
           ],
         ),
+        ],
       ],
     );
   }
@@ -1064,7 +1184,9 @@ class _SettingsSection extends ConsumerWidget {
 /// 「关于」条目：显示 MyClient 自有产品版本 + 有新版本时显示「可更新」绿色标签。
 /// 点击进入自定义关于页（含检查更新按钮）。
 class _AboutRow extends ConsumerWidget {
-  const _AboutRow();
+  const _AboutRow({this.large = false});
+
+  final bool large;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -1072,6 +1194,7 @@ class _AboutRow extends ConsumerWidget {
     return XbListRow(
       icon: Icons.info_outline,
       label: '关于',
+      large: large,
       trailing: Row(
         mainAxisSize: MainAxisSize.min,
         children: [

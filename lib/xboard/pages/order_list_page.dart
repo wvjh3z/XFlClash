@@ -63,6 +63,8 @@ class _OrderListPageState extends ConsumerState<OrderListPage> {
   Widget build(BuildContext context) {
     return XbBrandScaffold(
       title: '我的订单',
+      // 桌面订单页用更宽（双列网格，原型屏7）；移动端 <1000 不受影响。
+      maxContentWidth: 1000,
       body: RefreshIndicator(
         onRefresh: () async => _reload(),
         child: FutureBuilder<List<OrderSummary>>(
@@ -86,24 +88,55 @@ class _OrderListPageState extends ConsumerState<OrderListPage> {
                     ],
                   );
                 }
-                return ListView.separated(
-                  padding: const EdgeInsets.all(16),
-                  itemCount: orders.length,
-                  separatorBuilder: (_, _) => const SizedBox(height: 8),
-                  itemBuilder: (_, i) => _OrderTile(
-                    order: orders[i],
-                    onTap: () => xbPush(
-                      context,
-                      OrderPaymentPage(tradeNo: orders[i].tradeNo),
-                      brandColor: xbBrandColor(),
-                    ),
-                  ),
+                return LayoutBuilder(
+                  builder: (context, c) {
+                    // 宽内容区（桌面，原型屏7）→ 双列网格；窄（移动）→ 单列列表。
+                    final twoCol = c.maxWidth >= 700;
+                    if (!twoCol) {
+                      return ListView.separated(
+                        padding: const EdgeInsets.all(16),
+                        itemCount: orders.length,
+                        separatorBuilder: (_, _) => const SizedBox(height: 8),
+                        itemBuilder: (_, i) => _OrderTile(
+                          order: orders[i],
+                          onTap: () => _openOrder(context, orders[i]),
+                        ),
+                      );
+                    }
+                    const gap = 12.0;
+                    final w = (c.maxWidth - 32 - gap) / 2;
+                    return SingleChildScrollView(
+                      padding: const EdgeInsets.all(16),
+                      child: Wrap(
+                        spacing: gap,
+                        runSpacing: gap,
+                        children: [
+                          for (final o in orders)
+                            SizedBox(
+                              width: w,
+                              child: _OrderTile(
+                                order: o,
+                                onTap: () => _openOrder(context, o),
+                              ),
+                            ),
+                        ],
+                      ),
+                    );
+                  },
                 );
               },
             );
           },
         ),
       ),
+    );
+  }
+
+  void _openOrder(BuildContext context, OrderSummary order) {
+    xbPush(
+      context,
+      OrderPaymentPage(tradeNo: order.tradeNo),
+      brandColor: xbBrandColor(),
     );
   }
 }

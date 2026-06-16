@@ -66,16 +66,21 @@ class XbBrandScaffold extends StatelessWidget {
   /// 仅渲染品牌主题下的 [body]（+ 可选 [bottomNavigationBar]）。默认 false = 移动端整屏页（不变）。
   final bool embedded;
 
-  /// 内容最大宽度（桌面宽面板下居中收窄，避免卡片拉太宽）。null = 不约束（移动端全宽，不变）。
+  /// 内容最大宽度（桌面宽面板下居中收窄，避免卡片拉太宽）。
+  /// null = 自动：桌面（窗口宽≥600）默认居中限宽 760（表单/列表舒适阅读宽），移动端全宽。
+  /// 传具体值可覆盖（如订单页双列网格用更宽）。
   final double? maxContentWidth;
 
   @override
   Widget build(BuildContext context) {
-    final content = maxContentWidth == null
+    // 桌面自动居中限宽（框架默认）：避免 push 子页在宽内容区被拉伸；移动端全宽不变。
+    final isWide = MediaQuery.sizeOf(context).width >= 600;
+    final effectiveMax = maxContentWidth ?? (isWide ? 760 : null);
+    final content = effectiveMax == null
         ? body
         : Center(
             child: ConstrainedBox(
-              constraints: BoxConstraints(maxWidth: maxContentWidth!),
+              constraints: BoxConstraints(maxWidth: effectiveMax),
               child: body,
             ),
           );
