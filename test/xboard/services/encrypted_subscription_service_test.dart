@@ -204,6 +204,26 @@ void main() {
       expect(r.serverMessage, '无有效套餐');
     });
 
+    test('40304 subscription expired → subscriptionExpired（独立码，非 unauthorized）', () async {
+      final svc = serviceWith((opts) async => ResponseBody.fromString(
+            jsonEncode({'code': 40304, 'message': 'subscription expired'}),
+            403,
+          ));
+      final r = await svc.fetch('https://h.com/thunder/tok');
+      expect(r.failure, EncryptedSubscriptionFailure.subscriptionExpired);
+      expect(r.serverMessage, 'subscription expired');
+    });
+
+    test('40307 traffic exhausted → trafficExhausted（v1.1.0）', () async {
+      final svc = serviceWith((opts) async => ResponseBody.fromString(
+            jsonEncode({'code': 40307, 'message': 'traffic exhausted'}),
+            403,
+          ));
+      final r = await svc.fetch('https://h.com/thunder/tok');
+      expect(r.failure, EncryptedSubscriptionFailure.trafficExhausted);
+      expect(r.serverMessage, 'traffic exhausted');
+    });
+
     test('50001 encryption not configured → serverNotConfigured', () async {
       final svc = serviceWith((opts) async => ResponseBody.fromString(
             jsonEncode({'code': 50001, 'message': 'not configured'}),

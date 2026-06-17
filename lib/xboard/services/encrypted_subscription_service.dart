@@ -42,11 +42,17 @@ enum EncryptedSubscriptionFailure {
   /// 订阅 URL 缺失 / 非法（getSubscribeUrl 失败或 URL 无 token 段）。
   noSubscribeUrl,
 
-  /// 鉴权失败（token 无效 / 过期 / 被封，后端 40302/40303/40304）。
+  /// 鉴权失败（token 无效 / 被封，后端 40301/40302/40303）。
   unauthorized,
+
+  /// 套餐已过期（后端 40304）。token 有效但订阅过期 → UI 引导续费/购买，**不是登录过期**。
+  subscriptionExpired,
 
   /// 无有效套餐（后端 40305）。
   noActivePlan,
+
+  /// 本周期流量已耗尽（后端 40307，v1.1.0 起）。token/套餐有效但流量用尽 → UI 引导购买流量包/套餐。
+  trafficExhausted,
 
   /// 后端加密未配置（50001）/ 插件禁用（404）—— 运营侧问题，非客户端可恢复。
   serverNotConfigured,
@@ -210,7 +216,9 @@ class EncryptedSubscriptionService {
   /// 该失败是否「终态」（换 host 也救不了，应立即停止 failOver）。
   static bool _isTerminal(EncryptedSubscriptionFailure f) => switch (f) {
         EncryptedSubscriptionFailure.unauthorized ||
+        EncryptedSubscriptionFailure.subscriptionExpired ||
         EncryptedSubscriptionFailure.noActivePlan ||
+        EncryptedSubscriptionFailure.trafficExhausted ||
         EncryptedSubscriptionFailure.serverNotConfigured ||
         EncryptedSubscriptionFailure.noSubscribeUrl =>
           true,
@@ -284,10 +292,13 @@ class EncryptedSubscriptionService {
     final message = parsed.$2;
 
     // 插件错误码（DESIGN.md）：40301 token 必填 / 40302 invalid / 40303 banned /
-    // 40304 expired / 40305 no active plan / 50001 encryption not configured / 404 禁用。
+    // 40304 subscription expired / 40305 no active plan / 40307 traffic exhausted（v1.1.0）/
+    // 50001 encryption not configured / 404 禁用。
     final failure = switch (code) {
-      40301 || 40302 || 40303 || 40304 => EncryptedSubscriptionFailure.unauthorized,
+      40301 || 40302 || 40303 => EncryptedSubscriptionFailure.unauthorized,
+      40304 => EncryptedSubscriptionFailure.subscriptionExpired,
       40305 => EncryptedSubscriptionFailure.noActivePlan,
+      40307 => EncryptedSubscriptionFailure.trafficExhausted,
       50001 => EncryptedSubscriptionFailure.serverNotConfigured,
       _ => switch (httpStatus) {
           401 || 403 => EncryptedSubscriptionFailure.unauthorized,

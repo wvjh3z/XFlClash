@@ -830,35 +830,48 @@ class XbEmptyState extends StatelessWidget {
             ],
             if (actionLabel != null) ...[
               const SizedBox(height: 18),
-              actionIcon != null
-                  ? FilledButton.icon(
-                      onPressed: onAction,
-                      icon: Icon(actionIcon, size: 18),
-                      label: Text(actionLabel!),
-                      style: FilledButton.styleFrom(
+              // 主/次按钮等宽等高：IntrinsicWidth + 横向拉伸 → 两者都取「较宽者」的内在宽度
+              // （等价原型 .gbwrap/.nebwrap 的 inline-flex column + align-items:stretch）。
+              // 单按钮空态：IntrinsicWidth 包一个按钮 = 其自身宽度，不受影响。
+              IntrinsicWidth(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    actionIcon != null
+                        ? FilledButton.icon(
+                            onPressed: onAction,
+                            icon: Icon(actionIcon, size: 18),
+                            label: Text(actionLabel!),
+                            style: FilledButton.styleFrom(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 30, vertical: 14)),
+                          )
+                        : FilledButton(
+                            onPressed: onAction,
+                            style: FilledButton.styleFrom(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 38, vertical: 14)),
+                            child: Text(actionLabel!),
+                          ),
+                    if (secondaryLabel != null) ...[
+                      const SizedBox(height: 11),
+                      OutlinedButton.icon(
+                        onPressed: onSecondary,
+                        icon: Icon(secondaryIcon ?? Icons.refresh, size: 18),
+                        label: Text(secondaryLabel!),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: scheme.primary,
+                          side: BorderSide(
+                              color: scheme.primary.withValues(alpha: 0.4),
+                              width: 1.5),
+                          // 与主按钮同内距 → 等高（宽由 IntrinsicWidth 拉伸统一）。
                           padding: const EdgeInsets.symmetric(
-                              horizontal: 30, vertical: 14)),
-                    )
-                  : FilledButton(
-                      onPressed: onAction,
-                      style: FilledButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 38, vertical: 14)),
-                      child: Text(actionLabel!),
-                    ),
-            ],
-            if (secondaryLabel != null) ...[
-              const SizedBox(height: 11),
-              OutlinedButton.icon(
-                onPressed: onSecondary,
-                icon: Icon(secondaryIcon ?? Icons.refresh, size: 18),
-                label: Text(secondaryLabel!),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: scheme.primary,
-                  side: BorderSide(
-                      color: scheme.primary.withValues(alpha: 0.4), width: 1.5),
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 26, vertical: 12),
+                              horizontal: 24, vertical: 14),
+                        ),
+                      ),
+                    ],
+                  ],
                 ),
               ),
             ],

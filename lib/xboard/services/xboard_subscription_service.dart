@@ -29,7 +29,19 @@ import 'encrypted_subscription_service.dart';
 import 'profile_sync_port.dart';
 
 /// R7 同步结果（供 UI/调用方判定，error 静默不抛）。
-enum XbSyncOutcome { ok, noSubscription, authExpired, failed, skipped }
+///
+/// 状态全部由加密订阅端点的服务端真相决定（插件错误码，token-in-URL 不依赖登录 JWT）：
+/// 40304→[subscriptionExpired]、40305→[noSubscription]、40307→[trafficExhausted]、
+/// 40301/40302/40303 + HTTP 401·403→[authExpired]。UI 据此直出文案/空态，不再回查用户信息。
+enum XbSyncOutcome {
+  ok,
+  noSubscription,
+  subscriptionExpired,
+  trafficExhausted,
+  authExpired,
+  failed,
+  skipped,
+}
 
 /// 订阅 endpoint 竞速候选 host 列表的提供者（解耦 [EndpointRaceController]，决策 #14 风格）。
 /// 返回已排序去重的 host 串（首发在前 + 地区序替补，R4.2 `subscriptionCandidates()`）；
@@ -206,6 +218,10 @@ class XboardSubscriptionService {
   /// 加密订阅拉取失败 → 同步结果（呼应错误透传：业务类各有语义，网络/解密类归 failed）。
   XbSyncOutcome _mapFetchFailure(EncryptedSubscriptionFailure f) => switch (f) {
         EncryptedSubscriptionFailure.unauthorized => XbSyncOutcome.authExpired,
+        EncryptedSubscriptionFailure.subscriptionExpired =>
+          XbSyncOutcome.subscriptionExpired,
+        EncryptedSubscriptionFailure.trafficExhausted =>
+          XbSyncOutcome.trafficExhausted,
         EncryptedSubscriptionFailure.noActivePlan => XbSyncOutcome.noSubscription,
         EncryptedSubscriptionFailure.noSubscribeUrl ||
         EncryptedSubscriptionFailure.serverNotConfigured ||

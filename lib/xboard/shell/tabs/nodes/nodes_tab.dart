@@ -66,6 +66,11 @@ class _NodesTabState extends ConsumerState<NodesTab>
   /// 旧节点保留显示（不清空），写入成功后 profile 重载自动覆盖。
   bool _refreshing = false;
 
+  /// 最近一次刷新/同步返回的订阅状态（加密订阅端点的服务端真相，token-in-URL 不依赖登录态）。
+  /// build() 据此渲染空态（过期/无套餐/流量用尽），无需回查用户信息。null = 尚未刷新（冷启动）。
+  /// 仅记录有意义的终态（不记 failed/skipped，以保留上一次有效状态 + 旧节点）。
+  XbSyncOutcome? _lastRefreshOutcome;
+
   /// 当前选中的分组名（顶部 tab）。null = 用首个可见分组。
   String? _selectedGroup;
 
@@ -98,17 +103,12 @@ class _NodesTabState extends ConsumerState<NodesTab>
     }
   }
 
-  /// 刷新 = 重拉订阅并解密写入新节点（2-A）。await sync(force) 拿 `ok`（新 profile 写入成功）
-  /// 才算完成；期间按钮禁用、显示横幅，完成后恢复并开始 60s 冷却。旧节点在写入成功前保持不变。
+  /// 刷新 = 重拉订阅并解密写入新节点（2-A）。await sync(force) 拿状态码：
+  /// ok=写入新 profile；subscriptionExpired/noSubscription/trafficExhausted/authExpired=
+  /// 加密订阅端点的服务端真相（插件 40304/40305/40307/4030x）。据此出文案 + 记 [_lastRefreshOutcome]
+  /// 让 build() 渲染对应空态。**不再回查用户信息**——状态完全由订阅接口决定。
   Future<void> _refreshNodes() async {
     if (_refreshing) return;
-    // 套餐已过期 → 刷新无意义（不会有可用节点）。直接提示前往续费，不发刷新请求
-    // （修「过期时刷新误报『登录已过期，请重新登录』」）。
-    final sub = ref.read(userProfileProvider).asData?.value;
-    if (sub != null && !sub.hasNoPlan && _isExpired(sub)) {
-      xbToast(context, '套餐已过期，无法刷新节点，请前往续费');
-      return;
-    }
     if (throttled) {
       xbToast(context, '节点刚刷新过，请稍后再试');
       return;
@@ -124,9 +124,17 @@ class _NodesTabState extends ConsumerState<NodesTab>
     }
     if (!mounted) return;
     startThrottle();
-    setState(() => _refreshing = false);
+    setState(() {
+      _refreshing = false;
+      // 记录服务端订阅状态供 build() 渲染空态；failed/skipped 不覆盖（保留上次有效状态 + 旧节点）。
+      if (outcome != XbSyncOutcome.failed && outcome != XbSyncOutcome.skipped) {
+        _lastRefreshOutcome = outcome;
+      }
+    });
     if (outcome != XbSyncOutcome.ok) {
       final msg = switch (outcome) {
+        XbSyncOutcome.subscriptionExpired => '套餐已过期，请前往续费 / 购买',
+        XbSyncOutcome.trafficExhausted => '本周期流量已用尽，请购买流量包或更改套餐',
         XbSyncOutcome.noSubscription => '当前套餐无可用线路，请购买套餐',
         XbSyncOutcome.authExpired => '登录已过期，请重新登录',
         _ => '刷新失败，请稍后重试',
@@ -138,6 +146,52 @@ class _NodesTabState extends ConsumerState<NodesTab>
   /// 套餐是否已过期（expiredAt 非空且不在未来）。expiredAt==null = 长期有效（不算过期）。
   bool _isExpired(XbDomainSubscription sub) =>
       sub.expiredAt != null && !sub.expiredAt!.isAfter(DateTime.now());
+
+  /// 决定是否渲染空态及哪一种（清空节点）。综合两路信号，取「更差」者，优先级 过期 > 无套餐 > 用尽：
+  /// ① [_lastRefreshOutcome]：加密订阅端点的服务端真相（最近一次刷新/同步）；
+  /// ② 本地 [sub]（userProfile）：冷启动尚无刷新结果、或「我的」页刚刷新过账号信息时的兜底。
+  /// 返回 null = 不强制空态（交给 nodesView：有节点则展示，无则走通用空态）。
+  Widget? _resolveEmptyBody(XbDomainSubscription? sub) {
+    final o = _lastRefreshOutcome;
+    final localExpired = sub != null && _isExpired(sub);
+    // 用尽判定带 totalBytes>0 守卫：避免「不限量套餐 totalBytes==0」被误判为用尽。
+    final localExhausted = sub != null &&
+        !sub.hasNoPlan &&
+        sub.totalBytes > 0 &&
+        sub.usedBytes >= sub.totalBytes;
+
+    // 过期（最高优先）：服务端 40304 或本地过期。
+    if (o == XbSyncOutcome.subscriptionExpired || localExpired) {
+      return _EmptyNodes(onTapRenew: widget.onTapRenew);
+    }
+    // 无套餐：仅采信服务端 40305（本地 hasNoPlan 可能因 totalBytes==0 不限量误判，不据此强制空态）。
+    if (o == XbSyncOutcome.noSubscription) {
+      return _EmptyNodes(onTapRenew: widget.onTapRenew);
+    }
+    // 流量用尽：服务端 40307 或本地用尽。
+    if (o == XbSyncOutcome.trafficExhausted || localExhausted) {
+      return _exhaustedBody(sub);
+    }
+    return null;
+  }
+
+  /// 流量用尽空态体（购买流量包恢复本周期 / 购买·更改套餐）。planId 取自本地 sub（可能为空）。
+  Widget _exhaustedBody(XbDomainSubscription? sub) {
+    return _ExhaustedNodes(
+      onBuyResetPack: () {
+        final id = sub?.planId;
+        if (id != null) {
+          xbPush(context,
+              ResetTrafficPage(planId: id, planName: sub?.planName),
+              brandColor: xbBrandColor());
+        } else {
+          xbPush(context, const PlanListPage(), brandColor: xbBrandColor());
+        }
+      },
+      onBuyPlan: () =>
+          xbPush(context, const PlanListPage(), brandColor: xbBrandColor()),
+    );
+  }
 
   /// 空态外壳：顶部标题栏（含刷新节点）+ 刷新中横幅 + 居中空态体。
   /// 无可用线路 / 套餐过期 / 流量用尽三种空态共用（结构一致，仅 body 不同）。
@@ -166,31 +220,11 @@ class _NodesTabState extends ConsumerState<NodesTab>
       return _GuestNodes(onTapLogin: widget.onTapLogin);
     }
 
-    // 账号到期 / 流量用尽 → 清空节点显示（即便有缓存节点也不再展示，避免误连失效线路）。
-    // 优先级：套餐过期 > 流量用尽（过期时买流量包无意义，应引导续费/购买）。loading/无套餐不 gate。
+    // 节点可用性以加密订阅端点的服务端真相为准（_lastRefreshOutcome），辅以本地 userProfile
+    // 兜底（冷启动尚无刷新结果时）。取两者「更差」的信号 → 任一指示过期/无套餐/用尽即清空节点。
     final sub = ref.watch(userProfileProvider).asData?.value;
-    if (sub != null && !sub.hasNoPlan) {
-      if (_isExpired(sub)) {
-        return _emptyShell(_EmptyNodes(onTapRenew: widget.onTapRenew));
-      }
-      final exhausted = sub.totalBytes > 0 && sub.usedBytes >= sub.totalBytes;
-      if (exhausted) {
-        return _emptyShell(_ExhaustedNodes(
-          onBuyResetPack: () {
-            final id = sub.planId;
-            if (id != null) {
-              xbPush(context,
-                  ResetTrafficPage(planId: id, planName: sub.planName),
-                  brandColor: xbBrandColor());
-            } else {
-              xbPush(context, const PlanListPage(), brandColor: xbBrandColor());
-            }
-          },
-          onBuyPlan: () =>
-              xbPush(context, const PlanListPage(), brandColor: xbBrandColor()),
-        ));
-      }
-    }
+    final emptyBody = _resolveEmptyBody(sub);
+    if (emptyBody != null) return _emptyShell(emptyBody);
 
     final adapter = ref.watch(xbNodesAdapterProvider);
     final view = adapter.nodesView(ref);
@@ -649,7 +683,7 @@ class _ExhaustedNodes extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return XbEmptyState(
-      icon: Icons.error_outline,
+      icon: Icons.warning_amber_rounded,
       title: '当前套餐流量已用尽',
       description: '流量用尽后线路暂不可用。\n可购买流量包恢复本周期流量，或购买 / 更改其他套餐。',
       actionLabel: '购买流量包',

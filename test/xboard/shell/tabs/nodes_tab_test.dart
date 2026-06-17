@@ -3,6 +3,7 @@ library;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:riverpod_annotation/riverpod_annotation.dart' show Override;
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:fl_clash/enum/enum.dart';
@@ -10,6 +11,8 @@ import 'package:fl_clash/models/models.dart'
     show ProxiesTabState, Group, Proxy;
 import 'package:fl_clash/providers/state.dart';
 import 'package:fl_clash/xboard/providers/auth_state_provider.dart';
+import 'package:fl_clash/xboard/models/xb_domain_subscription.dart';
+import 'package:fl_clash/xboard/providers/user_profile_provider.dart';
 import 'package:fl_clash/xboard/shell/tabs/nodes/nodes_tab.dart';
 
 class _FakeAuth extends AuthStateNotifier {
@@ -59,12 +62,14 @@ Future<void> pumpNodes(
   String? targetGroup,
   String? targetNode,
   int targetNonce = 0,
+  List<Override> extraOverrides = const [],
 }) async {
   final state = tab ?? _emptyTab();
   // 隔离 FlClash 内核 provider：给每组选中态 + 每节点延迟固定值，避免触达真实 DB。
   final overrides = [
     authStateProvider.overrideWith(() => _FakeAuth(auth)),
     proxiesTabStateProvider.overrideWith((ref) => state),
+    ...extraOverrides,
   ];
   for (final g in state.groups) {
     overrides.add(selectedProxyNameProvider(g.name).overrideWithValue(g.now));
@@ -147,5 +152,34 @@ void main() {
     // 切到香港组 → 显示其节点（选中行可见），不显示智能优选组节点。
     expect(find.text('🇭🇰 香港 BGP 02'), findsOneWidget);
     expect(find.text('🇯🇵 东京 IEPL 02'), findsNothing);
+  });
+
+  testWidgets('套餐已过期（仍有分组缓存）→ 清空节点 + 过期空态（不展示缓存节点）',
+      (tester) async {
+    // 用户有套餐有流量（planId+totalBytes 齐全），但 expiredAt 已过 → build() 应以过期
+    // 为先：清空节点、显示「当前无可用线路」空态，而非渲染缓存的分组节点。
+    final expired = XbDomainSubscription(
+      email: 'a@b.com',
+      uuid: 'x',
+      planId: 7,
+      planName: '标准套餐',
+      totalBytes: 100 * 1024 * 1024 * 1024,
+      usedBytes: 1024,
+      expiredAt: DateTime.now().subtract(const Duration(days: 1)),
+    );
+    await pumpNodes(
+      tester,
+      auth: AuthState.authenticated,
+      tab: _multiTab(),
+      extraOverrides: [
+        userProfileProvider.overrideWith((ref) async => expired),
+      ],
+    );
+    await tester.pumpAndSettle();
+    // 过期空态可见，缓存节点被清空。
+    expect(find.text('当前无可用线路'), findsOneWidget);
+    expect(find.text('🇯🇵 东京 IEPL 02'), findsNothing);
+    // 顶部仍保留「刷新节点」。
+    expect(find.text('刷新节点'), findsOneWidget);
   });
 }

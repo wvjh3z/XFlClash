@@ -227,9 +227,35 @@ void main() {
     expect(r, XbSyncOutcome.noSubscription);
   });
 
-  test('鉴权过期（后端 40302）→ authExpired', () async {
+  test('鉴权失败（后端 40302）→ authExpired', () async {
+    // 40301/40302/40303 = 真·token 问题 → authExpired（subscribe 端点权威，无需回查用户信息）。
     final adapter = _StubAdapter((_) async => ResponseBody.fromString(
         '{"code":40302,"message":"invalid token"}', 403));
+    final s = sut(encWith(adapter), candidates: ['https://1.1.1.1']);
+    final r = await s.sync();
+    expect(r, XbSyncOutcome.authExpired);
+  });
+
+  test('套餐过期（后端 40304）→ subscriptionExpired（不再误报 authExpired）', () async {
+    // 回归「套餐过期被判登录已过期」：插件对过期套餐回独立码 40304 → subscriptionExpired。
+    final adapter = _StubAdapter((_) async => ResponseBody.fromString(
+        '{"code":40304,"message":"subscription expired"}', 403));
+    final s = sut(encWith(adapter), candidates: ['https://1.1.1.1']);
+    final r = await s.sync();
+    expect(r, XbSyncOutcome.subscriptionExpired);
+  });
+
+  test('流量耗尽（后端 40307，v1.1.0）→ trafficExhausted', () async {
+    final adapter = _StubAdapter((_) async => ResponseBody.fromString(
+        '{"code":40307,"message":"traffic exhausted"}', 403));
+    final s = sut(encWith(adapter), candidates: ['https://1.1.1.1']);
+    final r = await s.sync();
+    expect(r, XbSyncOutcome.trafficExhausted);
+  });
+
+  test('内容接口裸 401（无插件码）→ authExpired', () async {
+    final adapter = _StubAdapter(
+        (_) async => ResponseBody.fromString('unauthorized', 401));
     final s = sut(encWith(adapter), candidates: ['https://1.1.1.1']);
     final r = await s.sync();
     expect(r, XbSyncOutcome.authExpired);
