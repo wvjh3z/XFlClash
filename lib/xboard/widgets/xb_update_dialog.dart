@@ -5,6 +5,7 @@
 library;
 
 import 'dart:async';
+import 'dart:io' show Platform, exit;
 
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
@@ -64,6 +65,11 @@ class _UpdateDialogState extends ConsumerState<_UpdateDialog> {
   /// 而服务器已部署更新版本，则下载到的新字节永远对不上旧 sha → 校验恒失败。
   /// 下载前重拉确保 sha256/url 与服务器当前文件一致。
   Future<void> _onUpdate() async {
+    // macOS / 不支持应用内安装的平台 → 直接走浏览器下载（不进 APK/installer 路径）。
+    if (!XbApkDownloader.isInAppInstallSupported) {
+      await _fallbackToBrowser();
+      return;
+    }
     // 立即切到下载态
     setState(() {
       _state = _DialogState.downloading;
@@ -117,7 +123,12 @@ class _UpdateDialogState extends ConsumerState<_UpdateDialog> {
 
     switch (result) {
       case DownloadResult.success:
-        // 安装器已调起，延迟关弹窗（给系统时间展示安装界面）
+        // Windows/Linux：安装器 / 新 AppImage 已拉起 → 退出当前进程让其接管覆盖并重启。
+        if (Platform.isWindows || Platform.isLinux) {
+          await Future.delayed(const Duration(milliseconds: 400));
+          exit(0);
+        }
+        // Android：安装器已调起，延迟关弹窗（给系统时间展示安装界面）
         await Future.delayed(const Duration(milliseconds: 500));
         if (mounted) Navigator.of(context).pop();
       case DownloadResult.hashMismatch:

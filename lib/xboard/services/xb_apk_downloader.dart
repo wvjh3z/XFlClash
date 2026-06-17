@@ -1,11 +1,16 @@
-/// APK 下载 + 校验 + 安装服务（self-update tier-2）。
+/// 安装包下载 + 校验 + 安装服务（self-update tier-2，跨平台）。
 ///
-/// **流程**:
-/// 1. 探活选源（HEAD probe，复用更新弹窗逻辑传入 URL）
-/// 2. dio 下载到 external cache dir `/update/xxx.apk`，带进度回调
-/// 3. SHA256 校验（下载完成后本地算 hash 比对）
-/// 4. 调 platform channel 触发系统安装器
-/// 5. 任何步骤失败 → 回调 onFailed（调用方回退到档1）
+/// **支持平台**：Android（APK + 系统安装器）/ Windows（Inno Setup .exe 安装器）/
+/// Linux（AppImage 自替换重启）。macOS 不走本服务（由调用方回退浏览器下载）。
+///
+/// **流程**：
+/// 1. 逐源下载到临时目录（带进度回调）
+/// 2. SHA256 校验（下载完成后本地算 hash 比对）
+/// 3. 按平台「应用」更新：
+///    - Android：platform channel 调起系统安装器
+///    - Windows：`Process.start` 拉起 .exe 安装器（Inno 脚本会先杀进程再覆盖），调用方随后退出
+///    - Linux：用新 AppImage 覆盖当前 `$APPIMAGE` 文件 + chmod + 拉起新进程，调用方随后退出
+/// 4. 任何步骤失败 → 返回对应 [DownloadResult]（调用方回退到档1 浏览器）
 library;
 
 import 'dart:io';
@@ -27,14 +32,18 @@ class XbApkDownloader {
 
   static const _channel = MethodChannel('com.follow.clash/apk_installer');
 
+  /// 当前平台是否支持应用内下载安装（Android/Windows/Linux）。macOS/其它 → false（调用方走浏览器）。
+  static bool get isInAppInstallSupported =>
+      Platform.isAndroid || Platform.isWindows || Platform.isLinux;
+
   /// 下载 → 校验 → 安装。
   ///
-  /// [urls] — 按优先级排好的下载源列表（已探活或按 region 排序）。
+  /// [urls] — 按优先级排好的下载源列表（已按 region 排序）。
   /// [expectedSha256] — 预期 SHA256（小写 hex）。空串跳过校验。
   /// [onProgress] — 进度回调（received, total bytes）。
   /// [cancelToken] — 取消令牌。
   ///
-  /// 返回 [DownloadResult]。
+  /// 返回 [DownloadResult]。Windows/Linux 成功后调用方应退出进程让安装器/新进程接管。
   static Future<DownloadResult> downloadAndInstall({
     required List<String> urls,
     required String expectedSha256,
@@ -42,13 +51,20 @@ class XbApkDownloader {
     CancelToken? cancelToken,
   }) async {
     if (urls.isEmpty) return DownloadResult.networkError;
+    if (!isInAppInstallSupported) return DownloadResult.installFailed;
 
-    // 确定保存路径
-    final cacheDir = await getExternalCacheDirectories();
-    final baseDir = cacheDir?.firstOrNull ?? await getTemporaryDirectory();
+    // 确定保存目录 + 文件名（按平台扩展名）。
+    final Directory baseDir;
+    if (Platform.isAndroid) {
+      final cacheDir = await getExternalCacheDirectories();
+      baseDir = cacheDir?.firstOrNull ?? await getTemporaryDirectory();
+    } else {
+      baseDir = await getTemporaryDirectory();
+    }
     final updateDir = Directory('${baseDir.path}/update');
     if (!updateDir.existsSync()) updateDir.createSync(recursive: true);
-    final filePath = '${updateDir.path}/update.apk';
+    final fileName = _updateFileName();
+    final filePath = '${updateDir.path}/$fileName';
 
     // 清理旧文件
     final oldFile = File(filePath);
@@ -73,7 +89,6 @@ class XbApkDownloader {
         break;
       } on DioException catch (e) {
         debugPrint('[XbApkDownloader] source failed: $url → ${e.message}');
-        // 清理半成品
         final partial = File(filePath);
         if (partial.existsSync()) partial.deleteSync();
         continue;
@@ -88,7 +103,7 @@ class XbApkDownloader {
       final file = File(filePath);
       final bytes = await file.readAsBytes();
       final hash = sha256.convert(bytes).toString();
-      if (hash != expectedSha256) {
+      if (hash != expectedSha256.toLowerCase()) {
         debugPrint(
             '[XbApkDownloader] SHA256 mismatch: expected=$expectedSha256, got=$hash');
         file.deleteSync();
@@ -96,12 +111,75 @@ class XbApkDownloader {
       }
     }
 
-    // 触发安装
+    // 按平台安装
+    if (Platform.isAndroid) return _installAndroid(filePath);
+    if (Platform.isWindows) return _installWindows(filePath);
+    if (Platform.isLinux) return _installLinux(filePath);
+    return DownloadResult.installFailed;
+  }
+
+  /// 临时文件名（按平台扩展名）。
+  static String _updateFileName() {
+    if (Platform.isWindows) return 'update.exe';
+    if (Platform.isLinux) return 'update.AppImage';
+    return 'update.apk';
+  }
+
+  /// Android：调 platform channel 触发系统安装器。
+  static Future<DownloadResult> _installAndroid(String filePath) async {
     try {
       await _channel.invokeMethod('installApk', {'path': filePath});
       return DownloadResult.success;
     } on PlatformException catch (e) {
       debugPrint('[XbApkDownloader] install failed: ${e.message}');
+      return DownloadResult.installFailed;
+    }
+  }
+
+  /// Windows：拉起 Inno Setup .exe 安装器（脚本内 KillProcesses 会先杀运行中的程序再覆盖）。
+  /// detached 启动后返回 success；调用方随后退出本进程，让安装器接管。
+  static Future<DownloadResult> _installWindows(String filePath) async {
+    try {
+      await Process.start(
+        filePath,
+        const [], // 交互式安装（与 FlClash 安装器一致，用户可见进度/确认）。
+        mode: ProcessStartMode.detached,
+      );
+      return DownloadResult.success;
+    } catch (e) {
+      debugPrint('[XbApkDownloader] windows installer launch failed: $e');
+      return DownloadResult.installFailed;
+    }
+  }
+
+  /// Linux（AppImage）：用新 AppImage 覆盖当前运行的 `$APPIMAGE` 文件 → chmod +x → 拉起新进程。
+  /// 仅在以 AppImage 形式运行时可行（环境变量 `APPIMAGE` 存在）；否则返回 installFailed（走浏览器）。
+  static Future<DownloadResult> _installLinux(String downloadedPath) async {
+    final appImagePath = Platform.environment['APPIMAGE'];
+    if (appImagePath == null || appImagePath.isEmpty) {
+      debugPrint('[XbApkDownloader] not running as AppImage（无 \$APPIMAGE）→ 回退浏览器');
+      return DownloadResult.installFailed;
+    }
+    try {
+      final target = File(appImagePath);
+      if (!target.existsSync()) return DownloadResult.installFailed;
+      // 覆盖当前 AppImage（运行中的进程持有旧 inode，覆盖安全；新进程将用新文件）。
+      await File(downloadedPath).copy(appImagePath);
+      // 赋可执行权限。
+      final chmod = await Process.run('chmod', ['+x', appImagePath]);
+      if (chmod.exitCode != 0) {
+        debugPrint('[XbApkDownloader] chmod failed: ${chmod.stderr}');
+        return DownloadResult.installFailed;
+      }
+      // 拉起新 AppImage（detached）；调用方随后退出本进程。
+      await Process.start(
+        appImagePath,
+        const [],
+        mode: ProcessStartMode.detached,
+      );
+      return DownloadResult.success;
+    } catch (e) {
+      debugPrint('[XbApkDownloader] linux self-update failed: $e');
       return DownloadResult.installFailed;
     }
   }

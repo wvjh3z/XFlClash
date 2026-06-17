@@ -1,11 +1,11 @@
 script_template: inno_setup.iss
-app_id: 728B3532-C74B-4870-9068-BE70FE12A3E6
-app_name: FlClash
-publisher: chen08209
-publisher_url: https://github.com/chen08209/FlClash
-display_name: FlClash
+app_id: 9F3A1C2E-7B4D-4E6A-9C12-A1B2C3D4E5F6
+app_name: MyClient
+publisher: MyClient
+publisher_url: http://147.135.105.62:8080
+display_name: MyClient
 executable_name: FlClash.exe
-output_base_file_name: FlClash.exe
+output_base_file_name: MyClient-setup
 setup_icon_file: ..\windows\runner\resources\app_icon.ico
 locales:
   - lang: zh
