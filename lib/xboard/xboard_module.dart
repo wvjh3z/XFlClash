@@ -16,14 +16,13 @@ library;
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_xboard_sdk/flutter_xboard_sdk.dart'
-    show HttpConfig, TokenStorage, XBoardSDK;
+    show TokenStorage, XBoardSDK;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../providers/config.dart' show patchClashConfigProvider;
 import '../providers/app.dart' show initProvider;
 import '../providers/state.dart' show isStartProvider;
 import 'config/xboard_config.dart';
-import 'config/xboard_user_agent.dart';
 import 'l10n/content_language.dart';
 import 'models/bootstrap_payload.dart';
 import 'providers/auth_state_provider.dart';
@@ -38,6 +37,7 @@ import 'services/crisp_support_service.dart';
 import 'services/subscription_triggers.dart';
 import 'services/xb_update_service.dart';
 import 'services/xboard_lifecycle_observer.dart';
+import 'services/xboard_release_dio.dart' show XboardReleaseHttp;
 import 'widgets/xboard_consent_dialog.dart' show kXbConsentKey;
 
 /// 「首次安装默认开 IPv6」已应用标记（seam #7）。存在 = 已应用过默认，之后尊重用户开关。
@@ -286,24 +286,17 @@ class XboardModule {
     }
 
     // step 4：SDK initialize（用本地 endpoint 作初始 baseUrl，远端拉到后 W5 热替换）。
-    // R4.4：API UA 伪装成真实浏览器（allowNonFlclashUa）—— 加密订阅走独立端点强制 ClashMeta、
-    // 不看 UA，故 API UA 与订阅协议判定解耦，可自由伪装躲 GFW 浅层 UA 检测。
-    // 超时：显式 5s（SDK 默认 30s 偏长——域名被墙时单请求最坏 30s×3重试 + failover 太久）。
-    // 必须用 HttpConfig 主构造一并带上 UA + allowNonFlclashUa（传 httpConfig 会整体覆盖
-    // userAgent/allowNonFlclashUa 直参，不能只传超时否则丢 UA 伪装）。
+    // 统一放行策略 SSoT（XboardReleaseHttp）：UA 伪装 + 证书全放行 + 直连，与 release dio
+    // （config.json / 加密订阅 / 更新下载）同一份策略。证书全放行 = 可用性优先（accept MITM，见
+    // SECURITY.md）——裸 IP API endpoint 必需；UA 伪装躲 GFW 浅层检测（订阅协议已与 UA 解耦）。
+    // 超时显式 5s（SDK 默认 30s 偏长——域名被墙时单请求最坏 30s×3 重试 + failover 太久）。
     final instance = sdk ?? XBoardSDK.instance;
     await instance.initialize(
       apiEndpoint,
       panelType: 'xboard',
       customStorage: resolvedTokenStorage, // 生产 SecureStorage / 测试 fake；null → SDK 自带
       useMemoryStorage: resolvedTokenStorage == null && activeConfig.kIsTest,
-      httpConfig: HttpConfig(
-        userAgent: XboardUserAgent.current, // R4.4 浏览器 UA（按平台固定真实串）
-        allowNonFlclashUa: true, // R4.4 opt-out：解除 flclash 强校验（订阅协议已解耦）
-        connectTimeoutSeconds: 5, // 连接超时 5s（默认 30s 偏长）
-        receiveTimeoutSeconds: 5, // 接收超时 5s
-        sendTimeoutSeconds: 5, // 发送超时 5s
-      ),
+      httpConfig: XboardReleaseHttp.sdkHttpConfig(timeoutSeconds: 5),
       enableLogging: activeConfig.debug,
     );
 
