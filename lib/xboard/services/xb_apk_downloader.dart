@@ -21,6 +21,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 
+import 'xboard_release_dio.dart';
+
 /// 下载进度回调。
 typedef DownloadProgress = void Function(int received, int total);
 
@@ -70,11 +72,11 @@ class XbApkDownloader {
     final oldFile = File(filePath);
     if (oldFile.existsSync()) oldFile.deleteSync();
 
-    // 逐源尝试下载
-    final dio = Dio(BaseOptions(
-      connectTimeout: const Duration(seconds: 15),
-      receiveTimeout: const Duration(minutes: 5),
-    ));
+    // 逐源尝试下载。复用项目放行 dio（R4.4：浏览器 UA 伪装 + 证书放行 + 直连，与
+    // bootstrap / 加密订阅同款抗封锁链路）；factory 的单一 timeout 用作 connect（15s 便于
+    // 死源快速切换），大文件下载单独放宽 receiveTimeout 到 5 分钟。
+    final dio = buildReleasedIsolatedDio(timeout: const Duration(seconds: 15))
+      ..options.receiveTimeout = const Duration(minutes: 5);
 
     bool downloaded = false;
     for (final url in urls) {
@@ -163,14 +165,23 @@ class XbApkDownloader {
     try {
       final target = File(appImagePath);
       if (!target.existsSync()) return DownloadResult.installFailed;
-      // 覆盖当前 AppImage（运行中的进程持有旧 inode，覆盖安全；新进程将用新文件）。
-      await File(downloadedPath).copy(appImagePath);
-      // 赋可执行权限。
-      final chmod = await Process.run('chmod', ['+x', appImagePath]);
+      // ⚠️ 不能直接覆盖正在运行的 AppImage：Linux 对运行中可执行文件 open(O_TRUNC) 写入
+      // 会报 ETXTBSY（text file busy）。改用「同目录写 stage 文件 → chmod → 原子 rename 替换」：
+      // rename 不打开运行中文件，运行中进程仍持旧 inode（安全），新进程将加载新文件。
+      // rename 要求同一文件系统，故 stage 必须落在 $APPIMAGE 同目录（不能用 /tmp 跨 fs）。
+      final stagePath = '${target.parent.path}/.xb_appimage_update.new';
+      final stage = File(stagePath);
+      if (stage.existsSync()) stage.deleteSync();
+      await File(downloadedPath).copy(stagePath);
+      // 赋可执行权限（在 stage 文件上）。
+      final chmod = await Process.run('chmod', ['+x', stagePath]);
       if (chmod.exitCode != 0) {
         debugPrint('[XbApkDownloader] chmod failed: ${chmod.stderr}');
+        if (stage.existsSync()) stage.deleteSync();
         return DownloadResult.installFailed;
       }
+      // 原子替换正在运行的 AppImage（同 fs rename，旧 inode 由运行中进程持有不受影响）。
+      await stage.rename(appImagePath);
       // 拉起新 AppImage（detached）；调用方随后退出本进程。
       await Process.start(
         appImagePath,

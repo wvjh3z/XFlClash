@@ -10,7 +10,7 @@
 /// **依赖**: SDK `appUpdate` API + package_info_plus
 library;
 
-import 'dart:io' show Platform;
+import 'dart:io' show Platform, Process;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -55,12 +55,13 @@ class XbUpdateService {
       const buildNumber = int.fromEnvironment('XB_BUILD_NUMBER', defaultValue: 0);
       const currentCode = buildNumber;
       debugPrint('[XbUpdateService] currentCode=$currentCode (dart-define XB_BUILD_NUMBER)');
+      final abi = await _resolveAbi();
 
       AppUpdateModel? info;
       try {
         info = await sdk.appUpdate.checkUpdate(
           platform: _platform,
-          abi: _abi,
+          abi: abi,
           currentVersionCode: currentCode,
         );
       } catch (e) {
@@ -70,7 +71,7 @@ class XbUpdateService {
           await apiFailover();
           info = await sdk.appUpdate.checkUpdate(
             platform: _platform,
-            abi: _abi,
+            abi: abi,
             currentVersionCode: currentCode,
           );
         } else {
@@ -161,14 +162,32 @@ class XbUpdateService {
   }
 
   /// 当前设备 ABI（后端 API 接受的 abi 参数）。
-  static String get _abi {
+  ///
+  /// Android：构建脚本注入（arm64-v8a / armeabi-v7a / x86_64）。
+  /// 桌面：真实检测 CPU 架构——Windows 读 env（WOW64 下 `PROCESSOR_ARCHITEW6432` 反映真实
+  /// 架构，x64 进程跑在 ARM64 上时）；Linux/macOS 跑 `uname -m`（aarch64/arm64 → arm64，
+  /// 否则 x64）。检测失败兜底 x64。
+  static Future<String> _resolveAbi() async {
     if (Platform.isAndroid) {
-      // 构建脚本注入（arm64-v8a / armeabi-v7a / x86_64）
-      const abi =
-          String.fromEnvironment('XB_ANDROID_ABI', defaultValue: 'arm64-v8a');
-      return abi;
+      return const String.fromEnvironment('XB_ANDROID_ABI',
+          defaultValue: 'arm64-v8a');
     }
-    // 桌面按编译目标
+    if (Platform.isWindows) {
+      final env = Platform.environment;
+      final arch =
+          (env['PROCESSOR_ARCHITEW6432'] ?? env['PROCESSOR_ARCHITECTURE'] ?? '')
+              .toUpperCase();
+      return arch.contains('ARM64') ? 'arm64' : 'x64';
+    }
+    if (Platform.isLinux || Platform.isMacOS) {
+      try {
+        final r = await Process.run('uname', ['-m']);
+        final m = (r.stdout as String).trim().toLowerCase();
+        return (m == 'aarch64' || m == 'arm64') ? 'arm64' : 'x64';
+      } catch (_) {
+        return 'x64';
+      }
+    }
     return 'x64';
   }
 }
