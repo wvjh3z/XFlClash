@@ -5,6 +5,7 @@
 /// 标签格式「出口 IP (国家)」。点右侧刷新重新检测。
 library;
 
+import 'package:fl_clash/widgets/widgets.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -53,7 +54,7 @@ class XbIpCard extends ConsumerWidget {
                     color: t.sfc,
                     borderRadius: BorderRadius.circular(XbTokens.rSm),
                   ),
-                  child: Text(flag, style: const TextStyle(fontSize: 19)),
+                  child: EmojiText(flag, style: const TextStyle(fontSize: 19)),
                 )
               : XbIconBadge(
                   icon: Icons.public,

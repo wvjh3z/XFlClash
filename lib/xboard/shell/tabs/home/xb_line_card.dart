@@ -11,6 +11,7 @@ library;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'package:fl_clash/widgets/widgets.dart';
 import 'package:fl_clash/xboard/widgets/xb_theme.dart' show XbTokens;
 import '../../adapters/xb_nodes_adapter.dart';
 
@@ -92,7 +93,7 @@ class XbLineCard extends ConsumerWidget {
                 borderRadius: BorderRadius.circular(11),
               ),
               child: flag != null
-                  ? Text(flag, style: const TextStyle(fontSize: 21))
+                  ? EmojiText(flag, style: const TextStyle(fontSize: 21))
                   : Icon(Icons.lan_outlined, size: 19, color: t.onv),
             ),
             const SizedBox(width: 12),
@@ -146,7 +147,7 @@ class XbLineCard extends ConsumerWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
+              EmojiText(
                 title,
                 style: const TextStyle(
                   fontSize: 15,

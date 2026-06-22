@@ -3,6 +3,7 @@
 /// **数据源**：反腐层 `getPlans()`。卡片只显示概要；周期选择 / 优惠码 / 提交在 [PlanDetailPage]。
 library;
 
+import 'package:fl_clash/widgets/widgets.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -194,7 +195,7 @@ class _PlanOptCard extends StatelessWidget {
                   Row(
                     children: [
                       Expanded(
-                        child: Text(plan.name,
+                        child: EmojiText(plan.name,
                             style: TextStyle(
                                 fontSize: 15.5,
                                 fontWeight: FontWeight.w600,
@@ -207,7 +208,7 @@ class _PlanOptCard extends StatelessWidget {
                   ),
                   if (feature.isNotEmpty) ...[
                     const SizedBox(height: 5),
-                    Text(feature,
+                    EmojiText(feature,
                         maxLines: 3,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(

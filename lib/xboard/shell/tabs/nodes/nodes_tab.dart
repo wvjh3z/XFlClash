@@ -18,6 +18,7 @@ import 'package:fl_clash/xboard/providers/xboard_providers.dart';
 import 'package:fl_clash/xboard/pages/plan_list_page.dart';
 import 'package:fl_clash/xboard/pages/reset_traffic_page.dart';
 import 'package:fl_clash/xboard/services/xboard_subscription_service.dart';
+import 'package:fl_clash/widgets/widgets.dart';
 import 'package:fl_clash/xboard/widgets/xb_components.dart';
 import 'package:fl_clash/xboard/widgets/xb_feedback.dart' show xbToast, xbBrandColor;
 import 'package:fl_clash/xboard/widgets/xb_refresh_throttle_guard.dart';
@@ -487,7 +488,7 @@ class _GroupTabBar extends StatelessWidget {
             ? Row(
                 children: [
                   Expanded(
-                    child: Text(
+                    child: EmojiText(
                       g.name,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
@@ -502,7 +503,7 @@ class _GroupTabBar extends StatelessWidget {
                   _CountBadge(count: g.nodes.length, selected: on),
                 ],
               )
-            : Text(
+            : EmojiText(
                 g.name,
                 style: TextStyle(
                   fontSize: 13.5,

@@ -4,6 +4,7 @@
 /// 提交订单成功 → 跳 [OrderPaymentPage]（选支付方式 + 立即支付）。
 library;
 
+import 'package:fl_clash/widgets/widgets.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_html/flutter_html.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -342,7 +343,7 @@ class _PlanDetailPageState extends ConsumerState<PlanDetailPage> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Text('${plan.name} · ${plan.transferEnableGb} GB',
+                  EmojiText('${plan.name} · ${plan.transferEnableGb} GB',
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
@@ -367,7 +368,7 @@ class _PlanDetailPageState extends ConsumerState<PlanDetailPage> {
           Row(
             children: [
               Expanded(
-                child: Text(plan.name,
+                child: EmojiText(plan.name,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
@@ -392,7 +393,13 @@ class _PlanDetailPageState extends ConsumerState<PlanDetailPage> {
     return Html(
       data: plan.description!,
       style: {
-        'body': Style(margin: Margins.zero, padding: HtmlPaddings.zero),
+        // Twemoji 兜底字体：套餐详情正文常含 emoji（🔥📦✅⚠️…），各端 OS emoji 字体不一致
+        // （Linux 缺、Windows 国旗显字母），统一回退到打包的 Twemoji（含国旗），跨端一致。
+        'body': Style(
+          margin: Margins.zero,
+          padding: HtmlPaddings.zero,
+          fontFamilyFallback: const ['Twemoji'],
+        ),
       },
       onLinkTap: (url, _, _) {}, // 详情内链接不跳转（v0.1）。
     );
@@ -823,7 +830,7 @@ class _SwapCol extends StatelessWidget {
         children: [
           Text(label, style: TextStyle(fontSize: 11, color: labelColor)),
           const SizedBox(height: 3),
-          Text(
+          EmojiText(
             name,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,

@@ -7,6 +7,8 @@ library;
 
 import 'dart:async';
 
+import 'package:fl_clash/widgets/widgets.dart';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -677,7 +679,7 @@ class _InfoRow extends StatelessWidget {
               style: text.bodyMedium?.copyWith(color: scheme.onSurfaceVariant)),
           const SizedBox(width: 12),
           Expanded(
-            child: Text(value,
+            child: EmojiText(value,
                 textAlign: TextAlign.right,
                 // 长值（如套餐名）单行省略，防折行 + 右对齐错乱 + 整行变形（与订单号同源修复）。
                 maxLines: 1,

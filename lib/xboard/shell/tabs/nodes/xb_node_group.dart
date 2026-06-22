@@ -19,6 +19,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:fl_clash/xboard/widgets/xb_components.dart'
     show XbTag, XbInfoSheet, XbInfoItem, XbSpinner;
+import 'package:fl_clash/widgets/widgets.dart';
 import 'package:fl_clash/xboard/widgets/xb_feedback.dart' show xbToast;
 import 'package:fl_clash/xboard/widgets/xb_theme.dart' show XbTokens;
 
@@ -452,7 +453,7 @@ class _NodeRow extends ConsumerWidget {
                   children: [
                     // 节点名占据剩余空间（Expanded，单独 ellipsis），右侧依次「自动」/延迟/勾。
                     Expanded(
-                      child: Text(
+                      child: EmojiText(
                         node.name,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,

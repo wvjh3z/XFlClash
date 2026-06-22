@@ -12,6 +12,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'package:fl_clash/widgets/widgets.dart';
 import 'package:fl_clash/xboard/models/xb_domain_subscription.dart';
 import 'package:fl_clash/xboard/pages/invite_commission_page.dart';
 import 'package:fl_clash/xboard/pages/order_list_page.dart';
@@ -464,7 +465,7 @@ class _AccountCardState extends State<_AccountCard>
             children: [
               Flexible(
                 flex: 0,
-                child: Text(
+                child: EmojiText(
                   sub.planName ?? '未订阅套餐',
                   style: TextStyle(
                     fontSize: large ? 17 : 15,

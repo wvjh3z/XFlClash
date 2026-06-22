@@ -11,6 +11,7 @@ library;
 
 import 'dart:math' as math;
 
+import 'package:fl_clash/widgets/widgets.dart' show EmojiText;
 import 'package:flutter/material.dart';
 
 import '../shell/widgets/xb_responsive.dart' show xbIsDesktopWidth;
@@ -769,7 +770,7 @@ class XbInfoCard extends StatelessWidget {
           Expanded(
             child: Padding(
               padding: const EdgeInsets.only(top: 1),
-              child: Text(text,
+              child: EmojiText(text,
                   style: TextStyle(fontSize: 13, height: 1.55, color: t.on)),
             ),
           ),

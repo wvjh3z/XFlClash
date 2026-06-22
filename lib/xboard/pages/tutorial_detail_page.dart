@@ -119,6 +119,8 @@ class _DetailBody extends ConsumerWidget {
                       fontSize: FontSize(15),
                       lineHeight: LineHeight.number(1.75),
                       color: t.on,
+                      // Twemoji 兜底：正文 emoji（含国旗）各端 OS 字体不一致，统一走打包字体。
+                      fontFamilyFallback: const ['Twemoji'],
                     ),
                     'h1': Style(
                       fontSize: FontSize(21),
