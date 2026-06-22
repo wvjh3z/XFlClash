@@ -24,6 +24,7 @@ import '../models/plan_item.dart';
 import '../models/xb_domain_error.dart';
 import '../models/xb_domain_subscription.dart';
 import '../models/xb_domain_types.dart';
+import '../models/xb_invite.dart';
 import '../models/xb_result.dart';
 import '../util/subscription_cache.dart';
 import 'xboard_service.dart';
@@ -436,6 +437,90 @@ class XboardServiceImpl implements XboardService {
       // fire-and-forget：错误静默（全部不可达也不影响功能，用户 2026-05-27 锁定）。
     }
   }
+
+  // ───────── 邀请返佣 + 分享好友（form-a 邀请功能）─────────
+
+  @override
+  Future<XbResult<XbInviteInfo>> getInviteInfo() async =>
+      // throw 形态（_guard 归一）。合并两数据源：invite 统计（注册数/佣金/比例/可用佣金 + 邀请码）
+      // + user 余额（账户余额 balance）。并发拉取，任一失败 → _guard 捕获归一为 XbFailure。
+      _guard('getInviteInfo', () async {
+        final results = await Future.wait([
+          _sdk.invite.getInviteInfo(),
+          _sdk.user.getUserInfo(),
+        ]);
+        final info = results[0] as InviteInfoModel;
+        final user = results[1] as UserModel;
+        // 取首个有效邀请码（status active）；无则取第一个；都无 → null（UI 自动生成）。
+        String? code;
+        if (info.codes.isNotEmpty) {
+          final active = info.codes.where((c) => c.isActive);
+          code = (active.isNotEmpty ? active.first : info.codes.first).code;
+        }
+        return XbInviteInfo(
+          code: code,
+          registeredCount: info.totalInvites,
+          pendingYuan: info.pendingCommission / 100, // stat[2] cents → yuan
+          totalYuan: info.totalCommission / 100, // stat[1] cents → yuan
+          commissionRate: info.commissionRate, // stat[3] 百分比整数
+          commissionBalanceYuan: user.commissionBalanceInYuan, // user.commission_balance/100
+          accountBalanceYuan: user.balanceInYuan, // user.balance/100
+        );
+      });
+
+  @override
+  Future<XbResult<String>> generateInviteCode() async =>
+      // throw 形态。SDK 两步（save + fetch）返回新邀请码 code 字符串。
+      _guard('generateInviteCode', () => _sdk.invite.generateInviteCode());
+
+  @override
+  Future<XbResult<List<XbCommissionRecord>>> getCommissionRecords({
+    int page = 1,
+    int pageSize = 20,
+  }) async =>
+      _guard('getCommissionRecords', () async {
+        final details =
+            await _sdk.invite.getCommissionDetails(page: page, pageSize: pageSize);
+        return details
+            .map((d) => XbCommissionRecord(
+                  id: d.id,
+                  getAmountYuan: d.getAmountInYuan, // get_amount cents → yuan
+                  createdAt: d.createdAt,
+                ))
+            .toList();
+      });
+
+  @override
+  Future<XbResult<bool>> withdrawCommission({
+    required String method,
+    required String account,
+  }) async =>
+      // throw 形态。后端整笔提现工单制；门槛 / 收款方式白名单校验在后端（失败 → BusinessError）。
+      _guard('withdrawCommission',
+          () => _sdk.invite.withdrawCommission(method: method, account: account));
+
+  @override
+  Future<XbResult<bool>> transferCommissionToBalance(double yuan) async =>
+      // SDK 收 cents（double，内部 .toInt()）：UI 传 yuan → *100 转 cents（F73 单位铁律）。
+      _guard('transferCommissionToBalance',
+          () => _sdk.invite.transferCommissionToBalance(yuan * 100));
+
+  @override
+  Future<XbResult<List<String>>> getWithdrawMethods() async =>
+      // throw 形态。后端 /api/v1/user/comm/config 的收款方式白名单；失败 → UI 回退本地默认。
+      _guard('getWithdrawMethods', () => _sdk.invite.getWithdrawMethods());
+
+  @override
+  Future<XbResult<XbShareLink>> getShareLink() async =>
+      // throw 形态。免登录 guest 接口；关闭/未配置时 SDK 返 enabled=false 的 model（不抛）。
+      _guard('getShareLink', () async {
+        final m = await _sdk.shareLink.getShareLink();
+        return XbShareLink(
+          enabled: m.enabled,
+          primaryUrl: m.primaryUrl,
+          backupUrl: m.backupUrl,
+        );
+      });
 
   // ───────── W7 SDK model → 领域模型映射 ─────────
 

@@ -232,7 +232,7 @@ class _HomeTabState extends ConsumerState<HomeTab> {
                           onTapLogin: widget.onTapLogin, centered: true),
                       const SizedBox(height: 12),
                     ],
-                    XbExpiryCard(onTapRenew: widget.onTapRenew),
+                    XbExpiryCard(onTapRenew: widget.onTapRenew, centered: true),
                     const SizedBox(height: 8),
                     Row(
                 crossAxisAlignment: CrossAxisAlignment.start,

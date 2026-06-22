@@ -14,6 +14,7 @@ import '../models/order_summary.dart';
 import '../models/plan_item.dart';
 import '../models/xb_domain_subscription.dart';
 import '../models/xb_domain_types.dart';
+import '../models/xb_invite.dart';
 import '../models/xb_result.dart';
 
 /// 反腐层抽象：UI / providers 与 SDK 之间的唯一桥梁。
@@ -111,4 +112,34 @@ abstract interface class XboardService {
 
   /// 多出口预热 fire-and-forget（不返结果，Property 1 例外）。
   void fireAllMirrors(List<String> urls);
+
+  // ───────── 邀请返佣 + 分享好友（form-a 邀请功能）─────────
+
+  /// 拉邀请返佣汇总（合并 SDK invite 统计 + user 余额，cents→yuan 换算）。
+  Future<XbResult<XbInviteInfo>> getInviteInfo();
+
+  /// 生成邀请码（无码时 UI 进页面自动调）→ 返新邀请码字符串。
+  Future<XbResult<String>> generateInviteCode();
+
+  /// 拉返佣记录（分页；只含已发放成功流水）。
+  Future<XbResult<List<XbCommissionRecord>>> getCommissionRecords({
+    int page = 1,
+    int pageSize = 20,
+  });
+
+  /// 佣金提现（整笔；后端工单制，门槛 + 收款方式校验在后端）。
+  Future<XbResult<bool>> withdrawCommission({
+    required String method,
+    required String account,
+  });
+
+  /// 佣金划转到账户余额（[yuan] 元，反腐层 *100 转 cents 传 SDK）。
+  Future<XbResult<bool>> transferCommissionToBalance(double yuan);
+
+  /// 提现收款方式白名单（后端 `/api/v1/user/comm/config`；提现弹窗下拉项来源）。
+  /// 失败 / 空 → UI 回退本地默认白名单。
+  Future<XbResult<List<String>>> getWithdrawMethods();
+
+  /// 拉分享落地页地址（免登录；ShareLink 插件，主/备地址）。
+  Future<XbResult<XbShareLink>> getShareLink();
 }

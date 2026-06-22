@@ -18,10 +18,14 @@ import 'package:fl_clash/xboard/widgets/xb_theme.dart' show XbTokens;
 
 /// 到期提醒卡。
 class XbExpiryCard extends ConsumerWidget {
-  const XbExpiryCard({super.key, this.onTapRenew});
+  const XbExpiryCard({super.key, this.onTapRenew, this.centered = false});
 
   /// 点「去续费」→ 跳「我的」Tab（shell 注入）。
   final VoidCallback? onTapRenew;
+
+  /// 桌面态（原型 `.expirecard{width:fit-content;margin:0 auto}`）：按内容宽度收窄并居中，
+  /// 不撑满整个内容区（避免横幅过长）。移动端默认 false → 全宽。
+  final bool centered;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -50,9 +54,27 @@ class XbExpiryCard extends ConsumerWidget {
 
     final (title, desc) = _texts(expired, diff);
 
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 13),
-      child: Material(
+    final textCol = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          title,
+          style: TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.w600,
+            color: t.on,
+          ),
+        ),
+        const SizedBox(height: 1),
+        Text(
+          desc,
+          style: TextStyle(fontSize: 11, color: scheme.onSurfaceVariant),
+        ),
+      ],
+    );
+
+    final card = Material(
         color: Colors.transparent,
         borderRadius: BorderRadius.circular(XbTokens.rMd),
         child: InkWell(
@@ -68,6 +90,8 @@ class XbExpiryCard extends ConsumerWidget {
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 10),
               child: Row(
+                // 桌面 fit-content → min（横幅按内容收窄）；移动全宽 → max。
+                mainAxisSize: centered ? MainAxisSize.min : MainAxisSize.max,
                 children: [
                   // 图标方块
                   Container(
@@ -84,29 +108,10 @@ class XbExpiryCard extends ConsumerWidget {
                     ),
                   ),
                   const SizedBox(width: 11),
-                  // 标题 + 描述
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          title,
-                          style: TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w600,
-                            color: t.on,
-                          ),
-                        ),
-                        const SizedBox(height: 1),
-                        Text(
-                          desc,
-                          style: TextStyle(
-                              fontSize: 11, color: scheme.onSurfaceVariant),
-                        ),
-                      ],
-                    ),
-                  ),
+                  // 标题 + 描述：全宽态 Expanded（把按钮顶到右缘）；居中态 Flexible（按内容收窄）。
+                  centered
+                      ? Flexible(fit: FlexFit.loose, child: textCol)
+                      : Expanded(child: textCol),
                   const SizedBox(width: 10),
                   // 去续费按钮
                   Container(
@@ -130,7 +135,11 @@ class XbExpiryCard extends ConsumerWidget {
             ),
           ),
         ),
-      ),
+      );
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 13),
+      child: centered ? Align(alignment: Alignment.center, child: card) : card,
     );
   }
 

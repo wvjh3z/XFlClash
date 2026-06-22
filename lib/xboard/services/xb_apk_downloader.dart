@@ -73,9 +73,9 @@ class XbApkDownloader {
     if (oldFile.existsSync()) oldFile.deleteSync();
 
     // 逐源尝试下载。复用项目放行 dio（R4.4：浏览器 UA 伪装 + 证书放行 + 直连，与
-    // bootstrap / 加密订阅同款抗封锁链路）；factory 的单一 timeout 用作 connect（15s 便于
-    // 死源快速切换），大文件下载单独放宽 receiveTimeout 到 5 分钟。
-    final dio = buildReleasedIsolatedDio(timeout: const Duration(seconds: 15))
+    // bootstrap / 加密订阅同款抗封锁链路）；connectTimeout 5s 快速切换死源，
+    // 大文件下载单独放宽 receiveTimeout 到 5 分钟。
+    final dio = buildReleasedIsolatedDio(timeout: const Duration(seconds: 5))
       ..options.receiveTimeout = const Duration(minutes: 5);
 
     bool downloaded = false;
@@ -183,10 +183,13 @@ class XbApkDownloader {
       // 原子替换正在运行的 AppImage（同 fs rename，旧 inode 由运行中进程持有不受影响）。
       await stage.rename(appImagePath);
       // 拉起新 AppImage（detached）；调用方随后退出本进程。
+      // 显式传递环境变量（含 DISPLAY、WAYLAND_DISPLAY 等），
+      // 确保在各种启动器环境下新进程能继承正确的显示器配置。
       await Process.start(
         appImagePath,
         const [],
         mode: ProcessStartMode.detached,
+        environment: Platform.environment,
       );
       return DownloadResult.success;
     } catch (e) {

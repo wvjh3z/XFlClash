@@ -13,6 +13,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import '../shell/widgets/xb_responsive.dart' show xbIsDesktopWidth;
 import 'xb_theme.dart';
 import 'xb_ui_kit.dart' show XbIconBadge;
 
@@ -100,6 +101,12 @@ class _RingPainter extends CustomPainter {
 
 /// 顶部同步横幅（原型 `.syncbar`）：琥珀柔底 + 旋转 spinner + 文案。
 /// 用于"已登录但订阅/账号数据竞速未完成"的过渡态。
+///
+/// **自适应宽度**（与首页到期卡同款策略）：据自身可用宽度判定——
+/// 桌面宽布局（≥ [XbBreakpoints.desktop]）→ 按内容收窄并居中（原型桌面 `.syncbar`
+/// `width:fit-content;margin:0 auto`，避免横幅拉满整屏过长）；窄/移动布局 → 全宽
+/// （原型移动 `.syncbar` 全宽）。横幅自身自适应 → 所有调用点（我的/节点刷新、XbAsyncView
+/// 重试）统一受益，无需各处传参。
 class XbSyncBanner extends StatelessWidget {
   const XbSyncBanner({super.key, this.text = '正在同步账号与套餐信息…'});
 
@@ -109,25 +116,34 @@ class XbSyncBanner extends StatelessWidget {
   Widget build(BuildContext context) {
     final t = XbTokens.of(context);
     const warn = XbTokens.warn;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
-      decoration: BoxDecoration(
-        color: Color.alphaBlend(warn.withValues(alpha: 0.11), t.card),
-        borderRadius: BorderRadius.circular(XbTokens.rMd),
-        border: Border.all(color: warn.withValues(alpha: 0.30)),
-      ),
-      child: Row(
-        children: [
-          const XbSpinner(color: warn, size: 14),
-          const SizedBox(width: 9),
-          Expanded(
-            child: Text(
-              text,
-              style: TextStyle(fontSize: 12.5, color: t.onWarn),
-            ),
+    return LayoutBuilder(
+      builder: (context, c) {
+        final wide = c.hasBoundedWidth && xbIsDesktopWidth(c.maxWidth);
+        final label = Text(
+          text,
+          style: TextStyle(fontSize: 12.5, color: t.onWarn),
+        );
+        final banner = Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+          decoration: BoxDecoration(
+            color: Color.alphaBlend(warn.withValues(alpha: 0.11), t.card),
+            borderRadius: BorderRadius.circular(XbTokens.rMd),
+            border: Border.all(color: warn.withValues(alpha: 0.30)),
           ),
-        ],
-      ),
+          child: Row(
+            // 桌面 fit-content → min（按内容收窄）；移动全宽 → max。
+            mainAxisSize: wide ? MainAxisSize.min : MainAxisSize.max,
+            children: [
+              const XbSpinner(color: warn, size: 14),
+              const SizedBox(width: 9),
+              wide ? Flexible(child: label) : Expanded(child: label),
+            ],
+          ),
+        );
+        return wide
+            ? Align(alignment: Alignment.center, child: banner)
+            : banner;
+      },
     );
   }
 }

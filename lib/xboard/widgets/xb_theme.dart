@@ -422,7 +422,15 @@ Future<T?> xbShowDialog<T>({
     barrierDismissible: barrierDismissible,
     builder: (ctx) => _XbBrandThemeHost(
       brandColor: brandColor,
-      child: Builder(builder: builder),
+      // 桌面宽窗下限定对话框宽度：AlertDialog 默认按最长文本行撑宽，桌面会被那句很长的
+      // 「提现须符合…」排成一行 → 弹窗超宽（即「弹窗太长」）。限到手机级宽度，文本正常换行、
+      // 观感与原型一致。手机本就窄于此值，无影响。
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 380),
+          child: Builder(builder: builder),
+        ),
+      ),
     ),
   );
 }

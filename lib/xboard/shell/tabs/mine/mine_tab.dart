@@ -13,11 +13,14 @@ import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:fl_clash/xboard/models/xb_domain_subscription.dart';
+import 'package:fl_clash/xboard/pages/invite_commission_page.dart';
 import 'package:fl_clash/xboard/pages/order_list_page.dart';
 import 'package:fl_clash/xboard/pages/plan_detail_page.dart';
 import 'package:fl_clash/xboard/pages/plan_list_page.dart';
 import 'package:fl_clash/xboard/pages/reset_traffic_page.dart';
+import 'package:fl_clash/xboard/pages/share_friend_page.dart';
 import 'package:fl_clash/xboard/providers/auth_state_provider.dart';
+import 'package:fl_clash/xboard/providers/invite_provider.dart';
 import 'package:fl_clash/xboard/providers/user_profile_provider.dart';
 import 'package:fl_clash/xboard/providers/xboard_providers.dart';
 import 'package:fl_clash/xboard/services/crisp_support_service.dart';
@@ -1135,6 +1138,20 @@ class _SettingsSection extends ConsumerWidget {
                   : () => xbPush(context, const OrderListPage(),
                       brandColor: xbBrandColor()),
             ),
+            // 邀请返佣（form-a 邀请功能）：需登录（佣金/邀请码依赖 token）。游客显示「登录后可见」、
+            // 不可点；登录态尾部品牌色「返佣 X%」teaser（比例读 inviteInfoProvider 后台下发）+ chevron。
+            XbListRow(
+              icon: Icons.redeem,
+              label: '邀请返佣',
+              large: large,
+              trailing: isGuest ? null : const _RebateBadge(),
+              badge: isGuest ? '登录后可见' : null,
+              showChevron: !isGuest,
+              onTap: isGuest
+                  ? null
+                  : () => xbPush(context, const InviteCommissionPage(),
+                      brandColor: xbBrandColor()),
+            ),
             // 在线客服（D9 Crisp）：不登录也可用（游客匿名会话）。
             // websiteId 未配置（XboardConfig.crispWebsiteId 空）→ 隐藏入口，不暴露空会话。
             if (CrispSupportService.isEnabled)
@@ -1162,6 +1179,15 @@ class _SettingsSection extends ConsumerWidget {
                 onTap: () => xbPush(context, const XbSettingsPage(),
                     brandColor: xbBrandColor()),
               ),
+            // 分享好友（form-a 分享功能）：免登录（ShareLink 是 guest 接口）—— 游客也可点，
+            // 打开仅展示下载落地页主/备地址供分享，无邀请码 / 无佣金。
+            XbListRow(
+              icon: Icons.share,
+              label: '分享好友',
+              large: large,
+              onTap: () => xbPush(context, const ShareFriendPage(),
+                  brandColor: xbBrandColor()),
+            ),
             _AboutRow(large: large),
             if (!isGuest)
               XbListRow(
@@ -1176,6 +1202,32 @@ class _SettingsSection extends ConsumerWidget {
           ],
         ),
         ],
+      ],
+    );
+  }
+}
+
+/// 「邀请返佣」行尾部 teaser：品牌色「返佣 X%」+ chevron。
+/// 比例来自接口（[inviteInfoProvider] 的 commissionRate，后台下发）——
+/// 未就绪 / 失败时只显示 chevron，绝不显示写死占位数字。
+class _RebateBadge extends ConsumerWidget {
+  const _RebateBadge();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final t = XbTokens.of(context);
+    final brand = Theme.of(context).colorScheme.primary;
+    final rate = ref.watch(inviteInfoProvider).asData?.value.commissionRate;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (rate != null && rate > 0) ...[
+          Text('返佣 $rate%',
+              style: TextStyle(
+                  fontSize: 12.5, fontWeight: FontWeight.w600, color: brand)),
+          const SizedBox(width: 6),
+        ],
+        Icon(Icons.chevron_right, color: t.onv, size: 20),
       ],
     );
   }
