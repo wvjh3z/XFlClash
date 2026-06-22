@@ -39,10 +39,13 @@ class _PendingOrderSectionState extends ConsumerState<PendingOrderSection>
   @override
   void initState() {
     super.initState();
-    // 进页强制重查（FutureProvider 默认只首拉一次；不刷新则进页看不到最新待支付状态，
-    // 须冷启动才更新）。延后到首帧后 invalidate，避免 build 期改 provider。
+    // 进页刷新待支付状态：仅当 provider 被后台页面（push 栈下方）保活、持有旧值时才强刷；
+    // 首次进入时 autoDispose 已重建并拉取最新数据（postFrame 时仍在 loading、无 value）→ 跳过，
+    // 避免「首拉 + invalidate 二拉」的进页双拉（order/fetch 翻倍）。
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) ref.invalidate(pendingOrderProvider);
+      if (mounted && ref.read(pendingOrderProvider).hasValue) {
+        ref.invalidate(pendingOrderProvider);
+      }
     });
   }
 
