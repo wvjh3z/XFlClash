@@ -16,7 +16,7 @@ import '../models/xb_domain_subscription.dart';
 import '../models/xb_domain_types.dart';
 import '../models/xb_invite.dart';
 import '../models/xb_result.dart';
-
+import '../models/xb_tutorial.dart';
 /// 反腐层抽象：UI / providers 与 SDK 之间的唯一桥梁。
 abstract interface class XboardService {
   // ───────── 认证（R1/R2/R3/R4，5 方法）─────────
@@ -142,4 +142,11 @@ abstract interface class XboardService {
 
   /// 拉分享落地页地址（免登录；ShareLink 插件，主/备地址）。
   Future<XbResult<XbShareLink>> getShareLink();
+
+  /// 使用教程列表（后端知识库「官方客户端」分类；需登录）。
+  /// 失败 → XbFailure；空分类 → 成功返回空列表。
+  Future<XbResult<List<XbTutorial>>> getTutorials();
+
+  /// 单篇使用教程详情（含正文；需登录）。
+  Future<XbResult<XbTutorialDetail>> getTutorialDetail(int id);
 }

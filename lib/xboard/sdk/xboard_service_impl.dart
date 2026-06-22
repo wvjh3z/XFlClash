@@ -26,8 +26,12 @@ import '../models/xb_domain_subscription.dart';
 import '../models/xb_domain_types.dart';
 import '../models/xb_invite.dart';
 import '../models/xb_result.dart';
+import '../models/xb_tutorial.dart';
 import '../util/subscription_cache.dart';
 import 'xboard_service.dart';
+
+/// 使用教程取自知识库的「官方客户端」分类（用户确认的确切分类名）。
+const String _kTutorialCategory = '官方客户端';
 
 class XboardServiceImpl implements XboardService {
   XboardServiceImpl({
@@ -522,6 +526,36 @@ class XboardServiceImpl implements XboardService {
         );
       });
 
+  @override
+  Future<XbResult<List<XbTutorial>>> getTutorials() async =>
+      // 知识库列表过滤「官方客户端」分类（用户确认的确切分类名）；空分类 → 空列表（成功）。
+      _guard('getTutorials', () async {
+        final items = await _sdk.knowledge.getKnowledgeList();
+        return [
+          for (final it in items)
+            if (it.category == _kTutorialCategory)
+              XbTutorial(
+                id: it.id,
+                title: it.title,
+                updatedAt: _epochToDate(it.updatedAt),
+              ),
+        ];
+      });
+
+  @override
+  Future<XbResult<XbTutorialDetail>> getTutorialDetail(int id) async =>
+      _guard('getTutorialDetail', () async {
+        final a = await _sdk.knowledge.getKnowledgeDetail(id);
+        return XbTutorialDetail(
+          id: a.id,
+          title: a.title,
+          // 正文里相对地址（如 /images/x.jpg、/#/dashboard）按面板 host 转绝对，
+          // 否则 flutter_html 的 <img> 无法加载（仅相对路径无 host）。
+          body: _absolutizeHtmlUrls(a.body, _sdk.baseUrl),
+          updatedAt: _epochToDate(a.updatedAt),
+        );
+      });
+
   // ───────── W7 SDK model → 领域模型映射 ─────────
 
   /// XbPlanPeriod → SDK PlanPeriod（值序一一对应：monthly..resetTraffic）。
@@ -529,6 +563,28 @@ class XboardServiceImpl implements XboardService {
 
   /// SDK PlanPeriod → XbPlanPeriod。
   XbPlanPeriod _toXbPeriod(PlanPeriod p) => XbPlanPeriod.values[p.index];
+
+  /// 后端 Unix 秒时间戳 → DateTime（本地时区）。0 / 缺失 → 取当前时间兜底。
+  DateTime _epochToDate(int epochSeconds) => epochSeconds > 0
+      ? DateTime.fromMillisecondsSinceEpoch(epochSeconds * 1000)
+      : DateTime.now();
+
+  /// 把 HTML 里的根相对 URL（`src`/`href` 以 `/` 开头）按面板 [baseUrl] 转绝对地址。
+  /// baseUrl 空 / 非法 → 原样返回。协议相对（`//`）与绝对 URL 不受影响。
+  String _absolutizeHtmlUrls(String html, String? baseUrl) {
+    if (html.isEmpty || baseUrl == null || baseUrl.isEmpty) return html;
+    final base = Uri.tryParse(baseUrl);
+    if (base == null) return html;
+    return html.replaceAllMapped(
+      RegExp(r'''(src|href)=("|')(/[^"'/][^"']*)\2''', caseSensitive: false),
+      (m) {
+        final attr = m.group(1);
+        final q = m.group(2);
+        final path = m.group(3)!;
+        return '$attr=$q${base.resolve(path)}$q';
+      },
+    );
+  }
 
   double? _centsToYuan(double? cents) => cents == null ? null : cents / 100;
 

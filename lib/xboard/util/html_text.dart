@@ -58,3 +58,34 @@ String _decodeEntities(String s) {
 /// 是否含 HTML 标签（用于判断是否需要转换；纯文本可跳过）。
 bool looksLikeHtml(String s) =>
     RegExp(r'<\s*[a-zA-Z/][^>]*>').hasMatch(s) || s.contains('&');
+
+/// 从「完整 HTML 文档」提取可供 flutter_html 渲染的正文片段。
+///
+/// 知识库（使用教程）正文常是整页 HTML 文档（doctype + html/head/style + body）。
+/// flutter_html 不应用 `style` 标签里的 CSS，且会把 `style` / `head` 的源码当成普通文字渲染出来
+/// （一大坨 CSS）。本函数：
+/// - 取 `body` 内层（无 body 标签则用原文）；
+/// - 去除 `style` / `script` / `head` 标签块与 HTML 注释；
+/// - 去除后端未替换的模板占位符 `{{...}}`（如非订阅用户的 `{{apple_accounts}}`）。
+///
+/// 返回的片段交给 flutter_html 渲染 + 页面侧 Style map 还原观感。
+String htmlRenderableBody(String input) {
+  if (input.isEmpty) return '';
+  var s = input;
+  // 1. 整页文档 → 取 <body> 内层。
+  final body = RegExp(r'<body[^>]*>([\s\S]*?)</body>', caseSensitive: false)
+      .firstMatch(s);
+  if (body != null) s = body.group(1) ?? s;
+  // 2. 去 <style> / <script>（含 body 内联块），否则其源码会被当正文显示。
+  s = s.replaceAll(
+      RegExp(r'<style[^>]*>[\s\S]*?</style>', caseSensitive: false), '');
+  s = s.replaceAll(
+      RegExp(r'<script[^>]*>[\s\S]*?</script>', caseSensitive: false), '');
+  // 3. 去残留 <head>…</head>（极少数 body 外标签遗留）与 HTML 注释。
+  s = s.replaceAll(
+      RegExp(r'<head[^>]*>[\s\S]*?</head>', caseSensitive: false), '');
+  s = s.replaceAll(RegExp(r'<!--[\s\S]*?-->'), '');
+  // 4. 去后端未替换的模板占位符 {{xxx}}（非订阅用户看到的 raw 占位）。
+  s = s.replaceAll(RegExp(r'\{\{[^}]*\}\}'), '');
+  return s.trim();
+}

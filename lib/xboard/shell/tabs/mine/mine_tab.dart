@@ -19,6 +19,7 @@ import 'package:fl_clash/xboard/pages/plan_detail_page.dart';
 import 'package:fl_clash/xboard/pages/plan_list_page.dart';
 import 'package:fl_clash/xboard/pages/reset_traffic_page.dart';
 import 'package:fl_clash/xboard/pages/share_friend_page.dart';
+import 'package:fl_clash/xboard/pages/tutorial_list_page.dart';
 import 'package:fl_clash/xboard/providers/auth_state_provider.dart';
 import 'package:fl_clash/xboard/providers/invite_provider.dart';
 import 'package:fl_clash/xboard/providers/user_profile_provider.dart';
@@ -1150,6 +1151,19 @@ class _SettingsSection extends ConsumerWidget {
               onTap: isGuest
                   ? null
                   : () => xbPush(context, const InviteCommissionPage(),
+                      brandColor: xbBrandColor()),
+            ),
+            // 使用教程（form-a）：需登录（知识库是 user 接口，带 token）。游客显示「登录后可见」、
+            // 不可点；登录态 push 教程列表（仅后端「官方客户端」分类）。
+            XbListRow(
+              icon: Icons.menu_book,
+              label: '使用教程',
+              large: large,
+              badge: isGuest ? '登录后可见' : null,
+              showChevron: !isGuest,
+              onTap: isGuest
+                  ? null
+                  : () => xbPush(context, const TutorialListPage(),
                       brandColor: xbBrandColor()),
             ),
             // 在线客服（D9 Crisp）：不登录也可用（游客匿名会话）。
