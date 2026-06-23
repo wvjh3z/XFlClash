@@ -150,12 +150,21 @@ class ApplicationState extends ConsumerState<Application> {
             GlobalWidgetsLocalizations.delegate,
           ],
           builder: (_, child) {
-            return AppEnvManager(
+            final Widget app = AppEnvManager(
               child: _buildApp(
                 child: _buildPlatformState(
                   child: _buildState(child: _buildPlatformApp(child: child!)),
                 ),
               ),
+            );
+            // formA：把系统字体缩放钳制到 [minTextScale, maxTextScale]（0.8~1.4），防止
+            // 系统超大字体（无障碍/桌面 150%+ 文字）撑破 xboard formA 的固定像素布局。
+            // 覆盖全部路由 + 弹窗（在 MaterialApp.builder 层）。非 formA 保持上游行为不变。
+            if (!XboardConfig.current.formA) return app;
+            return MediaQuery.withClampedTextScaling(
+              minScaleFactor: minTextScale,
+              maxScaleFactor: maxTextScale,
+              child: app,
             );
           },
           scrollBehavior: BaseScrollBehavior(),
