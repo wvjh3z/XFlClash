@@ -14,9 +14,12 @@ import 'package:fl_clash/xboard/util/app_version.dart';
 import 'package:fl_clash/xboard/widgets/xb_center_toast.dart';
 import 'package:fl_clash/xboard/widgets/xb_components.dart'
     show XbListCard, XbListRow;
+import 'package:fl_clash/xboard/widgets/xb_feedback.dart' show xbBrandColor;
+import 'package:fl_clash/xboard/widgets/xb_theme.dart' show xbPush;
 import 'package:fl_clash/xboard/widgets/xb_ui_kit.dart' show XbBrandScaffold;
 import 'package:fl_clash/xboard/widgets/xb_update_dialog.dart';
 import 'package:fl_clash/widgets/widgets.dart' show EmojiText;
+import 'legal_pages.dart';
 
 /// 自定义关于页。
 class XbAboutPage extends ConsumerWidget {
@@ -184,17 +187,20 @@ class _AboutBodyState extends ConsumerState<_AboutBody> {
                 XbListRow(
                   icon: Icons.gavel,
                   label: '免责声明',
-                  onTap: () {},
+                  onTap: () => xbPush(context, const DisclaimerPage(),
+                      brandColor: xbBrandColor()),
                 ),
                 XbListRow(
                   icon: Icons.description_outlined,
                   label: '用户协议',
-                  onTap: () {},
+                  onTap: () => xbPush(context, const TermsPage(),
+                      brandColor: xbBrandColor()),
                 ),
                 XbListRow(
                   icon: Icons.shield_outlined,
                   label: '隐私政策',
-                  onTap: () {},
+                  onTap: () => xbPush(context, const PrivacyPage(),
+                      brandColor: xbBrandColor()),
                 ),
               ],
             ),
