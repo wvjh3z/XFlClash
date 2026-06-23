@@ -21,7 +21,6 @@ import '../services/xboard_release_dio.dart';
 import '../util/format.dart';
 import '../util/html_text.dart';
 import '../widgets/xb_async_view.dart';
-import '../widgets/xb_components.dart';
 import '../widgets/xb_theme.dart' show XbTokens;
 import '../widgets/xb_ui_kit.dart' show XbBrandScaffold;
 
@@ -59,7 +58,6 @@ class _DetailBody extends ConsumerWidget {
         loading: async.isLoading,
         error: async.hasError ? async.error : null,
         errorFallback: '加载教程失败',
-        skeleton: XbSkeletonKind.detail,
         onRetry: () => ref.invalidate(tutorialDetailProvider(id)),
         builder: (context) => _content(context, async.requireValue),
       ),

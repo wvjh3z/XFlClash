@@ -31,7 +31,6 @@ import '../widgets/xb_motion.dart';
 import '../widgets/xb_submit_guard.dart';
 import '../widgets/xb_theme.dart' show xbShowDialog, XbTokens;
 import '../widgets/xb_async_view.dart';
-import '../widgets/xb_components.dart' show XbSkeletonKind;
 import '../widgets/xb_ui_kit.dart';
 
 /// 轮询间隔（pending/processing 时）。
@@ -190,7 +189,6 @@ class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage>
         retrying: _retrying,
         error: _loadError,
         errorFallback: '加载订单失败',
-        skeleton: XbSkeletonKind.detail,
         onRetry: () => _initialLoad(retry: true),
         builder: (context) => _detail == null
             ? const Center(child: Text('订单不存在'))

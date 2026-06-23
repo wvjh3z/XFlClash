@@ -66,7 +66,6 @@ class _InviteBody extends ConsumerWidget {
         loading: async.isLoading,
         error: async.hasError ? async.error : null,
         errorFallback: '加载邀请信息失败',
-        skeleton: XbSkeletonKind.detail,
         onRetry: () => ref.invalidate(inviteInfoProvider),
         builder: (context) => _content(context, ref, async.requireValue),
       ),

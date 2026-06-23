@@ -111,7 +111,6 @@ class _PlanRenewLoaderState extends ConsumerState<PlanRenewLoader> {
             retrying: _retrying,
             error: done ? snap.error : null,
             errorFallback: '加载套餐失败',
-            skeleton: XbSkeletonKind.detail,
             onRetry: _reload,
             builder: (_) => const SizedBox.shrink(),
           ),
