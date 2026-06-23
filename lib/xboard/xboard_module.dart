@@ -19,7 +19,7 @@ import 'package:flutter_xboard_sdk/flutter_xboard_sdk.dart'
     show TokenStorage, XBoardSDK;
 import 'package:shared_preferences/shared_preferences.dart';
 
-import '../providers/config.dart' show patchClashConfigProvider;
+import '../providers/config.dart' show patchClashConfigProvider, appSettingProvider;
 import '../providers/app.dart' show initProvider;
 import '../providers/state.dart' show isStartProvider;
 import 'config/xboard_config.dart';
@@ -455,11 +455,34 @@ class XboardModule {
       debugPrint('[XboardModule] default-ipv6 wire failed: $e\n$s');
     }
 
+    // formA 强制界面语言为简体中文（用户 2026-06-20）。与 seam #7 同类——经现有 provider 运行时
+    // 写入，无上游代码文件改动、非接缝点。语言入口已在设置页隐藏，故每次启动强制统一 zh_CN。
+    try {
+      _applyForcedLocale(container);
+    } catch (e, s) {
+      debugPrint('[XboardModule] forced-locale wire failed: $e\n$s');
+    }
+
     // DD-23：bootstrap 同步阶段完成 tag（W5.7）。
     SentryBootstrap.tagBootstrap(stage: 'sync_done');
 
     // step 8：connectivity（W5.4 xboardConnectivityProvider 自起 StreamProvider，
     // UI/race 通过 ref.watch/listen 复用，不在此裸 listen，DD-5/E12）。
+  }
+
+  /// formA 强制界面语言为简体中文（用户 2026-06-20 决策：默认简中 + 隐藏语言设置）。
+  ///
+  /// 与 seam #7 同类——经现有 [appSettingProvider] 运行时写入，**无上游代码文件改动、非接缝点**。
+  /// **强制**（每次启动覆盖，区别于 ipv6 的「首次一次性」）：语言入口已在设置页隐藏、用户无法更改，
+  /// 故每次拉起统一为 `zh_CN`（[AppLocalizations] supportedLocales 含 `Locale('zh','CN')`，
+  /// `getLocaleForString('zh_CN')` 精确命中，不会 fallback 到系统语言/英文）。
+  static void _applyForcedLocale(ProviderContainer container) {
+    if (!XboardConfig.current.formA) return;
+    final cur = container.read(appSettingProvider).locale;
+    if (cur == 'zh_CN') return; // 已是简中 → 不重复写。
+    container
+        .read(appSettingProvider.notifier)
+        .update((s) => s.copyWith(locale: 'zh_CN'));
   }
 
   /// seam #7 「首次安装默认开 IPv6」（用户 2026-06-09 决策：全新安装默认开 + 尊重用户后续修改）。

@@ -19,6 +19,10 @@ import 'package:fl_clash/xboard/widgets/xb_ui_kit.dart' show XbBrandScaffold;
 import '../../adapters/xb_native_page_adapter.dart';
 import '../../widgets/xb_content_header.dart';
 
+/// 语言设置入口可见性开关（用户 2026-06-20：默认强制简体中文，隐藏语言切换入口）。
+/// **隐藏而非删除**——代码保留，将来若要恢复多语言，置 true 即可（并取消 bootstrap 的强制 locale）。
+const bool _kShowLanguageSetting = false;
+
 /// 形态 A 设置页。
 class XbSettingsPage extends ConsumerWidget {
   const XbSettingsPage({super.key, this.embedded = false});
@@ -90,15 +94,17 @@ class XbSettingsPage extends ConsumerWidget {
             const XbGroupLabel('设置'),
             XbListCard(
               rows: [
-                XbListRow(
-                  icon: Icons.language,
-                  label: '语言',
-                  subtitle: '界面显示语言',
-                  large: large,
-                  badge: adapter.localeLabel(ref),
-                  showChevron: false,
-                  onTap: () => adapter.pickLocale(context, ref),
-                ),
+                // 语言入口：默认隐藏（强制简体中文）。隐藏而非删除，置 _kShowLanguageSetting=true 可恢复。
+                if (_kShowLanguageSetting)
+                  XbListRow(
+                    icon: Icons.language,
+                    label: '语言',
+                    subtitle: '界面显示语言',
+                    large: large,
+                    badge: adapter.localeLabel(ref),
+                    showChevron: false,
+                    onTap: () => adapter.pickLocale(context, ref),
+                  ),
                 XbListRow(
                   icon: Icons.palette_outlined,
                   label: '主题',
