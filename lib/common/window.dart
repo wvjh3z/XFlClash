@@ -27,10 +27,17 @@ class Window {
       protocol.register('flclash');
     }
     await windowManager.ensureInitialized();
-    // kDebugMode ? Size(680, 580) :
+    // === Xboard 接缝点 #17（form-a 桌面默认窗口尺寸）===
+    // formA 桌面：未保存过尺寸时用更大的默认窗口（对齐 clash-verge-rev 940×700 / 最小 520×520），
+    // 已保存尺寸（用户拖拽过）则尊重用户。非 formA 保持上游 680×580 / 380×400 不变。居中由
+    // _windowPosition 在 left/top 未设时处理。
+    // ⚠️ 直接读 dart-define（非 XboardConfig.current）：window.init 在 globalState.init 阶段执行，
+    // 早于 main.dart 的 XboardConfig.bind()，此刻 XboardConfig.current 还是 formA=false 的占位默认。
+    const bool isFormA = bool.fromEnvironment('XB_FORM_A', defaultValue: false);
+    final bool noSavedSize = props.width <= 0 || props.height <= 0;
     final WindowOptions windowOptions = WindowOptions(
-      size: props.size,
-      minimumSize: const Size(380, 400),
+      size: (isFormA && noSavedSize) ? const Size(940, 700) : props.size,
+      minimumSize: isFormA ? const Size(520, 520) : const Size(380, 400),
     );
     if (!system.isMacOS || version > 10) {
       await windowManager.setTitleBarStyle(TitleBarStyle.hidden);
