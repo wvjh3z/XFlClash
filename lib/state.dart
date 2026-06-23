@@ -20,6 +20,7 @@ import 'enum/enum.dart';
 import 'l10n/l10n.dart';
 import 'models/models.dart';
 import 'providers/providers.dart';
+import 'xboard/config/xboard_config.dart';
 import 'xboard/widgets/xb_welcome_dialog.dart';
 
 class GlobalState {
@@ -310,7 +311,11 @@ class GlobalState {
     };
     container.read(systemActionProvider.notifier).updateTray();
     container.read(profilesActionProvider.notifier).autoUpdateProfiles();
-    container.read(commonActionProvider.notifier).autoCheckUpdate();
+    // [xfork seam #12] formA 屏蔽上游 GitHub 更新检查（MyClient 用自己的 XbUpdateService）。
+    // 原 #10（action.dart 内 early-return）已并入此处：gate 唯一调用点，action.dart 回归上游原样。
+    if (!XboardConfig.current.formA) {
+      container.read(commonActionProvider.notifier).autoCheckUpdate();
+    }
     autoLaunch?.updateStatus(container.read(appSettingProvider).autoLaunch);
     if (!container.read(appSettingProvider).silentLaunch) {
       window?.show();
