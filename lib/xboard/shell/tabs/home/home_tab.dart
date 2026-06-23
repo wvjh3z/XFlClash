@@ -15,6 +15,7 @@ import 'package:fl_clash/xboard/widgets/xb_center_toast.dart';
 import 'package:fl_clash/xboard/widgets/xb_theme.dart' show XbTokens;
 import 'package:fl_clash/xboard/widgets/xb_ui_kit.dart' show XbIconBadge;
 import 'package:fl_clash/xboard/widgets/xb_update_dialog.dart';
+import 'package:fl_clash/widgets/widgets.dart' show EmojiText;
 
 import '../../adapters/xb_mode_adapter.dart';
 import '../../adapters/xb_nodes_adapter.dart';
@@ -364,7 +365,7 @@ class _HomeUpdatePill extends StatelessWidget {
             border: Border.all(color: const Color(0x382E8B57), width: 1),
             borderRadius: BorderRadius.circular(20),
           ),
-          child: Text(
+          child: EmojiText(
             '🎉 有新版本啦，巨大更新',
             style: TextStyle(
               fontSize: large ? 13 : 11,

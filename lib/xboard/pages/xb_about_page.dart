@@ -16,6 +16,7 @@ import 'package:fl_clash/xboard/widgets/xb_components.dart'
     show XbListCard, XbListRow;
 import 'package:fl_clash/xboard/widgets/xb_ui_kit.dart' show XbBrandScaffold;
 import 'package:fl_clash/xboard/widgets/xb_update_dialog.dart';
+import 'package:fl_clash/widgets/widgets.dart' show EmojiText;
 
 /// 自定义关于页。
 class XbAboutPage extends ConsumerWidget {
@@ -164,7 +165,7 @@ class _AboutBodyState extends ConsumerState<_AboutBody> {
                   border: Border.all(color: const Color(0x4D2E8B57)),
                   borderRadius: BorderRadius.circular(20),
                 ),
-                child: const Text(
+                child: const EmojiText(
                   '🎉 有新版本啦',
                   style: TextStyle(
                     fontSize: 12,

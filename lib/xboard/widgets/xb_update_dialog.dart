@@ -11,6 +11,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_xboard_sdk/flutter_xboard_sdk.dart' show AppUpdateModel;
+import 'package:fl_clash/widgets/widgets.dart' show EmojiText;
 import 'package:url_launcher/url_launcher.dart';
 
 import '../providers/xboard_providers.dart';
@@ -188,7 +189,7 @@ class _UpdateDialogState extends ConsumerState<_UpdateDialog> {
         title: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text(
+            EmojiText(
               '🎉 发现新版本',
               style: TextStyle(
                 fontSize: 17,
@@ -223,7 +224,7 @@ class _UpdateDialogState extends ConsumerState<_UpdateDialog> {
               borderRadius: BorderRadius.circular(XbTokens.rSm),
             ),
             child: SingleChildScrollView(
-              child: Text(
+              child: EmojiText(
                 _info.changelog,
                 style: TextStyle(
                     fontSize: 12.5, height: 2, color: scheme.onSurface),

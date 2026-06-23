@@ -35,6 +35,7 @@ import 'services/endpoint_race_controller.dart';
 import 'services/sentry_bootstrap.dart';
 import 'services/crisp_support_service.dart';
 import 'services/subscription_triggers.dart';
+import 'services/xb_geo_update_service.dart';
 import 'services/xb_update_service.dart';
 import 'services/xboard_lifecycle_observer.dart';
 import 'services/xboard_release_dio.dart' show XboardReleaseHttp;
@@ -428,6 +429,14 @@ class XboardModule {
             if (prev != true && next) {
               // ignore: discarded_futures
               XbUpdateService.autoCheckThrottled(container);
+              // 连上 VPN：延迟一会儿（待网络稳定）再查 geo 库是否需更新（≥7 天才更）；
+              // 到点复核仍连着才拉。
+              XbGeoUpdateService.onConnected(
+                () => container.read(isStartProvider),
+              );
+            } else if (prev == true && !next) {
+              // 断开 VPN：取消尚未到点的 geo 延迟检查。
+              XbGeoUpdateService.onDisconnected();
             }
           },
           fireImmediately: true,
