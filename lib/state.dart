@@ -20,6 +20,7 @@ import 'enum/enum.dart';
 import 'l10n/l10n.dart';
 import 'models/models.dart';
 import 'providers/providers.dart';
+import 'xboard/widgets/xb_welcome_dialog.dart';
 
 class GlobalState {
   static GlobalState? _instance;
@@ -317,8 +318,10 @@ class GlobalState {
       window?.hide();
     }
     await _handleFailedPreference();
+    // [xfork seam] 首启合规弹窗：上游 _handlerDisclaimer（免责声明）+ _showCrashlyticsTip
+    // （Android Firebase 提示）已替换为统一的 XbWelcomeDialog（见 _handlerDisclaimer）。
+    // Crashlytics 提示移除：本产品不使用 Firebase Crashlytics（崩溃方案为 Sentry，另行告知）。
     await _handlerDisclaimer();
-    await _showCrashlyticsTip();
     await container.read(coreActionProvider.notifier).connectCore();
     await container.read(coreActionProvider.notifier).initCore();
     await container.read(setupActionProvider.notifier).initStatus();
@@ -364,30 +367,15 @@ class GlobalState {
         false;
   }
 
-  Future<void> _showCrashlyticsTip() async {
-    if (!system.isAndroid) return;
-    if (container.read(
-      appSettingProvider.select((state) => state.crashlyticsTip),
-    )) {
-      return;
-    }
-    await showMessage(
-      title: currentAppLocalizations.dataCollectionTip,
-      cancelable: false,
-      message: TextSpan(text: currentAppLocalizations.dataCollectionContent),
-    );
-    container
-        .read(appSettingProvider.notifier)
-        .update((state) => state.copyWith(crashlyticsTip: true));
-  }
-
   Future<void> _handlerDisclaimer() async {
     if (container.read(
       appSettingProvider.select((state) => state.disclaimerAccepted),
     )) {
       return;
     }
-    final isDisclaimerAccepted = await showDisclaimer();
+    // [xfork seam] 首启统一弹 XbWelcomeDialog（替换上游免责声明+Crashlytics 两弹窗）。
+    // 强制：不同意 → 退出 App；同意 → 写 disclaimerAccepted 持久化（复用上游 key，不再弹）。
+    final isDisclaimerAccepted = await XbWelcomeDialog.show(_context);
     if (!isDisclaimerAccepted) {
       await container.read(systemActionProvider.notifier).handleExit();
     }
