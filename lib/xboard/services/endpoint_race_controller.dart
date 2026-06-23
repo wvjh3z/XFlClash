@@ -22,6 +22,7 @@ import 'dart:async';
 import 'package:dio/dio.dart';
 
 import '../config/bootstrap_constants.dart';
+import '../config/xboard_user_agent.dart';
 import '../models/bootstrap_payload.dart';
 import 'sentry_bootstrap.dart';
 
@@ -38,7 +39,7 @@ class EndpointRaceController {
     this.onSubscriptionSwitch,
     Dio? dio,
     bool vpnActive = false,
-  })  : _probe = probe ?? _defaultProbe(dio ?? Dio()),
+  })  : _probe = probe ?? _defaultProbe(dio ?? _defaultProbeDio()),
         _vpnActive = vpnActive,
         _now = DateTime.now;
 
@@ -103,6 +104,12 @@ class EndpointRaceController {
   /// 测试注入时钟。
   // ignore: use_setters_to_change_properties
   void debugSetClock(DateTime Function() clock) => _now = clock;
+
+  /// 默认探针 dio：注入浏览器 UA（R4.4 伪装 SSoT [XboardUserAgent.current]，与 SDK API /
+  /// config.json / 加密订阅同源），避免 endpoint 探活请求暴露 Dart 默认 UA `Dart/x (dart:io)`。
+  /// 证书放行 + 代理路由仍由全局 FlClashHttpOverrides 处理（默认 adapter）。
+  static Dio _defaultProbeDio() =>
+      Dio(BaseOptions(headers: {'User-Agent': XboardUserAgent.current}));
 
   static EndpointProbe _defaultProbe(Dio dio) => (endpoint) async {
         try {

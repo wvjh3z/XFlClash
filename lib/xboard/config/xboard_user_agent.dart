@@ -7,6 +7,7 @@
 /// - SDK API 请求（登录/套餐/订单…）：bootstrap initialize 传 [current] + allowNonFlclashUa
 /// - config.json 拉取（[buildReleasedIsolatedDio]）：默认 header 注入 [current]
 /// - 加密订阅拉取（同上放行 dio）：同
+/// - endpoint 竞速探活（[EndpointRaceController] 默认探针）：注入 [current] 躲默认 Dart UA
 /// - 未来软件更新：复用同一放行 dio → 自动带 [current]
 ///
 /// **固定不随机**（用户决策）：每平台一个固定真实浏览器 UA。随机化反因同 session UA 跳变触发
