@@ -165,8 +165,7 @@ class _PlanOptCard extends StatelessWidget {
     final t = XbTokens.of(context);
     final scheme = Theme.of(context).colorScheme;
     final min = _minPeriodPrice;
-    // 特性摘要（原型 .ft / .pft）：HTML content 转纯文本，取前 3 行非空，**每行换行展示**
-    // （与原型 3 行一致，不再用 · 挤成一行）。
+    // 特性摘要（原型 .ft / .pft）：HTML content 转纯文本，取前 3 行非空，用 · 连接成一行。
     final feature = plan.description == null
         ? ''
         : htmlToPlainText(plan.description!)
@@ -174,7 +173,7 @@ class _PlanOptCard extends StatelessWidget {
             .map((l) => l.trim())
             .where((l) => l.isNotEmpty)
             .take(3)
-            .join('\n');
+            .join(' · ');
 
     return GestureDetector(
       onTap: onTap,
