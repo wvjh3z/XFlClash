@@ -1089,7 +1089,6 @@ class _SettingsSection extends ConsumerWidget {
       message: '退出后需重新登录才能连接和管理套餐，确定退出吗？',
       confirmLabel: '退出登录',
       destructive: true,
-      icon: Icons.logout_rounded,
     );
     if (!ok || !context.mounted) return;
     // 登出编排有网络耗时（服务端撤销 token）→ 弹不可关闭 loading，完成后自动消失（切游客态重建树）。

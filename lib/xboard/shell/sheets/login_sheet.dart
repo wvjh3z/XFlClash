@@ -80,7 +80,6 @@ class _LoginSheetState extends ConsumerState<LoginSheet>
     return XbSheetScaffold(
       title: '登录 MyClient',
       subtitle: '登录后同步你的专属节点',
-      badge: const XbSheetBadge(letter: 'M'),
       banner: _banner,
       footer: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,

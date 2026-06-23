@@ -112,7 +112,6 @@ class _ForgotPwdSheetState extends ConsumerState<ForgotPwdSheet>
     return XbSheetScaffold(
       title: '重置密码',
       subtitle: '通过注册邮箱验证身份并设置新密码',
-      badge: const XbSheetBadge(icon: Icons.lock_reset),
       banner: _banner,
       children: [
         XbEmailAccountField(

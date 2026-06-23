@@ -19,7 +19,6 @@ Future<void> showModeInfoSheet(BuildContext context) {
     builder: (context) => const XbInfoSheet(
       title: '代理模式说明',
       subtitle: '两种模式按需切换',
-      headerIcon: Icons.help_outline,
       items: [
         XbInfoItem(
           icon: Icons.bolt,

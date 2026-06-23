@@ -583,13 +583,12 @@ class XbGroupTypeInfoSheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final (icon, title, desc) = _entry(kind);
+    final (_, title, desc) = _entry(kind);
     // 共用说明弹窗：顶部该类型图标圆徽 + 标题居中 + 纯文字说明卡（不重复图标）+ 品牌「知道了」。
     // 文案与移动端原型一致（full.js groupTypeInfoSheet）。
     return XbInfoSheet(
       title: '线路分组类型说明',
       subtitle: title, // 副标题 = 该类型名（如 url-test）
-      headerIcon: icon,
       items: [XbInfoItem(title: title, desc: desc)],
     );
   }

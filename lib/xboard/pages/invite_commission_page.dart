@@ -862,10 +862,8 @@ class _TransferDialogState extends ConsumerState<_TransferDialog> {
     final brand = Theme.of(context).colorScheme.primary;
     return AlertDialog(
       backgroundColor: t.sf2,
-      title: Column(mainAxisSize: MainAxisSize.min, children: [
-        _DialogBadge(icon: Icons.swap_horiz, color: XbTokens.warn),
-        const SizedBox(height: 12),
-        const Text('划转到账户余额', textAlign: TextAlign.center),
+      title: const Column(mainAxisSize: MainAxisSize.min, children: [
+        Text('划转到账户余额', textAlign: TextAlign.center),
       ]),
       content: Column(
         mainAxisSize: MainAxisSize.min,
@@ -982,10 +980,8 @@ class _WithdrawDialogState extends ConsumerState<_WithdrawDialog> {
     final t = XbTokens.of(context);
     return AlertDialog(
       backgroundColor: t.sf2,
-      title: Column(mainAxisSize: MainAxisSize.min, children: [
-        _DialogBadge(icon: Icons.account_balance, color: XbTokens.warn),
-        const SizedBox(height: 12),
-        const Text('佣金提现', textAlign: TextAlign.center),
+      title: const Column(mainAxisSize: MainAxisSize.min, children: [
+        Text('佣金提现', textAlign: TextAlign.center),
       ]),
       content: Column(
         mainAxisSize: MainAxisSize.min,
@@ -1105,10 +1101,8 @@ class _WithdrawRuleDialog extends StatelessWidget {
         );
     return AlertDialog(
       backgroundColor: t.sf2,
-      title: Column(mainAxisSize: MainAxisSize.min, children: [
-        _DialogBadge(icon: Icons.account_balance, color: XbTokens.warn),
-        const SizedBox(height: 10),
-        const Text('佣金提现说明', textAlign: TextAlign.center),
+      title: const Column(mainAxisSize: MainAxisSize.min, children: [
+        Text('佣金提现说明', textAlign: TextAlign.center),
       ]),
       content: Column(
         mainAxisSize: MainAxisSize.min,
@@ -1140,26 +1134,6 @@ class _WithdrawRuleDialog extends StatelessWidget {
 }
 
 // 弹窗公共小部件。
-
-class _DialogBadge extends StatelessWidget {
-  const _DialogBadge({required this.icon, required this.color});
-  final IconData icon;
-  final Color color;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 48,
-      height: 48,
-      alignment: Alignment.center,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        color: color.withValues(alpha: 0.14),
-      ),
-      child: Icon(icon, size: 26, color: color),
-    );
-  }
-}
 
 /// 原型 `.field` 紧凑输入行外壳：50px 高、1.5px 描边、sfc 底、r-md 圆角。
 /// 包裹 Dropdown / TextField，替代 Material 浮动标签输入框（后者更高，观感不符原型）。

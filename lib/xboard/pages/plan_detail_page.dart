@@ -697,23 +697,10 @@ class _SwitchPlanDialog extends StatelessWidget {
     final t = XbTokens.of(context);
     final scheme = Theme.of(context).colorScheme;
     return AlertDialog(
-      title: Column(
+      title: const Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          // 琥珀警示圆徽标（swap 图标，与其它圆形徽标一套语言）。
-          Container(
-            width: 48,
-            height: 48,
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: XbTokens.warn.withValues(alpha: 0.15),
-            ),
-            child: const Icon(Icons.swap_horiz_rounded,
-                size: 26, color: XbTokens.warn),
-          ),
-          const SizedBox(height: 14),
-          const Text('确认更换套餐？',
+          Text('确认更换套餐？',
               textAlign: TextAlign.center,
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
         ],

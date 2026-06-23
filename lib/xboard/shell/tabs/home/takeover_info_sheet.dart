@@ -18,7 +18,6 @@ Future<void> showTakeoverInfoSheet(BuildContext context) {
     builder: (context) => const XbInfoSheet(
       title: '网络接管方式说明',
       subtitle: '两种方式可同时开启，互补接管流量',
-      headerIcon: Icons.settings_ethernet,
       items: [
         XbInfoItem(
           icon: Icons.shuffle,
