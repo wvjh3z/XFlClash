@@ -87,5 +87,34 @@ String htmlRenderableBody(String input) {
   s = s.replaceAll(RegExp(r'<!--[\s\S]*?-->'), '');
   // 4. 去后端未替换的模板占位符 {{xxx}}（非订阅用户看到的 raw 占位）。
   s = s.replaceAll(RegExp(r'\{\{[^}]*\}\}'), '');
+  // 5. 处理内联样式颜色，保证暗/亮两种主题都清晰。
+  //    知识库正文是「纯浅色模式」撰写的整页 HTML，标题/正文用了硬编码深色（如 color:#111827、
+  //    color:#6b7280），暗色模式下深字压暗底几乎不可见。flutter_html 又不应用 <style> CSS、
+  //    无法解析 var()，且内联 style 会覆盖页面 Style map（无 force-override）→ 只能在字符串里处理。
+  //    策略（既修不可见标题，又不破坏本就正常的彩色框）：
+  //    - 元素**自带背景**（如 background:#fff3cd 警告框、background:#d92e1a 按钮）：color 与背景
+  //      成对撰写、自洽，两种主题都清晰 → 整条 style 原样保留。
+  //    - 元素**无自带背景**（正文/标题直接压在页面背景上）：删掉其 color 声明 → 回退到页面 Style
+  //      map（body=t.on，随主题自适应），其余声明（边框/字号/粗细，如标题红色左边框）保留。
+  //    顺带删除残留的 prop:var(...)（flutter_html 无法解析）。
+  s = s.replaceAll(RegExp(r'[a-zA-Z-]+\s*:\s*var\([^)]*\)\s*;?'), '');
+  s = s.replaceAllMapped(
+    RegExp(r'style\s*=\s*"([^"]*)"', caseSensitive: false),
+    (m) {
+      final decls = m.group(1) ?? '';
+      // 自带背景的元素：颜色/背景成对自洽，保留原样。
+      if (RegExp(r'background', caseSensitive: false).hasMatch(decls)) {
+        return m.group(0)!;
+      }
+      // 无背景：剥掉 color 声明，回退主题自适应文字色；保留其它声明。
+      final kept = decls
+          .split(';')
+          .where((d) =>
+              d.trim().isNotEmpty &&
+              !RegExp(r'^\s*color\s*:', caseSensitive: false).hasMatch(d))
+          .join(';');
+      return kept.isEmpty ? '' : 'style="$kept"';
+    },
+  );
   return s.trim();
 }
