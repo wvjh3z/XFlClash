@@ -13,6 +13,7 @@ import 'package:flutter/services.dart' show rootBundle;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../config/bootstrap_constants.dart';
+import '../config/xboard_config.dart';
 import '../models/bootstrap_envelope.dart';
 import '../models/bootstrap_payload.dart';
 import 'bootstrap_decryptor.dart';
@@ -41,13 +42,18 @@ class BootstrapLocalLoader {
     required BootstrapDecryptor decryptor,
     SharedPreferences? prefs,
     Future<String> Function(String)? assetLoader,
+    String? fallbackAssetPath,
   })  : _decryptor = decryptor,
         _injectedPrefs = prefs,
-        _assetLoader = assetLoader ?? rootBundle.loadString;
+        _assetLoader = assetLoader ?? rootBundle.loadString,
+        // 按当前 flavor 解析出厂 fallback 路径（flavors/<flavorId>/assets/fallback.bin）。
+        _fallbackAssetPath = fallbackAssetPath ??
+            bootstrapFallbackAsset(XboardConfig.current.flavorId);
 
   final BootstrapDecryptor _decryptor;
   final SharedPreferences? _injectedPrefs;
   final Future<String> Function(String) _assetLoader;
+  final String _fallbackAssetPath;
 
   Future<SharedPreferences> get _prefs async =>
       _injectedPrefs ?? await SharedPreferences.getInstance();
@@ -143,7 +149,7 @@ class BootstrapLocalLoader {
 
   Future<BootstrapPayload?> _tryFallbackAsset() async {
     try {
-      final raw = await _assetLoader(kBootstrapFallbackAsset);
+      final raw = await _assetLoader(_fallbackAssetPath);
       final env = BootstrapEnvelope.fromJson(
           jsonDecode(raw) as Map<String, dynamic>);
       final result = await _decryptor.decryptAndValidate(env);

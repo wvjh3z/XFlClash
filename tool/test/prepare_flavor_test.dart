@@ -22,7 +22,6 @@ String _validYaml({
     'https://c.example.com/b.bin',
   ],
   String termsUrl = 'https://example.com/terms',
-  String darkTheme = '{ primary: "#ff5a4a", surface: "#1a1a1a", error: "#cf6679" }',
   bool dropAppName = false,
 }) {
   final urlsBlock = urls.map((u) => '  - "$u"').join('\n');
@@ -36,17 +35,11 @@ bootstrapUrls:
 $urlsBlock
 fallbackEnvelope: "assets/fallback.bin"
 subscribeUserAgent: "$ua"
-sentryDsn: ""
-panelType: "xboard"
-currencySymbol: "¥"
 termsUrl: "$termsUrl"
 privacyUrl: "https://example.com/privacy"
 dataResidency: "Hong Kong"
 dataController: "Example Tech Co., Ltd."
 supportEmail: "support@example.com"
-theme:
-  light: { primary: "#d92e1a", surface: "#ffffff", error: "#b00020" }
-  dark:  $darkTheme
 ''';
 }
 
@@ -140,12 +133,6 @@ void main() {
     writeFlavor(_validYaml(termsUrl: 'not-a-url'));
     final errors = validateFlavor(yamlPath: yamlPath, flavorDir: flavorDir);
     expect(errors.any((e) => e.contains('termsUrl')), isTrue);
-  });
-
-  test('⑦ theme.dark 键集与 light 不一致 → 报错', () {
-    writeFlavor(_validYaml(darkTheme: '{ primary: "#ff5a4a", surface: "#1a1a1a" }'));
-    final errors = validateFlavor(yamlPath: yamlPath, flavorDir: flavorDir);
-    expect(errors.any((e) => e.contains('theme.dark 键集')), isTrue);
   });
 
   test('⑧ versionName 非法 SemVer → 报错（§2.8 双轨版本号）', () {

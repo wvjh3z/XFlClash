@@ -66,10 +66,10 @@ flutter pub get >/dev/null 2>&1 || true
 # 本地自测从 gitignored 的 .secrets/ 取回真实 key 注入；CI 环境无 .secrets，靠 CI secrets 注入。
 SECRETS_FILE=".secrets/xboard-dev-secrets.md"
 DEFINES_FILE="flavor_defines.json"
-if [ ! -f "$DEFINES_FILE" ]; then
-  echo "=== flavor_defines.json 不存在 → prepare_flavor 生成（test target，空 key 占位）==="
-  dart run tool/prepare_flavor.dart --flavor brand_a --target test >/dev/null 2>&1 || true
-fi
+# 无条件跑 prepare_flavor 生成 flavor_defines.json（空 key 占位，下方再注入真实 key）。
+# 出厂 fallback 直接打包 flavors/brand_a/assets/fallback.bin（pubspec 已声明），无需拷贝。
+echo "=== prepare_flavor：生成 flavor_defines.json ==="
+dart run tool/prepare_flavor.dart --flavor brand_a --target test || true
 if [ -f "$SECRETS_FILE" ] && [ -f "$DEFINES_FILE" ]; then
   # 提取 .secrets 里的 32 字节 base64 主密钥（44 字符、末尾 '='；md 内仅此行匹配）。
   AES_KEY="$(grep -oE '^[A-Za-z0-9+/]{43}=$' "$SECRETS_FILE" | head -1)"

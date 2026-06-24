@@ -128,6 +128,8 @@ flutter:
     - assets/images/avatar/
     - assets/images/empty/
     - assets/images/icon/
+    # 出厂 fallback（flavors/<flavor>/assets/fallback.bin）按 flavor 打包，运行时 BootstrapLocalLoader 加载。
+    - flavors/brand_a/assets/
   fonts:
     - family: JetBrainsMono
       fonts:

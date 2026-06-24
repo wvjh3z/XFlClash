@@ -31,7 +31,13 @@ const String kBootstrapCacheKey = 'xb_bootstrap_cache_v1';
 const String kNextBootstrapUrlsKey = 'xb_next_bootstrap_urls_v1';
 
 /// 出厂 fallback 资产路径（随包必带，R15.B-extra.9）。
-const String kBootstrapFallbackAsset = 'assets/xboard/bootstrap_fallback.json';
+///
+/// 每个 flavor 独立：`flavors/<flavorId>/assets/fallback.bin`（pubspec 按 flavor 声明打包）。
+/// 与 flavor 同目录、不碰 FlClash 既有 `assets/`，便于多 flavor 各自维护出厂 fallback。
+/// 正式格式须为 AES-GCM 加密 envelope 的 JSON `{schema_version, encrypted}`；占位/错误内容时
+/// 运行时解析失败并安全降级（[BootstrapLocalLoader] 永不抛，Property 1）。
+String bootstrapFallbackAsset(String flavorId) =>
+    'flavors/$flavorId/assets/fallback.bin';
 
 /// 单镜像拉取超时（R15.B.5）。
 const Duration kBootstrapPerMirrorTimeout = Duration(seconds: 5);

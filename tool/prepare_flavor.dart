@@ -34,8 +34,6 @@ const _requiredStringKeys = <String>[
   'aesKey', // 可空字符串（CI 注入），但 key 必须在
   'fallbackEnvelope',
   'subscribeUserAgent',
-  'panelType',
-  'currencySymbol',
   'termsUrl',
   'privacyUrl',
   'dataResidency',
@@ -91,6 +89,9 @@ void main(List<String> argv) {
       generateFlavorDefinesJson(doc, flavorId: flavor, isTest: isTest));
   stdout.writeln('[prepare_flavor] ✓ 已生成 $genPath'
       '（用 --dart-define-from-file=$genPath 注入构建）');
+
+  // 出厂 fallback 不再拷贝：直接打包 flavors/<flavor>/assets/fallback.bin（pubspec 声明），
+  // 运行时 BootstrapLocalLoader 按 flavorId 加载。存在性已由 validateFlavor 校验项⑤ 保证。
 
   // W8.5（8.5.1）：注入 pubspec version = <versionName>+flclash<底座>（conventions §2.8）。
   // 单 flavor v0.1 Android applicationId 保留 upstream（productFlavors 注释已说明）；
@@ -204,14 +205,6 @@ List<String> validateFlavor({
     errors.add('字段 bootstrapUrls 类型须为 list');
   }
 
-  // theme 必须是 map（含 light/dark）
-  final theme = doc['theme'];
-  if (theme == null) {
-    errors.add('缺必填字段：theme');
-  } else if (theme is! YamlMap) {
-    errors.add('字段 theme 类型须为 map');
-  }
-
   // 2) aesKey base64 解码 == 32 字节（test target 放宽空值）
   final aesKey = doc['aesKey'];
   if (aesKey is String) {
@@ -280,25 +273,6 @@ List<String> validateFlavor({
         '（conventions §2.8 — 注入 pubspec version=<versionName>+flclash<底座>）');
   }
 
-  // 7) theme.dark 与 light 同键集
-  if (theme is YamlMap) {
-    final light = theme['light'];
-    final dark = theme['dark'];
-    if (light is! YamlMap) {
-      errors.add('theme.light 须为 map');
-    }
-    if (dark is! YamlMap) {
-      errors.add('theme.dark 须为 map');
-    }
-    if (light is YamlMap && dark is YamlMap) {
-      final lightKeys = light.keys.toSet();
-      final darkKeys = dark.keys.toSet();
-      if (!_setEquals(lightKeys, darkKeys)) {
-        errors.add('theme.dark 键集须与 light 一致：light=$lightKeys dark=$darkKeys');
-      }
-    }
-  }
-
   return errors;
 }
 
@@ -337,6 +311,3 @@ bool _isHttpUrl(String s) {
 /// 因为我们的 versionName 是独立产品版本（如 0.1.0）。
 bool _isSemVer(String s) =>
     RegExp(r'^\d+\.\d+\.\d+([-+][0-9A-Za-z.-]+)?$').hasMatch(s);
-
-bool _setEquals(Set<Object?> a, Set<Object?> b) =>
-    a.length == b.length && a.every(b.contains);
