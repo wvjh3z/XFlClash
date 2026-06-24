@@ -61,6 +61,7 @@
 - 套餐详情/订单支付页 pushed 到 root navigator 丢失品牌主题 → 包 `XbBrandTheme` 修复品牌红
 - a11y：套餐详情页周期卡 2.0 缩放溢出（Wrap 布局）+ dark 模式次按钮对比度（中性前景）
 - **桌面自更新健壮性**：① Linux AppImage 自替换改「同目录 stage 文件 + 原子 `rename`」，避免直接覆盖运行中可执行文件触发 `ETXTBSY`；② 桌面 ABI 真实检测（Windows 读 env / Linux·macOS 跑 `uname -m`），原硬编码 `x64` 会让 arm64 桌面拿错包；③ 更新下载复用放行 dio（UA 伪装 + 证书放行），原用裸 `Dio`
+- 知识库正文暗色模式可读性：整页 HTML 以浅色模式硬编码深色文字（`color:#111827` 等），暗底下几乎不可见。`htmlRenderableBody` 对**无自带背景**的元素剥掉 `color` 声明回退主题自适应文字色，**自带背景**的彩色框（警告框/按钮）原样保留；并清除 flutter_html 无法解析的 `var(...)`
 
 ### Synced
 - 底座基线锁定 FlClash **v0.8.93**（upstream `ac2f6b9`）—— 初始同步点，后续 sync 在此追加
