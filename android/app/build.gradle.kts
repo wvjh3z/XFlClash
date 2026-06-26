@@ -23,6 +23,17 @@ val mKeyPassword: String? = localProperties.getProperty("keyPassword")
 val isRelease =
     mStoreFile.exists() && mStorePassword != null && mKeyAlias != null && mKeyPassword != null
 
+// ── Xboard 多品牌（接缝点 #4）：从 flavors/<name>/flavor.yaml 读品牌身份（appId/appName）──
+// flavor.yaml 是品牌配置 SSoT（gitignored；本地存值 / CI 还原）。gradle 配置期直读，避免把品牌
+// 值硬编码进 build.gradle 或塞进 dart-define（NFR-2）。appId/appName 是单行字符串，逐行正则即可。
+// rootProject.projectDir = android/；其 parentFile = 仓库根（XFlClash/），flavors 在仓库根下。
+fun flavorYamlValue(flavor: String, key: String): String? {
+    val f = File(rootProject.projectDir.parentFile, "flavors/$flavor/flavor.yaml")
+    if (!f.exists()) return null
+    val re = Regex("^\\s*$key\\s*:\\s*\"?([^\"#]+?)\"?\\s*(?:#.*)?$")
+    return f.readLines().firstNotNullOfOrNull { re.find(it)?.groupValues?.get(1)?.trim() }
+}
+
 
 android {
     namespace = "com.follow.clash"
@@ -42,6 +53,19 @@ android {
         targetSdk = libs.versions.targetSdk.get().toInt()
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+
+        // ── 单 ABI 过滤（自分发用）──
+        // 自分发只发单一 arm64 包：用 abiFilters 限定 ABI，避免 --split-per-abi 给 versionCode
+        // 加 abi 偏移（如 arm64 的 2000+），让 versionCode == build-number（后台配版本号才对得上）。
+        // 经 local.properties 传值（不用 env：gradle 守护进程的 env 会陈旧，export 后读不到；
+        // local.properties 每次配置都重读，无配置缓存）。scripts/build_local.sh 构建时临时写入、构建后移除。
+        // 为空（IDE / flutter run）则不过滤，保留多 ABI 正常调试。
+        localProperties.getProperty("XB_TARGET_ABI")?.takeIf { it.isNotBlank() }?.let { abi ->
+            ndk {
+                abiFilters.clear()   // flutter 插件会预填全部 ABI；先清空再设单一目标
+                abiFilters.add(abi)
+            }
+        }
     }
 
     signingConfigs {
@@ -83,14 +107,22 @@ android {
         }
     }
 
-    // ── 接缝点 #4（W8.4 / D36 / θ-10）：Xboard 多租户 flavor 骨架 ──
-    // applicationId 不在此覆盖（保留 upstream com.follow.clash）；品牌包名由
-    // tool/prepare_flavor.dart 在 build 前按 flavor.yaml 注入（W8.5）。v0.1 单 flavor brand_a。
+    // ── 接缝点 #4（W8.4 / D36 / θ-10）：Xboard 多租户 flavor ──
+    // applicationId + appName 由各 flavor 从 flavors/<name>/flavor.yaml 读入注入（flavorYamlValue）：
+    //   - applicationId：品牌包名（debug / unsigned-release 再叠加 buildType 的 .dev 后缀）。
+    //   - manifestPlaceholders["appName"]：品牌显示名，main manifest 的 android:label="${appName}" 消费。
+    // 缺字段/缺 flavor.yaml 时回退 upstream com.follow.clash / FlClash（不崩，但应保证 yaml 齐全）。
     flavorDimensions += "brand"
     productFlavors {
         create("brand_a") {
             dimension = "brand"
-            // applicationId / appName / 资源由 prepare_flavor.dart 注入（不硬编码品牌信息）。
+            applicationId = flavorYamlValue("brand_a", "appId") ?: "com.follow.clash"
+            manifestPlaceholders["appName"] = flavorYamlValue("brand_a", "appName") ?: "FlClash"
+        }
+        create("brand_b") {
+            dimension = "brand"
+            applicationId = flavorYamlValue("brand_b", "appId") ?: "com.follow.clash"
+            manifestPlaceholders["appName"] = flavorYamlValue("brand_b", "appName") ?: "FlClash"
         }
     }
 }

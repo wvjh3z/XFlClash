@@ -51,22 +51,36 @@ class _InviteBody extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final async = ref.watch(inviteInfoProvider);
+    // 分享链接是另一个 guest 异步源。之前只 gate inviteInfo → inviteInfo 一快返回骨架就消失，
+    // 分享卡还在单独加载、随后才弹入（两现象同根）。把它纳入加载门：两者都就绪才出内容，骨架覆盖
+    // 整段加载、分享卡与其余卡同时出现。分享失败/禁用也算就绪（不阻塞页面，分享区自隐）。
+    final shareAsync = ref.watch(shareLinkProvider);
+    final shareSettled = !shareAsync.isLoading;
     return RefreshIndicator(
       onRefresh: () async {
         ref.invalidate(inviteInfoProvider);
         ref.invalidate(shareLinkProvider);
-        // 等本次重拉落定再收起转圈；失败吞掉（错误态由 XbAsyncView 接管，不重复弹）。
+        // 等两者本次重拉都落定再收起转圈；失败吞掉（错误态由 XbAsyncView 接管，不重复弹）。
         try {
-          await ref.read(inviteInfoProvider.future);
+          await Future.wait([
+            ref.read(inviteInfoProvider.future),
+            ref.read(shareLinkProvider.future),
+          ]);
         } catch (_) {
-          // 错误由 XbAsyncView 的 error 态展示，此处仅需等待 future 落定。
+          // 错误由 XbAsyncView 的 error 态 / 分享区自隐处理，此处仅需等待 future 落定。
         }
       },
       child: XbAsyncView(
-        loading: async.isLoading,
+        // 主数据加载中 或 分享链接尚未落定 → 都显示骨架（覆盖整段加载）。
+        loading: async.isLoading || !shareSettled,
+        // 错误只 gate 主数据：分享失败不该挡住整页（分享区会自隐）。
         error: async.hasError ? async.error : null,
         errorFallback: '加载邀请信息失败',
-        onRetry: () => ref.invalidate(inviteInfoProvider),
+        skeleton: XbSkeletonKind.invite,
+        onRetry: () {
+          ref.invalidate(inviteInfoProvider);
+          ref.invalidate(shareLinkProvider);
+        },
         builder: (context) => _content(context, ref, async.requireValue),
       ),
     );
@@ -194,6 +208,7 @@ class _BalanceCard extends ConsumerWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Expanded(
+                  flex: 57,
                   child: _balanceCol(
                     icon: Icons.savings_outlined,
                     label: '佣金余额',
@@ -207,6 +222,7 @@ class _BalanceCard extends ConsumerWidget {
                   color: Colors.white.withValues(alpha: 0.22),
                 ),
                 Expanded(
+                  flex: 43,
                   child: _balanceCol(
                     icon: Icons.account_balance_wallet_outlined,
                     label: '账户余额',
@@ -300,17 +316,33 @@ class _BalanceCard extends ConsumerWidget {
           ],
         ),
         const SizedBox(height: 6),
-        Text(
-          '¥${amount.toStringAsFixed(2)}',
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: TextStyle(
-            fontSize: big ? 30 : 25,
-            fontWeight: FontWeight.w800,
-            color: Colors.white,
-            height: 1,
-            letterSpacing: -0.5,
-            fontFeatures: const [FontFeature.tabularFigures()],
+        // 金额：FittedBox(scaleDown) 保证能完整显示（够位时原尺寸、超宽时整体缩放，绝不省略号）；
+        // 货币符号小字（原型 .invbal-num .cur 17px / 数字 30px）。
+        FittedBox(
+          fit: BoxFit.scaleDown,
+          alignment: Alignment.centerLeft,
+          child: Text.rich(
+            TextSpan(children: [
+              TextSpan(
+                text: '¥',
+                style: TextStyle(
+                  fontSize: big ? 17 : 14,
+                  fontWeight: FontWeight.w700,
+                  color: Colors.white.withValues(alpha: 0.92),
+                ),
+              ),
+              TextSpan(
+                text: amount.toStringAsFixed(2),
+                style: TextStyle(
+                  fontSize: big ? 30 : 25,
+                  fontWeight: FontWeight.w800,
+                  color: Colors.white,
+                  letterSpacing: -0.5,
+                  fontFeatures: const [FontFeature.tabularFigures()],
+                ),
+              ),
+            ]),
+            maxLines: 1,
           ),
         ),
         if (sub != null) ...[
@@ -892,7 +924,15 @@ class _TransferDialogState extends ConsumerState<_TransferDialog> {
                     style: TextStyle(fontSize: 14.5, color: t.on),
                     decoration: InputDecoration(
                       isCollapsed: true,
+                      contentPadding: EdgeInsets.zero,
+                      // 全部边框态置空：外层 _CompactFieldShell 已提供中性描边；不显式关闭则
+                      // 全局 inputDecorationTheme 的 focusedBorder(品牌红) 会在聚焦时冒出红框。
                       border: InputBorder.none,
+                      enabledBorder: InputBorder.none,
+                      focusedBorder: InputBorder.none,
+                      errorBorder: InputBorder.none,
+                      focusedErrorBorder: InputBorder.none,
+                      disabledBorder: InputBorder.none,
                       hintText: '划转金额',
                       hintStyle: TextStyle(fontSize: 14.5, color: t.onv),
                     ),
@@ -1045,7 +1085,15 @@ class _WithdrawDialogState extends ConsumerState<_WithdrawDialog> {
               style: TextStyle(fontSize: 14.5, color: t.on),
               decoration: InputDecoration(
                 isCollapsed: true,
+                contentPadding: EdgeInsets.zero,
+                // 全部边框态置空（同划转金额框）：避免聚焦时全局 focusedBorder(品牌红) 冒红框；
+                // 中性描边由外层 _CompactFieldShell 提供。
                 border: InputBorder.none,
+                enabledBorder: InputBorder.none,
+                focusedBorder: InputBorder.none,
+                errorBorder: InputBorder.none,
+                focusedErrorBorder: InputBorder.none,
+                disabledBorder: InputBorder.none,
                 hintText: '收款账户',
                 hintStyle: TextStyle(fontSize: 14.5, color: t.onv),
               ),

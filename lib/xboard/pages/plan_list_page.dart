@@ -62,7 +62,7 @@ class _PlanListPageState extends ConsumerState<PlanListPage> {
   @override
   Widget build(BuildContext context) {
     return XbBrandScaffold(
-      title: '购买套餐',
+      title: '购买 / 更改套餐',
       // 桌面套餐卡双列网格（原型屏4 .ngrid）；移动 <1000 不受影响。
       maxContentWidth: 1000,
       body: FutureBuilder<List<PlanItem>>(
@@ -165,15 +165,19 @@ class _PlanOptCard extends StatelessWidget {
     final t = XbTokens.of(context);
     final scheme = Theme.of(context).colorScheme;
     final min = _minPeriodPrice;
-    // 特性摘要（原型 .ft / .pft）：HTML content 转纯文本，取前 3 行非空，用 · 连接成一行。
-    final feature = plan.description == null
-        ? ''
+    // 特性行（原型 .ft）：首行流量 GB，其后接 HTML content 转纯文本的非空行；各自独立成行
+    // （原型每条 <div> 单独一行，而非 · 拼接）。最多 4 行防卡过高。
+    final descLines = plan.description == null
+        ? const <String>[]
         : htmlToPlainText(plan.description!)
             .split('\n')
             .map((l) => l.trim())
             .where((l) => l.isNotEmpty)
-            .take(3)
-            .join(' · ');
+            .toList();
+    final features = <String>[
+      '${plan.transferEnableGb} GB',
+      ...descLines,
+    ].take(4).toList();
 
     return GestureDetector(
       onTap: onTap,
@@ -183,68 +187,64 @@ class _PlanOptCard extends StatelessWidget {
         decoration: BoxDecoration(
           color: t.card,
           borderRadius: BorderRadius.circular(XbTokens.rMd),
-          border: Border.all(color: t.line, width: 1.6),
+          // 原型 .planopt 边框 1.8px。
+          border: Border.all(color: t.line, width: 1.8),
         ),
+        // 原型 .planopt：左(名+特性) ←→ 右(价格)，底部对齐；无箭头、无名旁 GB 药丸。
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.end,
           children: [
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
                 children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: EmojiText(plan.name,
-                            style: TextStyle(
-                                fontSize: 15.5,
-                                fontWeight: FontWeight.w600,
-                                color: t.on),
-                            overflow: TextOverflow.ellipsis),
-                      ),
-                      const SizedBox(width: 8),
-                      XbTag('${plan.transferEnableGb} GB'),
-                    ],
-                  ),
-                  if (feature.isNotEmpty) ...[
-                    const SizedBox(height: 5),
-                    EmojiText(feature,
-                        maxLines: 3,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                            fontSize: 12, height: 1.5, color: t.onv)),
-                  ],
-                  if (min != null) ...[
-                    const SizedBox(height: 10),
-                    RichText(
-                      text: TextSpan(
-                        children: [
-                          TextSpan(
-                            text: xbYuan(min.amountYuan),
-                            style: TextStyle(
-                                fontSize: 22,
-                                fontWeight: FontWeight.w700,
-                                color: scheme.primary,
-                                fontFeatures: const [
-                                  FontFeature.tabularFigures()
-                                ]),
-                          ),
-                          TextSpan(
-                            text: ' /${planPeriodLabel(min.period)} 起',
-                            style: TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.w600,
-                                color: t.onv),
-                          ),
-                        ],
-                      ),
+                  EmojiText(plan.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                          fontSize: 15.5,
+                          fontWeight: FontWeight.w600,
+                          color: t.on)),
+                  if (features.isNotEmpty) const SizedBox(height: 7),
+                  for (final f in features)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 2),
+                      child: EmojiText(f,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                              fontSize: 12, height: 1.5, color: t.onv)),
                     ),
-                  ],
                 ],
               ),
             ),
-            const SizedBox(width: 8),
-            Icon(Icons.chevron_right_rounded, color: t.onv),
+            if (min != null) ...[
+              const SizedBox(width: 12),
+              // 价格（原型 .pr）：品牌色大字 + 周期单位小字（底部对齐，无「起」）。
+              RichText(
+                textAlign: TextAlign.right,
+                text: TextSpan(
+                  children: [
+                    TextSpan(
+                      text: xbYuan(min.amountYuan),
+                      style: TextStyle(
+                          fontSize: 22,
+                          fontWeight: FontWeight.w700,
+                          color: scheme.primary,
+                          fontFeatures: const [FontFeature.tabularFigures()]),
+                    ),
+                    TextSpan(
+                      text: ' /${planPeriodLabel(min.period)}',
+                      style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w500,
+                          color: t.onv),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ],
         ),
       ),

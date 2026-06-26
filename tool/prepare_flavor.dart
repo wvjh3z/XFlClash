@@ -138,6 +138,7 @@ String generateFlavorDefinesJson(YamlMap doc,
   final formA = (doc['form_a'] as bool?) ?? false; // 形态 A 开关（可选，默认 false）
   final defines = <String, String>{
     'XB_FLAVOR_ID': flavorId,
+    'XB_APP_NAME': s('appName'),
     'XB_SUBSCRIBE_UA': s('subscribeUserAgent'),
     'XB_API_ENDPOINT': origin,
     'XB_SUBSCRIPTION_ENDPOINT': origin,

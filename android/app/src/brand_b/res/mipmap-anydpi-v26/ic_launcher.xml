@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- brand_b flavor 自适应图标：前景 = 品牌 logo（@mipmap/ic_fg，安全区 66%），
+     背景 = @color/ic_launcher_background（白）。由 tool gen_icons.py 从真 logo 生成。 -->
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@color/ic_launcher_background"/>
+    <foreground android:drawable="@mipmap/ic_fg"/>
+</adaptive-icon>

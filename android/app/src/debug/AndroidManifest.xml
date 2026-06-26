@@ -1,16 +1,9 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:tools="http://schemas.android.com/tools">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <!-- The INTERNET permission is required for development. Specifically,
          the Flutter tool needs it to communicate with the running application
          to allow setting breakpoints, to provide hot reload, etc.
+         （INTERNET 已在 main manifest 声明；debug 不再覆盖 label —— 品牌显示名统一由
+          productFlavor 的 manifestPlaceholders["appName"] 注入，debug 安装包靠 .dev 后缀区分。）
     -->
-    <application
-        android:icon="@mipmap/ic_launcher"
-        android:label="FlClash Debug"
-        tools:replace="android:label">
-        <service
-            android:name=".TileService"
-            android:label="FlClash Debug"
-            tools:replace="android:label" />
-    </application>
+    <uses-permission android:name="android.permission.INTERNET" />
 </manifest>

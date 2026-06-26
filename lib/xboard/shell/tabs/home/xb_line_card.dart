@@ -83,19 +83,26 @@ class XbLineCard extends ConsumerWidget {
         padding: const EdgeInsets.symmetric(vertical: 2),
         child: Row(
           children: [
-            // 国旗方块（原型 .lflag）；无可识别国旗时退回通用网络图标。
-            Container(
-              width: 40,
-              height: 40,
-              alignment: Alignment.center,
-              decoration: BoxDecoration(
-                color: t.sfc,
-                borderRadius: BorderRadius.circular(11),
-              ),
-              child: flag != null
-                  ? EmojiText(flag, style: const TextStyle(fontSize: 21))
-                  : Icon(Icons.lan_outlined, size: 19, color: t.onv),
-            ),
+            // 国旗（原型 .lflag）：不给背景方框上色（与出口 IP 卡一致，避免白旗在浅色填充上融合）；
+            // 无可识别国旗时退回通用网络图标（图标需要可见底色，故仅图标态保留浅色块）。
+            flag != null
+                ? SizedBox(
+                    width: 40,
+                    height: 40,
+                    child: Center(
+                      child: EmojiText(flag, style: const TextStyle(fontSize: 24)),
+                    ),
+                  )
+                : Container(
+                    width: 40,
+                    height: 40,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: t.sfc,
+                      borderRadius: BorderRadius.circular(11),
+                    ),
+                    child: Icon(Icons.lan_outlined, size: 19, color: t.onv),
+                  ),
             const SizedBox(width: 12),
             Expanded(
               child: Column(
@@ -149,9 +156,10 @@ class XbLineCard extends ConsumerWidget {
             children: [
               EmojiText(
                 title,
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 15,
                   fontWeight: FontWeight.w500,
+                  color: scheme.onSurface,
                 ),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,

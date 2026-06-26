@@ -50,11 +50,9 @@ class XbIpCard extends ConsumerWidget {
                   width: 34,
                   height: 34,
                   alignment: Alignment.center,
-                  decoration: BoxDecoration(
-                    color: t.sfc,
-                    borderRadius: BorderRadius.circular(XbTokens.rSm),
-                  ),
-                  child: EmojiText(flag, style: const TextStyle(fontSize: 19)),
+                  // 不给背景方框上色（用户决策）：白色国旗在浅色填充上会糊；去掉填充与边框后
+                  // 国旗 emoji 直接落在卡片上，更清晰。
+                  child: EmojiText(flag, style: const TextStyle(fontSize: 22)),
                 )
               : XbIconBadge(
                   icon: Icons.public,

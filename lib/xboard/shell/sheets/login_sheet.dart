@@ -9,6 +9,7 @@ library;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'package:fl_clash/xboard/config/xboard_config.dart';
 import 'package:fl_clash/xboard/models/xb_result.dart';
 import 'package:fl_clash/xboard/providers/auth_state_provider.dart';
 import 'package:fl_clash/xboard/providers/xboard_providers.dart';
@@ -78,7 +79,7 @@ class _LoginSheetState extends ConsumerState<LoginSheet>
     final ready = ref.watch(bootstrapReadyProvider);
 
     return XbSheetScaffold(
-      title: '登录 MyClient',
+      title: '登录 ${XboardConfig.current.appName}',
       subtitle: '登录后同步你的专属节点',
       banner: _banner,
       footer: Row(

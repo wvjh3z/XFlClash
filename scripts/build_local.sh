@@ -1,13 +1,15 @@
 #!/usr/bin/env bash
-# 本地构建脚本（形态 A / brand_a / MyClient）。规范见 .github/BUILD_AND_RELEASE.md。
+# 本地构建脚本（形态 A，多品牌）。规范见 .github/BUILD_AND_RELEASE.md。
 #
 # 用法:
-#   bash scripts/build_local.sh release [arm64|x64]   # release APK（默认 arm64，真机分发）
-#   bash scripts/build_local.sh debug                 # debug APK（全 ABI，模拟器用）
+#   bash scripts/build_local.sh release [arm64|x64] [flavor]   # release APK（默认 arm64 / brand_a）
+#   bash scripts/build_local.sh debug   [arch]      [flavor]   # debug APK
+#   例：bash scripts/build_local.sh release arm64 brand_b
+#   flavor 默认 brand_a（保持旧行为）；可选 brand_a / brand_b。
 #
 # 版本号（两套，不同来源）:
-#   产品版本 versionName ← flavors/brand_a/flavor.yaml（如 0.0.1）；注入 XB_PRODUCT_VERSION，
-#                          「我的」Tab 关于显示 v{版本}-{时间戳}（MyClient 自有，与底座脱钩）
+#   产品版本 versionName ← flavors/<flavor>/flavor.yaml（如 0.0.1）；注入 XB_PRODUCT_VERSION，
+#                          「我的」Tab 关于显示 v{版本}-{时间戳}（自有，与底座脱钩）
 #   底座版本 build-name  ← pubspec.yaml version（FlClash 0.8.93）；喂 packageInfo，
 #                          设置→关于（原生 AboutView）显示底座版本，沿用上游不改
 #   versionCode          ← scripts/build_number.txt，每次 release 构建自动 +1（Android 覆盖更新）
@@ -18,11 +20,13 @@ set -euo pipefail
 
 MODE="${1:-release}"
 ARCH="${2:-arm64}"
+FLAVOR="${3:-brand_a}"
 
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_DIR"
 
-FLAVOR_YAML="flavors/brand_a/flavor.yaml"
+FLAVOR_YAML="flavors/${FLAVOR}/flavor.yaml"
+[ -f "$FLAVOR_YAML" ] || { echo "✗ 找不到 flavor 配置：$FLAVOR_YAML"; exit 1; }
 BUILD_NUM_FILE="scripts/build_number.txt"
 
 # 产品版本名（MyClient 自有，注入 dart-define 供「我的」Tab 关于显示 v{版本}-{时间戳}）
@@ -67,7 +71,7 @@ flutter pub get >/dev/null 2>&1 || true
 # 注：CI（公开仓库）不走本脚本——release-build.yml 用独立加密 secret BRAND_A_AES_KEY_B64 注入。
 # 出厂 fallback 直接打包 flavors/brand_a/assets/fallback.bin（pubspec 已声明），无需拷贝。
 echo "=== prepare_flavor：生成 flavor_defines.json（含 aesKey）==="
-dart run tool/prepare_flavor.dart --flavor brand_a --target test || true
+dart run tool/prepare_flavor.dart --flavor "$FLAVOR" --target test || true
 
 if [ "$MODE" = "release" ]; then
   case "$ARCH" in
@@ -75,18 +79,26 @@ if [ "$MODE" = "release" ]; then
     x64)   TP="android-x64";   ABISUF="x86_64" ;;
     *) echo "未知 arch: $ARCH（用 arm64 或 x64）"; exit 1 ;;
   esac
-  flutter build apk --release --flavor brand_a \
+  # 限定单一 ABI（build.gradle.kts 读 local.properties 的 XB_TARGET_ABI → abiFilters）：不 split
+  # 也只打这一个 ABI，versionCode 因此不被偏移，等于 build-number。用 local.properties 传值而非 env
+  # （gradle 守护进程 env 陈旧）；构建后（含失败）经 trap 移除，避免污染 IDE / flutter run 的多 ABI。
+  LP="$REPO_DIR/android/local.properties"
+  sed -i '/^XB_TARGET_ABI=/d' "$LP"
+  echo "XB_TARGET_ABI=$ABISUF" >> "$LP"
+  trap 'sed -i "/^XB_TARGET_ABI=/d" "$LP"' EXIT
+  flutter build apk --release --flavor "$FLAVOR" \
     "${COMMON_DEFINES[@]}" \
     --build-name="$BASE_VERSION" \
     --build-number="$BUILD_NUMBER" \
-    --split-per-abi --target-platform "$TP"
-  OUT="build/app/outputs/flutter-apk/app-${ABISUF}-brand_a-release.apk"
+    --target-platform "$TP"
+  # 单一 ABI 包（不 --split-per-abi）→ versionCode 不被 abi 偏移，等于 build-number（自分发侧载用）。
+  OUT="build/app/outputs/flutter-apk/app-${FLAVOR}-release.apk"
 else
-  flutter build apk --debug --flavor brand_a \
+  flutter build apk --debug --flavor "$FLAVOR" \
     "${COMMON_DEFINES[@]}" \
     --build-name="$BASE_VERSION" \
     --build-number="$BUILD_NUMBER"
-  OUT="build/app/outputs/flutter-apk/app-brand_a-debug.apk"
+  OUT="build/app/outputs/flutter-apk/app-${FLAVOR}-debug.apk"
 fi
 
 echo "=== done ==="
@@ -95,10 +107,11 @@ echo "  buildTag : $TAG"
 echo "  apk      : $OUT"
 ls -la "$OUT" 2>/dev/null || echo "  (产物未找到，检查上面构建日志)"
 
-# === 自动部署到 nginx 下载站（仅 release arm64）===
+# === 自动部署到 nginx 下载站（仅 brand_a release arm64）===
 # nginx 监听 8080，root=/www/wwwroot/apkdl，开机自启、进程稳定（替代易挂的 python http.server）。
 # 下载 URL：http://147.135.105.62:8080/MyClient-{versionName}-android-arm64-v8a.apk（插件命名规则）。
-if [ "$MODE" = "release" ] && [ "$ARCH" = "arm64" ]; then
+# ⚠️ 此部署是 brand_a 专属基建（固定服务器 + 命名规则匹配 brand_a 应用内更新器），其他 flavor 不部署。
+if [ "$MODE" = "release" ] && [ "$ARCH" = "arm64" ] && [ "$FLAVOR" = "brand_a" ]; then
   DEPLOY_DIR="/www/wwwroot/apkdl"
   DEPLOY_NAME="MyClient-${VERSION_NAME}-android-arm64-v8a.apk"
   if [ -f "$OUT" ] && [ -d "$DEPLOY_DIR" ]; then

@@ -9,6 +9,7 @@ library;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'package:fl_clash/xboard/config/xboard_config.dart';
 import 'package:fl_clash/xboard/providers/auth_state_provider.dart';
 import 'package:fl_clash/xboard/providers/xboard_providers.dart';
 import 'package:fl_clash/xboard/widgets/xb_center_toast.dart';
@@ -331,7 +332,7 @@ class _HomeHeader extends StatelessWidget {
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           Text(
-            'MyClient',
+            XboardConfig.current.appName,
             style: Theme.of(context).textTheme.headlineSmall,
           ),
           // 有新版本时显示绿色胶囊提示。

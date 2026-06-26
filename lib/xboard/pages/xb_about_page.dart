@@ -118,7 +118,7 @@ class _AboutBodyState extends ConsumerState<_AboutBody> {
           ),
           const SizedBox(height: 16),
           // App Name
-          Text('MyClient',
+          Text(XboardConfig.current.appName,
               style: TextStyle(
                   fontSize: 19,
                   fontWeight: FontWeight.w700,
@@ -207,7 +207,7 @@ class _AboutBodyState extends ConsumerState<_AboutBody> {
           ),
           const SizedBox(height: 24),
           Text(
-            '© 2025 MyClient · All rights reserved',
+            '© 2025 ${XboardConfig.current.appName} · All rights reserved',
             style: TextStyle(fontSize: 10, color: scheme.onSurfaceVariant),
           ),
             ],

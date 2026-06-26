@@ -21,6 +21,7 @@ class XboardConfig {
     required this.devSubscriptionEndpoint,
     required this.debug,
     required this.kIsTest,
+    this.appName = 'MyClient',
     this.flavorId = 'brand_a',
     this.brandColor = 0xFFD92E1A,
     this.termsUrl = 'https://example.com/terms',
@@ -36,11 +37,14 @@ class XboardConfig {
   });
 
   /// 形态 A 编译期开关（v2.0 自定义三 Tab 商业客户端外壳；spec `xboard-form-a-ui-revamp`）。
-  ///
   /// `true` → `Application.home` 走 `XboardAppShell`（接缝点 #9，仅 mobile）；
   /// `false`（默认）→ 形态 B（FlClash 原生壳 + 「我的服务」侧栏）。
   /// flavor 注入（`XB_FORM_A` dart-define / flavor.yaml `form_a`），业务代码 0 硬编码（NFR-2）。
   final bool formA;
+
+  /// 品牌应用显示名（flavor 注入 `XB_APP_NAME` / flavor.yaml `appName`，业务代码 0 硬编码 NFR-2）。
+  /// app 内 UI（首页标题 / 登录 sheet / 导航栏 / 关于页）显示用；原生 android:label 另由 gradle 注入。
+  final String appName;
 
   /// 订阅 UA（含且仅含一个 `flclash` 子串，F202/F203）。
   final String subscribeUserAgent;
@@ -106,6 +110,7 @@ class XboardConfig {
   factory XboardConfig.fromEnvironment() {
     const ua = String.fromEnvironment('XB_SUBSCRIBE_UA',
         defaultValue: 'Multi-Platform-Client/v0.1.0 flclash');
+    const appName = String.fromEnvironment('XB_APP_NAME', defaultValue: 'MyClient');
     const api =
         String.fromEnvironment('XB_API_ENDPOINT', defaultValue: 'https://api.example.com');
     const sub = String.fromEnvironment('XB_SUBSCRIPTION_ENDPOINT',
@@ -156,6 +161,7 @@ class XboardConfig {
 
     return XboardConfig(
       subscribeUserAgent: ua,
+      appName: appName,
       devApiEndpoint: api,
       devSubscriptionEndpoint: sub,
       debug: debug,

@@ -1062,6 +1062,9 @@ enum XbSkeletonKind {
 
   /// 详情页（套餐详情 / 支付详情）：标题块 + 几张信息卡（标题行 + 若干键值行）。
   detail,
+
+  /// 邀请返佣页：余额 hero 卡（双列 + 双按钮）+ 2×2 统计格 + 两行列表入口占位。
+  invite,
 }
 
 /// 固定尺寸骨架块（圆角灰块 + shimmer，复用 [XbSkeletonBar] 的扫光）。
@@ -1104,6 +1107,28 @@ class XbSkeletonView extends StatelessWidget {
             _SkeletonInfoCard(lines: 4),
             SizedBox(height: 14),
             _SkeletonInfoCard(lines: 3),
+          ],
+        ),
+      XbSkeletonKind.invite => ListView(
+          padding: const EdgeInsets.all(16),
+          children: const [
+            _SkeletonHeroCard(),
+            SizedBox(height: 13),
+            Row(children: [
+              Expanded(child: _SkeletonStatCell()),
+              SizedBox(width: 10),
+              Expanded(child: _SkeletonStatCell()),
+            ]),
+            SizedBox(height: 10),
+            Row(children: [
+              Expanded(child: _SkeletonStatCell()),
+              SizedBox(width: 10),
+              Expanded(child: _SkeletonStatCell()),
+            ]),
+            SizedBox(height: 16),
+            _SkeletonCard(),
+            SizedBox(height: 10),
+            _SkeletonCard(),
           ],
         ),
     };
@@ -1179,6 +1204,107 @@ class _SkeletonInfoCard extends StatelessWidget {
               ],
             ),
           ],
+        ],
+      ),
+    );
+  }
+}
+
+/// 邀请页余额 hero 卡骨架：双列（标签条 + 大数字块，57/43）+ 竖分隔 + 双按钮条。
+class _SkeletonHeroCard extends StatelessWidget {
+  const _SkeletonHeroCard();
+
+  @override
+  Widget build(BuildContext context) {
+    final t = XbTokens.of(context);
+    return Container(
+      padding: const EdgeInsets.fromLTRB(20, 18, 20, 18),
+      decoration: BoxDecoration(
+        color: t.card,
+        borderRadius: BorderRadius.circular(XbTokens.rLg),
+        border: Border.all(color: t.line),
+        boxShadow: t.shadow1,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Expanded(
+                flex: 57,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    XbSkeletonBar(widthFactor: 0.5, height: 12),
+                    SizedBox(height: 10),
+                    XbSkeletonBox(width: 130, height: 28),
+                  ],
+                ),
+              ),
+              Container(
+                width: 1,
+                height: 44,
+                margin: const EdgeInsets.symmetric(horizontal: 16),
+                color: t.line,
+              ),
+              const Expanded(
+                flex: 43,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    XbSkeletonBar(widthFactor: 0.6, height: 12),
+                    SizedBox(height: 10),
+                    XbSkeletonBox(width: 90, height: 24),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 24),
+          const Row(
+            children: [
+              Expanded(child: XbSkeletonBar(height: 44, radius: XbTokens.rMd)),
+              SizedBox(width: 9),
+              Expanded(child: XbSkeletonBar(height: 44, radius: XbTokens.rMd)),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// 邀请页 2×2 统计格单元骨架：左小图标块 + 标签条，下方一行大数字块。
+class _SkeletonStatCell extends StatelessWidget {
+  const _SkeletonStatCell();
+
+  @override
+  Widget build(BuildContext context) {
+    final t = XbTokens.of(context);
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: t.card,
+        borderRadius: BorderRadius.circular(XbTokens.rMd),
+        border: Border.all(color: t.line),
+        boxShadow: t.shadow1,
+      ),
+      child: const Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            children: [
+              XbSkeletonBox(width: 26, height: 26),
+              SizedBox(width: 7),
+              Expanded(child: XbSkeletonBar(widthFactor: 0.7, height: 12)),
+            ],
+          ),
+          SizedBox(height: 12),
+          XbSkeletonBox(width: 60, height: 20),
         ],
       ),
     );

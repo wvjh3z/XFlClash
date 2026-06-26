@@ -16,6 +16,7 @@ import 'package:fl_clash/widgets/widgets.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'package:fl_clash/xboard/config/xboard_config.dart';
 import 'package:fl_clash/xboard/models/xb_domain_subscription.dart';
 import 'package:fl_clash/xboard/providers/auth_state_provider.dart';
 import 'package:fl_clash/xboard/providers/user_profile_provider.dart';
@@ -138,7 +139,7 @@ class _RailBrand extends StatelessWidget {
           const SizedBox(width: 12),
           Flexible(
             child: Text(
-              'MyClient',
+              XboardConfig.current.appName,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: TextStyle(

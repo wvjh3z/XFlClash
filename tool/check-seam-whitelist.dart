@@ -53,6 +53,8 @@ const _ourAdditions = <String>[
   // W8.5.4 品牌图标/标签 flavor sourceSet（新增「加而不改」，不触碰上游 main/debug，PATCHES.md #4.ter 已登记）。
   'android/app/src/brand_a/',
   'android/app/src/brand_aDebug/',
+  // brand_b 品牌 flavor sourceSet（新增「加而不改」，与 brand_a 对称；PATCHES.md #4.quinquies 登记）。
+  'android/app/src/brand_b/',
   // 应用内更新（档2）Android 原生支撑：新增 plugin/provider/资源（PATCHES.md #4.quater 登记，
   // MainActivity.kt 注册行为接缝点 modification 单独登记）。
   'android/app/src/main/kotlin/com/follow/clash/plugins/ApkInstallerPlugin.kt',
