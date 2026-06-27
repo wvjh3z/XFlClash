@@ -111,8 +111,9 @@ class _DetailBody extends ConsumerWidget {
                   extensions: [
                     TagExtension(
                       tagsToExtend: const {'img'},
-                      builder: (ctx) =>
-                          _TutorialImage(ctx.attributes['src'] ?? ''),
+                      builder: (ctx) => _TutorialImage(
+                          ctx.attributes['src'] ?? '',
+                          base: linkBase),
                     ),
                     // 「复制」按钮（apple-card 共享账号）：可见 .value 是脱敏的，完整值藏在
                     // data-original-onclick="copy('完整值')"（后端约定）。flutter_html 无 JS，
@@ -257,8 +258,11 @@ class _CopyButton extends StatelessWidget {
 /// 加密订阅同款的 [buildReleasedIsolatedDio]（findProxy=DIRECT + 证书放行）直连拉图，稳定可靠。
 /// 字节做进程内缓存，避免 flutter_html 重建时重复请求。
 class _TutorialImage extends StatefulWidget {
-  const _TutorialImage(this.src);
+  const _TutorialImage(this.src, {required this.base});
   final String src;
+
+  /// 相对 src 的解析基准（当前站点根 = API endpoint）。与正文链接同源（html_link 框架）。
+  final String base;
 
   @override
   State<_TutorialImage> createState() => _TutorialImageState();
@@ -274,7 +278,10 @@ class _TutorialImageState extends State<_TutorialImage> {
   @override
   void initState() {
     super.initState();
-    if (widget.src.isNotEmpty) _future = _load(widget.src);
+    // 相对 src（images/x.png、/img/y.png）经 html_link 框架按 base 解析成绝对 http(s)；
+    // 绝对 URL 原样；无法解析（data:/锚点等）→ null → 不加载（显空占位）。与正文链接同一机制。
+    final resolved = resolveHtmlLink(widget.src, base: widget.base);
+    if (resolved != null) _future = _load(resolved.toString());
   }
 
   Future<Uint8List> _load(String url) async {

@@ -211,11 +211,11 @@ XbAsyncView(
 |---|---|---|
 | `var(--x)` / `linear-gradient` 不支持、整页 `<style>` 不应用 | `htmlRenderableBody()` 清洗（取 body 内层、去 style/head/注释/占位、剥 var()、无背景元素剥 color 随主题） | `util/html_text.dart` |
 | Twemoji 含数字字形 → 全局 fontFamilyFallback 把**正文数字吃成不可见** | `wrapEmojiForHtml()` 只把 emoji 片段包成 `<span class="xbemoji">`，Style map 仅 `.xbemoji` 套 Twemoji；数字/正文走默认字体 | `util/html_text.dart` |
-| **相对链接**（`downloads/x.apk`、`/#/dashboard`）flutter_html 原样回传 → 只认绝对 URL 则不跳转 | **`resolveHtmlLink(raw, base)` / `openHtmlLink(raw, base)`**：归一绝对/相对/mailto/锚点/js → 可打开 Uri 或忽略；`base` = 当前 API endpoint | `util/html_link.dart` |
+| **相对链接**（`downloads/x.apk`、`/#/dashboard`）flutter_html 原样回传 → 只认绝对 URL 则不跳转 | **`resolveHtmlLink(raw, base)` / `openHtmlLink(raw, base)`**：归一绝对/相对/mailto/锚点/js → 可打开 Uri 或忽略；`base` = 当前 API endpoint。**img 相对 src 同走 `resolveHtmlLink`**（`_TutorialImage`） | `util/html_link.dart` |
 | flutter_html 无 JS → `<button data-original-onclick="copy('完整值')">` 失效、可见值脱敏 | `TagExtension('button')` 取 `data-original-onclick` 真值 → 可点复制按钮 | `pages/tutorial_detail_page.dart` |
 | 暗色模式正文压暗底不可见 | flutter_html `body` Style `color: t.on`（随主题） | 各详情页 |
 
-**铁律**：所有用 flutter_html 渲染后端 HTML 的页面，`onLinkTap` **一律走 `openHtmlLink(url, base: ref.read(apiEndpointProvider))`**，不在各页自行判断 scheme（曾因只认绝对 URL 漏掉相对链接）。正文 `data` 一律 `wrapEmojiForHtml(htmlRenderableBody(...))`（教程整页）或 `wrapEmojiForHtml(...)`（套餐片段）。契约测试：`test/xboard/util/html_link_test.dart` + `html_text_test.dart`。
+**铁律**：所有用 flutter_html 渲染后端 HTML 的页面，`onLinkTap` **一律走 `openHtmlLink(url, base: ref.read(apiEndpointProvider))`**，**img 相对 src 一律走 `resolveHtmlLink(src, base)`**（`_TutorialImage`），不在各页自行判断 scheme、也不在适配层预转（已移除只覆盖根相对的 `_absolutizeHtmlUrls`，**相对解析单一机制**）。正文 `data` 一律 `wrapEmojiForHtml(htmlRenderableBody(...))`（教程整页）或 `wrapEmojiForHtml(...)`（套餐片段）。契约测试：`test/xboard/util/html_link_test.dart` + `html_text_test.dart`。
 
 ---
 

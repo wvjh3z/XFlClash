@@ -549,9 +549,11 @@ class XboardServiceImpl implements XboardService {
         return XbTutorialDetail(
           id: a.id,
           title: a.title,
-          // 正文里相对地址（如 /images/x.jpg、/#/dashboard）按面板 host 转绝对，
-          // 否则 flutter_html 的 <img> 无法加载（仅相对路径无 host）。
-          body: _absolutizeHtmlUrls(a.body, _sdk.baseUrl),
+          // 正文相对地址（img src / a href）的解析统一在消费端做（html_link 框架的
+          // resolveHtmlLink，base=apiEndpoint）：_TutorialImage 解析 img src、onLinkTap
+          // 解析 href。故此处不再在适配层预转绝对（去掉只覆盖「根相对」的 _absolutizeHtmlUrls，
+          // 单一机制，§11）。
+          body: a.body,
           updatedAt: _epochToDate(a.updatedAt),
         );
       });
@@ -568,23 +570,6 @@ class XboardServiceImpl implements XboardService {
   DateTime _epochToDate(int epochSeconds) => epochSeconds > 0
       ? DateTime.fromMillisecondsSinceEpoch(epochSeconds * 1000)
       : DateTime.now();
-
-  /// 把 HTML 里的根相对 URL（`src`/`href` 以 `/` 开头）按面板 [baseUrl] 转绝对地址。
-  /// baseUrl 空 / 非法 → 原样返回。协议相对（`//`）与绝对 URL 不受影响。
-  String _absolutizeHtmlUrls(String html, String? baseUrl) {
-    if (html.isEmpty || baseUrl == null || baseUrl.isEmpty) return html;
-    final base = Uri.tryParse(baseUrl);
-    if (base == null) return html;
-    return html.replaceAllMapped(
-      RegExp(r'''(src|href)=("|')(/[^"'/][^"']*)\2''', caseSensitive: false),
-      (m) {
-        final attr = m.group(1);
-        final q = m.group(2);
-        final path = m.group(3)!;
-        return '$attr=$q${base.resolve(path)}$q';
-      },
-    );
-  }
 
   double? _centsToYuan(double? cents) => cents == null ? null : cents / 100;
 
