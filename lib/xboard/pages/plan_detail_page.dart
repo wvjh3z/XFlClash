@@ -22,6 +22,7 @@ import '../providers/xboard_providers.dart';
 import '../shell/widgets/xb_responsive.dart';
 import '../util/error_text.dart';
 import '../util/format.dart';
+import '../util/html_link.dart';
 import '../util/html_text.dart' show wrapEmojiForHtml, kXbEmojiClass;
 import '../util/period_label.dart';
 import '../widgets/xb_ui_kit.dart';
@@ -407,7 +408,9 @@ class _PlanDetailPageState extends ConsumerState<PlanDetailPage> {
         // emoji-only：仅 emoji span 套 Twemoji（含国旗，跨端一致），不污染数字/文字。
         '.$kXbEmojiClass': Style(fontFamily: 'Twemoji'),
       },
-      onLinkTap: (url, _, _) {}, // 详情内链接不跳转（v0.1）。
+      // 统一链接框架（含相对链接解析）；base = 当前站点根（API endpoint）。
+      onLinkTap: (url, _, _) =>
+          openHtmlLink(url, base: ref.read(apiEndpointProvider)),
     );
   }
 

@@ -15,12 +15,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_html/flutter_html.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import '../models/xb_tutorial.dart';
 import '../providers/tutorial_provider.dart';
+import '../providers/xboard_providers.dart' show apiEndpointProvider;
 import '../services/xboard_release_dio.dart';
 import '../util/format.dart';
+import '../util/html_link.dart';
 import '../util/html_text.dart';
 import '../widgets/xb_async_view.dart';
 import '../widgets/xb_theme.dart' show XbTokens;
@@ -61,14 +62,16 @@ class _DetailBody extends ConsumerWidget {
         error: async.hasError ? async.error : null,
         errorFallback: '加载教程失败',
         onRetry: () => ref.invalidate(tutorialDetailProvider(id)),
-        builder: (context) => _content(context, async.requireValue),
+        builder: (context) => _content(context, ref, async.requireValue),
       ),
     );
   }
 
-  Widget _content(BuildContext context, XbTutorialDetail d) {
+  Widget _content(BuildContext context, WidgetRef ref, XbTutorialDetail d) {
     final t = XbTokens.of(context);
     final brand = Theme.of(context).colorScheme.primary;
+    // 相对链接（downloads/x.apk、/#/dashboard）的解析基准 = 当前站点根（API endpoint）。
+    final linkBase = ref.read(apiEndpointProvider);
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 28),
       children: [
@@ -196,7 +199,8 @@ class _DetailBody extends ConsumerWidget {
                     '.status-ok':
                         Style(color: const Color(0xFF16A34A), fontSize: FontSize(13)),
                   },
-                  onLinkTap: (url, _, _) => _openLink(url), // 外链 → 外部浏览器打开。
+                  onLinkTap: (url, _, _) =>
+                      openHtmlLink(url, base: linkBase), // 统一链接框架（含相对链接解析）。
                 ),
               ],
             ),
@@ -204,18 +208,6 @@ class _DetailBody extends ConsumerWidget {
         ),
       ],
     );
-  }
-}
-
-/// 打开正文里的外链 → 外部浏览器（永不抛；仅 http/https）。
-Future<void> _openLink(String? url) async {
-  if (url == null || url.isEmpty) return;
-  final uri = Uri.tryParse(url);
-  if (uri == null || !(uri.isScheme('http') || uri.isScheme('https'))) return;
-  try {
-    await launchUrl(uri, mode: LaunchMode.externalApplication);
-  } catch (_) {
-    // 无可用浏览器 / 平台限制 → 静默（不崩、不打扰）。
   }
 }
 
