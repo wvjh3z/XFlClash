@@ -215,26 +215,30 @@ class _PlanOptCard extends StatelessWidget {
                 style: TextStyle(fontSize: 12, height: 1.5, color: t.onv)),
             if (min != null) ...[
               const SizedBox(height: 8),
-              // 第三行：价格独占一行（品牌色大字 + 周期单位小字）。
-              RichText(
-                text: TextSpan(
-                  children: [
-                    TextSpan(
-                      text: xbYuan(min.amountYuan),
-                      style: TextStyle(
-                          fontSize: 22,
-                          fontWeight: FontWeight.w700,
-                          color: scheme.primary,
-                          fontFeatures: const [FontFeature.tabularFigures()]),
-                    ),
-                    TextSpan(
-                      text: ' /${planPeriodLabel(min.period)}',
-                      style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w500,
-                          color: t.onv),
-                    ),
-                  ],
+              // 第三行：价格独占一行、右对齐（品牌色大字 + 周期单位小字）。
+              Align(
+                alignment: Alignment.centerRight,
+                child: RichText(
+                  textAlign: TextAlign.right,
+                  text: TextSpan(
+                    children: [
+                      TextSpan(
+                        text: xbYuan(min.amountYuan),
+                        style: TextStyle(
+                            fontSize: 22,
+                            fontWeight: FontWeight.w700,
+                            color: scheme.primary,
+                            fontFeatures: const [FontFeature.tabularFigures()]),
+                      ),
+                      TextSpan(
+                        text: ' /${planPeriodLabel(min.period)}',
+                        style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w500,
+                            color: t.onv),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ],
