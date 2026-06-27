@@ -214,7 +214,7 @@ class _PlanOptCard extends StatelessWidget {
             XbFitText(summary,
                 style: TextStyle(fontSize: 12, height: 1.5, color: t.onv)),
             if (min != null) ...[
-              const SizedBox(height: 8),
+              const SizedBox(height: 2),
               // 第三行：价格独占一行、右对齐（品牌色大字 + 周期单位小字）。
               Align(
                 alignment: Alignment.centerRight,
