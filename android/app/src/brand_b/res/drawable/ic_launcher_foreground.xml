@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- brand_b 启动闪屏前景：复用品牌自适应图标的前景位图 @mipmap/ic_fg。
+     覆盖上游 FlClash 的 drawable/ic_launcher_foreground（矢量），使 Android 12+ 冷启动闪屏
+     （styles values-v27 的 windowSplashScreenAnimatedIcon）显示品牌 logo 而非 FlClash 图标。
+     与 brand_a 对称（#4.ter / #4.quinquies）。 -->
+<bitmap xmlns:android="http://schemas.android.com/apk/res/android"
+    android:src="@mipmap/ic_fg"
+    android:gravity="center" />
