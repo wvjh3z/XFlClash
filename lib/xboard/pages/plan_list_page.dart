@@ -165,8 +165,8 @@ class _PlanOptCard extends StatelessWidget {
     final t = XbTokens.of(context);
     final scheme = Theme.of(context).colorScheme;
     final min = _minPeriodPrice;
-    // 只展示 1 行套餐详情摘要：取 description 里首个含数字的内容行（流量/网速行，最具信息量；
-    // 跳过「📦 流量明细」这类纯标题段），无则回退「X GB」。整行用 XbFitText 完整展示、不省略。
+    // 只展示 1 行套餐详情摘要：直接取 description 的第一行（内容由后台描述自行控制，
+    // 客户端不挑拣）。整行用 XbFitText 完整展示、不省略。
     final descLines = plan.description == null
         ? const <String>[]
         : htmlToPlainText(plan.description!)
@@ -174,10 +174,8 @@ class _PlanOptCard extends StatelessWidget {
             .map((l) => l.trim())
             .where((l) => l.isNotEmpty)
             .toList();
-    final summary = descLines.firstWhere(
-      (l) => RegExp(r'\d').hasMatch(l),
-      orElse: () => '${plan.transferEnableGb} GB',
-    );
+    final summary =
+        descLines.isNotEmpty ? descLines.first : '${plan.transferEnableGb} GB';
 
     return GestureDetector(
       onTap: onTap,
