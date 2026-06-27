@@ -132,14 +132,17 @@ void main() {
     expect(t.takeException(), isNull);
     // 结构对照原型 nodes('recommend')：标题「选择线路」+ 刷新节点 + 顶部分组 tab +
     // 类型标签 url-test + 测延迟 + 首项「自动」+ 节点名。
-    expect(find.text('选择线路'), findsOneWidget);
-    expect(find.text('刷新节点'), findsOneWidget);
-    expect(find.text('智能优选'), findsWidgets); // 顶部分组 tab
-    expect(find.text('香港'), findsWidgets);
-    expect(find.text('测延迟'), findsOneWidget);
-    expect(find.text('自动'), findsOneWidget); // url-test 首项「自动」标
-    expect(find.textContaining('url-test'), findsOneWidget); // 类型标签
-    expect(find.text('🇯🇵 东京 IEPL 02'), findsOneWidget);
+    // 注：分组 tab / 节点名经 EmojiText（=RichText）渲染，find.text 默认不匹配 RichText，
+    //     故全部加 findRichText: true（纯增量，仍匹配普通 Text）。
+    expect(find.text('选择线路', findRichText: true), findsOneWidget);
+    expect(find.text('刷新节点', findRichText: true), findsOneWidget);
+    expect(find.text('智能优选', findRichText: true), findsWidgets); // 顶部分组 tab
+    expect(find.text('香港', findRichText: true), findsWidgets);
+    expect(find.text('测延迟', findRichText: true), findsOneWidget);
+    expect(find.text('自动', findRichText: true), findsOneWidget); // url-test 首项「自动」标
+    expect(find.textContaining('url-test', findRichText: true),
+        findsOneWidget); // 类型标签
+    expect(find.text('🇯🇵 东京 IEPL 02', findRichText: true), findsOneWidget);
     await expectLater(
         find.byType(NodesTab), matchesGoldenFile('goldens/nodes_recommend.png'));
   });

@@ -1,13 +1,16 @@
-/// 轻量 HTML → 纯文本（套餐描述等富文本字段；零依赖，不引入 flutter_html）。
+/// HTML 文本工具：纯文本降级（`htmlToPlainText`）/ flutter_html 正文清洗（`htmlRenderableBody`）
+/// / emoji 片段包裹（`wrapEmojiForHtml`，仅依赖 `emoji_regex`，不引入 flutter_html）。
 ///
 /// Xboard 后端套餐 `content`/`description` 常是富文本编辑器存的 HTML（`<br>` / `<p>` /
-/// `<ul><li>` / `<strong>` 等）。客户端 v0.1 不做完整 HTML 渲染，转纯文本 + 保留换行/列表语义：
+/// `<ul><li>` / `<strong>` 等）。`htmlToPlainText` 转纯文本 + 保留换行/列表语义：
 /// - `<br>` / `</p>` / `</li>` / `</div>` → 换行
 /// - `<li>` → `• `（列表项前缀）
 /// - 其余标签剥除
 /// - HTML 实体解码（`&amp;` `&lt;` `&nbsp;` 等）
 /// - 折叠多余空行（≥3 连续换行 → 2）
 library;
+
+import 'package:emoji_regex/emoji_regex.dart';
 
 /// 把 HTML 片段转为带换行/列表语义的纯文本。非 HTML 输入原样 trim 返回。
 String htmlToPlainText(String input) {
@@ -58,6 +61,37 @@ String _decodeEntities(String s) {
 /// 是否含 HTML 标签（用于判断是否需要转换；纯文本可跳过）。
 bool looksLikeHtml(String s) =>
     RegExp(r'<\s*[a-zA-Z/][^>]*>').hasMatch(s) || s.contains('&');
+
+/// `wrapEmojiForHtml` 给 emoji 片段套的 class（flutter_html Style map 据此只给 emoji 套
+/// Twemoji 字体）。
+const String kXbEmojiClass = 'xbemoji';
+
+/// 把 HTML 文本里的 emoji 片段包成 `<span class="xbemoji">…</span>`，供 flutter_html 渲染。
+///
+/// **为什么需要**（与 `EmojiText` 同源策略）：Twemoji 是彩色 emoji 字体，其 cmap **含 ASCII
+/// 数字 0-9 / `#` / `*`**（keycap emoji 的基字）。若把 Twemoji 设为整段 body 的
+/// `fontFamilyFallback`，flutter_html 会把普通数字也回退给 Twemoji 渲染成不可见的 COLR 基字
+/// → **数字消失**（CJK / 拉丁字母不受影响，因 Twemoji 不含其字形）。
+///
+/// 故**不**用全局 fallback，而是只把真正的 emoji 包进 `.xbemoji` span，Style map 里
+/// `'.xbemoji': Style(fontFamily: 'Twemoji')` 精确套字体；数字 / 正文走默认字体，正常显示。
+///
+/// **只处理标签之间的文本**（`onNonMatch`），不碰标签内部（属性里不会有 emoji，且避免破坏标签）。
+String wrapEmojiForHtml(String html) {
+  if (html.isEmpty) return html;
+  final emoji = emojiRegex();
+  // 按「标签 / 非标签文本」切分：标签原样保留，仅在文本段内包裹 emoji。
+  return html.splitMapJoin(
+    RegExp(r'<[^>]*>'),
+    onMatch: (m) => m.group(0)!, // 标签：原样
+    onNonMatch: (text) => text.isEmpty
+        ? text
+        : text.replaceAllMapped(
+            emoji,
+            (m) => '<span class="$kXbEmojiClass">${m.group(0)}</span>',
+          ),
+  );
+}
 
 /// 从「完整 HTML 文档」提取可供 flutter_html 渲染的正文片段。
 ///

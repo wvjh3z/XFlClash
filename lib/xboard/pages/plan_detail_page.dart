@@ -22,6 +22,7 @@ import '../providers/xboard_providers.dart';
 import '../shell/widgets/xb_responsive.dart';
 import '../util/error_text.dart';
 import '../util/format.dart';
+import '../util/html_text.dart' show wrapEmojiForHtml, kXbEmojiClass;
 import '../util/period_label.dart';
 import '../widgets/xb_ui_kit.dart';
 import 'order_payment_page.dart';
@@ -389,16 +390,22 @@ class _PlanDetailPageState extends ConsumerState<PlanDetailPage> {
   }
 
   Widget _htmlContent(BuildContext context) {
+    final t = XbTokens.of(context);
     return Html(
-      data: plan.description!,
+      // emoji 片段包成 .xbemoji span（只给 emoji 套 Twemoji）；数字/正文走默认字体。
+      // 不能用 body 的 fontFamilyFallback:[Twemoji]——Twemoji 含数字 0-9 字形，会把普通
+      // 数字也吃成不可见的 COLR 基字（详见 wrapEmojiForHtml）。
+      data: wrapEmojiForHtml(plan.description!),
       style: {
-        // Twemoji 兜底字体：套餐详情正文常含 emoji（🔥📦✅⚠️…），各端 OS emoji 字体不一致
-        // （Linux 缺、Windows 国旗显字母），统一回退到打包的 Twemoji（含国旗），跨端一致。
+        // color: t.on —— 正文随主题（浅色=深字 / 深色=浅字）。后端套餐 content 的正文行
+        // **不设** inline color（设了会覆盖此处），标题/警告/红字用具体 hex 自带颜色覆盖即可。
         'body': Style(
           margin: Margins.zero,
           padding: HtmlPaddings.zero,
-          fontFamilyFallback: const ['Twemoji'],
+          color: t.on,
         ),
+        // emoji-only：仅 emoji span 套 Twemoji（含国旗，跨端一致），不污染数字/文字。
+        '.$kXbEmojiClass': Style(fontFamily: 'Twemoji'),
       },
       onLinkTap: (url, _, _) {}, // 详情内链接不跳转（v0.1）。
     );

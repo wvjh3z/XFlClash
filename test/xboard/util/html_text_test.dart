@@ -66,4 +66,45 @@ void main() {
       expect(looksLikeHtml('普通文本'), isFalse);
     });
   });
+
+  group('wrapEmojiForHtml（只包 emoji，不动数字/标签）', () {
+    test('emoji 被包进 .xbemoji span', () {
+      expect(wrapEmojiForHtml('a📦b'),
+          'a<span class="$kXbEmojiClass">📦</span>b');
+    });
+
+    test('数字不被包（防 Twemoji 吃数字的核心）', () {
+      final out = wrapEmojiForHtml('<div>每月 <b>100GB</b> 📦 <b>12CNY</b></div>');
+      // emoji 被包
+      expect(out, contains('<span class="$kXbEmojiClass">📦</span>'));
+      // 数字所在 <b> 原样保留，未被 xbemoji 包裹
+      expect(out, contains('<b>100GB</b>'));
+      expect(out, contains('<b>12CNY</b>'));
+      // 数字串不应出现在 xbemoji span 内
+      expect(out, isNot(contains('xbemoji">100')));
+      expect(out, isNot(contains('xbemoji">12')));
+    });
+
+    test('标签原样保留（属性不被当文本处理）', () {
+      const html = '<div style="color:#D92E1A" class="hdr">x</div>';
+      expect(wrapEmojiForHtml(html), html);
+    });
+
+    test('无 emoji → 原样', () {
+      const html = '<b>100GB</b> · <b>300Mbps</b>';
+      expect(wrapEmojiForHtml(html), html);
+    });
+
+    test('带变体选择符的 emoji（⚠️ / ✅）也被包', () {
+      final out = wrapEmojiForHtml('<div>⚠️ 注意 ✅ 好</div>');
+      // 至少出现两个 xbemoji span（⚠️ 与 ✅）
+      expect(kXbEmojiClass, 'xbemoji');
+      expect(RegExp('class="$kXbEmojiClass"').allMatches(out).length,
+          greaterThanOrEqualTo(2));
+    });
+
+    test('空串 → 空串', () {
+      expect(wrapEmojiForHtml(''), '');
+    });
+  });
 }

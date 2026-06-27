@@ -82,7 +82,8 @@ void main() {
   testWidgets('更新弹窗（普通 · 以后再说+立即更新）golden', (t) async {
     await pumpDialog(t, force: false);
     expect(t.takeException(), isNull);
-    expect(find.text('🎉 发现新版本'), findsOneWidget);
+    // 标题经 EmojiText（=RichText）渲染，find.text 默认不匹配 RichText → 加 findRichText。
+    expect(find.text('🎉 发现新版本', findRichText: true), findsOneWidget);
     expect(find.text('以后再说'), findsOneWidget);
     expect(find.text('立即更新'), findsOneWidget);
     await expectLater(find.byType(AlertDialog),
@@ -92,7 +93,7 @@ void main() {
   testWidgets('更新弹窗（强制 · 仅立即更新 + 强制提示）golden', (t) async {
     await pumpDialog(t, force: true);
     expect(t.takeException(), isNull);
-    expect(find.text('🎉 发现新版本'), findsOneWidget);
+    expect(find.text('🎉 发现新版本', findRichText: true), findsOneWidget);
     expect(find.text('以后再说'), findsNothing);
     expect(find.text('立即更新'), findsOneWidget);
     expect(find.text('此为重要更新，必须更新后使用'), findsOneWidget);
@@ -138,7 +139,7 @@ void main() {
     );
     await t.pumpAndSettle();
     expect(t.takeException(), isNull);
-    expect(find.text('🎉 有新版本啦'), findsOneWidget);
+    expect(find.text('🎉 有新版本啦', findRichText: true), findsOneWidget);
     await expectLater(find.byType(XbAboutPage),
         matchesGoldenFile('goldens/about_page_has_update.png'));
   });

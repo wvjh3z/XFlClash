@@ -100,7 +100,7 @@ class _DetailBody extends ConsumerWidget {
                 // 服务端整页 HTML 正文：先抽出 <body> 内层并去掉 <style>/<head>/注释/模板占位
                 // （flutter_html 不应用 <style> CSS，残留会被当文字显示），再用 Style map 还原观感。
                 Html(
-                  data: htmlRenderableBody(d.body),
+                  data: wrapEmojiForHtml(htmlRenderableBody(d.body)),
                   // <img> 自定义渲染：走直连放行 dio 拉字节（绕过全局 FlClashHttpOverrides，
                   // 否则默认 Image.network 在未连接/内核未就绪时加载失败）。
                   extensions: [
@@ -117,9 +117,11 @@ class _DetailBody extends ConsumerWidget {
                       fontSize: FontSize(15),
                       lineHeight: LineHeight.number(1.75),
                       color: t.on,
-                      // Twemoji 兜底：正文 emoji（含国旗）各端 OS 字体不一致，统一走打包字体。
-                      fontFamilyFallback: const ['Twemoji'],
                     ),
+                    // emoji-only：仅 emoji span 套 Twemoji（含国旗，跨端一致）。不能用 body
+                    // fontFamilyFallback:[Twemoji]——Twemoji 含数字字形会吃掉正文数字（COLR 基字
+                    // 不可见，详见 wrapEmojiForHtml）。
+                    '.$kXbEmojiClass': Style(fontFamily: 'Twemoji'),
                     'h1': Style(
                       fontSize: FontSize(21),
                       fontWeight: FontWeight.w700,
