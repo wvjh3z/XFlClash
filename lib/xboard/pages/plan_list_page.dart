@@ -144,7 +144,8 @@ class _PlanListPageState extends ConsumerState<PlanListPage> {
   }
 }
 
-/// 套餐选项卡（原型 `.planopt`）：名 + 流量/特性摘要 + 大号品牌价「¥X/周期 起」+ GB 角标。
+/// 套餐选项卡（原型 `.planopt`）：第一行 名+流量徽标(同行) · 第二行 摘要 · 第三行 价格(右对齐)。
+/// 移动单列与桌面双列网格共用本组件（布局一致，仅排布列数不同）。
 class _PlanOptCard extends StatelessWidget {
   const _PlanOptCard({required this.plan, required this.onTap});
   final PlanItem plan;
