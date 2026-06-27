@@ -36,6 +36,12 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
+          flutter-version: 3.44.0 # 锁定与 golden 基线生成环境一致（test/xboard/golden 防像素漂移）
+
+      # golden 确定化：装与本地基线同款 CJK 字体（_loadCjkFont 读系统 Noto CJK；
+      # 不装则 CI 渲染中文为 tofu → golden 全失配）。详见 test/xboard/golden/README.md。
+      - name: Install CJK font (golden determinism)
+        run: sudo apt-get update && sudo apt-get install -y fonts-noto-cjk
 
       # µ-8 顺序：SDK build_runner → client pub get → client build_runner → analyze → test
       - name: SDK build_runner
