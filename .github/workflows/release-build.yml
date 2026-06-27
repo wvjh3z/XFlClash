@@ -118,6 +118,12 @@ jobs:
       - name: Prepare flavor (generate flavor_defines.json)
         run: dart run tool/prepare_flavor.dart --flavor brand_a --target test
 
+      # 桌面品牌构建期注入：runner/打包元数据里的 FlClash → flavor.yaml appName。
+      # committed 文件保持上游 FlClash 原样（零侵入、可 sync）；本步在 fresh checkout 上改写、
+      # 不入 git。仅文本/元数据（窗口标题/PRODUCT_NAME/权限文案/安装包显示名）；图标见下。
+      - name: Inject desktop branding (FlClash → appName)
+        run: dart run tool/inject_desktop_brand.dart --flavor brand_a
+
       # 注入真实 AES key（prepare_flavor 之后；对齐 build_local.sh 的 python patch）。
       - name: Inject AES key into flavor_defines.json
         run: |
