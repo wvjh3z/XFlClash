@@ -124,6 +124,12 @@ jobs:
       - name: Inject desktop branding (FlClash → appName)
         run: dart run tool/inject_desktop_brand.dart --flavor brand_a
 
+      # 桌面图标重生成：上一步已生成 flutter_launcher_icons.yaml + 覆盖 assets/images/icon.png
+      # （Linux 打包图标 + 应用内 logo）。此步用 flutter_launcher_icons 把品牌 png 转成
+      # windows app_icon.ico + macOS appiconset。committed 图标保持上游 FlClash，仅构建期重生成。
+      - name: Generate desktop icons (windows .ico / macOS appiconset)
+        run: dart run flutter_launcher_icons -f flutter_launcher_icons.yaml
+
       # 注入真实 AES key（prepare_flavor 之后；对齐 build_local.sh 的 python patch）。
       - name: Inject AES key into flavor_defines.json
         run: |

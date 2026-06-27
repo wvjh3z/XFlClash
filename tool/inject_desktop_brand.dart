@@ -12,13 +12,23 @@
 //   - macOS PRODUCT_NAME（Dock/菜单名）/ Info.plist 定位权限文案 / dmg .app 名
 //   - 各打包 make_config 显示名（appimage/exe/rpm/deb/dmg）统一到 appName
 //   **不动**：CFBundleURLSchemes 的 `flclash`（功能性深链）、CMake BINARY_NAME / 可执行名
-//   （内部，改名风险高）、FlClashCore 等同名标识。图标（.ico/.icns/png）走 CI（本工具不碰）。
+//   （内部，改名风险高）、FlClashCore 等同名标识。
+//
+// **图标（Phase 2）**：committed 图标是上游 FlClash 的（windows app_icon.ico / macos appiconset /
+//   assets/images/icon.png）。本工具构建期：
+//   1) 生成 `flutter_launcher_icons.yaml`（gitignored 构建产物，image_path 指向
+//      `flavors/<flavor>/assets/icons/<flavor>.png`）→ CI 随后 `dart run flutter_launcher_icons`
+//      重生成 windows .ico + macOS appiconset；
+//   2) 把品牌 png 覆盖到 `assets/images/icon.png` —— 同时驱动 ① Linux 打包 make_config 的
+//      `icon: ./assets/images/icon.png` ② 应用内 logo（桌面标题栏 window_manager.dart / 关于页
+//      about.dart）。本地跑后 `git checkout` 还原（committed 永远是 FlClash）。
+//   Android 启动图标走 prepare_flavor（本工具 android:false / ios:false）。
 //
 // 用法：
 //   dart run tool/inject_desktop_brand.dart --flavor brand_a [--check]
 //   --check：只报告将改动的文件，不写（CI 校验 / dry-run）。
 //
-// 退出码：0 成功；1 flavor.yaml 缺失/无 appName；2 用法错误。
+// 退出码：0 成功；1 flavor.yaml 缺失/无 appName / 品牌图标缺失；2 用法错误。
 
 import 'dart:io';
 
@@ -95,8 +105,58 @@ void main(List<String> argv) {
   }
   stdout.writeln('[inject-desktop] flavor=$flavor appName="$name" → '
       '${dryRun ? '将改' : '已改'} $changed 文件${missing > 0 ? '（$missing 缺失跳过）' : ''}');
+
+  // ───────── Phase 2：图标 ─────────
+  injectIcons(flavor, dryRun: dryRun);
+
   exit(0);
 }
+
+/// 图标注入：① 生成 flutter_launcher_icons.yaml（CI 随后跑 flutter_launcher_icons 重生成
+/// windows .ico + macOS appiconset）② 覆盖 assets/images/icon.png（Linux 打包图标 + 应用内 logo）。
+void injectIcons(String flavor, {required bool dryRun}) {
+  final brandPng = p.join('flavors', flavor, 'assets', 'icons', '$flavor.png');
+  if (!File(brandPng).existsSync()) {
+    stderr.writeln('[inject-desktop] ✗ 找不到品牌图标 $brandPng');
+    exit(1);
+  }
+
+  // ① flutter_launcher_icons.yaml（gitignored 构建产物）。
+  const cfgPath = 'flutter_launcher_icons.yaml';
+  final cfg = buildLauncherIconsYaml(brandPng);
+  if (dryRun) {
+    stdout.writeln('[inject-desktop] ~ 将生成：$cfgPath（image_path=$brandPng）');
+  } else {
+    File(cfgPath).writeAsStringSync(cfg);
+    stdout.writeln('[inject-desktop] ✓ 生成：$cfgPath（CI 随后跑 flutter_launcher_icons）');
+  }
+
+  // ② 覆盖应用内 / Linux 打包共用图标。
+  const inAppIcon = 'assets/images/icon.png';
+  if (dryRun) {
+    stdout.writeln('[inject-desktop] ~ 将覆盖：$inAppIcon ← $brandPng');
+  } else {
+    File(brandPng).copySync(inAppIcon);
+    stdout.writeln('[inject-desktop] ✓ 覆盖：$inAppIcon ← $brandPng（Linux 打包 + 应用内 logo）');
+  }
+}
+
+/// 生成 flutter_launcher_icons 配置（仅桌面 windows/macos；Android 走 prepare_flavor，iOS 不在范围）。
+String buildLauncherIconsYaml(String brandPng) => '''
+# flutter_launcher_icons.yaml — 由 tool/inject_desktop_brand.dart 构建期生成（gitignored 产物）。
+# 勿手改 / 勿提交。image_path 指向当前 flavor 的品牌图标。
+flutter_launcher_icons:
+  image_path: "$brandPng"
+  android: false
+  ios: false
+  windows:
+    generate: true
+    image_path: "$brandPng"
+    icon_size: 256
+  macos:
+    generate: true
+    image_path: "$brandPng"
+''';
 
 // ───────── 纯变换（可单测；幂等：再跑一次结果不变）─────────
 

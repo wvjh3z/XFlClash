@@ -75,4 +75,15 @@ void main() {
     expect(out, contains('app_id: ABC-123')); // 不动
     expect(injectMakeConfigNames(out, app), out);
   });
+
+  test('flutter_launcher_icons.yaml 生成（image_path 指向品牌 png / 仅桌面）', () {
+    const png = 'flavors/brand_a/assets/icons/brand_a.png';
+    final out = buildLauncherIconsYaml(png);
+    expect(out, contains('image_path: "$png"'));
+    expect(out, contains('android: false')); // Android 走 prepare_flavor
+    expect(out, contains('ios: false'));
+    expect(out, contains('windows:'));
+    expect(out, contains('icon_size: 256'));
+    expect(out, contains('macos:'));
+  });
 }
