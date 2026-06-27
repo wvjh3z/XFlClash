@@ -188,72 +188,56 @@ class _PlanOptCard extends StatelessWidget {
           // 原型 .planopt 边框 1.8px。
           border: Border.all(color: t.line, width: 1.8),
         ),
-        // 原型 .planopt：左(名+特性) ←→ 右(价格)，底部对齐；右上角流量徽标（原型 .gb）。
-        child: Stack(
+        // 原型 .planopt：第一行 名+流量徽标(同行) · 第二行 摘要 · 第三行 价格(独占一行)。
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
           children: [
+            // 第一行：套餐名（占满，过长省略）+ 右侧流量徽标（同行）。
             Row(
-              crossAxisAlignment: CrossAxisAlignment.end,
               children: [
                 Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      // 名旁留出右上角流量徽标的空间，过长省略不压到徽标。
-                      Padding(
-                        padding: const EdgeInsets.only(right: 56),
-                        child: EmojiText(plan.name,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                                fontSize: 15.5,
-                                fontWeight: FontWeight.w600,
-                                color: t.on)),
-                      ),
-                      const SizedBox(height: 7),
-                      // 单行套餐详情摘要：完整展示、超宽等比缩、绝不省略（框架 XbFitText）。
-                      XbFitText(summary,
-                          style: TextStyle(
-                              fontSize: 12, height: 1.5, color: t.onv)),
-                    ],
-                  ),
+                  child: EmojiText(plan.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                          fontSize: 15.5,
+                          fontWeight: FontWeight.w600,
+                          color: t.on)),
                 ),
-                if (min != null) ...[
-                  const SizedBox(width: 12),
-                  // 价格（原型 .pr）：品牌色大字 + 周期单位小字（底部对齐，无「起」）。
-                  RichText(
-                    textAlign: TextAlign.right,
-                    text: TextSpan(
-                      children: [
-                        TextSpan(
-                          text: xbYuan(min.amountYuan),
-                          style: TextStyle(
-                              fontSize: 22,
-                              fontWeight: FontWeight.w700,
-                              color: scheme.primary,
-                              fontFeatures: const [
-                                FontFeature.tabularFigures()
-                              ]),
-                        ),
-                        TextSpan(
-                          text: ' /${planPeriodLabel(min.period)}',
-                          style: TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w500,
-                              color: t.onv),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
+                const SizedBox(width: 8),
+                XbTag('${plan.transferEnableGb} GB'),
               ],
             ),
-            // 右上角流量徽标（原型 .gb）：淡品牌底 + 品牌字，与详情页 GB 角标同源。
-            Positioned(
-              top: 0,
-              right: 0,
-              child: XbTag('${plan.transferEnableGb} GB'),
-            ),
+            const SizedBox(height: 7),
+            // 第二行：单行套餐详情摘要（完整展示、超宽等比缩、绝不省略，框架 XbFitText）。
+            XbFitText(summary,
+                style: TextStyle(fontSize: 12, height: 1.5, color: t.onv)),
+            if (min != null) ...[
+              const SizedBox(height: 8),
+              // 第三行：价格独占一行（品牌色大字 + 周期单位小字）。
+              RichText(
+                text: TextSpan(
+                  children: [
+                    TextSpan(
+                      text: xbYuan(min.amountYuan),
+                      style: TextStyle(
+                          fontSize: 22,
+                          fontWeight: FontWeight.w700,
+                          color: scheme.primary,
+                          fontFeatures: const [FontFeature.tabularFigures()]),
+                    ),
+                    TextSpan(
+                      text: ' /${planPeriodLabel(min.period)}',
+                      style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w500,
+                          color: t.onv),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ],
         ),
       ),
