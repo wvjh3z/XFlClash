@@ -217,6 +217,33 @@ XbAsyncView(
 
 **铁律**：所有用 flutter_html 渲染后端 HTML 的页面，`onLinkTap` **一律走 `openHtmlLink(url, base: ref.read(apiEndpointProvider))`**，**img 相对 src 一律走 `resolveHtmlLink(src, base)`**（`_TutorialImage`），不在各页自行判断 scheme、也不在适配层预转（已移除只覆盖根相对的 `_absolutizeHtmlUrls`，**相对解析单一机制**）。正文 `data` 一律 `wrapEmojiForHtml(htmlRenderableBody(...))`（教程整页）或 `wrapEmojiForHtml(...)`（套餐片段）。契约测试：`test/xboard/util/html_link_test.dart` + `html_text_test.dart`。
 
+### 6.6 `XbFitText`（单行完整展示，xb_components.dart）
+
+**坑（X→Y）**：app 多处把**长度有界的短内容**（金额 / 套餐摘要行 / 价格 / 短标签）用
+`maxLines:1 + overflow:ellipsis` 渲染 → 半宽卡 / 窄屏 / 大字体 / 长价格时被省略号截掉尾巴
+（「每月 100GB · 峰值 300Mb**…**」「¥142.**…**」），本可一行放下或稍缩即可完整显示。此前多处
+各自手写 `FittedBox(scaleDown)+Text` 修（invite 余额 / plan_detail 价格…），散写易漏易飘。
+
+**框架**：`XbFitText(text, {style, textAlign, alignment})` / `XbFitText.rich(span, {...})` —— 一行内
+**永不省略**：够位原字号、超宽整体等比缩（`FittedBox(BoxFit.scaleDown)`）。emoji 走 `EmojiText` 同源。
+
+```dart
+XbFitText(summary, style: TextStyle(fontSize: 12, color: t.onv));          // 套餐摘要行
+XbFitText.rich(TextSpan(children: [...]));                                  // 余额「¥+数字」
+XbFitText(xbYuan(p.amountYuan), alignment: Alignment.center, ...);          // 周期价格
+```
+
+**适用边界（重要）**：仅用于**长度有界、应始终完整可见**的内容。**不要**用于**长度无界的
+用户/数据字符串**（节点名 / 套餐名 / 订单号 / 邮箱）—— 那些过长应保留 `ellipsis`（scaleDown 会
+缩成蚂蚁字）。判断法：内容会不会长到「缩到看不清也放不下」？会 → `ellipsis`；不会 → `XbFitText`。
+
+**注意**：`XbFitText`（plain）基于 `EmojiText`（`RichText`），**不继承 `DefaultTextStyle`**，
+颜色须显式传 `style`（依赖按钮 `foregroundColor` 等继承色的场景仍用 `Text`，故 update 弹窗
+「浏览器下载」按钮保留手写 `FittedBox+Text`）。
+
+**使用方**：plan_list 套餐摘要 / invite 余额 hero / plan_detail 周期价。契约测试（含超宽缩放故障
+路径）：`test/xboard/widgets/xb_fit_text_test.dart`。
+
 ---
 
 ## 7. 反馈与格式化辅助

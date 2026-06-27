@@ -165,8 +165,8 @@ class _PlanOptCard extends StatelessWidget {
     final t = XbTokens.of(context);
     final scheme = Theme.of(context).colorScheme;
     final min = _minPeriodPrice;
-    // 特性行（原型 .ft）：首行流量 GB，其后接 HTML content 转纯文本的非空行；各自独立成行
-    // （原型每条 <div> 单独一行，而非 · 拼接）。最多 4 行防卡过高。
+    // 只展示 1 行套餐详情摘要：取 description 里首个含数字的内容行（流量/网速行，最具信息量；
+    // 跳过「📦 流量明细」这类纯标题段），无则回退「X GB」。整行用 XbFitText 完整展示、不省略。
     final descLines = plan.description == null
         ? const <String>[]
         : htmlToPlainText(plan.description!)
@@ -174,10 +174,10 @@ class _PlanOptCard extends StatelessWidget {
             .map((l) => l.trim())
             .where((l) => l.isNotEmpty)
             .toList();
-    final features = <String>[
-      '${plan.transferEnableGb} GB',
-      ...descLines,
-    ].take(4).toList();
+    final summary = descLines.firstWhere(
+      (l) => RegExp(r'\d').hasMatch(l),
+      orElse: () => '${plan.transferEnableGb} GB',
+    );
 
     return GestureDetector(
       onTap: onTap,
@@ -206,16 +206,11 @@ class _PlanOptCard extends StatelessWidget {
                           fontSize: 15.5,
                           fontWeight: FontWeight.w600,
                           color: t.on)),
-                  if (features.isNotEmpty) const SizedBox(height: 7),
-                  for (final f in features)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 2),
-                      child: EmojiText(f,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                              fontSize: 12, height: 1.5, color: t.onv)),
-                    ),
+                  const SizedBox(height: 7),
+                  // 单行套餐详情摘要：完整展示、超宽等比缩、绝不省略（框架 XbFitText）。
+                  XbFitText(summary,
+                      style: TextStyle(
+                          fontSize: 12, height: 1.5, color: t.onv)),
                 ],
               ),
             ),

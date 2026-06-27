@@ -316,34 +316,29 @@ class _BalanceCard extends ConsumerWidget {
           ],
         ),
         const SizedBox(height: 6),
-        // 金额：FittedBox(scaleDown) 保证能完整显示（够位时原尺寸、超宽时整体缩放，绝不省略号）；
+        // 金额：XbFitText.rich 保证一行完整显示（够位原尺寸、超宽整体缩放，绝不省略号，框架）；
         // 货币符号小字（原型 .invbal-num .cur 17px / 数字 30px）。
-        FittedBox(
-          fit: BoxFit.scaleDown,
-          alignment: Alignment.centerLeft,
-          child: Text.rich(
-            TextSpan(children: [
-              TextSpan(
-                text: '¥',
-                style: TextStyle(
-                  fontSize: big ? 17 : 14,
-                  fontWeight: FontWeight.w700,
-                  color: Colors.white.withValues(alpha: 0.92),
-                ),
+        XbFitText.rich(
+          TextSpan(children: [
+            TextSpan(
+              text: '¥',
+              style: TextStyle(
+                fontSize: big ? 17 : 14,
+                fontWeight: FontWeight.w700,
+                color: Colors.white.withValues(alpha: 0.92),
               ),
-              TextSpan(
-                text: amount.toStringAsFixed(2),
-                style: TextStyle(
-                  fontSize: big ? 30 : 25,
-                  fontWeight: FontWeight.w800,
-                  color: Colors.white,
-                  letterSpacing: -0.5,
-                  fontFeatures: const [FontFeature.tabularFigures()],
-                ),
+            ),
+            TextSpan(
+              text: amount.toStringAsFixed(2),
+              style: TextStyle(
+                fontSize: big ? 30 : 25,
+                fontWeight: FontWeight.w800,
+                color: Colors.white,
+                letterSpacing: -0.5,
+                fontFeatures: const [FontFeature.tabularFigures()],
               ),
-            ]),
-            maxLines: 1,
-          ),
+            ),
+          ]),
         ),
         if (sub != null) ...[
           const SizedBox(height: 7),

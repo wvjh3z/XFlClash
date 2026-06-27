@@ -1467,3 +1467,64 @@ class _XbInfoItemCard extends StatelessWidget {
     );
   }
 }
+
+// ═══════════════════════════════ 单行自适应文本（框架，UI_FRAMEWORK §6.6） ═══════════════════════════════
+
+/// 单行「完整展示」文本框架：一行内**永不省略号**——够位时原字号，超宽时整体等比缩小
+/// （`FittedBox(scaleDown)`）。
+///
+/// **为什么要框架**（conventions §11）：app 多处把**长度有界的短内容**（金额 / 套餐摘要行 /
+/// 按钮文案 / 价格）用 `maxLines:1 + overflow:ellipsis` 渲染 —— 半宽卡 / 窄屏 / 大字体 / 长价格
+/// 时被省略号截掉尾巴（如「每月 100GB 流量 · 峰值网速 300Mb…」「¥142.5…」），本可一行放下或
+/// 稍缩即可完整显示。此前多处各自手写 `FittedBox(fit:scaleDown)+Text` 修（invite 余额 / plan_detail
+/// 价格 / update 按钮…），散写易漏、易飘。本组件**单一来源**收口该模式。
+///
+/// **适用边界（重要）**：仅用于**长度有界、应当始终完整可见**的内容（金额 / 摘要 / 短标签 /
+/// 按钮）。**不要**用于**长度无界的用户/数据字符串**（节点名 / 套餐名 / 订单号 / 邮箱）——
+/// 那些过长时应保留 `ellipsis`（scaleDown 会把它们缩成蚂蚁字）。判断法：内容会不会长到「缩到
+/// 看不清也放不下」？会 → 用 ellipsis；不会（最多稍超一点）→ 用本组件。
+///
+/// emoji 走 [EmojiText] 同源渲染（Twemoji 仅套 emoji，不吃数字，见 `html_text.dart`）。
+class XbFitText extends StatelessWidget {
+  /// 纯文本（emoji-aware）。
+  const XbFitText(
+    String this.text, {
+    super.key,
+    this.style,
+    this.textAlign,
+    this.alignment = Alignment.centerLeft,
+  }) : span = null;
+
+  /// 富文本（多段不同样式，如「货币符号小字 + 金额大字」）。
+  const XbFitText.rich(
+    InlineSpan this.span, {
+    super.key,
+    this.textAlign,
+    this.alignment = Alignment.centerLeft,
+  })  : text = null,
+        style = null;
+
+  final String? text;
+  final InlineSpan? span;
+  final TextStyle? style;
+  final TextAlign? textAlign;
+
+  /// FittedBox 对齐：左对齐内容（默认）/ 居中 / 右对齐（价格列常用 centerRight）。
+  final Alignment alignment;
+
+  @override
+  Widget build(BuildContext context) {
+    // FittedBox 给 child 无界宽约束 → 文本按自然宽度单行排布（不折行、无可省略的溢出），
+    // 再由 scaleDown 在父宽放不下时整体等比缩。故 child 用 maxLines:1，overflow 不触发。
+    final Widget child = span != null
+        ? Text.rich(span!,
+            maxLines: 1, softWrap: false, textAlign: textAlign)
+        : EmojiText(text!,
+            maxLines: 1, style: style, textAlign: textAlign);
+    return FittedBox(
+      fit: BoxFit.scaleDown,
+      alignment: alignment,
+      child: child,
+    );
+  }
+}

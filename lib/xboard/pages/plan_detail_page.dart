@@ -466,22 +466,18 @@ class _PlanDetailPageState extends ConsumerState<PlanDetailPage> {
                   fontWeight: FontWeight.w500)),
           const SizedBox(height: 4),
           // 价格恒为一行（长价格如 ¥142.50 在半宽卡里若换行 → 行高比短价格多 26px、整行变形，
-          // 已被 plan_period_grid_test 尺寸断言锁定）。固定行高 26 + FittedBox 仅在放不下时等比缩，
+          // 已被 plan_period_grid_test 尺寸断言锁定）。固定行高 26 + XbFitText 仅在放不下时等比缩，
           // 不换行；固定高消除「短价格不缩/长价格缩」的亚像素行高差，所有卡严格等高。
           SizedBox(
             height: 26,
-            child: FittedBox(
-              fit: BoxFit.scaleDown,
-              child: Text(xbYuan(p.amountYuan),
-                  maxLines: 1,
-                  softWrap: false,
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                      fontSize: 18,
-                      color: selected ? scheme.primary : t.on,
-                      fontWeight: FontWeight.w700,
-                      fontFeatures: const [FontFeature.tabularFigures()])),
-            ),
+            child: XbFitText(xbYuan(p.amountYuan),
+                alignment: Alignment.center,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                    fontSize: 18,
+                    color: selected ? scheme.primary : t.on,
+                    fontWeight: FontWeight.w700,
+                    fontFeatures: const [FontFeature.tabularFigures()])),
           ),
         ],
       ),
