@@ -305,10 +305,15 @@ class XboardModule {
     //
     // W3.10：Content-Language 一次性默认 header 注入（DD-4 / F398 / F399）。
     // SDK 不主动发 Content-Language；反腐层在此（SDK initialize 后 + 首个 API 调用前）
-    // 按系统 locale 映射后端 locale，写 dio 默认 header（一次性，非 per-call）。
+    // 写 dio 默认 header（一次性，非 per-call）。
+    // formA：固定中文 —— 与 _applyForcedLocale（强制 zh_CN UI）+ 知识库 SDK 硬编码
+    // language=zh-CN 对齐，避免非中文系统设备上后端按系统语言返回英文/空内容（套餐 content /
+    // 公告 / 报错文案不显示）。非 formA（FlClash 兜底）保持按系统 locale 映射。
     try {
-      final backendLocale =
-          mapToBackendLocale(PlatformDispatcher.instance.locale.toLanguageTag());
+      final backendLocale = activeConfig.formA
+          ? mapToBackendLocale('zh-CN')
+          : mapToBackendLocale(
+              PlatformDispatcher.instance.locale.toLanguageTag());
       // design L484 授权反腐层注入 Content-Language；SDK 无 default-headers 公共 API，
       // dio getter 是唯一注入点，受控例外。
       // ignore: deprecated_member_use

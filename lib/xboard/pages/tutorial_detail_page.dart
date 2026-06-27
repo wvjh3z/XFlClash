@@ -12,8 +12,10 @@ import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_html/flutter_html.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../models/xb_tutorial.dart';
 import '../providers/tutorial_provider.dart';
@@ -109,6 +111,22 @@ class _DetailBody extends ConsumerWidget {
                       builder: (ctx) =>
                           _TutorialImage(ctx.attributes['src'] ?? ''),
                     ),
+                    // 「复制」按钮（apple-card 共享账号）：可见 .value 是脱敏的，完整值藏在
+                    // data-original-onclick="copy('完整值')"（后端约定）。flutter_html 无 JS，
+                    // 默认 <button> 点了没反应 → 用扩展取出完整值做成真能复制的按钮。
+                    TagExtension(
+                      tagsToExtend: const {'button'},
+                      builder: (ctx) {
+                        final raw =
+                            ctx.attributes['data-original-onclick'] ?? '';
+                        final m = RegExp(r"""copy\(\s*['"]([^'"]*)['"]\s*\)""")
+                            .firstMatch(raw);
+                        final label = (ctx.element?.text ?? '').trim();
+                        return _CopyButton(
+                            value: m?.group(1) ?? '',
+                            label: label.isEmpty ? '复制' : label);
+                      },
+                    ),
                   ],
                   style: {
                     'body': Style(
@@ -158,14 +176,84 @@ class _DetailBody extends ConsumerWidget {
                       padding: HtmlPaddings.all(14),
                       margin: Margins.symmetric(vertical: 12),
                     ),
+                    // apple-card 内部结构（共享账号卡）：后端用这些 class 做卡片排版，
+                    // 补 Style 让账号/密码行成形（flutter_html 无 flex，label/value/按钮纵向堆叠）。
+                    '.header': Style(
+                      fontWeight: FontWeight.w700,
+                      fontSize: FontSize(15),
+                      margin: Margins.only(bottom: 8),
+                    ),
+                    '.row': Style(
+                      padding: HtmlPaddings.symmetric(vertical: 8),
+                      border: Border(top: BorderSide(color: t.hair)),
+                    ),
+                    '.label': Style(color: t.onv, fontSize: FontSize(12.5)),
+                    '.value': Style(
+                      color: t.on,
+                      fontWeight: FontWeight.w600,
+                      fontFamily: 'monospace',
+                    ),
+                    '.status-ok':
+                        Style(color: const Color(0xFF16A34A), fontSize: FontSize(13)),
                   },
-                  onLinkTap: (url, _, _) {}, // 正文内链接暂不跳转（v0.1）。
+                  onLinkTap: (url, _, _) => _openLink(url), // 外链 → 外部浏览器打开。
                 ),
               ],
             ),
           ),
         ),
       ],
+    );
+  }
+}
+
+/// 打开正文里的外链 → 外部浏览器（永不抛；仅 http/https）。
+Future<void> _openLink(String? url) async {
+  if (url == null || url.isEmpty) return;
+  final uri = Uri.tryParse(url);
+  if (uri == null || !(uri.isScheme('http') || uri.isScheme('https'))) return;
+  try {
+    await launchUrl(uri, mode: LaunchMode.externalApplication);
+  } catch (_) {
+    // 无可用浏览器 / 平台限制 → 静默（不崩、不打扰）。
+  }
+}
+
+/// apple-card 共享账号「复制」按钮：复制完整值（取自 data-original-onclick）到剪贴板。
+///
+/// 可见 `.value` 是脱敏的；完整值在按钮的 `data-original-onclick="copy('完整值')"` 属性里
+/// （后端约定）。flutter_html 不执行 JS，故用本 widget 取出真值做可点复制。
+class _CopyButton extends StatelessWidget {
+  const _CopyButton({required this.value, required this.label});
+
+  final String value;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: OutlinedButton.icon(
+        // 无完整值（非 copy 按钮）→ 禁用，仅显示文字。
+        onPressed: value.isEmpty
+            ? null
+            : () {
+                Clipboard.setData(ClipboardData(text: value));
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                      content: Text('已复制'),
+                      duration: Duration(milliseconds: 1200)),
+                );
+              },
+        icon: const Icon(Icons.copy_rounded, size: 15),
+        label: Text(label),
+        style: OutlinedButton.styleFrom(
+          foregroundColor: scheme.primary,
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+          minimumSize: const Size(0, 34),
+        ),
+      ),
     );
   }
 }
