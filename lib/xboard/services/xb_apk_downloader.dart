@@ -21,6 +21,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 
+import 'sentry_bootstrap.dart';
 import 'xboard_release_dio.dart';
 
 /// 下载进度回调。
@@ -98,7 +99,14 @@ class XbApkDownloader {
     }
     dio.close();
 
-    if (!downloaded) return DownloadResult.networkError;
+    if (!downloaded) {
+      // #2 监测：所有下载源都失败（每次更新仅报一次，非每源；Sentry 去重）→ 自更新档2 不可用。
+      SentryBootstrap.captureException(
+        'self-update download failed: all ${urls.length} source(s) unreachable',
+        where: 'self-update download',
+      );
+      return DownloadResult.networkError;
+    }
 
     // SHA256 校验
     if (expectedSha256.isNotEmpty) {
@@ -109,6 +117,11 @@ class XbApkDownloader {
         debugPrint(
             '[XbApkDownloader] SHA256 mismatch: expected=$expectedSha256, got=$hash');
         file.deleteSync();
+        // #2 监测：hash 不符 = 下载损坏 / 后台配错 sha256 / 潜在篡改 → 高价值，必报。
+        SentryBootstrap.captureException(
+          'self-update SHA256 mismatch (expected=$expectedSha256 got=$hash)',
+          where: 'self-update hash mismatch',
+        );
         return DownloadResult.hashMismatch;
       }
     }
@@ -132,8 +145,10 @@ class XbApkDownloader {
     try {
       await _channel.invokeMethod('installApk', {'path': filePath});
       return DownloadResult.success;
-    } on PlatformException catch (e) {
+    } on PlatformException catch (e, s) {
       debugPrint('[XbApkDownloader] install failed: ${e.message}');
+      SentryBootstrap.captureException(e,
+          stackTrace: s, where: 'self-update install (android)');
       return DownloadResult.installFailed;
     }
   }
@@ -148,8 +163,10 @@ class XbApkDownloader {
         mode: ProcessStartMode.detached,
       );
       return DownloadResult.success;
-    } catch (e) {
+    } catch (e, s) {
       debugPrint('[XbApkDownloader] windows installer launch failed: $e');
+      SentryBootstrap.captureException(e,
+          stackTrace: s, where: 'self-update install (windows)');
       return DownloadResult.installFailed;
     }
   }
@@ -192,8 +209,10 @@ class XbApkDownloader {
         environment: Platform.environment,
       );
       return DownloadResult.success;
-    } catch (e) {
+    } catch (e, s) {
       debugPrint('[XbApkDownloader] linux self-update failed: $e');
+      SentryBootstrap.captureException(e,
+          stackTrace: s, where: 'self-update install (linux)');
       return DownloadResult.installFailed;
     }
   }

@@ -27,6 +27,7 @@ import '../sdk/xboard_service.dart';
 import '../util/pii_mask.dart';
 import 'encrypted_subscription_service.dart';
 import 'profile_sync_port.dart';
+import 'sentry_bootstrap.dart';
 
 /// R7 同步结果（供 UI/调用方判定，error 静默不抛）。
 ///
@@ -105,8 +106,12 @@ class XboardSubscriptionService {
         _pendingForce = false;
         outcome = await _doSync();
       }
-    } catch (_) {
+    } catch (e, s) {
       outcome = XbSyncOutcome.failed; // 永不抛。
+      // #2 监测：网络/业务失败已在 _doSync 内归一为 outcome（不抛），故能到这里 = 未预期异常
+      // （蓝图外的 throw）→ 上报 Sentry。dsn 空 → no-op；Sentry 按 fingerprint 去重不刷屏。
+      SentryBootstrap.captureException(e,
+          stackTrace: s, where: 'subscription sync (unexpected)');
     } finally {
       completer.complete(outcome);
       _inFlight = null;
@@ -164,8 +169,11 @@ class XboardSubscriptionService {
         await _db.putIndex(
             profileId: newId, flavorId: _flavorId, userIdHash: userIdHash);
       }
-    } catch (_) {
+    } catch (e, s) {
       // saveFile/validateConfig 失败（中文字符串异常，R7.9）→ failed。
+      // #2 监测：写/校验 ClashMeta 配置失败是核心功能盲区（节点不更新），上报 Sentry。
+      SentryBootstrap.captureException(e,
+          stackTrace: s, where: 'subscription putProfile (saveFile/validateConfig)');
       return XbSyncOutcome.failed;
     }
 

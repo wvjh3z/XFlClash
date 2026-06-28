@@ -28,6 +28,7 @@ import '../models/xb_invite.dart';
 import '../models/xb_notice.dart';
 import '../models/xb_result.dart';
 import '../models/xb_tutorial.dart';
+import '../services/sentry_bootstrap.dart';
 import '../util/pii_mask.dart';
 import '../util/subscription_cache.dart';
 import 'xboard_service.dart';
@@ -121,7 +122,11 @@ class XboardServiceImpl implements XboardService {
     } on ApiException catch (e) {
       return XbResult.failure(
           XbDomainError.business(BusinessErrorKind.generic, e.message, null));
-    } catch (e) {
+    } catch (e, s) {
+      // #1 监测：θ-11 catch-all = SDK 抛了未预期异常（fromJson TypeError / 后端结构变更等）。
+      // 「本不该发生」的盲区 → 上报 Sentry（带 operation 上下文）。预期错（auth/network/business
+      // 已在上面分流）不报，零噪音；dsn 空 → no-op。
+      SentryBootstrap.captureException(e, stackTrace: s, where: 'api:$operation');
       return XbResult.failure(XbDomainError.unexpected(operation, e.toString()));
     }
   }
@@ -168,7 +173,9 @@ class XboardServiceImpl implements XboardService {
   ) async {
     try {
       return _fromSdkResult(await body(), map);
-    } catch (e) {
+    } catch (e, s) {
+      // #1 监测：SDK adapter 理论返 SdkResult 不抛，真抛 = 未预期（panel TypeError 等）→ 上报。
+      SentryBootstrap.captureException(e, stackTrace: s, where: 'api:$operation');
       return XbResult.failure(XbDomainError.unexpected(operation, e.toString()));
     }
   }
