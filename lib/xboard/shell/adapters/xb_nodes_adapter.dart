@@ -17,6 +17,7 @@ import 'package:fl_clash/common/compute.dart' show computeRealSelectedProxyState
 import 'package:fl_clash/core/core.dart' show coreController;
 import 'package:fl_clash/models/models.dart' show Delay, Group, GroupExt, Proxy;
 import 'package:fl_clash/providers/providers.dart';
+import 'package:fl_clash/state.dart' show globalState;
 import 'package:fl_clash/views/proxies/common.dart' as proxies_common;
 import 'package:fl_clash/views/proxies/tab.dart' show ProxyGroupView;
 import 'package:fl_clash/enum/enum.dart'
@@ -365,6 +366,11 @@ class XbNodesAdapter {
   /// 比上游 `delayTest` 的 100 并发更克制（避免瞬时打满连接）；慢节点只占 1 个槽不阻塞其余。
   static const int _kDelayConcurrency = 10;
 
+  /// 分组测延迟时单节点的最大尝试次数：不超时只测 1 次（首次即停，与原行为一致）；
+  /// 超时（<0）才重测，累计最多 [_kDelayGroupMaxAttempts] 次（含首次），直到不超时为止。
+  /// 仅用于**分组测速**（`_delayTestPooled`），单节点 `testNode` 不受此约束（仍测 1 次）。
+  static const int _kDelayGroupMaxAttempts = 3;
+
   /// 并发池竞速：按 [proxies] 原始顺序取任务，**始终保持 [_kDelayConcurrency] 个在跑**，
   /// 任一节点测完立刻补下一个进来。调单节点 `proxyDelayTest`（不碰上游 `delayTest` 的 100
   /// 并发实现，守上游零侵入）。
@@ -387,7 +393,15 @@ class XbNodesAdapter {
       proxies,
       _kDelayConcurrency,
       (p) async {
-        await proxies_common.proxyDelayTest(p, testUrl);
+        // 不超时只测 1 次；超时（<0）重测，累计最多 _kDelayGroupMaxAttempts 次直到不超时。
+        for (var attempt = 1; attempt <= _kDelayGroupMaxAttempts; attempt++) {
+          await proxies_common.proxyDelayTest(p, testUrl);
+          final v = globalState.container.read(
+            delayProvider(proxyName: p.name, testUrl: testUrl),
+          );
+          if (v == null || v >= 0) break; // 非超时（成功/无值）→ 停
+          // v < 0 超时 → 继续重测（未达上限时）
+        }
         done++;
         onProgress?.call(done, total);
       },
@@ -395,7 +409,8 @@ class XbNodesAdapter {
   }
 
   /// 测速本分组所有节点（点分组头「测延迟」触发，只测该组，不波及其它组）。
-  /// **从上到下顺序 + 并发 10**（`_delayTestBatched`）；各节点延迟着色经 delayProvider 自动更新。
+  /// **从上到下顺序 + 并发 10**；各节点延迟着色经 delayProvider 自动更新。
+  /// 单节点不超时只测 1 次；**超时（<0）的节点自动重测，最多 [_kDelayGroupMaxAttempts] 次**直到不超时。
   ///
   /// [onProgress]：进度回调 `(done, total)`，UI 据此显示「测速中 N/M」（可靠完成计数，不横跳）。
   Future<void> testGroupDelay(
