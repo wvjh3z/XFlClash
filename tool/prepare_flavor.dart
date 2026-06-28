@@ -169,6 +169,7 @@ String generateFlavorDefinesJson(YamlMap doc,
     'XB_SUPPORT_EMAIL': s('supportEmail'),
     'XB_BOOTSTRAP_URLS': urls,
     'XB_AES_KEY_B64': s('aesKey'), // CI secrets 注入；空→fromEnvironment 降级 null
+    'XB_SENTRY_DSN': s('sentryDsn'), // NFR-7 Sentry DSN（可选；空→SentryBootstrap no-op）
     'XB_FORM_A': formA ? 'true' : 'false', // 形态 A 外壳开关（flavor.yaml form_a，可选）
     'XB_CRISP_WEBSITE_ID': crispWebsiteId, // D9 在线客服 websiteId（空→入口隐藏）
   };

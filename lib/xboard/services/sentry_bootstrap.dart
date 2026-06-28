@@ -9,9 +9,14 @@
 /// **DD-23 8 类 tag**：bootstrap.stage / envelope_source / decryption_failure / endpoint.current /
 /// endpoint.race_attempts / auth.state / connectivity.online / flavor.id。
 ///
-/// **实施期说明**：本类提供装配 + tag + beforeSend 过滤的**纯逻辑**（可单测）；真实 `Sentry.init`
-/// 调用点在 [installEarly]，dsn==null 时不触达 sentry 包（测试默认 no-op 路径）。
+/// **实施期说明**：真实 `Sentry.init`（基础 init，非 `SentryFlutter.init`）在 [installEarly]
+/// 触发（仅 dsn 非空时）；dsn==null 全 no-op（dev / opt-out / headless 测试）。
 library;
+
+import 'dart:ui' show PlatformDispatcher;
+
+import 'package:flutter/foundation.dart' show FlutterError, FlutterErrorDetails;
+import 'package:sentry_flutter/sentry_flutter.dart';
 
 /// Sentry tag key（DD-23 8 类）。
 class SentryTagKeys {
@@ -52,21 +57,54 @@ class SentryBootstrap {
 
   /// 早期装配（bootstrap step 2）。dsn==null → no-op（dev / opt-out，§ C）。
   ///
-  /// 真实 `Sentry.init` 在此触发（仅 dsn 非空时）；本仓 headless 测试默认 dsn==null 走 no-op。
+  /// 真实 `Sentry.init`（基础 init，**不**接管 FlutterError.onError）在此触发（仅 dsn 非空时）；
+  /// 随后**链式 wrap** `FlutterError.onError` + `PlatformDispatcher.onError`（DD-14：先 Sentry
+  /// 上报再调旧 handler 保 FlClash commonPrint.log），并把同步阶段已累积的 tag 灌进 scope。
   static Future<void> installEarly({
     required String? dsn,
     required String release,
+    String? environment,
     bool sendDefaultPii = false, // κ-4 默认 false
     double tracesSampleRate = 0.0, // v0.1 = 0
     bool userOptedOut = false, // κ-4 opt-out（默认 ON → false）
   }) async {
     _dsn = dsn;
     _enabled = dsn != null && dsn.isNotEmpty && !userOptedOut;
-    if (!_enabled) return; // no-op
-    // 真实 Sentry.init 调用点（W8 真机/CI 接入；此处仅装配状态，避免 headless 触达 sentry 包）。
-    // await Sentry.init((o) { o.dsn = dsn; o.release = release;
-    //   o.sendDefaultPii = sendDefaultPii; o.tracesSampleRate = tracesSampleRate;
-    //   o.beforeSend = (event, hint) => scrubEvent(event); });
+    if (!_enabled) return; // no-op（dev / opt-out / headless 测试）
+
+    await Sentry.init((options) {
+      options.dsn = dsn;
+      options.release = release;
+      if (environment != null && environment.isNotEmpty) {
+        options.environment = environment;
+      }
+      options.sendDefaultPii = sendDefaultPii; // κ-4：不发默认 PII（IP / 用户名等）
+      options.tracesSampleRate = tracesSampleRate; // v0.1=0（不做 performance）
+      // PII 防护策略（§ C）：sendDefaultPii=false（不附带 IP/用户/设备 PII）+ 后台 Data Scrubber
+      // （Settings → Security & Privacy 开默认 scrubber + 补 email/uuid/token 字段）。
+      // 注：v9 起 SentryEvent.extra 已 deprecated，不再在 beforeSend 里手动抹 extra；
+      // scrubData() 保留为纯工具（单测覆盖），供日后结构化 contexts 脱敏复用。
+    });
+
+    // 链式 wrap FlutterError.onError（DD-14：先 Sentry 再调旧 handler，保 FlClash 日志）。
+    final prevFlutterOnError = FlutterError.onError;
+    FlutterError.onError = (FlutterErrorDetails details) {
+      // ignore: discarded_futures
+      Sentry.captureException(details.exception, stackTrace: details.stack);
+      prevFlutterOnError?.call(details);
+    };
+    // 链式 wrap 未捕获异步错误（PlatformDispatcher.onError）。
+    final prevPlatformOnError = PlatformDispatcher.instance.onError;
+    PlatformDispatcher.instance.onError = (error, stack) {
+      // ignore: discarded_futures
+      Sentry.captureException(error, stackTrace: stack);
+      return prevPlatformOnError?.call(error, stack) ?? false;
+    };
+
+    // 把同步阶段 installEarly 之前已累积的 tag（flavor.id / bootstrap.stage 等）灌进 scope。
+    await Sentry.configureScope((scope) {
+      _tags.forEach(scope.setTag);
+    });
   }
 
   /// beforeSend 脱敏：递归把敏感字段值替换为 '***'（κ-4 / § C）。
@@ -85,10 +123,13 @@ class SentryBootstrap {
     return out;
   }
 
-  /// 设 tag（DD-23）。dsn null 时仅记内存快照（no-op 不发）。
+  /// 设 tag（DD-23）。dsn null 时仅记内存快照（no-op 不发）；启用后同步推 Sentry scope。
   static void setTag(String key, String value) {
     _tags[key] = value;
-    // if (_enabled) Sentry.configureScope((s) => s.setTag(key, value));
+    if (_enabled) {
+      // ignore: discarded_futures
+      Sentry.configureScope((scope) => scope.setTag(key, value));
+    }
   }
 
   /// bootstrap 阶段 tag（DD-23）。
@@ -120,16 +161,25 @@ class SentryBootstrap {
       setTag(SentryTagKeys.flavorId, flavorId);
 
   /// SDK 日志桥接（String 翻译，避免 import SDK LogLevel，第 4 轮 Property 2）。
+  /// warning/error/fatal → Sentry.captureMessage（debug/info 丢弃，减噪）。
   static void captureFromSdk(String levelStr, String message) {
     if (!_enabled) return;
-    // if (levelStr == 'error' || levelStr == 'fatal') Sentry.captureMessage(message, level: ...);
+    final level = switch (levelStr) {
+      'fatal' => SentryLevel.fatal,
+      'error' => SentryLevel.error,
+      'warning' => SentryLevel.warning,
+      _ => null, // debug / info 不上报
+    };
+    if (level == null) return;
+    // ignore: discarded_futures
+    Sentry.captureMessage(message, level: level);
   }
 
-  /// 用户 opt-out（κ-4）：关闭上报。
+  /// 用户 opt-out（κ-4）：关闭上报。重新启用需重启 app 重新 init（v0.1 简化）。
   static Future<void> setUserOptOut(bool optedOut) async {
     if (optedOut) {
       _enabled = false;
-      // await Sentry.close();
+      await Sentry.close();
     } else if (_dsn != null && _dsn!.isNotEmpty) {
       _enabled = true;
     }

@@ -30,6 +30,7 @@ class XboardConfig {
     this.dataController = 'Example Tech Co., Ltd.',
     this.supportEmail = 'support@example.com',
     this.crispWebsiteId = '',
+    this.sentryDsn = '',
     this.bootstrapUrls = const <String>[],
     this.bootstrapAesKeyBytes,
     this.subscriptionAesKeyBytes,
@@ -86,6 +87,10 @@ class XboardConfig {
   /// 空串 = 未配置 → 「帮助与客服」入口隐藏（不暴露空会话）。
   final String crispWebsiteId;
 
+  /// Sentry DSN（NFR-7；flavor 注入 `XB_SENTRY_DSN`）。
+  /// 空串 = 未配置 → `SentryBootstrap` 全 no-op（不上报，secure-by-default）。
+  final String sentryDsn;
+
   /// Bootstrap 远端镜像 URL 列表（R15；运行时地址不入 Dart/yaml，仅 flavor 注入 bootstrap 入口）。
   final List<String> bootstrapUrls;
 
@@ -130,6 +135,7 @@ class XboardConfig {
         defaultValue: 'support@example.com');
     const crispWebsiteId =
         String.fromEnvironment('XB_CRISP_WEBSITE_ID', defaultValue: '');
+    const sentryDsn = String.fromEnvironment('XB_SENTRY_DSN', defaultValue: '');
     const urlsCsv = String.fromEnvironment('XB_BOOTSTRAP_URLS', defaultValue: '');
     const aesKeyB64 = String.fromEnvironment('XB_AES_KEY_B64', defaultValue: '');
     const subAesKeyB64 =
@@ -174,6 +180,7 @@ class XboardConfig {
       dataController: dataController,
       supportEmail: supportEmail,
       crispWebsiteId: crispWebsiteId,
+      sentryDsn: sentryDsn,
       bootstrapUrls: urls,
       bootstrapAesKeyBytes: aesBytes,
       subscriptionAesKeyBytes: subAesBytes,

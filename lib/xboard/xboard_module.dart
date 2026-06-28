@@ -16,7 +16,7 @@ library;
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_xboard_sdk/flutter_xboard_sdk.dart'
-    show TokenStorage, XBoardSDK;
+    show SdkLogger, TokenStorage, XBoardSDK;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../providers/config.dart' show patchClashConfigProvider, appSettingProvider;
@@ -264,8 +264,22 @@ class XboardModule {
     SentryBootstrap.tagFlavor(activeConfig.flavorId);
     SentryBootstrap.tagBootstrap(stage: 'sync_start');
 
-    // step 2：SentryBootstrap.installEarly + PlatformDispatcher.onError 早期 hook。
-    //   W8.3 填实 6 参实现；W1 占位 no-op（不抢占 FlClash 的 FlutterError.onError）。
+    // step 2：SentryBootstrap.installEarly —— 真实 Sentry.init（dsn 非空时，基础 init 不接管）
+    //   + 链式 wrap FlutterError/PlatformDispatcher.onError（DD-14）+ 灌入已累积 tag。
+    //   dsn 空（未配置 / dev）→ 全 no-op。独立 try/catch：失败绝不阻塞后续 SDK initialize。
+    try {
+      const productVersion =
+          String.fromEnvironment('XB_PRODUCT_VERSION', defaultValue: '0.0.0');
+      const buildNumber =
+          String.fromEnvironment('XB_BUILD_NUMBER', defaultValue: '0');
+      await SentryBootstrap.installEarly(
+        dsn: activeConfig.sentryDsn.isEmpty ? null : activeConfig.sentryDsn,
+        release: '${activeConfig.flavorId}@$productVersion+$buildNumber',
+        environment: activeConfig.flavorId,
+      );
+    } catch (e, s) {
+      debugPrint('[XboardModule] Sentry installEarly failed: $e\n$s');
+    }
 
     // step 3：BootstrapLocalLoader.loadLocal()（W5.6 真实 AES-256-GCM 解密，零网络）。
     //   优先级：本地缓存密文 → 出厂 fallback 资产 → null（双双损坏走 config 出厂 endpoint 兜底）。
@@ -301,7 +315,18 @@ class XboardModule {
       enableLogging: activeConfig.debug,
     );
 
-    // step 5：SdkLogger.onLog 占位（W8.3 SentryBootstrap 完成后 wire 真实 capture）。
+    // step 5：SdkLogger.onLog 桥接 → SentryBootstrap.captureFromSdk（R10 / NFR-7）。
+    //   SDK warning/error/fatal 经此进 Sentry（debug/info 丢弃减噪）；dsn 空时 captureFromSdk no-op。
+    //   level.name（'warning'/'error'/...）翻译成 String，避免 SDK LogLevel 类型穿透到 Sentry 层。
+    //   永不抛：钩子内异常 SDK 侧已兜底（SdkLogger._emit try/catch）。
+    try {
+      SdkLogger.onLog = (level, message, [error, stackTrace]) {
+        SentryBootstrap.captureFromSdk(level.name, message);
+      };
+    } catch (e, s) {
+      debugPrint('[XboardModule] SdkLogger.onLog wire failed: $e\n$s');
+    }
+
     //
     // W3.10：Content-Language 一次性默认 header 注入（DD-4 / F398 / F399）。
     // SDK 不主动发 Content-Language；反腐层在此（SDK initialize 后 + 首个 API 调用前）
