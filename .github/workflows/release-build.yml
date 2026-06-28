@@ -1,29 +1,44 @@
-# release-build.yml — 形态 A / brand_a 桌面出包 CI（新增「加而不改」，不碰 upstream build.yaml）。
+# release-build.yml — 形态 A 多端出包 CI（新增「加而不改」，不碰 upstream build.yaml）。
 #
-# 目的：headless dev 环境无法编 Windows/Linux 桌面包；本 workflow 在 GitHub runner 上出包。
-#   Android 本地 build_local.sh 已可出包，CI 不重复（如需可后续加 android matrix + 签名 secrets）。
+# 目的：在 GitHub runner 上出 Android / Windows / macOS / Linux 四端包（headless dev 环境编不了）。
+#   可选 flavor（brand_a / brand_b），workflow_dispatch 时选。
 #
 # 设计铁律（用户强约束）：
 #   1. 绝不修改 setup.dart / build_local.sh / 任何 upstream 文件 —— 本文件是纯新增。
 #   2. 不走 `dart setup.dart`（它会把 env.json 覆盖成 {APP_ENV,CORE_SHA256}，丢掉所有 XB_* define）。
 #      改为直接 `flutter build <platform>`，define 经 --dart-define-from-file=env.json 注入，
 #      与本地 build_local.sh 的 flutter build 调用等价（已验证可出可用包）。
-#   3. Go 核心：CMake buildkit（plugins/setup/buildkit/cmake/buildkit.cmake）在 flutter build 时
-#      自动编译 libclash（linux/windows 均如此，需 Go 在 PATH）。windows 额外先跑 build_tool 取
+#   3. Go 核心：桌面经 CMake buildkit 在 flutter build 时自动编译 libclash（需 Go 在 PATH）；
+#      Android 经 gradle + NDK 编 libclash.so（需 Go + NDK）。windows 额外先跑 build_tool 取
 #      CORE_SHA256（编译期 dart-define，运行时核心完整性校验用，对齐 setup.dart 行为）。
 #
-# 机密链路（GitHub repository secrets，brand 前缀为未来 brand_b 留位）：
-#   BRAND_A_FLAVOR_YAML_B64   flavors/brand_a/flavor.yaml（已从仓库移除，base64）
-#   BRAND_A_FALLBACK_BIN_B64  flavors/brand_a/assets/fallback.bin（已从仓库移除，base64）
-#   BRAND_A_AES_KEY_B64       AES-256 主密钥（32 字节 base64，prepare_flavor 后注入 flavor_defines.json）
-#   SIBLING_SDK_TOKEN         只读 private wvjh3z/Xboard_sdk 的 fine-grained PAT
+# 机密链路（GitHub repository secrets）：
+#   ── 品牌私密（brand 前缀，按 flavor 选用）──
+#   BRAND_A_FLAVOR_YAML_B64 / BRAND_B_FLAVOR_YAML_B64   flavors/<brand>/flavor.yaml（base64；含内嵌 aesKey）
+#   BRAND_A_FALLBACK_BIN_B64 / BRAND_B_FALLBACK_BIN_B64  flavors/<brand>/assets/fallback.bin（base64）
+#   ── 共用基础设施 ──
+#   SIBLING_SDK_TOKEN   只读 private wvjh3z/Xboard_sdk 的 fine-grained PAT
+#   （Android 签名机密内嵌在 flavor.yaml 的 androidSigning 块，无需额外 GitHub secret；
+#     google-services.json 已提交进仓库）
 #
-# 触发：仅手动（workflow_dispatch）。产物在 run 的 Artifacts 区下载。
+# 🔑 AES key 处理（方案 A，与本地 build_local.sh 一致）：aesKey 直接内嵌在 flavor.yaml 里，
+#    prepare_flavor 读它直接生成非空 XB_AES_KEY_B64，**无单独注入步骤**。更新 BRAND_*_FLAVOR_YAML_B64
+#    时务必用「带 key 的」flavor.yaml 重新生成（base64 -w0 flavors/<brand>/flavor.yaml）。
+#
+# 触发：仅手动（workflow_dispatch），选 flavor。产物在 run 的 Artifacts 区下载。
 
-name: Release Build (brand_a)
+name: Release Build (multi-platform)
 
 on:
   workflow_dispatch:
+    inputs:
+      flavor:
+        description: '品牌 flavor'
+        type: choice
+        options:
+          - brand_a
+          - brand_b
+        default: brand_a
 
 # 全平台统一用 bash（windows runner 用 Git Bash），保证 base64 / jq / cp 行为一致。
 defaults:
@@ -34,16 +49,20 @@ env:
   FLUTTER_VERSION: 3.41.9
   GO_VERSION: 1.24.0
   APP_ENV: stable
+  FLAVOR: ${{ github.event.inputs.flavor || 'brand_a' }}
 
 jobs:
   build:
-    name: Build ${{ matrix.platform }}
+    name: Build ${{ matrix.platform }} (${{ github.event.inputs.flavor || 'brand_a' }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          - { os: windows-2022, platform: windows }
+          - { os: windows-2022,  platform: windows }
+          - { os: ubuntu-22.04,  platform: linux }
+          - { os: macos-latest,  platform: macos }
+          - { os: ubuntu-latest, platform: android }
     steps:
       - name: Checkout client (XFlClash)
         uses: actions/checkout@v4
@@ -61,22 +80,36 @@ jobs:
             "${GITHUB_WORKSPACE}/../Xboard_sdk"
           echo "✓ Xboard_sdk 已 clone 到 $(cd "${GITHUB_WORKSPACE}/.." && pwd)/Xboard_sdk"
 
-      # 从 secrets 还原已移出仓库的 flavor 机密（base64 → 文件）。
-      - name: Restore brand_a flavor secrets
+      # 从 secrets 还原已移出仓库的 flavor 机密（base64 → 文件），按所选 flavor 选 brand secret。
+      - name: Restore flavor secrets
+        env:
+          A_YAML: ${{ secrets.BRAND_A_FLAVOR_YAML_B64 }}
+          A_BIN:  ${{ secrets.BRAND_A_FALLBACK_BIN_B64 }}
+          B_YAML: ${{ secrets.BRAND_B_FLAVOR_YAML_B64 }}
+          B_BIN:  ${{ secrets.BRAND_B_FALLBACK_BIN_B64 }}
         run: |
           set -euo pipefail
-          mkdir -p flavors/brand_a/assets
-          echo "${{ secrets.BRAND_A_FLAVOR_YAML_B64 }}"  | base64 -d > flavors/brand_a/flavor.yaml
-          echo "${{ secrets.BRAND_A_FALLBACK_BIN_B64 }}" | base64 -d > flavors/brand_a/assets/fallback.bin
+          mkdir -p "flavors/${FLAVOR}/assets"
+          if [ "$FLAVOR" = "brand_b" ]; then YAML="$B_YAML"; BIN="$B_BIN"; else YAML="$A_YAML"; BIN="$A_BIN"; fi
+          echo "$YAML" | base64 -d > "flavors/${FLAVOR}/flavor.yaml"
+          echo "$BIN"  | base64 -d > "flavors/${FLAVOR}/assets/fallback.bin"
           # 自检：还原对了 flavor.yaml 应含 appName 字段（防 secret 配错/为空）。
-          grep -q 'appName' flavors/brand_a/flavor.yaml || { echo "✗ flavor.yaml 还原失败（缺 appName，检查 BRAND_A_FLAVOR_YAML_B64）"; exit 1; }
-          echo "✓ flavor.yaml / fallback.bin 已还原"
+          grep -q 'appName' "flavors/${FLAVOR}/flavor.yaml" || { echo "✗ flavor.yaml 还原失败（缺 appName，检查 BRAND_*_FLAVOR_YAML_B64）"; exit 1; }
+          echo "✓ flavor.yaml / fallback.bin 已还原（flavor=$FLAVOR）"
 
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
           go-version: ${{ env.GO_VERSION }}
           cache-dependency-path: core/go.sum
+
+      - name: Setup NDK (Android)
+        if: matrix.platform == 'android'
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: r28c
+          add-to-path: true
+          link-to-sdk: true
 
       - name: Enable git long paths (Windows)
         if: matrix.platform == 'windows'
@@ -90,8 +123,9 @@ jobs:
           cache: true
 
       - name: Enable desktop
+        if: matrix.platform != 'android'
         run: |
-          flutter config --enable-windows-desktop --enable-linux-desktop
+          flutter config --enable-windows-desktop --enable-linux-desktop --enable-macos-desktop
 
       # Linux 桌面原生依赖（对齐 setup.dart 的 _ensureLinuxDependencies 必装项）。
       - name: Install Linux build deps
@@ -112,33 +146,30 @@ jobs:
           flutter pub get
           dart run build_runner build --delete-conflicting-outputs
 
-      # prepare_flavor 生成 flavor_defines.json。target=test 与本地 build_local.sh 一致：
-      # flavor.yaml 按设计不存 aesKey（D58），target=prod 会因 aesKey 空校验失败；test 放宽，
-      # 密钥随后注入。
+      # prepare_flavor 生成 flavor_defines.json。flavor.yaml 已内嵌真实 aesKey（方案 A），
+      # 用 target=prod 走完整校验（aesKey 非空 + 32 字节）；生成的 XB_AES_KEY_B64 即真实 key。
+      # Android 额外 --android-signing：从 flavor.yaml 的 androidSigning 块落地 keystore.jks +
+      # local.properties（签名机密收口进 gitignored flavor.yaml，无需额外 GitHub secret）。
       - name: Prepare flavor (generate flavor_defines.json)
-        run: dart run tool/prepare_flavor.dart --flavor brand_a --target test
+        run: |
+          EXTRA=""
+          [ "${{ matrix.platform }}" = "android" ] && EXTRA="--android-signing"
+          dart run tool/prepare_flavor.dart --flavor "$FLAVOR" --target prod $EXTRA
 
-      # 桌面品牌构建期注入：runner/打包元数据里的 FlClash → flavor.yaml appName。
-      # committed 文件保持上游 FlClash 原样（零侵入、可 sync）；本步在 fresh checkout 上改写、
-      # 不入 git。仅文本/元数据（窗口标题/PRODUCT_NAME/权限文案/安装包显示名）；图标见下。
+      # 桌面品牌构建期注入（仅桌面）：runner/打包元数据里的 FlClash → flavor.yaml appName。
+      # committed 文件保持上游 FlClash 原样（零侵入、可 sync）；本步在 fresh checkout 上改写、不入 git。
+      # Android 品牌身份从 flavor.yaml 的 appId/appName 经 gradle 读，不走此步。
       - name: Inject desktop branding (FlClash → appName)
-        run: dart run tool/inject_desktop_brand.dart --flavor brand_a
+        if: matrix.platform != 'android'
+        run: dart run tool/inject_desktop_brand.dart --flavor "$FLAVOR"
 
-      # 桌面图标重生成：上一步已生成 flutter_launcher_icons.yaml + 覆盖 assets/images/icon.png
-      # （Linux 打包图标 + 应用内 logo）。此步用 flutter_launcher_icons 把品牌 png 转成
-      # windows app_icon.ico + macOS appiconset。committed 图标保持上游 FlClash，仅构建期重生成。
+      # 桌面图标重生成（仅桌面）：把品牌 png 转成 windows .ico / macOS appiconset。
       - name: Generate desktop icons (windows .ico / macOS appiconset)
+        if: matrix.platform != 'android'
         run: dart run flutter_launcher_icons -f flutter_launcher_icons.yaml
 
-      # 注入真实 AES key（prepare_flavor 之后；对齐 build_local.sh 的 python patch）。
-      - name: Inject AES key into flavor_defines.json
-        run: |
-          set -euo pipefail
-          jq --arg k "${{ secrets.BRAND_A_AES_KEY_B64 }}" '.XB_AES_KEY_B64 = $k' flavor_defines.json > flavor_defines.tmp
-          mv flavor_defines.tmp flavor_defines.json
-          # 自检：注入后非空。
-          test -n "$(jq -r '.XB_AES_KEY_B64' flavor_defines.json)" || { echo "✗ AES key 注入失败（检查 BRAND_A_AES_KEY_B64）"; exit 1; }
-          echo "✓ AES key 已注入"
+      # Android 签名已由上面 "Prepare flavor --android-signing" 从 flavor.yaml 落地
+      # （keystore.jks + local.properties），此处无需单独的 secret 还原步骤。
 
       # Windows：先跑 build_tool 编核心 + 取 CORE_SHA256（编译期 define）。
       - name: Build Go core + read CORE_SHA256 (Windows)
@@ -155,7 +186,7 @@ jobs:
         run: |
           set -euo pipefail
           TAG="$(date +%Y%m%d%H%M)"
-          PV="$(grep -m1 -E '^\s*versionName:' flavors/brand_a/flavor.yaml | sed -E 's/.*versionName:\s*"?([^"#]+)"?.*/\1/' | xargs)"
+          PV="$(grep -m1 -E '^\s*versionName:' "flavors/${FLAVOR}/flavor.yaml" | sed -E 's/.*versionName:\s*"?([^"#]+)"?.*/\1/' | xargs)"
           BN="$(cat scripts/build_number.txt 2>/dev/null || echo 1)"
           SHA=""
           if [ -f core_sha256.json ]; then
@@ -192,11 +223,29 @@ jobs:
             --build-name="$BASE_VERSION" \
             --build-number="$BUILD_NUMBER"
 
+      - name: Build macOS
+        if: matrix.platform == 'macos'
+        run: |
+          flutter build macos --release \
+            --dart-define-from-file=env.json \
+            --build-name="$BASE_VERSION" \
+            --build-number="$BUILD_NUMBER"
+
+      # Android：单 ABI arm64-v8a release APK（签名经 local.properties；与 build_local.sh 等价）。
+      - name: Build Android APK
+        if: matrix.platform == 'android'
+        run: |
+          flutter build apk --release --flavor "$FLAVOR" \
+            --dart-define-from-file=env.json \
+            --build-name="$BASE_VERSION" \
+            --build-number="$BUILD_NUMBER" \
+            --target-platform android-arm64
+
       - name: Upload Windows artifact
         if: matrix.platform == 'windows'
         uses: actions/upload-artifact@v4
         with:
-          name: MyClient-windows-x64-v${{ env.PRODUCT_VERSION }}-build${{ env.BUILD_NUMBER }}
+          name: MyClient-${{ env.FLAVOR }}-windows-x64-v${{ env.PRODUCT_VERSION }}-build${{ env.BUILD_NUMBER }}
           path: build/windows/x64/runner/Release
           if-no-files-found: error
 
@@ -204,6 +253,22 @@ jobs:
         if: matrix.platform == 'linux'
         uses: actions/upload-artifact@v4
         with:
-          name: MyClient-linux-x64-v${{ env.PRODUCT_VERSION }}-build${{ env.BUILD_NUMBER }}
+          name: MyClient-${{ env.FLAVOR }}-linux-x64-v${{ env.PRODUCT_VERSION }}-build${{ env.BUILD_NUMBER }}
           path: build/linux/x64/release/bundle
+          if-no-files-found: error
+
+      - name: Upload macOS artifact
+        if: matrix.platform == 'macos'
+        uses: actions/upload-artifact@v4
+        with:
+          name: MyClient-${{ env.FLAVOR }}-macos-v${{ env.PRODUCT_VERSION }}-build${{ env.BUILD_NUMBER }}
+          path: build/macos/Build/Products/Release
+          if-no-files-found: error
+
+      - name: Upload Android artifact
+        if: matrix.platform == 'android'
+        uses: actions/upload-artifact@v4
+        with:
+          name: MyClient-${{ env.FLAVOR }}-android-arm64-v${{ env.PRODUCT_VERSION }}-build${{ env.BUILD_NUMBER }}
+          path: build/app/outputs/flutter-apk/app-${{ env.FLAVOR }}-release.apk
           if-no-files-found: error

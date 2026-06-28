@@ -45,6 +45,9 @@ void main(List<String> argv) {
   final parser = ArgParser()
     ..addOption('flavor', help: 'flavor 名（对应 flavors/<flavor>/）', defaultsTo: 'brand_a')
     ..addOption('target', help: 'build target（test 注入 kIsTest=true）', defaultsTo: 'prod')
+    ..addFlag('android-signing',
+        help: '落地 androidSigning 块（keystore.jks + local.properties），Android 构建用',
+        negatable: false)
     ..addFlag('help', abbr: 'h', negatable: false);
 
   final ArgResults args;
@@ -92,6 +95,20 @@ void main(List<String> argv) {
 
   // 出厂 fallback 不再拷贝：直接打包 flavors/<flavor>/assets/fallback.bin（pubspec 声明），
   // 运行时 BootstrapLocalLoader 按 flavorId 加载。存在性已由 validateFlavor 校验项⑤ 保证。
+
+  // Android 签名落地（可选，--android-signing）：从 flavor.yaml 的 androidSigning 块还原
+  // keystore.jks + 写 local.properties。把签名机密收口进 gitignored 的 flavor.yaml（机密包），
+  // CI 无需额外 GitHub secret（a/b 共用同一把 key 时两个 flavor.yaml 填相同值）。
+  if (args['android-signing'] as bool) {
+    final signErrors = materializeAndroidSigning(doc);
+    if (signErrors.isNotEmpty) {
+      stderr.writeln('[prepare_flavor] ✗ Android 签名落地失败（${signErrors.length} 项）：');
+      for (final e in signErrors) {
+        stderr.writeln('  • $e');
+      }
+      exit(1);
+    }
+  }
 
   // W8.5（8.5.1）：注入 pubspec version = <versionName>+flclash<底座>（conventions §2.8）。
   // 单 flavor v0.1 Android applicationId 保留 upstream（productFlavors 注释已说明）；
@@ -275,6 +292,61 @@ List<String> validateFlavor({
   }
 
   return errors;
+}
+
+/// 落地 Android 签名（`--android-signing`）：从 flavor.yaml 的 `androidSigning` 块还原
+/// `android/app/keystore.jks`（base64 解码）+ 写 `android/local.properties` 的签名行。
+///
+/// 把签名机密收口进 gitignored 的 flavor.yaml（机密包），CI 无需额外 GitHub secret。
+/// 返回错误列表（空 = 成功）。local.properties 保留 flutter sdk 行，只覆盖本函数管理的键。
+List<String> materializeAndroidSigning(YamlMap doc) {
+  final node = doc['androidSigning'];
+  if (node is! YamlMap) {
+    return ['缺 androidSigning 块（--android-signing 需要 flavor.yaml 含此块）'];
+  }
+
+  String f(String k) => (node[k] as String?)?.trim() ?? '';
+  final ksB64 = f('keystoreBase64');
+  final storePw = f('storePassword');
+  final alias = f('keyAlias');
+  final keyPw = f('keyPassword');
+
+  final errors = <String>[];
+  if (ksB64.isEmpty) errors.add('androidSigning.keystoreBase64 为空');
+  if (storePw.isEmpty) errors.add('androidSigning.storePassword 为空');
+  if (alias.isEmpty) errors.add('androidSigning.keyAlias 为空');
+  if (keyPw.isEmpty) errors.add('androidSigning.keyPassword 为空');
+  if (errors.isNotEmpty) return errors;
+
+  // 1) keystore.jks
+  final List<int> ksBytes;
+  try {
+    ksBytes = base64.decode(ksB64);
+  } on FormatException {
+    return ['androidSigning.keystoreBase64 不是合法 base64'];
+  }
+  File(p.join('android', 'app', 'keystore.jks')).writeAsBytesSync(ksBytes);
+
+  // 2) local.properties（保留 flutter.sdk/sdk.dir 等行，覆盖本函数管理的 4 个键）
+  const managed = {'storePassword', 'keyAlias', 'keyPassword', 'XB_TARGET_ABI'};
+  final lpFile = File(p.join('android', 'local.properties'));
+  final kept = <String>[];
+  if (lpFile.existsSync()) {
+    for (final line in lpFile.readAsLinesSync()) {
+      final key = line.split('=').first.trim();
+      if (!managed.contains(key)) kept.add(line);
+    }
+  }
+  kept
+    ..add('storePassword=$storePw')
+    ..add('keyAlias=$alias')
+    ..add('keyPassword=$keyPw')
+    ..add('XB_TARGET_ABI=arm64-v8a'); // 单 ABI：versionCode 不被偏移、等于 build-number
+  lpFile.writeAsStringSync('${kept.join('\n')}\n');
+
+  stdout.writeln('[prepare_flavor] ✓ Android 签名已落地'
+      '（keystore.jks + local.properties，单 ABI arm64-v8a）');
+  return [];
 }
 
 /// 校验 UA 含且仅含一个 'flclash' 子串（大小写不敏感）。

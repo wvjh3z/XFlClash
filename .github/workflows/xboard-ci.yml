@@ -5,7 +5,8 @@
 #    自动跑会失败。配齐 secrets 后改回 push/pull_request 触发（见下方注释块）。
 #
 # 依赖 secrets（与 release-build.yml 统一命名，brand 前缀为未来 brand_b 留位）：
-#   SIBLING_SDK_TOKEN / BRAND_A_FLAVOR_YAML_B64 / BRAND_A_FALLBACK_BIN_B64 / BRAND_A_AES_KEY_B64
+#   SIBLING_SDK_TOKEN / BRAND_A_FLAVOR_YAML_B64 / BRAND_A_FALLBACK_BIN_B64
+#   🔑 AES key 内嵌在 flavor.yaml（方案 A），prepare_flavor 直接生成，无独立 BRAND_A_AES_KEY_B64。
 name: Xboard CI
 
 on:
@@ -109,12 +110,11 @@ jobs:
           echo "${{ secrets.BRAND_A_FLAVOR_YAML_B64 }}"  | base64 -d > flavors/brand_a/flavor.yaml
           echo "${{ secrets.BRAND_A_FALLBACK_BIN_B64 }}" | base64 -d > flavors/brand_a/assets/fallback.bin
         continue-on-error: true # secrets 未配齐时不阻断（与下方 prepare_flavor 同为 best-effort）
-      # prepare_flavor 生成 flavor_defines.json（target=test 与 build_local.sh 一致，aesKey 空放宽）。
-      # AES key 经 BRAND_A_AES_KEY_B64 在生成后注入 flavor_defines.json（见 release-build.yml 完整链路）。
+      # prepare_flavor 生成 flavor_defines.json。flavor.yaml 已内嵌真实 aesKey（方案 A），
+      # 直接生成非空 XB_AES_KEY_B64，无需单独注入。
       - name: Prepare flavor
         run: |
-          dart run tool/prepare_flavor.dart --flavor brand_a --target test
-          jq --arg k "${{ secrets.BRAND_A_AES_KEY_B64 }}" '.XB_AES_KEY_B64 = $k' flavor_defines.json > flavor_defines.tmp && mv flavor_defines.tmp flavor_defines.json
+          dart run tool/prepare_flavor.dart --flavor brand_a --target prod
         continue-on-error: true # flavor 资产未齐时不阻断（W8.5 完善后转 required）
       - name: Build ${{ matrix.platform }}
         run: flutter build ${{ matrix.platform }} --release

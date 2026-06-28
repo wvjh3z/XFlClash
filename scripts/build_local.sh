@@ -65,13 +65,18 @@ flutter clean >/dev/null 2>&1 || true
 flutter pub get >/dev/null 2>&1 || true
 
 # === flavor_defines.json 生成（含 AES key）===
-# 本地：aesKey 直接存 flavors/brand_a/flavor.yaml（已 gitignored），prepare_flavor 读它生成
+# 本地：aesKey 直接存 flavors/<flavor>/flavor.yaml（已 gitignored），prepare_flavor 读它生成
 # 非空 XB_AES_KEY_B64，无需 .secrets 注入。缺/错 key → bootstrap 解不开 config.json → 登录打到
 # COS 桶报 MethodNotAllowed。
-# 注：CI（公开仓库）不走本脚本——release-build.yml 用独立加密 secret BRAND_A_AES_KEY_B64 注入。
-# 出厂 fallback 直接打包 flavors/brand_a/assets/fallback.bin（pubspec 已声明），无需拷贝。
+# 注：CI（release-build.yml）也走 flavor.yaml（方案 A）：aesKey + Android 签名均内嵌其中，
+#     无需额外 GitHub secret，与本脚本单一来源一致。
+# 出厂 fallback 直接打包 flavors/<flavor>/assets/fallback.bin（pubspec 已声明），无需拷贝。
+# release 额外 --android-signing：从 flavor.yaml 的 androidSigning 块落地 keystore.jks +
+#   local.properties 签名行（与 CI 单一来源一致）。debug 走 debug 签名，不需要。
 echo "=== prepare_flavor：生成 flavor_defines.json（含 aesKey）==="
-dart run tool/prepare_flavor.dart --flavor "$FLAVOR" --target test || true
+SIGN_FLAG=""
+[ "$MODE" = "release" ] && SIGN_FLAG="--android-signing"
+dart run tool/prepare_flavor.dart --flavor "$FLAVOR" --target test $SIGN_FLAG || true
 
 if [ "$MODE" = "release" ]; then
   case "$ARCH" in
