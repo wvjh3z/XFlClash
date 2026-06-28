@@ -14,12 +14,16 @@ class XbContentHeader extends StatelessWidget {
   const XbContentHeader({
     super.key,
     required this.title,
+    this.titleTrailing,
     this.trailing,
     this.maxContentWidth,
   });
 
   /// 左侧标题（如「首页」/「选择线路」/「我的」）。
   final String title;
+
+  /// 标题**右侧紧邻**的小部件（如首页「有新公告」胶囊）；null = 无。
+  final Widget? titleTrailing;
 
   /// 右侧操作区（更新胶囊 / 刷新按钮等）；null = 无操作。
   final Widget? trailing;
@@ -44,6 +48,10 @@ class XbContentHeader extends StatelessWidget {
               color: t.on,
             ),
           ),
+          if (titleTrailing != null) ...[
+            const SizedBox(width: 10),
+            titleTrailing!,
+          ],
           const Spacer(),
           ?trailing,
         ],

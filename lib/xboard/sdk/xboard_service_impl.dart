@@ -25,8 +25,10 @@ import '../models/xb_domain_error.dart';
 import '../models/xb_domain_subscription.dart';
 import '../models/xb_domain_types.dart';
 import '../models/xb_invite.dart';
+import '../models/xb_notice.dart';
 import '../models/xb_result.dart';
 import '../models/xb_tutorial.dart';
+import '../util/pii_mask.dart';
 import '../util/subscription_cache.dart';
 import 'xboard_service.dart';
 
@@ -557,6 +559,34 @@ class XboardServiceImpl implements XboardService {
           updatedAt: _epochToDate(a.updatedAt),
         );
       });
+
+  @override
+  Future<XbResult<List<XbNotice>>> getNotices() =>
+      // 后端 /user/notice/fetch 固定返 ≤5 条；过滤 show==true（领域组装，§2.2）。
+      _guard('getNotices', () async {
+        final list = await _sdk.notice.getNoticesPaged(current: 1);
+        return [
+          for (final n in list)
+            if (n.show)
+              XbNotice(
+                id: n.id,
+                title: n.title,
+                content: n.content,
+                createdAt: _epochToDate(n.createdAt),
+                updatedAt: n.updatedAt,
+              ),
+        ];
+      });
+
+  @override
+  Future<String> currentUserIdHash() async {
+    // 不向 UI 暴露原始 token：在反腐层内取 token → 派生 hash（公告已读本地存储 key 用）。
+    try {
+      return userIdHashFromToken(await _sdk.getToken());
+    } catch (_) {
+      return 'anon'; // storage 异常兜底（Property 1 永不抛）。
+    }
+  }
 
   // ───────── W7 SDK model → 领域模型映射 ─────────
 

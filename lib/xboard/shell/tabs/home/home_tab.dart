@@ -14,6 +14,7 @@ import 'package:fl_clash/xboard/providers/auth_state_provider.dart';
 import 'package:fl_clash/xboard/providers/xboard_providers.dart';
 import 'package:fl_clash/xboard/widgets/xb_center_toast.dart';
 import 'package:fl_clash/xboard/widgets/xb_theme.dart' show XbTokens;
+import 'package:fl_clash/xboard/widgets/xb_announcement.dart';
 import 'package:fl_clash/xboard/widgets/xb_ui_kit.dart' show XbIconBadge;
 import 'package:fl_clash/xboard/widgets/xb_update_dialog.dart';
 import 'package:fl_clash/widgets/widgets.dart' show EmojiText;
@@ -217,6 +218,7 @@ class _HomeTabState extends ConsumerState<HomeTab> {
         // 固定标题栏（原型 .chd）：标题「首页」+ 右侧更新胶囊，底部分隔线。
         const XbContentHeader(
           title: '首页',
+          titleTrailing: XbNoticePill(large: true),
           trailing: _HomeUpdatePill(large: true),
         ),
         Expanded(
@@ -331,11 +333,26 @@ class _HomeHeader extends StatelessWidget {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(
-            XboardConfig.current.appName,
-            style: Theme.of(context).textTheme.headlineSmall,
+          // 左：品牌名 + 「有新公告」胶囊（紧挨标题；无未读则胶囊不占位）。
+          Flexible(
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Flexible(
+                  child: Text(
+                    XboardConfig.current.appName,
+                    style: Theme.of(context).textTheme.headlineSmall,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                const XbNoticePill(),
+              ],
+            ),
           ),
-          // 有新版本时显示绿色胶囊提示。
+          const SizedBox(width: 8),
+          // 右：有新版本时显示绿色胶囊提示。
           const _HomeUpdatePill(),
         ],
       ),
@@ -367,7 +384,7 @@ class _HomeUpdatePill extends StatelessWidget {
             borderRadius: BorderRadius.circular(20),
           ),
           child: EmojiText(
-            '🎉 有新版本啦，巨大更新',
+            '🎉 有新版本啦',
             style: TextStyle(
               fontSize: large ? 13 : 11,
               fontWeight: FontWeight.w600,

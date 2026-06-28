@@ -15,6 +15,7 @@ import '../models/plan_item.dart';
 import '../models/xb_domain_subscription.dart';
 import '../models/xb_domain_types.dart';
 import '../models/xb_invite.dart';
+import '../models/xb_notice.dart';
 import '../models/xb_result.dart';
 import '../models/xb_tutorial.dart';
 /// 反腐层抽象：UI / providers 与 SDK 之间的唯一桥梁。
@@ -149,4 +150,14 @@ abstract interface class XboardService {
 
   /// 单篇使用教程详情（含正文；需登录）。
   Future<XbResult<XbTutorialDetail>> getTutorialDetail(int id);
+
+  // ───────── 公告（form-a 首页公告，需登录）─────────
+
+  /// 站内公告列表（后端 `/user/notice/fetch`，固定返 ≤5 条，已过滤 `show==true`）。
+  /// 失败 → XbFailure；无公告 → 成功返回空列表。
+  Future<XbResult<List<XbNotice>>> getNotices();
+
+  /// 当前登录用户的 userIdHash（公告已读状态本地存储 key 用；不暴露原始 token）。
+  /// 未登录 / 无 token → `'anon'`。
+  Future<String> currentUserIdHash();
 }
