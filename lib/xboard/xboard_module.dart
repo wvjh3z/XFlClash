@@ -63,6 +63,9 @@ class XboardModule {
   /// **始终存活**（住 module，不依赖任何 UI 页面构建）—— 根治「不进我的服务页订阅不触发」。
   static ProviderSubscription<AuthState>? _authStateListener;
 
+  /// #1：attach 完成后重链 `FlutterError.onError` 到 Sentry 的 initProvider 监听句柄（dispose 时关）。
+  static ProviderSubscription<bool>? _sentryRechainListener;
+
   /// 同步阶段 loadLocal() 解出的本地 payload（异步阶段远端失败时的竞速候选）。
   static BootstrapPayload? _localPayload;
 
@@ -98,7 +101,7 @@ class XboardModule {
     } catch (e, s) {
       // DD-2：同步阶段任何异常全吞 —— bootstrapReady 保持 false，UI gate 登录禁用 + banner。
       // W8.3 SentryBootstrap 完成后此处尽力上报。
-      debugPrint('[XboardModule.bootstrap] swallowed: $e\n$s');
+      _reportSwallowed('bootstrap swallowed', e, s);
     }
   }
 
@@ -122,7 +125,7 @@ class XboardModule {
       await _bootstrapAsyncPhase(container);
     } catch (e, s) {
       // DD-2：异步阶段任何异常全吞——失败沿用同步阶段 endpoint，绝不波及已渲染 UI。
-      debugPrint('[XboardModule.bootstrapAsync] swallowed: $e\n$s');
+      _reportSwallowed('bootstrapAsync swallowed', e, s);
     }
   }
 
@@ -182,6 +185,21 @@ class XboardModule {
     XbUpdateService.autoCheck(container);
   }
 
+  /// 「永不抛」层统一吞咽收口（§11 / #2 监测）：本地 debugPrint + Sentry 上报。
+  ///
+  /// 原各 `catch (e,s) { debugPrint(...) }` 只打本地日志 → 线上静默失败盲飞（bootstrap 初始化
+  /// 失败 / 本地解密失败 / token 存储降级 / 接线失败等无人知晓）。统一改走本方法：吞之前
+  /// `SentryBootstrap.captureException`（dsn 空 → no-op，不影响 dev/test）。[where] 标识吞咽点
+  /// （Sentry tag `swallowed.where` 聚合）。本方法**自身永不抛**（上报失败不二次中断 bootstrap）。
+  static void _reportSwallowed(String where, Object error, StackTrace stack) {
+    debugPrint('[XboardModule] $where: $error\n$stack');
+    try {
+      SentryBootstrap.captureException(error, stackTrace: stack, where: where);
+    } catch (_) {
+      // 上报本身失败（Sentry 未就绪等）→ 静默，不让监测代码反噬 bootstrap。
+    }
+  }
+
   /// R4.6 step2a：合并镜像列表 —— 缓存的 next_bootstrap_urls 优先，编译期 flavor bootstrapUrls 兜底，去重保序。
   static List<String> _mergeMirrors(List<String> cached, List<String> flavor) {
     final seen = <String>{};
@@ -216,7 +234,7 @@ class XboardModule {
             '[XboardModule] secure_storage 不可用 → 降级 AES-SharedPrefs（ζ1）'),
       );
     } catch (e, s) {
-      debugPrint('[XboardModule] token storage create failed: $e\n$s');
+      _reportSwallowed('token storage create failed', e, s);
       return null;
     }
   }
@@ -256,7 +274,7 @@ class XboardModule {
         }
       } catch (e, s) {
         // 检测失败不阻塞 bootstrap（DD-2）；保守视为非首次（不弹首次离线页）。
-        debugPrint('[XboardModule] firstLaunch detect failed: $e\n$s');
+        _reportSwallowed('firstLaunch detect failed', e, s);
       }
     }
 
@@ -278,7 +296,7 @@ class XboardModule {
         environment: activeConfig.flavorId,
       );
     } catch (e, s) {
-      debugPrint('[XboardModule] Sentry installEarly failed: $e\n$s');
+      _reportSwallowed('Sentry installEarly failed', e, s);
     }
 
     // step 3：BootstrapLocalLoader.loadLocal()（W5.6 真实 AES-256-GCM 解密，零网络）。
@@ -297,7 +315,7 @@ class XboardModule {
       }
     } catch (e, s) {
       // 本地加载失败不阻塞（DD-2 / Property 1）；沿用 config 出厂 endpoint。
-      debugPrint('[XboardModule] loadLocal failed: $e\n$s');
+      _reportSwallowed('loadLocal failed', e, s);
     }
 
     // step 4：SDK initialize（用本地 endpoint 作初始 baseUrl，远端拉到后 W5 热替换）。
@@ -324,7 +342,7 @@ class XboardModule {
         SentryBootstrap.captureFromSdk(level.name, message);
       };
     } catch (e, s) {
-      debugPrint('[XboardModule] SdkLogger.onLog wire failed: $e\n$s');
+      _reportSwallowed('SdkLogger.onLog wire failed', e, s);
     }
 
     //
@@ -346,7 +364,7 @@ class XboardModule {
           backendLocale;
     } catch (e, s) {
       // 注入失败不阻塞 bootstrap（DD-2 全捕获）；后端 fallback 默认 zh-CN。
-      debugPrint('[XboardModule] Content-Language inject failed: $e\n$s');
+      _reportSwallowed('Content-Language inject failed', e, s);
     }
 
     // step 6：写运行期值（DD-18，非 override）。fallback 兜底即 bootstrapReady=true。
@@ -366,7 +384,7 @@ class XboardModule {
           container.read(authStateProvider.notifier).markAuthenticated();
         }
       } catch (e, s) {
-        debugPrint('[XboardModule] auth restore failed: $e\n$s');
+        _reportSwallowed('auth restore failed', e, s);
       }
     }
 
@@ -443,7 +461,7 @@ class XboardModule {
           SubscriptionTriggers.onAuthenticated(container);
         }
       } catch (e, s) {
-        debugPrint('[XboardModule] auth-state wire failed: $e\n$s');
+        _reportSwallowed('auth-state wire failed', e, s);
       }
 
       // R4.9：监听 VPN 开关（isStartProvider），变化时让 race controller 用新档位重竞速。
@@ -472,17 +490,25 @@ class XboardModule {
           fireImmediately: true,
         );
       } catch (e, s) {
-        debugPrint('[XboardModule] vpn-state wire failed: $e\n$s');
+        _reportSwallowed('vpn-state wire failed', e, s);
       }
     } catch (e, s) {
-      debugPrint('[XboardModule] lifecycle observer wire failed: $e\n$s');
+      _reportSwallowed('lifecycle observer wire failed', e, s);
     }
 
     // seam #7（W5.5）：等 initProvider==true（globalState.attach 完成）后应用「首次安装默认开 IPv6」。
     try {
       _wireDefaultIpv6(container);
     } catch (e, s) {
-      debugPrint('[XboardModule] default-ipv6 wire failed: $e\n$s');
+      _reportSwallowed('default-ipv6 wire failed', e, s);
+    }
+
+    // #1（监测）：attach 完成后重链 FlutterError.onError 到 Sentry —— FlClash _initApp（attach，
+    // runApp 后）硬设 handler 会覆盖 SentryFlutter 集成装的，故 attach 后补回。
+    try {
+      _wireSentryRechain(container);
+    } catch (e, s) {
+      _reportSwallowed('sentry-rechain wire failed', e, s);
     }
 
     // formA 强制界面语言为简体中文（用户 2026-06-20）。与 seam #7 同类——经现有 provider 运行时
@@ -490,7 +516,7 @@ class XboardModule {
     try {
       _applyForcedLocale(container);
     } catch (e, s) {
-      debugPrint('[XboardModule] forced-locale wire failed: $e\n$s');
+      _reportSwallowed('forced-locale wire failed', e, s);
     }
 
     // DD-23：bootstrap 同步阶段完成 tag（W5.7）。
@@ -532,7 +558,7 @@ class XboardModule {
             .update((s) => s.copyWith(ipv6: true));
         await prefs.setBool(kXbIpv6DefaultAppliedKey, true);
       } catch (e, s) {
-        debugPrint('[XboardModule] default-ipv6 apply failed: $e\n$s');
+        _reportSwallowed('default-ipv6 apply failed', e, s);
       }
     }
 
@@ -552,6 +578,26 @@ class XboardModule {
     }
   }
 
+  /// #1（监测）：attach 完成后（initProvider==true）重链 `FlutterError.onError` 到 Sentry。
+  ///
+  /// FlClash `globalState.attach()` → `_initApp` 在 runApp **后**硬设 `FlutterError.onError`，
+  /// 晚于 [installEarly]，会覆盖 SentryFlutter 集成装的 handler。本方法在 attach 完成后调
+  /// `SentryBootstrap.rechainFlutterError()`（取当前 FlClash handler 包一层 Sentry 捕获，二者都不丢）。
+  /// 一次性（首次 initProvider==true 后关监听）；dsn 空时 rechain 内部 no-op。
+  static void _wireSentryRechain(ProviderContainer container) {
+    if (container.read(initProvider)) {
+      SentryBootstrap.rechainFlutterError();
+      return;
+    }
+    _sentryRechainListener = container.listen<bool>(initProvider, (prev, next) {
+      if (next) {
+        SentryBootstrap.rechainFlutterError();
+        _sentryRechainListener?.close();
+        _sentryRechainListener = null;
+      }
+    });
+  }
+
   /// 释放模块自起的长生命周期资源（DD-19 顺序：摘 observer → 关监听 → race dispose）。
   static Future<void> dispose() async {
     // 1. 先摘 observer（停止接收 lifecycle 事件，避免 race 已 dispose 后还触发竞速）。
@@ -564,6 +610,8 @@ class XboardModule {
     _vpnStateListener = null;
     _authStateListener?.close();
     _authStateListener = null;
+    _sentryRechainListener?.close();
+    _sentryRechainListener = null;
     // 3. dispose endpoint 竞速控制器（最后，前面已无人触发它）。
     _raceController?.dispose();
     _raceController = null;

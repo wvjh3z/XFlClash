@@ -1,7 +1,10 @@
 /// Sentry crash 上报装配（NFR-7 / DD-14 链式 / DD-23 8 类 tag / κ-4 GDPR opt-out / 决策 #5）。
 ///
-/// **不接管 FlutterError.onError**（决策 #5 / ξ-Sentry）：用基础 `Sentry.init`（非 `SentryFlutter.init`
-/// 默认接管），链式 wrap 保留 FlClash 既有 handler（DD-14：先 Sentry 再调旧 handler 保 commonPrint.log）。
+/// **改用 `SentryFlutter.init`**（2026-06-29 修订；原决策 #5 用基础 `Sentry.init` 不接管）：
+/// 装**原生崩溃处理器**（Android NDK / ANR + Go 核心 `libclash.so` SIGSEGV —— VPN 客户端
+/// 此前的最大监控盲区）。FlClash 的 `commonPrint` handler 在 `attach()`（runApp **后**）才硬设
+/// `FlutterError.onError`、会覆盖 SDK 装的 handler，故由 [rechainFlutterError]（attach 完成后调）
+/// 重链：先 Sentry 上报再调 FlClash handler，二者都不丢（修原 base-init 被 attach 覆盖的盲区）。
 ///
 /// **§ C 配置（κ-4 GDPR）**：sendDefaultPii=false + tracesSampleRate=0 + beforeSend 过滤
 /// token/password/email/uuid。`dsn==null`（dev / 用户 opt-out）全 no-op。
@@ -12,8 +15,6 @@
 /// **实施期说明**：真实 `Sentry.init`（基础 init，非 `SentryFlutter.init`）在 [installEarly]
 /// 触发（仅 dsn 非空时）；dsn==null 全 no-op（dev / opt-out / headless 测试）。
 library;
-
-import 'dart:ui' show PlatformDispatcher;
 
 import 'package:flutter/foundation.dart' show FlutterError, FlutterErrorDetails;
 import 'package:sentry_flutter/sentry_flutter.dart';
@@ -57,9 +58,10 @@ class SentryBootstrap {
 
   /// 早期装配（bootstrap step 2）。dsn==null → no-op（dev / opt-out，§ C）。
   ///
-  /// 真实 `Sentry.init`（基础 init，**不**接管 FlutterError.onError）在此触发（仅 dsn 非空时）；
-  /// 随后**链式 wrap** `FlutterError.onError` + `PlatformDispatcher.onError`（DD-14：先 Sentry
-  /// 上报再调旧 handler 保 FlClash commonPrint.log），并把同步阶段已累积的 tag 灌进 scope。
+  /// `SentryFlutter.init`（仅 dsn 非空时）装原生崩溃 + Dart 错误集成（FlutterError /
+  /// PlatformDispatcher.onError 由 SDK 自动装，链式调 init 前旧 handler）。把同步阶段已累积的
+  /// tag 灌进 scope。⚠️ FlClash `attach()`（runApp 后）会覆盖 FlutterError.onError，需
+  /// [rechainFlutterError] 在 attach 完成后补回（见类注释）。
   static Future<void> installEarly({
     required String? dsn,
     required String release,
@@ -72,7 +74,11 @@ class SentryBootstrap {
     _enabled = dsn != null && dsn.isNotEmpty && !userOptedOut;
     if (!_enabled) return; // no-op（dev / opt-out / headless 测试）
 
-    await Sentry.init((options) {
+    // SentryFlutter.init（非基础 Sentry.init）：装**原生**崩溃处理器（Android NDK/ANR +
+    // Go 核心 libclash.so SIGSEGV）+ Dart 错误集成。FlutterError/PlatformDispatcher 集成由
+    // SDK 自动装并链式调 init 前旧 handler；FlClash commonPrint 在 attach()（runApp 后）才设、
+    // 会覆盖 FlutterError.onError → 由 rechainFlutterError（attach 后调）补回 Sentry 捕获。
+    await SentryFlutter.init((options) {
       options.dsn = dsn;
       options.release = release;
       if (environment != null && environment.isNotEmpty) {
@@ -80,31 +86,47 @@ class SentryBootstrap {
       }
       options.sendDefaultPii = sendDefaultPii; // κ-4：不发默认 PII（IP / 用户名等）
       options.tracesSampleRate = tracesSampleRate; // v0.1=0（不做 performance）
-      // PII 防护策略（§ C）：sendDefaultPii=false（不附带 IP/用户/设备 PII）+ 后台 Data Scrubber
-      // （Settings → Security & Privacy 开默认 scrubber + 补 email/uuid/token 字段）。
-      // 注：v9 起 SentryEvent.extra 已 deprecated，不再在 beforeSend 里手动抹 extra；
-      // scrubData() 保留为纯工具（单测覆盖），供日后结构化 contexts 脱敏复用。
+      // 隐私（§ C）：不抓截图（默认 false，显式锁定，避免泄露界面内容）。
+      options.attachScreenshot = false;
+      // 注：sendDefaultPii=false + 后台 Data Scrubber（Settings → Security & Privacy 开
+      // 默认 scrubber + 补 email/uuid/token 字段）双层 PII 防护。scrubData() 保留为纯工具
+      // （单测覆盖），供日后结构化 contexts 脱敏复用。
     });
-
-    // 链式 wrap FlutterError.onError（DD-14：先 Sentry 再调旧 handler，保 FlClash 日志）。
-    final prevFlutterOnError = FlutterError.onError;
-    FlutterError.onError = (FlutterErrorDetails details) {
-      // ignore: discarded_futures
-      Sentry.captureException(details.exception, stackTrace: details.stack);
-      prevFlutterOnError?.call(details);
-    };
-    // 链式 wrap 未捕获异步错误（PlatformDispatcher.onError）。
-    final prevPlatformOnError = PlatformDispatcher.instance.onError;
-    PlatformDispatcher.instance.onError = (error, stack) {
-      // ignore: discarded_futures
-      Sentry.captureException(error, stackTrace: stack);
-      return prevPlatformOnError?.call(error, stack) ?? false;
-    };
 
     // 把同步阶段 installEarly 之前已累积的 tag（flavor.id / bootstrap.stage 等）灌进 scope。
     await Sentry.configureScope((scope) {
       _tags.forEach(scope.setTag);
     });
+  }
+
+  /// attach() 后重链 `FlutterError.onError`（修 SDK 集成被 FlClash `_initApp` 硬覆盖的盲区）。
+  ///
+  /// FlClash 在 `globalState.attach()`（runApp 后、晚于 [installEarly]）里硬设
+  /// `FlutterError.onError = commonPrint`，覆盖 SentryFlutter 集成装的 handler。本方法在 attach
+  /// 完成后（xboard_module 监听 initProvider==true）调用：取当前（FlClash 的）handler 包一层 ——
+  /// 先 `Sentry.captureException` 再调 FlClash handler，二者都不丢。dsn 空 → no-op；幂等可重复调。
+  static void rechainFlutterError() {
+    if (!_enabled) return;
+    final flclashHandler = FlutterError.onError;
+    FlutterError.onError = (FlutterErrorDetails details) {
+      // ignore: discarded_futures
+      Sentry.captureException(details.exception, stackTrace: details.stack);
+      flclashHandler?.call(details);
+    };
+  }
+
+  /// 上报「永不抛」层吞掉的异常（#2：bootstrap / 反腐层吞前尽力上报，避免静默失败盲飞）。
+  /// dsn 空 → no-op。[where] 作 tag `swallowed.where`，便于在 Sentry 按吞咽点聚合。
+  static void captureException(Object error,
+      {StackTrace? stackTrace, String? where}) {
+    if (!_enabled) return;
+    // ignore: discarded_futures
+    Sentry.captureException(
+      error,
+      stackTrace: stackTrace,
+      withScope:
+          where == null ? null : (scope) => scope.setTag('swallowed.where', where),
+    );
   }
 
   /// beforeSend 脱敏：递归把敏感字段值替换为 '***'（κ-4 / § C）。
