@@ -91,5 +91,9 @@ test/xboard/golden/failures/
 flavors/*/flavor.yaml
 flavors/*/assets/fallback.bin
 
+# Sentry CLI 上传符号用的 org auth token（构建机凭证，绝不入 git/app；CI 走 SENTRY_AUTH_TOKEN secret）
+# org 级、a/b 共用，收进 flavors/ 机密包（换机器整目录拷即可）；构建脚本 export 给 sentry-cli。
+flavors/sentry-cli.token
+
 # Coverage reports (local dev only)
 /coverage/
