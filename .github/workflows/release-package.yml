@@ -135,9 +135,9 @@ jobs:
           mkdir -p "flavors/${FLAVOR}/assets"
           if [ "$FLAVOR" = "brand_b" ]; then YAML="$B_YAML"; BIN="$B_BIN"; else YAML="$A_YAML"; BIN="$A_BIN"; fi
           echo "secret 原始长度: YAML=${#YAML} BIN=${#BIN}"
-          # -i/--ignore-garbage：跳过粘贴混入的非 base64 字符（空格/换行/零宽空格/智能引号等）。
-          printf '%s' "$YAML" | base64 -d -i > "flavors/${FLAVOR}/flavor.yaml" || { echo "✗ flavor.yaml base64 解码失败"; exit 1; }
-          printf '%s' "$BIN"  | base64 -d -i > "flavors/${FLAVOR}/assets/fallback.bin" || { echo "✗ fallback.bin base64 解码失败"; exit 1; }
+          # 可移植解码：tr 去空白 + base64 -d（GNU/macOS BSD/Git-Bash 均支持 -d；secret 由 API 写入已干净）。
+          printf '%s' "$YAML" | tr -d '[:space:]' | base64 -d > "flavors/${FLAVOR}/flavor.yaml" || { echo "✗ flavor.yaml base64 解码失败"; exit 1; }
+          printf '%s' "$BIN"  | tr -d '[:space:]' | base64 -d > "flavors/${FLAVOR}/assets/fallback.bin" || { echo "✗ fallback.bin base64 解码失败"; exit 1; }
           echo "解码后大小: flavor.yaml=$(wc -c < "flavors/${FLAVOR}/flavor.yaml") fallback.bin=$(wc -c < "flavors/${FLAVOR}/assets/fallback.bin")"
           grep -q 'appName' "flavors/${FLAVOR}/flavor.yaml" || { echo "✗ flavor.yaml 还原失败（缺 appName；BRAND_*_FLAVOR_YAML_B64 可能被截断，需重新完整粘贴）"; head -c 200 "flavors/${FLAVOR}/flavor.yaml"; exit 1; }
           echo "✓ flavor.yaml / fallback.bin 已还原（flavor=$FLAVOR）"
