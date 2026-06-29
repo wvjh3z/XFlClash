@@ -322,7 +322,7 @@ jobs:
           esac
           DESC=""
           [ "${{ matrix.platform }}" != "android" ] && DESC="--description ${{ matrix.arch }}"
-          flutter_distributor package \
+          dart pub global run flutter_distributor:main package \
             --skip-clean \
             --platform "${{ matrix.platform }}" \
             --targets "$TARGETS" \
