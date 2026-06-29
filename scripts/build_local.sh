@@ -140,7 +140,10 @@ fi
 # ⚠️ 此部署是 brand_a 专属基建（固定服务器 + 命名规则匹配 brand_a 应用内更新器），其他 flavor 不部署。
 if [ "$MODE" = "release" ] && [ "$ARCH" = "arm64" ] && [ "$FLAVOR" = "brand_a" ]; then
   DEPLOY_DIR="/www/wwwroot/apkdl"
-  DEPLOY_NAME="MyClient-${VERSION_NAME}-android-arm64-v8a.apk"
+  # 下载包前缀取 flavor.yaml updatePackageName（单一来源，须与后端 AppVersion 插件 app_name 一致）。
+  PKG_NAME="$(grep -m1 -E '^\s*updatePackageName:' "$FLAVOR_YAML" | sed -E 's/.*updatePackageName:\s*"?([^"#]+)"?.*/\1/' | xargs)"
+  [ -n "$PKG_NAME" ] || PKG_NAME="MyClient"
+  DEPLOY_NAME="${PKG_NAME}-${VERSION_NAME}-android-arm64-v8a.apk"
   if [ -f "$OUT" ] && [ -d "$DEPLOY_DIR" ]; then
     cp "$OUT" "$DEPLOY_DIR/$DEPLOY_NAME"
     chown www:www "$DEPLOY_DIR/$DEPLOY_NAME" 2>/dev/null || true

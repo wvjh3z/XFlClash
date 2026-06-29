@@ -269,6 +269,37 @@ jobs:
             --flutter-build-args="$BUILD_ARGS" \
             $DESC
 
+      # 重命名 dist 产物为 AppVersion 插件/FlClash 约定名：
+      #   {updatePackageName}-{产品版本}-{平台}-{archToken}{后缀}
+      # 客户端 v0.3 自更新按此规则拼下载 URL（后端 AppVersion 插件自动拼文件名），
+      # 镜像上的文件名必须精确匹配，否则 404。flutter_distributor 默认名（含 -brand_x
+      # 后缀 + 底座版本 + 缺 -平台- 段）对不上，故在此统一收口。
+      - name: Normalize artifact names (AppVersion convention)
+        run: |
+          set -euo pipefail
+          PKG="$(grep -m1 -E '^\s*updatePackageName:' "flavors/${FLAVOR}/flavor.yaml" | sed -E 's/.*updatePackageName:\s*"?([^"#]+)"?.*/\1/' | xargs)"
+          [ -n "$PKG" ] || { echo "✗ flavor.yaml 缺 updatePackageName"; exit 1; }
+          PV="$PRODUCT_VERSION"
+          AR="${{ matrix.arch }}"
+          cd dist
+          shopt -s nullglob
+          case "${{ matrix.platform }}" in
+            android)
+              for abi in armeabi-v7a arm64-v8a x86_64; do
+                for f in *"$abi"*.apk; do mv -f "$f" "${PKG}-${PV}-android-${abi}.apk"; done
+              done ;;
+            windows)
+              for f in *setup.exe; do mv -f "$f" "${PKG}-${PV}-windows-${AR}-setup.exe"; done
+              for f in *.zip;       do mv -f "$f" "${PKG}-${PV}-windows-${AR}.zip"; done ;;
+            macos)
+              for f in *.dmg; do mv -f "$f" "${PKG}-${PV}-macos-${AR}.dmg"; done ;;
+            linux)
+              for f in *.AppImage; do mv -f "$f" "${PKG}-${PV}-linux-${AR}.AppImage"; done
+              for f in *.deb;      do mv -f "$f" "${PKG}-${PV}-linux-${AR}.deb"; done
+              for f in *.rpm;      do mv -f "$f" "${PKG}-${PV}-linux-${AR}.rpm"; done ;;
+          esac
+          echo "=== dist 重命名后（AppVersion 约定）==="; ls -la
+
       # Sentry 符号上传（缺 SENTRY_AUTH_TOKEN → 跳过不阻断）。
       - name: Upload debug symbols to Sentry
         env:
