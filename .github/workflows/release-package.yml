@@ -20,10 +20,12 @@
 #   SIBLING_SDK_TOKEN   只读 private wvjh3z/Xboard_sdk 的 fine-grained PAT
 #   SENTRY_AUTH_TOKEN   Sentry org auth token（sntrys_…，org=ka-chiu-lee；上传崩溃符号，缺失则跳过不阻断）
 #
-# ⚠️ 已知待验证（CI 实跑时确认）：Linux crashpad_handler 可执行位 —— flutter_distributor
-#   build→package 一气呵成、中间无钩子，无法像 release-build.yml 那样在打包前 chmod +x。
-#   若打包后 Linux 原生崩溃捕获失效（Dart 层不受影响），后续在 deb postinstall / AppImage
-#   AppRun 内补 chmod。
+# ✅ Linux crashpad 可执行位：已由 linux/CMakeLists.txt 末尾 install(CODE chmod +x) 在
+#   flutter build 时补回（PATCHES.md RT-CrashpadExec）。bundle/deb/AppImage 三格式本地实测
+#   均 -rwxr-xr-x，CI 自动继承，无需在本工作流另行处理。
+# ⚠️ Linux amd64 必须保持 ubuntu-22.04：其 rpm 为 4.17.x（旧 %install 行为），vendored
+#   flutter_distributor 的 rpm maker 依赖此行为。ubuntu-24.04+ 的 rpm 4.20 改了 %install 工作目录
+#   会导致 rpm 打包失败（本地 Debian13/rpm4.20 已复现）。**勿把 amd64 升到 ubuntu-latest/24.04**。
 
 name: Release Package (multi-platform, flutter_distributor)
 
@@ -59,7 +61,7 @@ jobs:
           - { platform: android, os: ubuntu-latest }
           - { platform: windows, os: windows-2022,    arch: amd64 }
           - { platform: windows, os: windows-11-arm,  arch: arm64 }
-          - { platform: linux,   os: ubuntu-22.04,    arch: amd64 }
+          - { platform: linux,   os: ubuntu-22.04,    arch: amd64 }   # ⚠️ 勿升 24.04：rpm 4.20 会让 rpm 打包失败（见头部说明）
           - { platform: linux,   os: ubuntu-24.04-arm, arch: arm64 }
           - { platform: macos,   os: macos-15-intel,  arch: amd64 }
           - { platform: macos,   os: macos-latest,    arch: arm64 }
