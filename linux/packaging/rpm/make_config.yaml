@@ -15,6 +15,7 @@ icon: ./assets/images/icon.png
 requires:
   - webkit2gtk4.1
   - libsoup3
+  - libcurl
 
 keywords:
   - FlClash

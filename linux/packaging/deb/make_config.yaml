@@ -15,6 +15,7 @@ dependencies:
   - libkeybinder-3.0-dev
   - libwebkit2gtk-4.1-0
   - libsoup-3.0-0
+  - libcurl4
 
 keywords:
   - FlClash
