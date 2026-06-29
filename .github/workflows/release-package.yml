@@ -52,6 +52,10 @@ on:
           - macos-arm64
           - all
         default: android
+      upload:
+        description: '上传产物到 Artifacts（⚠️ 公开仓库=任何人可下载；测试期保持 false）'
+        type: boolean
+        default: false
 
 defaults:
   run:
@@ -345,10 +349,20 @@ jobs:
           esac
           echo "✓ 符号上传步骤完成"
 
+      # 列出产物清单（始终执行，便于核对构建/打包/命名是否正常，但不上传）。
+      - name: List built artifacts (no upload)
+        run: |
+          echo "=== dist 产物（验证构建+命名；upload=${{ github.event.inputs.upload }}）==="
+          ls -la dist/ 2>/dev/null || echo "(无 dist)"
+
+      # 仅当显式 upload=true 才上传到 Artifacts。⚠️ 公开仓库 = 任何人可下载。
+      # 测试期默认 false：跑通即验证成功，产物随 runner 销毁、不公开暴露。
       - name: Upload artifacts
+        if: github.event.inputs.upload == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: MyClient-${{ env.FLAVOR }}-${{ matrix.platform }}${{ matrix.arch && format('-{0}', matrix.arch) }}-v${{ env.PRODUCT_VERSION }}-build${{ env.BUILD_NUMBER }}
           path: ./dist
           if-no-files-found: error
+          retention-days: 1
           overwrite: true
