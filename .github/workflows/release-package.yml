@@ -58,6 +58,7 @@ jobs:
         include:
           - { platform: android, os: ubuntu-latest }
           - { platform: windows, os: windows-2022,    arch: amd64 }
+          - { platform: windows, os: windows-11-arm,  arch: arm64 }
           - { platform: linux,   os: ubuntu-22.04,    arch: amd64 }
           - { platform: linux,   os: ubuntu-24.04-arm, arch: arm64 }
           - { platform: macos,   os: macos-15-intel,  arch: amd64 }
@@ -105,21 +106,32 @@ jobs:
           add-to-path: true
           link-to-sdk: true
 
+      # Windows on ARM：装 rust（aarch64 工具链）—— 部分原生依赖在 win-arm 经 rust 编译
+      # （FlClash build.yaml 同款）。PowerShell（覆盖默认 bash）；cargo 路径写入 GITHUB_PATH。
+      - name: Setup rust (Windows ARM)
+        if: matrix.os == 'windows-11-arm'
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri "https://win.rustup.rs/aarch64" -OutFile rustup-init.exe
+          .\rustup-init.exe -y --default-toolchain stable
+          $cargoPath = "$env:USERPROFILE\.cargo\bin"
+          Add-Content $env:GITHUB_PATH $cargoPath
+
       - name: Enable git long paths (Windows)
         if: matrix.platform == 'windows'
         run: git config --global core.longpaths true
 
       # 非 arm runner 用 stable 3.41.9（与 release-build.yml 一致）；
-      # arm runner（ubuntu-24.04-arm）按 FlClash 惯例走 master 3.44.0-0.1.pre。
+      # arm runner（windows-11-arm / ubuntu-24.04-arm）按 FlClash 惯例走 master 3.44.0-0.1.pre。
       - name: Setup Flutter (stable)
-        if: ${{ !startsWith(matrix.os, 'ubuntu-24.04-arm') }}
+        if: ${{ !(matrix.os == 'windows-11-arm' || startsWith(matrix.os, 'ubuntu-24.04-arm')) }}
         uses: subosito/flutter-action@v2
         with:
           channel: stable
           flutter-version: 3.41.9
           cache: true
       - name: Setup Flutter (master, arm runner)
-        if: startsWith(matrix.os, 'ubuntu-24.04-arm')
+        if: ${{ matrix.os == 'windows-11-arm' || startsWith(matrix.os, 'ubuntu-24.04-arm') }}
         uses: subosito/flutter-action@v2
         with:
           channel: master
