@@ -10,6 +10,11 @@ installed_size: 6604
 essential: false
 icon: ./assets/images/icon.png
 
+# 运行时依赖（Fedora/RHEL 包名，与 Debian 不同）。webkit 为桌面 WebView（客服）必需，
+# 缺它客服页会崩。⚠️ 包名以实际 Fedora 测试为准（rpm 为次要目标，CI 未覆盖 Fedora 运行）。
+requires:
+  - webkit2gtk4.1
+
 keywords:
   - FlClash
   - Clash
