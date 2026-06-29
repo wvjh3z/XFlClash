@@ -226,11 +226,8 @@ jobs:
             --split-debug-info=build/debug-info \
             --build-name="$BASE_VERSION" \
             --build-number="$BUILD_NUMBER"
-          # 🔧 sentry-native crashpad 修复（2026-06-29 本地实测确认）：flutter build linux 复制
-          # 插件 bundled 库时丢失可执行位，crashpad_handler 变 -rw-r--r-- → sentry_init 原生层
-          # posix_spawn 报 EACCES(13) → 原生崩溃捕获（Go 核心 SIGSEGV 等）静默失效（Dart 层仍正常）。
-          # 补回 +x；缺它则 Linux 桌面只有 Dart 层监控、丢原生崩溃。
-          chmod +x build/linux/x64/release/bundle/lib/crashpad_handler
+          # 注：crashpad_handler 可执行位由 linux/CMakeLists.txt 的 install(CODE chmod +x) 在
+          # flutter build 时自动补回（PATCHES.md RT-CrashpadExec），无需此处再手动 chmod。
 
       - name: Build macOS
         if: matrix.platform == 'macos'

@@ -126,3 +126,16 @@ if(NOT CMAKE_BUILD_TYPE MATCHES "Debug")
   install(FILES "${AOT_LIBRARY}" DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"
     COMPONENT Runtime)
 endif()
+
+# === Xboard 加而不改（接缝点：linux crashpad 可执行位；PATCHES.md RT-CrashpadExec）===
+# sentry_flutter 的 crashpad_handler 经上面 foreach(bundled_library) 的 install(FILES) 复制时
+# 丢失可执行位（-rw-r--r--），导致打包产物（bundle/deb/AppImage）里它不可执行 → sentry_init
+# 原生层 posix_spawn EACCES(13) → Linux 原生崩溃捕获（Go 核心 SIGSEGV 等）静默失效（Dart 层正常）。
+# 在所有 install 规则之后补回 +x，本地 / release-build / release-package(flutter_distributor) 通吃。
+install(CODE "
+  set(_xb_crashpad \"${INSTALL_BUNDLE_LIB_DIR}/crashpad_handler\")
+  if(EXISTS \"\${_xb_crashpad}\")
+    execute_process(COMMAND chmod +x \"\${_xb_crashpad}\")
+    message(STATUS \"[xboard] chmod +x crashpad_handler\")
+  endif()
+  " COMPONENT Runtime)
