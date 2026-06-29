@@ -68,25 +68,48 @@ env:
   SENTRY_ORG: ka-chiu-lee
 
 jobs:
+  # 解析 target 输入 → 动态 matrix。（job 级 if 不能用 matrix 上下文 → 之前 startup_failure，
+  # 故改为 setup job 按 target 产出 matrix JSON，package job 用 fromJson 消费。）
+  setup:
+    name: Resolve matrix
+    runs-on: ubuntu-latest
+    outputs:
+      include: ${{ steps.r.outputs.include }}
+    steps:
+      - id: r
+        env:
+          TARGET: ${{ github.event.inputs.target || 'android' }}
+        run: |
+          set -euo pipefail
+          A='{"platform":"android","os":"ubuntu-latest"}'
+          WA='{"platform":"windows","os":"windows-2022","arch":"amd64"}'
+          WR='{"platform":"windows","os":"windows-11-arm","arch":"arm64"}'
+          LA='{"platform":"linux","os":"ubuntu-22.04","arch":"amd64"}'
+          LR='{"platform":"linux","os":"ubuntu-24.04-arm","arch":"arm64"}'
+          MA='{"platform":"macos","os":"macos-15-intel","arch":"amd64"}'
+          MR='{"platform":"macos","os":"macos-latest","arch":"arm64"}'
+          case "$TARGET" in
+            android)       INC="[$A]" ;;
+            windows-amd64) INC="[$WA]" ;;
+            windows-arm64) INC="[$WR]" ;;
+            linux-amd64)   INC="[$LA]" ;;   # ubuntu-22.04 固定（rpm 4.20 坑，见头部）
+            linux-arm64)   INC="[$LR]" ;;
+            macos-amd64)   INC="[$MA]" ;;
+            macos-arm64)   INC="[$MR]" ;;
+            all)           INC="[$A,$WA,$WR,$LA,$LR,$MA,$MR]" ;;
+            *)             echo "未知 target: $TARGET"; exit 1 ;;
+          esac
+          echo "include=$INC" >> "$GITHUB_OUTPUT"
+          echo "选定 matrix: $INC"
+
   package:
+    needs: setup
     name: ${{ matrix.platform }}${{ matrix.arch && format('-{0}', matrix.arch) }} (${{ github.event.inputs.flavor || 'brand_a' }})
     runs-on: ${{ matrix.os }}
-    # 逐个平台触发：target 选某平台则只跑该 matrix 实例，其余 skip；target=all 全跑。
-    # 平台标识：android（无 arch）/ 其余为 platform-arch（如 windows-amd64）。
-    if: >-
-      github.event.inputs.target == 'all' ||
-      github.event.inputs.target == (matrix.arch && format('{0}-{1}', matrix.platform, matrix.arch) || matrix.platform)
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - { platform: android, os: ubuntu-latest }
-          - { platform: windows, os: windows-2022,    arch: amd64 }
-          - { platform: windows, os: windows-11-arm,  arch: arm64 }
-          - { platform: linux,   os: ubuntu-22.04,    arch: amd64 }   # ⚠️ 勿升 24.04：rpm 4.20 会让 rpm 打包失败（见头部说明）
-          - { platform: linux,   os: ubuntu-24.04-arm, arch: arm64 }
-          - { platform: macos,   os: macos-15-intel,  arch: amd64 }
-          - { platform: macos,   os: macos-latest,    arch: arm64 }
+        include: ${{ fromJson(needs.setup.outputs.include) }}
     steps:
       - name: Checkout client (XFlClash)
         uses: actions/checkout@v4
