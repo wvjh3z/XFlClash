@@ -97,7 +97,7 @@ jobs:
           echo "$BIN"  | tr -d '[:space:]' | base64 -d > "flavors/${FLAVOR}/assets/fallback.bin"
           # 自检：还原对了 flavor.yaml 应含 appName 字段（防 secret 配错/为空）。
           grep -q 'appName' "flavors/${FLAVOR}/flavor.yaml" || { echo "✗ flavor.yaml 还原失败（缺 appName，检查 BRAND_*_FLAVOR_YAML_B64）"; exit 1; }
-          echo "✓ flavor.yaml / fallback.bin 已还原（flavor=$FLAVOR）"
+          echo "✓ flavor.yaml / fallback.bin 已还原（flavor=${FLAVOR}）"
 
       - name: Setup Go
         uses: actions/setup-go@v5
@@ -268,7 +268,7 @@ jobs:
             exit 0
           fi
           if [ "$FLAVOR" = "brand_b" ]; then PROJECT=daishu; else PROJECT=omofly; fi
-          echo "=== 安装 sentry-cli + 上传符号（project=$PROJECT）==="
+          echo "=== 安装 sentry-cli + 上传符号（project=${PROJECT}）==="
           npm install -g @sentry/cli >/dev/null 2>&1 || npm install -g @sentry/cli
           # Dart split-debug-info 符号（全平台）。
           sentry-cli debug-files upload --include-sources --project "$PROJECT" build/debug-info || echo "⚠ Dart 符号上传失败（非阻断）"

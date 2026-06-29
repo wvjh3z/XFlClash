@@ -140,7 +140,7 @@ jobs:
           printf '%s' "$BIN"  | tr -d '[:space:]' | base64 -d > "flavors/${FLAVOR}/assets/fallback.bin" || { echo "✗ fallback.bin base64 解码失败"; exit 1; }
           echo "解码后大小: flavor.yaml=$(wc -c < "flavors/${FLAVOR}/flavor.yaml") fallback.bin=$(wc -c < "flavors/${FLAVOR}/assets/fallback.bin")"
           grep -q 'appName' "flavors/${FLAVOR}/flavor.yaml" || { echo "✗ flavor.yaml 还原失败（缺 appName；BRAND_*_FLAVOR_YAML_B64 可能被截断，需重新完整粘贴）"; head -c 200 "flavors/${FLAVOR}/flavor.yaml"; exit 1; }
-          echo "✓ flavor.yaml / fallback.bin 已还原（flavor=$FLAVOR）"
+          echo "✓ flavor.yaml / fallback.bin 已还原（flavor=${FLAVOR}）"
 
       - name: Setup Go
         uses: actions/setup-go@v5
