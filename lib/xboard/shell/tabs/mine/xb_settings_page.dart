@@ -10,12 +10,14 @@
 ///   其他：免责声明 / 关于
 library;
 
+import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:fl_clash/xboard/widgets/xb_components.dart';
 import 'package:fl_clash/xboard/widgets/xb_ui_kit.dart' show XbBrandScaffold;
 
+import '../../../services/sentry_bootstrap.dart';
 import '../../adapters/xb_native_page_adapter.dart';
 import '../../widgets/xb_content_header.dart';
 
@@ -168,6 +170,29 @@ class XbSettingsPage extends ConsumerWidget {
                 ),
               ],
             ),
+            // ── 诊断组（仅 debug 构建可见，验证 Sentry 上报链路；正式用户不可见）──
+            if (kDebugMode) ...[
+              const XbGroupLabel('诊断（仅调试）'),
+              XbListCard(
+                rows: [
+                  XbListRow(
+                    icon: Icons.bug_report_outlined,
+                    label: '触发测试异常',
+                    subtitle: SentryBootstrap.isEnabled
+                        ? '抛出未捕获异常，验证 Sentry 上报（DSN 已启用）'
+                        : '⚠ Sentry 未启用（DSN 空，本次不会上报）',
+                    large: large,
+                    showChevron: false,
+                    onTap: () {
+                      // 抛未捕获异常：经 FlutterError.onError → rechain → Sentry，
+                      // 验证完整崩溃上报链路（含 attach 后的重链补回）。
+                      throw StateError(
+                          'Sentry verify: 测试异常 @ ${DateTime.now().toIso8601String()}');
+                    },
+                  ),
+                ],
+              ),
+            ],
           ],
         ),
       ),
