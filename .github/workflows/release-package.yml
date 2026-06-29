@@ -39,6 +39,19 @@ on:
           - brand_a
           - brand_b
         default: brand_a
+      target:
+        description: '构建目标平台（一次一个；all=全部并行）'
+        type: choice
+        options:
+          - android
+          - windows-amd64
+          - windows-arm64
+          - linux-amd64
+          - linux-arm64
+          - macos-amd64
+          - macos-arm64
+          - all
+        default: android
 
 defaults:
   run:
@@ -54,6 +67,11 @@ jobs:
   package:
     name: ${{ matrix.platform }}${{ matrix.arch && format('-{0}', matrix.arch) }} (${{ github.event.inputs.flavor || 'brand_a' }})
     runs-on: ${{ matrix.os }}
+    # 逐个平台触发：target 选某平台则只跑该 matrix 实例，其余 skip；target=all 全跑。
+    # 平台标识：android（无 arch）/ 其余为 platform-arch（如 windows-amd64）。
+    if: >-
+      github.event.inputs.target == 'all' ||
+      github.event.inputs.target == (matrix.arch && format('{0}-{1}', matrix.platform, matrix.arch) || matrix.platform)
     strategy:
       fail-fast: false
       matrix:
