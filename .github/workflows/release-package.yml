@@ -237,13 +237,16 @@ jobs:
       - name: Package (flutter_distributor)
         run: |
           set -euo pipefail
+          # 版本：与 release-build.yml 一致——build-name=底座版本 / build-number=build_number.txt，
+          # 否则 flutter_distributor 回退 pubspec 版本号（大日期数），两工作流 versionCode 语义不一致。
+          COMMON="dart-define-from-file=env.json,build-name=$BASE_VERSION,build-number=$BUILD_NUMBER"
           case "${{ matrix.platform }}" in
-            android) TARGETS="apk"; BUILD_ARGS="dart-define-from-file=env.json,split-debug-info=build/debug-info,split-per-abi,flavor=$FLAVOR" ;;
-            windows) TARGETS="exe,zip"; BUILD_ARGS="dart-define-from-file=env.json,split-debug-info=build/debug-info" ;;
-            macos)   TARGETS="dmg"; BUILD_ARGS="dart-define-from-file=env.json" ;;  # macos 不支持 --split-debug-info（用 sentry-cocoa 原生 + dSYM 上传）
+            android) TARGETS="apk"; BUILD_ARGS="$COMMON,split-debug-info=build/debug-info,split-per-abi,flavor=$FLAVOR" ;;
+            windows) TARGETS="exe,zip"; BUILD_ARGS="$COMMON,split-debug-info=build/debug-info" ;;
+            macos)   TARGETS="dmg"; BUILD_ARGS="$COMMON" ;;  # macos 不支持 --split-debug-info（用 sentry-cocoa 原生 + dSYM 上传）
             linux)
               if [ "${{ matrix.arch }}" = "amd64" ]; then TARGETS="deb,appimage,rpm"; else TARGETS="deb"; fi
-              BUILD_ARGS="dart-define-from-file=env.json,split-debug-info=build/debug-info" ;;
+              BUILD_ARGS="$COMMON,split-debug-info=build/debug-info" ;;
           esac
           DESC=""
           [ "${{ matrix.platform }}" != "android" ] && DESC="--description ${{ matrix.arch }}"
