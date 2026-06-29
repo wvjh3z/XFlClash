@@ -18,6 +18,8 @@
 #   BRAND_A_FALLBACK_BIN_B64 / BRAND_B_FALLBACK_BIN_B64  flavors/<brand>/assets/fallback.bin（base64）
 #   ── 共用基础设施 ──
 #   SIBLING_SDK_TOKEN   只读 private wvjh3z/Xboard_sdk 的 fine-grained PAT
+#   SENTRY_AUTH_TOKEN   Sentry org auth token（sntrys_…，org=ka-chiu-lee；上传崩溃符号用，
+#                       缺失则跳过符号上传不阻断构建。本地构建走 flavors/sentry-cli.token）
 #   （Android 签名机密内嵌在 flavor.yaml 的 androidSigning 块，无需额外 GitHub secret；
 #     google-services.json 已提交进仓库）
 #
@@ -212,6 +214,7 @@ jobs:
         run: |
           flutter build windows --release \
             --dart-define-from-file=env.json \
+            --split-debug-info=build/debug-info \
             --build-name="$BASE_VERSION" \
             --build-number="$BUILD_NUMBER"
 
@@ -220,6 +223,7 @@ jobs:
         run: |
           flutter build linux --release \
             --dart-define-from-file=env.json \
+            --split-debug-info=build/debug-info \
             --build-name="$BASE_VERSION" \
             --build-number="$BUILD_NUMBER"
           # 🔧 sentry-native crashpad 修复（2026-06-29 本地实测确认）：flutter build linux 复制
@@ -233,6 +237,7 @@ jobs:
         run: |
           flutter build macos --release \
             --dart-define-from-file=env.json \
+            --split-debug-info=build/debug-info \
             --build-name="$BASE_VERSION" \
             --build-number="$BUILD_NUMBER"
 
@@ -242,9 +247,39 @@ jobs:
         run: |
           flutter build apk --release --flavor "$FLAVOR" \
             --dart-define-from-file=env.json \
+            --split-debug-info=build/debug-info \
             --build-name="$BASE_VERSION" \
             --build-number="$BUILD_NUMBER" \
             --target-platform android-arm64
+
+      # === Sentry 符号上传（NFR-7）：让原生/Dart 崩溃栈在后台可读 ===
+      # 按 flavor 选 project（brand_a→omofly / brand_b→daishu），org=ka-chiu-lee。
+      # 缺 SENTRY_AUTH_TOKEN → 跳过（非阻断，构建仍出包）。debug-files 按二进制 debug-id
+      # 匹配，无需绑定 release。Dart 符号来自 --split-debug-info；原生（.so/dSYM/pdb/breakpad）
+      # 由 sentry-cli 自动识别，best-effort。
+      - name: Upload debug symbols to Sentry
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: ka-chiu-lee
+        run: |
+          set -uo pipefail
+          if [ -z "${SENTRY_AUTH_TOKEN:-}" ]; then
+            echo "⚠ SENTRY_AUTH_TOKEN 未设置 → 跳过符号上传（非阻断）"
+            exit 0
+          fi
+          if [ "$FLAVOR" = "brand_b" ]; then PROJECT=daishu; else PROJECT=omofly; fi
+          echo "=== 安装 sentry-cli + 上传符号（project=$PROJECT）==="
+          npm install -g @sentry/cli >/dev/null 2>&1 || npm install -g @sentry/cli
+          # Dart split-debug-info 符号（全平台）。
+          sentry-cli debug-files upload --include-sources --project "$PROJECT" build/debug-info || echo "⚠ Dart 符号上传失败（非阻断）"
+          # 平台原生 debug 文件（best-effort；sentry-cli 自动识别 ELF/MachO/PE/Breakpad，无则跳过）。
+          case "${{ matrix.platform }}" in
+            android) sentry-cli debug-files upload --project "$PROJECT" build/app/intermediates/merged_native_libs 2>/dev/null || true ;;
+            linux)   sentry-cli debug-files upload --project "$PROJECT" build/linux/x64/release/bundle 2>/dev/null || true ;;
+            windows) sentry-cli debug-files upload --project "$PROJECT" build/windows/x64/runner/Release 2>/dev/null || true ;;
+            macos)   sentry-cli debug-files upload --project "$PROJECT" build/macos/Build/Products/Release 2>/dev/null || true ;;
+          esac
+          echo "✓ 符号上传步骤完成"
 
       - name: Upload Windows artifact
         if: matrix.platform == 'windows'
