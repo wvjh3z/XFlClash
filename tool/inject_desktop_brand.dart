@@ -142,21 +142,26 @@ void injectIcons(String flavor, {required bool dryRun}) {
 }
 
 /// 生成 flutter_launcher_icons 配置（仅桌面 windows/macos；Android 走 prepare_flavor，iOS 不在范围）。
-String buildLauncherIconsYaml(String brandPng) => '''
+/// image_path 统一用正斜杠：Windows runner 上 p.join 产出反斜杠，写进 YAML 双引号会被当转义符
+/// → flutter_launcher_icons InvalidConfigException。
+String buildLauncherIconsYaml(String brandPng) {
+  final posix = brandPng.replaceAll(r'\', '/');
+  return '''
 # flutter_launcher_icons.yaml — 由 tool/inject_desktop_brand.dart 构建期生成（gitignored 产物）。
 # 勿手改 / 勿提交。image_path 指向当前 flavor 的品牌图标。
 flutter_launcher_icons:
-  image_path: "$brandPng"
+  image_path: "$posix"
   android: false
   ios: false
   windows:
     generate: true
-    image_path: "$brandPng"
+    image_path: "$posix"
     icon_size: 256
   macos:
     generate: true
-    image_path: "$brandPng"
+    image_path: "$posix"
 ''';
+}
 
 // ───────── 纯变换（可单测；幂等：再跑一次结果不变）─────────
 
