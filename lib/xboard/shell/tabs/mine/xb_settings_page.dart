@@ -25,6 +25,10 @@ import '../../widgets/xb_content_header.dart';
 /// **隐藏而非删除**——代码保留，将来若要恢复多语言，置 true 即可（并取消 bootstrap 的强制 locale）。
 const bool _kShowLanguageSetting = false;
 
+/// 「其他」组（免责声明 / 关于）入口可见性开关（用户 2026-06-29：全平台隐藏）。
+/// **隐藏而非删除**——代码与 adapter 方法（showDisclaimer / openAbout）保留，置 true 即恢复。
+const bool _kShowOtherGroup = false;
+
 /// 形态 A 设置页。
 class XbSettingsPage extends ConsumerWidget {
   const XbSettingsPage({super.key, this.embedded = false});
@@ -152,24 +156,26 @@ class XbSettingsPage extends ConsumerWidget {
                 ),
               ],
             ),
-            // ── 其他组 ──
-            const XbGroupLabel('其他'),
-            XbListCard(
-              rows: [
-                XbListRow(
-                  icon: Icons.gavel,
-                  label: '免责声明',
-                  large: large,
-                  onTap: () => adapter.showDisclaimer(),
-                ),
-                XbListRow(
-                  icon: Icons.info_outline,
-                  label: '关于',
-                  large: large,
-                  onTap: () => adapter.openAbout(context),
-                ),
-              ],
-            ),
+            // ── 其他组（用户 2026-06-29：全平台隐藏；置 _kShowOtherGroup=true 恢复）──
+            if (_kShowOtherGroup) ...[
+              const XbGroupLabel('其他'),
+              XbListCard(
+                rows: [
+                  XbListRow(
+                    icon: Icons.gavel,
+                    label: '免责声明',
+                    large: large,
+                    onTap: () => adapter.showDisclaimer(),
+                  ),
+                  XbListRow(
+                    icon: Icons.info_outline,
+                    label: '关于',
+                    large: large,
+                    onTap: () => adapter.openAbout(context),
+                  ),
+                ],
+              ),
+            ],
             // ── 诊断组（仅 debug 构建可见，验证 Sentry 上报链路；正式用户不可见）──
             if (kDebugMode) ...[
               const XbGroupLabel('诊断（仅调试）'),

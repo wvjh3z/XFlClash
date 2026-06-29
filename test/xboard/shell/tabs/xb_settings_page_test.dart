@@ -8,7 +8,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:fl_clash/xboard/shell/tabs/mine/xb_settings_page.dart';
 
 void main() {
-  testWidgets('设置页渲染：更多/设置/其他三组 + 全部选项', (tester) async {
+  testWidgets('设置页渲染：更多/设置两组 + 全部选项（其他组/语言已隐藏）', (tester) async {
     // 设置列表较长，拉高测试视口让全部项一屏内 build（避免 ListView 懒加载漏项）。
     tester.view.physicalSize = const Size(1080, 3200);
     tester.view.devicePixelRatio = 1.0;
@@ -22,14 +22,16 @@ void main() {
     );
     await tester.pump();
 
-    // 分组标题（原型屏8：更多 / 设置 / 其他）。
+    // 分组标题：更多 / 设置（「其他」组用户 2026-06-29 全平台隐藏）。
     expect(find.text('设置'), findsWidgets); // AppBar 标题 + 分组
     expect(find.text('更多'), findsOneWidget);
-    expect(find.text('其他'), findsOneWidget);
+    // 「其他」组（免责声明 / 关于）已隐藏。
+    expect(find.text('其他'), findsNothing);
+    expect(find.text('免责声明'), findsNothing);
+    expect(find.text('关于'), findsNothing);
 
-    // 选项（复用 ToolsView 全部能力，文案对齐原型/FlClash）。
+    // 选项（复用 ToolsView 全部能力，文案对齐原型/FlClash；语言默认隐藏强制简中）。
     for (final label in const [
-      '语言',
       '主题',
       '备份与恢复',
       '基本配置',
@@ -38,8 +40,6 @@ void main() {
       '请求',
       '连接',
       '资源',
-      '免责声明',
-      '关于',
     ]) {
       expect(find.text(label), findsOneWidget, reason: '缺选项: $label');
     }
