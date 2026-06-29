@@ -1,0 +1,281 @@
+# release-package.yml — 形态 A 多端「正式安装包」CI（FlClash 同款打包：setup.exe /
+# AppImage+deb+rpm / dmg / 多 ABI apk）。与 release-build.yml（裸构建目录产物）并存、互不影响。
+#
+# 设计：复用 FlClash 的 flutter_distributor（vendored 在 plugins/flutter_distributor/，
+#   打包配置在 <platform>/packaging/*/make_config.yaml）出 dist/ 正式包。
+#   **不走 dart setup.dart**（它会把 env.json 覆盖成 {APP_ENV,CORE_SHA256} 丢掉 XB_* defines），
+#   改为：自己预合成 env.json（含全部 XB_* defines + formA + Sentry DSN）→ 直接调
+#   `flutter_distributor package --flutter-build-args=dart-define-from-file=env.json,...`，
+#   既拿到 FlClash 同款打包产物，又保住反腐层/品牌/签名/Sentry 全部注入。
+#
+# 产物（按 flavor，对齐 FlClash release 资产）：
+#   android : <app>-android-arm64-v8a.apk / -armeabi-v7a.apk / -x86_64.apk（split-per-abi）
+#   windows : <app>-windows-amd64-setup.exe (+ zip)
+#   linux   : amd64 → .AppImage / .deb / .rpm；arm64 → .deb
+#   macos   : amd64 → .dmg；arm64 → .dmg
+#
+# 机密链路（GitHub repository secrets，与 release-build.yml 同）：
+#   BRAND_A_FLAVOR_YAML_B64 / BRAND_B_FLAVOR_YAML_B64    flavors/<brand>/flavor.yaml（base64；含内嵌 aesKey+签名）
+#   BRAND_A_FALLBACK_BIN_B64 / BRAND_B_FALLBACK_BIN_B64  flavors/<brand>/assets/fallback.bin（base64）
+#   SIBLING_SDK_TOKEN   只读 private wvjh3z/Xboard_sdk 的 fine-grained PAT
+#   SENTRY_AUTH_TOKEN   Sentry org auth token（sntrys_…，org=ka-chiu-lee；上传崩溃符号，缺失则跳过不阻断）
+#
+# ⚠️ 已知待验证（CI 实跑时确认）：Linux crashpad_handler 可执行位 —— flutter_distributor
+#   build→package 一气呵成、中间无钩子，无法像 release-build.yml 那样在打包前 chmod +x。
+#   若打包后 Linux 原生崩溃捕获失效（Dart 层不受影响），后续在 deb postinstall / AppImage
+#   AppRun 内补 chmod。
+
+name: Release Package (multi-platform, flutter_distributor)
+
+on:
+  workflow_dispatch:
+    inputs:
+      flavor:
+        description: '品牌 flavor'
+        type: choice
+        options:
+          - brand_a
+          - brand_b
+        default: brand_a
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  APP_ENV: stable
+  GO_VERSION: 1.24.0
+  FLAVOR: ${{ github.event.inputs.flavor || 'brand_a' }}
+  SENTRY_ORG: ka-chiu-lee
+
+jobs:
+  package:
+    name: ${{ matrix.platform }}${{ matrix.arch && format('-{0}', matrix.arch) }} (${{ github.event.inputs.flavor || 'brand_a' }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { platform: android, os: ubuntu-latest }
+          - { platform: windows, os: windows-2022,    arch: amd64 }
+          - { platform: linux,   os: ubuntu-22.04,    arch: amd64 }
+          - { platform: linux,   os: ubuntu-24.04-arm, arch: arm64 }
+          - { platform: macos,   os: macos-15-intel,  arch: amd64 }
+          - { platform: macos,   os: macos-latest,    arch: arm64 }
+    steps:
+      - name: Checkout client (XFlClash)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Checkout Xboard_sdk (sibling, private)
+        run: |
+          set -euo pipefail
+          git clone --depth 1 \
+            "https://x-access-token:${{ secrets.SIBLING_SDK_TOKEN }}@github.com/wvjh3z/Xboard_sdk.git" \
+            "${GITHUB_WORKSPACE}/../Xboard_sdk"
+          echo "✓ Xboard_sdk 已 clone 到 sibling"
+
+      - name: Restore flavor secrets
+        env:
+          A_YAML: ${{ secrets.BRAND_A_FLAVOR_YAML_B64 }}
+          A_BIN:  ${{ secrets.BRAND_A_FALLBACK_BIN_B64 }}
+          B_YAML: ${{ secrets.BRAND_B_FLAVOR_YAML_B64 }}
+          B_BIN:  ${{ secrets.BRAND_B_FALLBACK_BIN_B64 }}
+        run: |
+          set -euo pipefail
+          mkdir -p "flavors/${FLAVOR}/assets"
+          if [ "$FLAVOR" = "brand_b" ]; then YAML="$B_YAML"; BIN="$B_BIN"; else YAML="$A_YAML"; BIN="$A_BIN"; fi
+          echo "$YAML" | base64 -d > "flavors/${FLAVOR}/flavor.yaml"
+          echo "$BIN"  | base64 -d > "flavors/${FLAVOR}/assets/fallback.bin"
+          grep -q 'appName' "flavors/${FLAVOR}/flavor.yaml" || { echo "✗ flavor.yaml 还原失败（缺 appName）"; exit 1; }
+          echo "✓ flavor.yaml / fallback.bin 已还原（flavor=$FLAVOR）"
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: core/go.sum
+
+      - name: Setup NDK (Android)
+        if: matrix.platform == 'android'
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: r28c
+          add-to-path: true
+          link-to-sdk: true
+
+      - name: Enable git long paths (Windows)
+        if: matrix.platform == 'windows'
+        run: git config --global core.longpaths true
+
+      # 非 arm runner 用 stable 3.41.9（与 release-build.yml 一致）；
+      # arm runner（ubuntu-24.04-arm）按 FlClash 惯例走 master 3.44.0-0.1.pre。
+      - name: Setup Flutter (stable)
+        if: ${{ !startsWith(matrix.os, 'ubuntu-24.04-arm') }}
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: 3.41.9
+          cache: true
+      - name: Setup Flutter (master, arm runner)
+        if: startsWith(matrix.os, 'ubuntu-24.04-arm')
+        uses: subosito/flutter-action@v2
+        with:
+          channel: master
+          flutter-version: 3.44.0-0.1.pre
+          cache: true
+
+      - name: Enable desktop
+        if: matrix.platform != 'android'
+        run: flutter config --enable-windows-desktop --enable-linux-desktop --enable-macos-desktop
+
+      - name: Get Flutter dependency
+        run: |
+          flutter --version
+          flutter pub get
+
+      # µ-8 顺序：SDK build_runner → client build_runner。
+      - name: SDK build_runner
+        working-directory: ../Xboard_sdk
+        run: |
+          dart pub get
+          dart run build_runner build --delete-conflicting-outputs
+
+      - name: Client codegen
+        run: dart run build_runner build --delete-conflicting-outputs
+
+      # prepare_flavor 生成 flavor_defines.json（含真实 aesKey）。Android 额外 --android-signing
+      # 落地 keystore.jks + local.properties。多 ABI 打包：删掉 prepare_flavor 写的 XB_TARGET_ABI，
+      # 让 split-per-abi 出全部 ABI（versionCode 由 flutter 按 abi 偏移，FlClash 同款语义）。
+      - name: Prepare flavor
+        run: |
+          set -euo pipefail
+          EXTRA=""
+          [ "${{ matrix.platform }}" = "android" ] && EXTRA="--android-signing"
+          dart run tool/prepare_flavor.dart --flavor "$FLAVOR" --target prod $EXTRA
+          if [ "${{ matrix.platform }}" = "android" ]; then
+            sed -i '/^XB_TARGET_ABI=/d' android/local.properties || true
+            echo "✓ 已移除 XB_TARGET_ABI（split-per-abi 出全部 ABI）"
+          fi
+
+      # 桌面品牌注入（appName → 窗口标题 / 打包 make_config display_name 等）+ 图标重生成。
+      - name: Inject desktop branding
+        if: matrix.platform != 'android'
+        run: dart run tool/inject_desktop_brand.dart --flavor "$FLAVOR"
+
+      - name: Generate desktop icons
+        if: matrix.platform != 'android'
+        run: dart run flutter_launcher_icons -f flutter_launcher_icons.yaml
+
+      # distribute_options.yaml 的 app_name（影响产物文件名前缀）按 flavor 的 appName 校正。
+      - name: Align package app_name to flavor
+        run: |
+          set -euo pipefail
+          APP_NAME="$(grep -m1 -E '^\s*appName:' "flavors/${FLAVOR}/flavor.yaml" | sed -E 's/.*appName:\s*"?([^"#]+)"?.*/\1/' | xargs)"
+          [ -n "$APP_NAME" ] && sed -i -E "s/^app_name:.*/app_name: '${APP_NAME}'/" distribute_options.yaml || true
+          echo "=== distribute_options.yaml ==="; cat distribute_options.yaml
+
+      # Windows：先编 Go 核心取 CORE_SHA256（编译期 define，运行时核心完整性校验）。
+      - name: Build Go core + read CORE_SHA256 (Windows)
+        if: matrix.platform == 'windows'
+        working-directory: plugins/setup/buildkit/build_tool
+        run: |
+          set -euo pipefail
+          dart pub get
+          dart run build_tool windows --root-dir "$GITHUB_WORKSPACE"
+
+      # 合成 env.json（flavor_defines + APP_ENV + CORE_SHA256 + XB_FORM_A + 版本/构建号/tag）。
+      - name: Compose env.json
+        run: |
+          set -euo pipefail
+          TAG="$(date +%Y%m%d%H%M)"
+          PV="$(grep -m1 -E '^\s*versionName:' "flavors/${FLAVOR}/flavor.yaml" | sed -E 's/.*versionName:\s*"?([^"#]+)"?.*/\1/' | xargs)"
+          BN="$(cat scripts/build_number.txt 2>/dev/null || echo 1)"
+          SHA=""
+          [ -f core_sha256.json ] && SHA="$(jq -r '.CORE_SHA256 // ""' core_sha256.json)"
+          jq -n \
+            --argjson flavor "$(cat flavor_defines.json)" \
+            --arg env "$APP_ENV" --arg sha "$SHA" --arg tag "$TAG" --arg pv "$PV" --arg bn "$BN" \
+            '$flavor + {APP_ENV:$env, CORE_SHA256:$sha, XB_FORM_A:"true", XB_BUILD_TAG:$tag, XB_PRODUCT_VERSION:$pv, XB_BUILD_NUMBER:$bn}' \
+            > env.json
+          echo "=== env.json (脱敏 XB_AES_KEY_B64) ==="; jq 'del(.XB_AES_KEY_B64)' env.json
+          echo "PRODUCT_VERSION=$PV" >> "$GITHUB_ENV"
+          echo "BUILD_NUMBER=$BN" >> "$GITHUB_ENV"
+          echo "BASE_VERSION=$(grep -m1 -E '^version:' pubspec.yaml | sed -E 's/^version:\s*([0-9.]+).*/\1/' | xargs)" >> "$GITHUB_ENV"
+
+      # macOS 打包依赖：appdmg（dmg 制作）。
+      - name: Install macOS package deps
+        if: matrix.platform == 'macos'
+        run: npm install -g appdmg
+
+      # Linux 打包依赖：gtk/appindicator/keybinder + amd64 额外 rpm/patchelf/libfuse2 + appimagetool。
+      - name: Install Linux package deps
+        if: matrix.platform == 'linux'
+        run: |
+          set -euo pipefail
+          sudo apt-get update -y
+          sudo apt-get install -y ninja-build libgtk-3-dev libayatana-appindicator3-dev libkeybinder-3.0-dev locate
+          if [ "${{ matrix.arch }}" = "amd64" ]; then
+            sudo apt-get install -y rpm patchelf libfuse2
+            sudo wget -O /usr/local/bin/appimagetool \
+              https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage
+            sudo chmod +x /usr/local/bin/appimagetool
+          fi
+
+      # 激活 vendored flutter_distributor，加到 PATH。
+      - name: Activate flutter_distributor
+        run: |
+          set -euo pipefail
+          dart pub global activate -s path plugins/flutter_distributor/packages/flutter_distributor
+          echo "$HOME/.pub-cache/bin" >> "$GITHUB_PATH"
+          # Windows pub-cache bin 路径不同。
+          if [ "${{ matrix.platform }}" = "windows" ]; then echo "$LOCALAPPDATA/Pub/Cache/bin" >> "$GITHUB_PATH"; fi
+
+      # 打包：按平台选 targets，喂我们的 env.json + split-debug-info（Sentry 符号）。
+      # android 加 split-per-abi 出 3 个 ABI 包。
+      - name: Package (flutter_distributor)
+        run: |
+          set -euo pipefail
+          case "${{ matrix.platform }}" in
+            android) TARGETS="apk"; BUILD_ARGS="dart-define-from-file=env.json,split-debug-info=build/debug-info,split-per-abi,flavor=$FLAVOR" ;;
+            windows) TARGETS="exe,zip"; BUILD_ARGS="dart-define-from-file=env.json,split-debug-info=build/debug-info" ;;
+            macos)   TARGETS="dmg"; BUILD_ARGS="dart-define-from-file=env.json,split-debug-info=build/debug-info" ;;
+            linux)
+              if [ "${{ matrix.arch }}" = "amd64" ]; then TARGETS="deb,appimage,rpm"; else TARGETS="deb"; fi
+              BUILD_ARGS="dart-define-from-file=env.json,split-debug-info=build/debug-info" ;;
+          esac
+          DESC=""
+          [ "${{ matrix.platform }}" != "android" ] && DESC="--description ${{ matrix.arch }}"
+          flutter_distributor package \
+            --skip-clean \
+            --platform "${{ matrix.platform }}" \
+            --targets "$TARGETS" \
+            --flutter-build-args="$BUILD_ARGS" \
+            $DESC
+
+      # Sentry 符号上传（缺 SENTRY_AUTH_TOKEN → 跳过不阻断）。
+      - name: Upload debug symbols to Sentry
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+        run: |
+          set -uo pipefail
+          if [ -z "${SENTRY_AUTH_TOKEN:-}" ]; then echo "⚠ 无 SENTRY_AUTH_TOKEN → 跳过符号上传"; exit 0; fi
+          if [ "$FLAVOR" = "brand_b" ]; then PROJECT=daishu; else PROJECT=omofly; fi
+          npm install -g @sentry/cli >/dev/null 2>&1 || npm install -g @sentry/cli
+          sentry-cli debug-files upload --include-sources --project "$PROJECT" build/debug-info || echo "⚠ Dart 符号上传失败（非阻断）"
+          case "${{ matrix.platform }}" in
+            android) sentry-cli debug-files upload --project "$PROJECT" build/app/intermediates/merged_native_libs 2>/dev/null || true ;;
+            linux)   sentry-cli debug-files upload --project "$PROJECT" build/linux 2>/dev/null || true ;;
+            windows) sentry-cli debug-files upload --project "$PROJECT" build/windows 2>/dev/null || true ;;
+            macos)   sentry-cli debug-files upload --project "$PROJECT" build/macos/Build/Products/Release 2>/dev/null || true ;;
+          esac
+          echo "✓ 符号上传步骤完成"
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: MyClient-${{ env.FLAVOR }}-${{ matrix.platform }}${{ matrix.arch && format('-{0}', matrix.arch) }}-v${{ env.PRODUCT_VERSION }}-build${{ env.BUILD_NUMBER }}
+          path: ./dist
+          if-no-files-found: error
+          overwrite: true
