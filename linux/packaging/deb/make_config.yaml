@@ -16,6 +16,7 @@ dependencies:
   - libwebkit2gtk-4.1-0
   - libsoup-3.0-0
   - libcurl4
+  - libsecret-1-0
 
 keywords:
   - FlClash

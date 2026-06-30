@@ -16,6 +16,7 @@ requires:
   - webkit2gtk4.1
   - libsoup3
   - libcurl
+  - libsecret
 
 keywords:
   - FlClash
