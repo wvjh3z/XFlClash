@@ -1,5 +1,7 @@
 # release-package.yml — 形态 A 多端「正式安装包」CI（FlClash 同款打包：setup.exe /
-# AppImage+deb+rpm / dmg / 多 ABI apk）。与 release-build.yml（裸构建目录产物）并存、互不影响。
+# AppImage+deb+rpm / dmg / 多 ABI apk）。**唯一出包入口**（原 release-build.yml 裸目录产物
+# workflow 已删除，功能被本 workflow 覆盖；裸目录调试需求改用本地 build_local.sh /
+# package_desktop_local.sh）。
 #
 # 设计：复用 FlClash 的 flutter_distributor（vendored 在 plugins/flutter_distributor/，
 #   打包配置在 <platform>/packaging/*/make_config.yaml）出 dist/ 正式包。
