@@ -220,14 +220,24 @@ jobs:
         if: matrix.platform != 'android'
         run: dart run flutter_launcher_icons -f flutter_launcher_icons.yaml
 
-      # distribute_options.yaml 的 app_name（影响产物文件名前缀）按 flavor 的 appName 校正。
+      # distribute_options.yaml 的 app_name（影响产物文件名前缀 + rpm spec 的 Name:/二进制名/
+      # 路径标识 %{name} + Exec/Icon）按 flavor 的 appName 校正。⚠️ rpm 的 Name: 必须 ASCII 且无
+      # 空格（中文如「袋鼠加速」会触发 `Illegal char` MakeError）；deb/AppImage/dmg/exe 的「可见
+      # 品牌名」走各自 make_config 的 display_name（inject_desktop_brand 注入中文，不受此处影响）。
+      # 故此处对 appName 做 ASCII 净化（去非 ASCII / 空格）；净化后为空（纯中文 appName）则回退到
+      # ASCII 的 updatePackageName（omo / ds）。最终产物名由 Normalize 步骤统一收口，前缀不影响交付。
       - name: Align package app_name to flavor
         run: |
           set -euo pipefail
           APP_NAME="$(grep -m1 -E '^[[:space:]]*appName:' "flavors/${FLAVOR}/flavor.yaml" | sed -E 's/.*appName:[[:space:]]*"?([^"#]+)"?.*/\1/' | xargs)"
+          ASCII_NAME="$(printf '%s' "$APP_NAME" | LC_ALL=C tr -cd 'A-Za-z0-9_.-')"
+          if [ -z "$ASCII_NAME" ]; then
+            ASCII_NAME="$(grep -m1 -E '^[[:space:]]*updatePackageName:' "flavors/${FLAVOR}/flavor.yaml" | sed -E 's/.*updatePackageName:[[:space:]]*"?([^"#]+)"?.*/\1/' | xargs)"
+            echo "ℹ appName「${APP_NAME}」非 ASCII → app_name 回退到 updatePackageName「${ASCII_NAME}」（rpm Name: 合法性）"
+          fi
           # 可移植 in-place（BSD sed -i 需参数；用临时文件避开）。
-          if [ -n "$APP_NAME" ]; then
-            sed -E "s/^app_name:.*/app_name: '${APP_NAME}'/" distribute_options.yaml > distribute_options.yaml.tmp && mv distribute_options.yaml.tmp distribute_options.yaml
+          if [ -n "$ASCII_NAME" ]; then
+            sed -E "s/^app_name:.*/app_name: '${ASCII_NAME}'/" distribute_options.yaml > distribute_options.yaml.tmp && mv distribute_options.yaml.tmp distribute_options.yaml
           fi
           echo "=== distribute_options.yaml ==="; cat distribute_options.yaml
 
