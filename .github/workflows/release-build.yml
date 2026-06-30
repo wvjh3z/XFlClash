@@ -191,7 +191,7 @@ jobs:
         run: |
           set -euo pipefail
           TAG="$(date +%Y%m%d%H%M)"
-          PV="$(grep -m1 -E '^\s*versionName:' "flavors/${FLAVOR}/flavor.yaml" | sed -E 's/.*versionName:\s*"?([^"#]+)"?.*/\1/' | xargs)"
+          PV="$(grep -m1 -E '^[[:space:]]*versionName:' "flavors/${FLAVOR}/flavor.yaml" | sed -E 's/.*versionName:[[:space:]]*"?([^"#]+)"?.*/\1/' | xargs)"
           BN="$(cat scripts/build_number.txt 2>/dev/null || echo 1)"
           SHA=""
           if [ -f core_sha256.json ]; then
@@ -210,7 +210,7 @@ jobs:
           jq 'del(.XB_AES_KEY_B64)' env.json
           echo "PRODUCT_VERSION=$PV" >> "$GITHUB_ENV"
           echo "BUILD_NUMBER=$BN" >> "$GITHUB_ENV"
-          echo "BASE_VERSION=$(grep -m1 -E '^version:' pubspec.yaml | sed -E 's/^version:\s*([0-9.]+).*/\1/' | xargs)" >> "$GITHUB_ENV"
+          echo "BASE_VERSION=$(grep -m1 -E '^version:' pubspec.yaml | sed -E 's/^version:[[:space:]]*([0-9.]+).*/\1/' | xargs)" >> "$GITHUB_ENV"
 
       - name: Build Windows
         if: matrix.platform == 'windows'
