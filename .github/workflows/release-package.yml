@@ -262,7 +262,7 @@ jobs:
           set -euo pipefail
           TAG="$(date +%Y%m%d%H%M)"
           PV="$(grep -m1 -E '^[[:space:]]*versionName:' "flavors/${FLAVOR}/flavor.yaml" | sed -E 's/.*versionName:[[:space:]]*"?([^"#]+)"?.*/\1/' | xargs)"
-          BN="$(cat scripts/build_number.txt 2>/dev/null || echo 1)"
+          BN="$(cat "scripts/build_number.${FLAVOR}.txt" 2>/dev/null || echo 1)"
           SHA=""
           [ -f core_sha256.json ] && SHA="$(jq -r '.CORE_SHA256 // ""' core_sha256.json)"
           jq -n \
@@ -425,3 +425,40 @@ jobs:
           # 上传本平台产物（直链原文件；--clobber 覆盖同名，便于重跑）
           gh release upload "$TAG" dist/* --repo "$GITHUB_REPOSITORY" --clobber
           echo "✓ 已发布到草稿 Release: $TAG（仅协作者可见，直链下载真安装包）"
+
+  # 发布成功后，把该 flavor 的 versionCode +1 并提交回仓库（下次发布自动用新号）。
+  # 仅 upload=true（真发布）才自增——纯构建验证（upload=false）不消耗版本号。
+  # needs: package → 仅当所有平台 job 成功才跑（任一失败不自增，避免号空耗）。
+  # a/b 各自独立计数：scripts/build_number.<flavor>.txt，互不影响。
+  bump:
+    needs: package
+    if: github.event.inputs.upload == 'true'
+    name: Bump versionCode (next release)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (main, 可推回)
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Increment build_number for flavor
+        env:
+          FLAVOR: ${{ github.event.inputs.flavor || 'brand_a' }}
+        run: |
+          set -euo pipefail
+          FILE="scripts/build_number.${FLAVOR}.txt"
+          CUR="$(cat "$FILE" 2>/dev/null || echo 1)"
+          NEXT=$((CUR + 1))
+          echo "$NEXT" > "$FILE"
+          git config user.name "anonymous"
+          git config user.email "anonymous@users.noreply.github.com"
+          git add "$FILE"
+          git commit -m "[xfork] chore(build): ${FLAVOR} versionCode ${CUR}→${NEXT}（CI 发布后自增）"
+          # 防与人工 push 竞态：rebase 重试（本工作流仅 workflow_dispatch，提交不会再触发 CI）
+          for i in 1 2 3; do
+            if git pull --rebase origin main && git push origin HEAD:main; then
+              echo "✓ ${FLAVOR} versionCode → ${NEXT}（已提交回仓库）"; exit 0
+            fi
+            echo "push 冲突，重试 ($i)…"; sleep 4
+          done
+          echo "✗ 自增提交推送失败（请手动检查 ${FILE}）"; exit 1

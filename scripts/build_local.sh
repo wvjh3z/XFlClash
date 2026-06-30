@@ -27,7 +27,7 @@ cd "$REPO_DIR"
 
 FLAVOR_YAML="flavors/${FLAVOR}/flavor.yaml"
 [ -f "$FLAVOR_YAML" ] || { echo "✗ 找不到 flavor 配置：$FLAVOR_YAML"; exit 1; }
-BUILD_NUM_FILE="scripts/build_number.txt"
+BUILD_NUM_FILE="scripts/build_number.${FLAVOR}.txt"
 
 # 产品版本名（MyClient 自有，注入 dart-define 供「我的」Tab 关于显示 v{版本}-{时间戳}）
 VERSION_NAME="$(grep -m1 -E '^\s*versionName:' "$FLAVOR_YAML" | sed -E 's/.*versionName:\s*"?([^"#]+)"?.*/\1/' | xargs)"
