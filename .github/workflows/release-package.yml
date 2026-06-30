@@ -45,7 +45,6 @@ on:
         options:
           - android
           - windows-amd64
-          - windows-arm64
           - linux-amd64
           - linux-arm64
           - macos-amd64
@@ -83,7 +82,6 @@ jobs:
           set -euo pipefail
           A='{"platform":"android","os":"ubuntu-latest"}'
           WA='{"platform":"windows","os":"windows-2022","arch":"amd64"}'
-          WR='{"platform":"windows","os":"windows-11-arm","arch":"arm64"}'
           LA='{"platform":"linux","os":"ubuntu-22.04","arch":"amd64"}'
           LR='{"platform":"linux","os":"ubuntu-24.04-arm","arch":"arm64"}'
           MA='{"platform":"macos","os":"macos-15-intel","arch":"amd64"}'
@@ -91,12 +89,11 @@ jobs:
           case "$TARGET" in
             android)       INC="[$A]" ;;
             windows-amd64) INC="[$WA]" ;;
-            windows-arm64) INC="[$WR]" ;;
             linux-amd64)   INC="[$LA]" ;;   # ubuntu-22.04 固定（rpm 4.20 坑，见头部）
             linux-arm64)   INC="[$LR]" ;;
             macos-amd64)   INC="[$MA]" ;;
             macos-arm64)   INC="[$MR]" ;;
-            all)           INC="[$A,$WA,$WR,$LA,$LR,$MA,$MR]" ;;
+            all)           INC="[$A,$WA,$LA,$LR,$MA,$MR]" ;;
             *)             echo "未知 target: $TARGET"; exit 1 ;;
           esac
           echo "include=$INC" >> "$GITHUB_OUTPUT"
@@ -156,32 +153,25 @@ jobs:
           add-to-path: true
           link-to-sdk: true
 
-      # Windows on ARM：装 rust（aarch64 工具链）—— 部分原生依赖在 win-arm 经 rust 编译
-      # （FlClash build.yaml 同款）。PowerShell（覆盖默认 bash）；cargo 路径写入 GITHUB_PATH。
-      - name: Setup rust (Windows ARM)
-        if: matrix.os == 'windows-11-arm'
-        shell: pwsh
-        run: |
-          Invoke-WebRequest -Uri "https://win.rustup.rs/aarch64" -OutFile rustup-init.exe
-          .\rustup-init.exe -y --default-toolchain stable
-          $cargoPath = "$env:USERPROFILE\.cargo\bin"
-          Add-Content $env:GITHUB_PATH $cargoPath
+      # 注：windows-arm64 已移除（desktop_webview_window 插件 ARM64 链接 WebView2 失败 LNK1120；
+      # FlClash 自身 release 也无 win-arm64；win-arm 用户用 amd64 包经 Windows x64 仿真运行）。
+      # 故 win-arm 专属的 Setup rust 步骤 + flutter master 分支的 windows-11-arm 条件一并清除。
 
       - name: Enable git long paths (Windows)
         if: matrix.platform == 'windows'
         run: git config --global core.longpaths true
 
       # 非 arm runner 用 stable 3.41.9（与 release-build.yml 一致）；
-      # arm runner（windows-11-arm / ubuntu-24.04-arm）按 FlClash 惯例走 master 3.44.0-0.1.pre。
+      # arm runner（ubuntu-24.04-arm）按 FlClash 惯例走 master 3.44.0-0.1.pre。
       - name: Setup Flutter (stable)
-        if: ${{ !(matrix.os == 'windows-11-arm' || startsWith(matrix.os, 'ubuntu-24.04-arm')) }}
+        if: ${{ !startsWith(matrix.os, 'ubuntu-24.04-arm') }}
         uses: subosito/flutter-action@v2
         with:
           channel: stable
           flutter-version: 3.41.9
           cache: true
       - name: Setup Flutter (master, arm runner)
-        if: ${{ matrix.os == 'windows-11-arm' || startsWith(matrix.os, 'ubuntu-24.04-arm') }}
+        if: ${{ startsWith(matrix.os, 'ubuntu-24.04-arm') }}
         uses: subosito/flutter-action@v2
         with:
           channel: master
