@@ -54,13 +54,17 @@ on:
           - all
         default: android
       upload:
-        description: '上传产物到 Artifacts（⚠️ 公开仓库=任何人可下载；测试期保持 false）'
+        description: '发布到草稿 Release（直链原文件，仅协作者可见，可随时删；测试期可开。false=只构建不发布）'
         type: boolean
         default: false
 
 defaults:
   run:
     shell: bash
+
+# 发布到草稿 Release 需要 contents 写权限（gh release create/upload）。
+permissions:
+  contents: write
 
 env:
   APP_ENV: stable
@@ -390,14 +394,34 @@ jobs:
           echo "=== dist 产物（验证构建+命名；upload=${{ github.event.inputs.upload }}）==="
           ls -la dist/ 2>/dev/null || echo "(无 dist)"
 
-      # 仅当显式 upload=true 才上传到 Artifacts。⚠️ 公开仓库 = 任何人可下载。
-      # 测试期默认 false：跑通即验证成功，产物随 runner 销毁、不公开暴露。
-      - name: Upload artifacts
+      # 发布到草稿 Release（upload=true 时）。
+      # 为什么用草稿 Release 而非 Artifacts：① Artifacts 下载永远是 zip 包，不是直接的安装包；
+      # ② 草稿 Release 的资产是直链原文件（omo-x.y.z-...-setup.exe 直接下），且**仅仓库协作者可见**
+      # （公众看不到），测完可随时删。完美匹配"测试期要真安装包又不公开"。
+      # 并行 matrix 多 job 发到同一个草稿（tag=pkg-<flavor>-v<版本>）：幂等创建 + --clobber 覆盖，
+      # 不同平台文件名不同不冲突；重跑同版本会覆盖同名资产。草稿不创建 git tag，不污染 tag 列表。
+      - name: Publish to draft Release
         if: github.event.inputs.upload == 'true'
-        uses: actions/upload-artifact@v4
-        with:
-          name: MyClient-${{ env.FLAVOR }}-${{ matrix.platform }}${{ matrix.arch && format('-{0}', matrix.arch) }}-v${{ env.PRODUCT_VERSION }}-build${{ env.BUILD_NUMBER }}
-          path: ./dist
-          if-no-files-found: error
-          retention-days: 1
-          overwrite: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: pkg-${{ env.FLAVOR }}-v${{ env.PRODUCT_VERSION }}
+          TITLE: ${{ env.FLAVOR }} v${{ env.PRODUCT_VERSION }} (build ${{ env.BUILD_NUMBER }})
+        run: |
+          set -euo pipefail
+          # 幂等创建草稿（并行 job 抢创建：后者命中"已存在"→ || true 不致命）
+          if ! gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release create "$TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --draft \
+              --title "$TITLE" \
+              --notes "自动构建（草稿，仅协作者可见，测试完可删）。flavor=${FLAVOR} 版本=${PRODUCT_VERSION} build=${BUILD_NUMBER}" \
+              || true
+          fi
+          # 等草稿就绪（防并行创建竞态：本 job 没创建但另一 job 正在建）
+          for i in $(seq 1 10); do
+            gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 && break
+            echo "等待草稿 Release 就绪… ($i)"; sleep 3
+          done
+          # 上传本平台产物（直链原文件；--clobber 覆盖同名，便于重跑）
+          gh release upload "$TAG" dist/* --repo "$GITHUB_REPOSITORY" --clobber
+          echo "✓ 已发布到草稿 Release: $TAG（仅协作者可见，直链下载真安装包）"
