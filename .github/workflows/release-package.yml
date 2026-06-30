@@ -409,22 +409,23 @@ jobs:
         run: |
           set -euo pipefail
           # 幂等创建草稿（并行 job 抢创建：后者命中"已存在"→ || true 不致命）
-          if ! gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release create "$TAG" \
-              --repo "$GITHUB_REPOSITORY" \
+          if ! gh release view "${TAG}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+            gh release create "${TAG}" \
+              --repo "${GITHUB_REPOSITORY}" \
               --draft \
-              --title "$TITLE" \
+              --title "${TITLE}" \
               --notes "自动构建（草稿，仅协作者可见，测试完可删）。flavor=${FLAVOR} 版本=${PRODUCT_VERSION} build=${BUILD_NUMBER}" \
               || true
           fi
           # 等草稿就绪（防并行创建竞态：本 job 没创建但另一 job 正在建）
           for i in $(seq 1 10); do
-            gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 && break
-            echo "等待草稿 Release 就绪… ($i)"; sleep 3
+            gh release view "${TAG}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1 && break
+            echo "等待草稿 Release 就绪… (${i})"; sleep 3
           done
           # 上传本平台产物（直链原文件；--clobber 覆盖同名，便于重跑）
-          gh release upload "$TAG" dist/* --repo "$GITHUB_REPOSITORY" --clobber
-          echo "✓ 已发布到草稿 Release: $TAG（仅协作者可见，直链下载真安装包）"
+          # ⚠️ macOS /bin/bash 3.2：变量紧跟中文必须用 ${VAR} 花括号，否则会吞字节报 unbound（PATCHES 经验 #3）
+          gh release upload "${TAG}" dist/* --repo "${GITHUB_REPOSITORY}" --clobber
+          echo "✓ 已发布到草稿 Release：${TAG}（仅协作者可见，直链下载真安装包）"
 
   # 发布成功后，把该 flavor 的 versionCode +1 并提交回仓库（下次发布自动用新号）。
   # 仅 upload=true（真发布）才自增——纯构建验证（upload=false）不消耗版本号。
