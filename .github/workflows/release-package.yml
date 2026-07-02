@@ -12,7 +12,7 @@
 #
 # 产物（按 flavor，对齐 FlClash release 资产）：
 #   android : <app>-android-arm64-v8a.apk / -armeabi-v7a.apk / -x86_64.apk（split-per-abi）
-#   windows : <app>-windows-amd64-setup.exe (+ zip)
+#   windows : <app>-windows-amd64-setup.exe
 #   linux   : amd64 → .AppImage / .deb / .rpm；arm64 → .deb
 #   macos   : amd64 → .dmg；arm64 → .dmg
 #
@@ -324,7 +324,7 @@ jobs:
           COMMON="dart-define-from-file=env.json,build-name=$BASE_VERSION,build-number=$BUILD_NUMBER"
           case "${{ matrix.platform }}" in
             android) TARGETS="apk"; BUILD_ARGS="$COMMON,split-debug-info=build/debug-info,split-per-abi,flavor=$FLAVOR" ;;
-            windows) TARGETS="exe,zip"; BUILD_ARGS="$COMMON,split-debug-info=build/debug-info" ;;
+            windows) TARGETS="exe"; BUILD_ARGS="$COMMON,split-debug-info=build/debug-info" ;;
             macos)   TARGETS="dmg"; BUILD_ARGS="$COMMON" ;;  # macos 不支持 --split-debug-info（用 sentry-cocoa 原生 + dSYM 上传）
             linux)
               if [ "${{ matrix.arch }}" = "amd64" ]; then TARGETS="deb,appimage,rpm"; else TARGETS="deb,appimage"; fi
@@ -359,8 +359,7 @@ jobs:
                 for f in *"$abi"*.apk; do mv -f "$f" "${PKG}-${PV}-android-${abi}.apk"; done
               done ;;
             windows)
-              for f in *setup.exe; do mv -f "$f" "${PKG}-${PV}-windows-${AR}-setup.exe"; done
-              for f in *.zip;       do mv -f "$f" "${PKG}-${PV}-windows-${AR}.zip"; done ;;
+              for f in *setup.exe; do mv -f "$f" "${PKG}-${PV}-windows-${AR}-setup.exe"; done ;;
             macos)
               for f in *.dmg; do mv -f "$f" "${PKG}-${PV}-macos-${AR}.dmg"; done ;;
             linux)
