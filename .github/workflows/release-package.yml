@@ -11,7 +11,7 @@
 #   既拿到 FlClash 同款打包产物，又保住反腐层/品牌/签名/Sentry 全部注入。
 #
 # 产物（按 flavor，对齐 FlClash release 资产）：
-#   android : <app>-android-arm64-v8a.apk / -armeabi-v7a.apk / -x86_64.apk（split-per-abi）
+#   android : <app>-android-arm64-v8a.apk / -armeabi-v7a.apk（split-per-abi；x86_64 已去除，占比 <1%）
 #   windows : <app>-windows-amd64-setup.exe
 #   linux   : amd64 → .AppImage / .deb / .rpm；arm64 → .deb
 #   macos   : amd64 → .dmg；arm64 → .dmg
@@ -323,7 +323,7 @@ jobs:
           # 否则 flutter_distributor 回退 pubspec 版本号（大日期数），两工作流 versionCode 语义不一致。
           COMMON="dart-define-from-file=env.json,build-name=$BASE_VERSION,build-number=$BUILD_NUMBER"
           case "${{ matrix.platform }}" in
-            android) TARGETS="apk"; BUILD_ARGS="$COMMON,split-debug-info=build/debug-info,split-per-abi,flavor=$FLAVOR" ;;
+            android) TARGETS="apk"; BUILD_ARGS="$COMMON,split-debug-info=build/debug-info,split-per-abi,target-platform=android-arm,android-arm64,flavor=$FLAVOR" ;;
             windows) TARGETS="exe"; BUILD_ARGS="$COMMON,split-debug-info=build/debug-info" ;;
             macos)   TARGETS="dmg"; BUILD_ARGS="$COMMON" ;;  # macos 不支持 --split-debug-info（用 sentry-cocoa 原生 + dSYM 上传）
             linux)
@@ -355,7 +355,7 @@ jobs:
           shopt -s nullglob
           case "${{ matrix.platform }}" in
             android)
-              for abi in armeabi-v7a arm64-v8a x86_64; do
+              for abi in armeabi-v7a arm64-v8a; do
                 for f in *"$abi"*.apk; do mv -f "$f" "${PKG}-${PV}-android-${abi}.apk"; done
               done ;;
             windows)
