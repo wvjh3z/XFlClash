@@ -97,3 +97,6 @@ flavors/sentry-cli.token
 
 # Coverage reports (local dev only)
 /coverage/
+
+# 本地构建/调试临时目录（日志、临时脚本，不入库）
+/.tmp/
