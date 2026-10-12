@@ -1,0 +1,95 @@
+name: Recover brand configs (encrypted)
+
+on:
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  recover:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Restore four files and encrypt the recovery archive
+        shell: bash
+        env:
+          BRAND_A_FLAVOR_YAML_B64: ${{ secrets.BRAND_A_FLAVOR_YAML_B64 }}
+          BRAND_A_FALLBACK_BIN_B64: ${{ secrets.BRAND_A_FALLBACK_BIN_B64 }}
+          BRAND_B_FLAVOR_YAML_B64: ${{ secrets.BRAND_B_FLAVOR_YAML_B64 }}
+          BRAND_B_FALLBACK_BIN_B64: ${{ secrets.BRAND_B_FALLBACK_BIN_B64 }}
+        run: |
+          set -euo pipefail
+          umask 077
+          scratch="$(mktemp -d "$RUNNER_TEMP/brand-recovery.XXXXXX")"
+          trap 'rm -rf -- "$scratch"' EXIT
+          export BRAND_RECOVERY_TEMP="$scratch"
+          python3 <<'PY'
+          import base64, binascii, hashlib, json, os, pathlib, tarfile
+          root = pathlib.Path(os.environ['BRAND_RECOVERY_TEMP'])
+          specs = {
+              'BRAND_A_FLAVOR_YAML_B64': 'flavors/brand_a/flavor.yaml',
+              'BRAND_A_FALLBACK_BIN_B64': 'flavors/brand_a/assets/fallback.bin',
+              'BRAND_B_FLAVOR_YAML_B64': 'flavors/brand_b/flavor.yaml',
+              'BRAND_B_FALLBACK_BIN_B64': 'flavors/brand_b/assets/fallback.bin',
+          }
+          manifest = {'files': {}}
+          for secret, relative in specs.items():
+              value = ''.join(os.environ.get(secret, '').split())
+              if not value:
+                  raise SystemExit('Missing or inaccessible secret: ' + secret)
+              try:
+                  data = base64.b64decode(value, validate=True)
+              except (binascii.Error, ValueError):
+                  raise SystemExit('Invalid Base64: ' + secret)
+              if not data:
+                  raise SystemExit('Empty decoded file: ' + secret)
+              target = root / relative
+              target.parent.mkdir(parents=True, exist_ok=True)
+              target.write_bytes(data)
+              manifest['files'][relative] = {'size': len(data), 'sha256': hashlib.sha256(data).hexdigest()}
+          (root / 'manifest.json').write_text(json.dumps(manifest))
+          with tarfile.open(root / 'brand-configs.tar.gz', 'w:gz') as archive:
+              for relative in [*specs.values(), 'manifest.json']:
+                  archive.add(root / relative, arcname=relative)
+          print('Four files decoded; encrypting archive.')
+          PY
+          cat > "$scratch/recovery-public.pem" <<'CERT'
+          -----BEGIN CERTIFICATE-----
+          MIIEJTCCAo2gAwIBAgIUNj2DiK0Yc6gtZsO1YYbw63ad6R4wDQYJKoZIhvcNAQEL
+          BQAwIjEgMB4GA1UEAwwXWEZsY2xhc2ggQnJhbmQgUmVjb3ZlcnkwHhcNMjYxMDEy
+          MDYzMDUxWhcNMjcxMDEyMDYzMDUxWjAiMSAwHgYDVQQDDBdYRmxjbGFzaCBCcmFu
+          ZCBSZWNvdmVyeTCCAaIwDQYJKoZIhvcNAQEBBQADggGPADCCAYoCggGBANLrPsjt
+          1uj4NM5VWOS5FfJxeCMnXLgSMJtUKzkvxmDODottR932q4YCzsr4XycMJvvRJd55
+          kWLg/LRw28Eiq2UzZ6m00FhA2tmQFa1oqWrAr4mdzFMV7UjffV9Nq9vbR6SywS9R
+          Fkpm4NWwhuciCmAEl7CsJXadZgjcQzmmoVJCHy2F1vcZmg40xw0LiedYauItLkL0
+          N8xQ8uPJLYwkefXfW4joLW/fbPdooSJWq/fjue4e8rPtkpPQVEM9ykL4dh+3rJbp
+          eBqxDsIiYVguFRCZWI0rbOrr9GbonSE5zWrf5O3IOz2/6UOUxZKNpO80kFNrJsWZ
+          4tfZTXddyf5nWzr69V8jvFfpAjM17A1FD6Jo4QOcXg6BQG+jJGRlAyATb8MwtRVK
+          PhW1Kexguzi8/lD1tvOaR1qozCoYwmGTWXm9TAKAUMlmSz4fhYC8pH3Df7mM3+bt
+          LXfoWA5VJ5Ab2SNJdjh57aydcdskovSlxE27HLYZk2Dl0XI+E1g5e3sZgQIDAQAB
+          o1MwUTAdBgNVHQ4EFgQU0Ov9Ms5k/+ruih6f2qWrlcOaXqQwHwYDVR0jBBgwFoAU
+          0Ov9Ms5k/+ruih6f2qWrlcOaXqQwDwYDVR0TAQH/BAUwAwEB/zANBgkqhkiG9w0B
+          AQsFAAOCAYEAPCQxkzMWR1kxpQubPuZH0zp+QkiNlRpre58oewf/oBiu38Y4T/1l
+          luPT8kEP3VL9qxqOce9kuwtC93NkHRAczzeq9YM2mZHragEbc+/gYkKDWS8LMmQx
+          8nysMQm7wL6lHWirxnX3N5CziaistWy8bE3vBEJiuCuV9mYRhirjWno6G3UiKUyV
+          b6Q6flCs3aOsWUsPiEw69QZQRhaXgtWxreIGPInF+LUGMwYino5DoBppK2jPc1t8
+          VFhaDjLqWHBU/AqqmKaoZ8VgTWtSPQNA+FlirNuu9t1VF4tmfRK+D/yjTxfHUYic
+          5eGCZqUts62g0n+OuYUUB7i9cbomzvHDpHoBgTt0mcvyYt/vlz7dpYOArovDajtV
+          vTYiSf2a4xUdQUzKDfAOhhh7Iykx1fZ9+76btHf9IqYlxDAjY90gJQS9PESmf8Oh
+          hWVURbs5+1Ieq9va94d9QWomGuu+YwU+PomETPLG/sbrboY63KjUBNmlsIRXYXYU
+          oegWNdnkUcFT
+          -----END CERTIFICATE-----
+          CERT
+          openssl cms -encrypt -binary -aes-256-gcm -outform DER \
+            -in "$scratch/brand-configs.tar.gz" \
+            -out "$RUNNER_TEMP/brand-configs.tar.gz.cms" \
+            "$scratch/recovery-public.pem"
+          echo 'Encrypted recovery archive ready.'
+
+      - name: Upload encrypted recovery archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: brand-configs-encrypted-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/brand-configs.tar.gz.cms
+          if-no-files-found: error
+          retention-days: 1
