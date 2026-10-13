@@ -59,6 +59,7 @@
 - **管理流量证书放行统一为单一策略**（`XboardReleaseHttp` SSoT）：原仅 release dio（config.json/订阅/更新下载）放行证书，现 **SDK API 通道（登录/注册/账号/套餐/订单/支付/版本检查）也证书放行**。可用性优先（裸 IP endpoint 可达，接受 MITM 风险，见 `SECURITY.md`）；UA 伪装 + 直连两条通道同源。SDK 加 `HttpConfig.allowBadCertificate`（v1.18.0）。
 
 ### Fixed
+- Windows 安装器默认勾选“创建桌面快捷方式”，首次安装及覆盖安装均使用此默认值，用户仍可手动取消。
 - 当前认证会话失效后统一清理旧账号订阅/缓存并回到「我的」游客入口，只提示一次登录过期；手工 Profile 保留。只停用当前被清理的账号 Profile，新账号开始同步前等待旧清理完成。
 - SDK/客户端按会话 revision 隔离旧请求、重试、订单缓存和凭据条件保存/清除；旧登录弹窗失败与旧节点/账号刷新结果不再覆盖新账号。登录凭据保存失败返回失败；失败的 Profile 清理保留索引并记录诊断。详见 [认证会话契约](https://github.com/wvjh3z/proxy-suite-docs/blob/main/CONTRACTS.md#认证会话与失效事件)。
 - 支付页窗口缩放时不再重复写入 late final 容器而报错；扣除桌面侧栏后按剩余宽度排布。「我的」账号卡流量数字与总量可换行，避免内容刚进入双栏时横向溢出，数值与字号保持原规则。
