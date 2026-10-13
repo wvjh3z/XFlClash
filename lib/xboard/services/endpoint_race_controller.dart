@@ -37,15 +37,17 @@ class EndpointRaceController {
     EndpointProbe? probe,
     this.onApiSwitch,
     this.onSubscriptionSwitch,
+    this.onSubscriptionAvailable,
     Dio? dio,
     bool vpnActive = false,
-  })  : _probe = probe ?? _defaultProbe(dio ?? _defaultProbeDio()),
-        _vpnActive = vpnActive,
-        _now = DateTime.now;
+  }) : _probe = probe ?? _defaultProbe(dio ?? _defaultProbeDio()),
+       _vpnActive = vpnActive,
+       _now = DateTime.now;
 
   final EndpointProbe _probe;
   final OnEndpointSwitch? onApiSwitch;
   final OnEndpointSwitch? onSubscriptionSwitch;
+  final void Function()? onSubscriptionAvailable;
 
   /// 可注入的时钟（测试用），默认 wall clock。
   DateTime Function() _now;
@@ -78,24 +80,48 @@ class EndpointRaceController {
   /// 当前 subscription endpoint（D10 同上）。
   String? get currentSubscriptionEndpoint => _currentSub;
 
-  /// R4.2：订阅 failOver 候选列表（**已排序 + 去重的 host 串**，供 [EncryptedSubscriptionService]
-  /// 逐个串行拉取）。**不依赖竞速是否跑完**——「列表是输入、竞速是优化」：
-  /// - 竞速选出首发（[_currentSub] 非 null）→ 首发排最前 + 其余按地区顺序当替补（最优）。
-  /// - 竞速未跑 / 未选出（[_currentSub] 为 null）→ 该项被去重逻辑自动跳过，直接用按地区排序的
-  ///   完整列表（D10「current 为 null 用列表」的推广：从「用第一个」推广成「用整串」）。
-  /// - 列表本身为空（config 未解出，仅出厂 fallback）→ 返空列表，调用方退回原始 URL host 兜底。
-  ///
-  /// 排序随 VPN 状态（[_vpnActive]）：VPN 开则海外档在前（[_orderByRegion]）。永不抛、纯读快照
-  /// （不 await 竞速，保持后台静默不卡）。
+  /// Legacy string view. Production uses typed endpoints to retain region tiers.
   List<String> subscriptionCandidates() {
-    final ordered = _orderByRegion(_subEndpoints);
+    return subscriptionEndpoints().map((e) => e.url).toList();
+  }
+
+  /// Seed synchronously before authentication triggers or API winner callbacks.
+  void seedEndpoints(List<BootstrapEndpoint> api, List<BootstrapEndpoint> sub) {
+    _apiEndpoints = List.unmodifiable(api);
+    _subEndpoints = List.unmodifiable(sub);
+    _currentSub = null;
+    _subGeneration++;
+  }
+
+  int _subGeneration = 0;
+  bool _disposed = false;
+
+  List<BootstrapEndpoint> subscriptionEndpoints() {
     final seen = <String>{};
-    final result = <String>[];
-    for (final url in [?_currentSub, ...ordered]) {
-      if (url.isEmpty || !seen.add(url)) continue;
-      result.add(url);
+    final entries = _subEndpoints
+        .where((e) => e.url.isNotEmpty && seen.add(e.url))
+        .toList();
+    final winner = entries.where((e) => e.url == _currentSub).firstOrNull;
+    if (winner != null) {
+      entries.remove(winner);
+      entries.insert(0, winner);
     }
-    return result;
+    // Actual downloader partitions these typed candidates, so a domestic winner
+    // cannot accidentally jump ahead of the overseas tier on the next request.
+    if (!_vpnActive) return entries;
+    return [
+      ...entries.where((e) => e.region == BootstrapRegion.overseas),
+      ...entries.where((e) => e.region != BootstrapRegion.overseas),
+    ];
+  }
+
+  /// Actual download success is bookkeeping only, never a new sync trigger.
+  void rememberSubscriptionWinner(String host) {
+    if (!_disposed && _subEndpoints.any((e) => e.url == host)) {
+      _subGeneration++;
+      _currentSub = host;
+      onSubscriptionSwitch?.call(host);
+    }
   }
 
   /// 当前 VPN 状态（测试 / 调试可读）。
@@ -112,21 +138,23 @@ class EndpointRaceController {
       Dio(BaseOptions(headers: {'User-Agent': XboardUserAgent.current}));
 
   static EndpointProbe _defaultProbe(Dio dio) => (endpoint) async {
-        try {
-          final resp = await dio
-              .getUri<Object?>(Uri.parse('$endpoint/api/v1/guest/comm/config'))
-              .timeout(kBootstrapPerMirrorTimeout);
-          final code = resp.statusCode ?? 0;
-          return code >= 200 && code < 300;
-        } catch (_) {
-          return false;
-        }
-      };
+    try {
+      final resp = await dio
+          .getUri<Object?>(Uri.parse('$endpoint/api/v1/guest/comm/config'))
+          .timeout(kBootstrapPerMirrorTimeout);
+      final code = resp.statusCode ?? 0;
+      return code >= 200 && code < 300;
+    } catch (_) {
+      return false;
+    }
+  };
 
   /// VPN 开关状态变化（R4.9）：更新状态 + 用新档位重新竞速 api/sub（不阻塞调用方）。
   void setVpnActive(bool active) {
     if (active == _vpnActive) return;
     _vpnActive = active;
+    _currentSub = null;
+    _subGeneration++;
     if (_apiEndpoints.isNotEmpty) unawaited(raceApi(_apiEndpoints));
     if (_subEndpoints.isNotEmpty) unawaited(raceSubscription(_subEndpoints));
   }
@@ -152,10 +180,13 @@ class EndpointRaceController {
   Future<void> raceSubscription(List<BootstrapEndpoint> subEndpoints) async {
     if (subEndpoints.isEmpty) return;
     _subEndpoints = List.unmodifiable(subEndpoints);
+    if (!_subEndpoints.any((e) => e.url == _currentSub)) _currentSub = null;
+    final generation = ++_subGeneration;
     final winner = await _raceRegionAware(subEndpoints);
-    if (winner != null) {
+    if (!_disposed && generation == _subGeneration && winner != null) {
       _currentSub = winner;
       onSubscriptionSwitch?.call(winner);
+      onSubscriptionAvailable?.call();
     }
   }
 
@@ -176,9 +207,9 @@ class EndpointRaceController {
   Future<void> _doFailOverApi() async {
     if (_apiEndpoints.isEmpty) return;
     // 按 R4.9 档位顺序找第一个可达者（排除当前）；找不到则完整重竞速。
-    final ordered = _orderByRegion(_apiEndpoints)
-        .where((u) => u != _currentApi)
-        .toList();
+    final ordered = _orderByRegion(
+      _apiEndpoints,
+    ).where((u) => u != _currentApi).toList();
     for (final u in ordered) {
       if (await _probe(u)) {
         _switchApiTo(u);
@@ -208,9 +239,9 @@ class EndpointRaceController {
 
   Future<void> _doFailOverSubscription() async {
     if (_subEndpoints.isEmpty) return;
-    final ordered = _orderByRegion(_subEndpoints)
-        .where((u) => u != _currentSub)
-        .toList();
+    final ordered = _orderByRegion(
+      _subEndpoints,
+    ).where((u) => u != _currentSub).toList();
     for (final u in ordered) {
       if (await _probe(u)) {
         _currentSub = u;
@@ -301,24 +332,30 @@ class EndpointRaceController {
     final completer = Completer<String?>();
     var pending = endpoints.length;
     for (final e in endpoints) {
-      _probe(e).then((ok) {
-        if (ok && !completer.isCompleted) {
-          completer.complete(e);
-        } else {
-          pending--;
-          if (pending == 0 && !completer.isCompleted) {
-            completer.complete(null);
-          }
-        }
-      }).catchError((_) {
-        pending--;
-        if (pending == 0 && !completer.isCompleted) completer.complete(null);
-      });
+      _probe(e)
+          .then((ok) {
+            if (ok && !completer.isCompleted) {
+              completer.complete(e);
+            } else {
+              pending--;
+              if (pending == 0 && !completer.isCompleted) {
+                completer.complete(null);
+              }
+            }
+          })
+          .catchError((_) {
+            pending--;
+            if (pending == 0 && !completer.isCompleted) {
+              completer.complete(null);
+            }
+          });
     }
     return completer.future;
   }
 
   void dispose() {
+    _disposed = true;
+    _subGeneration++;
     _switchTimes.clear();
   }
 }

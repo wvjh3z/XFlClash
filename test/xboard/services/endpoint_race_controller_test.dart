@@ -8,15 +8,59 @@ import 'package:fl_clash/xboard/models/bootstrap_payload.dart';
 import 'package:fl_clash/xboard/services/endpoint_race_controller.dart';
 
 /// 把 url 包成 endpoint（region 默认 unknown，VPN 关时不影响竞速）。
-List<BootstrapEndpoint> _eps(List<String> urls,
-        {BootstrapRegion region = BootstrapRegion.unknown}) =>
-    urls.map((u) => BootstrapEndpoint(url: u, region: region)).toList();
+List<BootstrapEndpoint> _eps(
+  List<String> urls, {
+  BootstrapRegion region = BootstrapRegion.unknown,
+}) => urls.map((u) => BootstrapEndpoint(url: u, region: region)).toList();
 
 /// 带 region 的 endpoint 列表（R4.9 测试用）。
-List<BootstrapEndpoint> _mixed(Map<String, BootstrapRegion> m) =>
-    m.entries.map((e) => BootstrapEndpoint(url: e.key, region: e.value)).toList();
+List<BootstrapEndpoint> _mixed(Map<String, BootstrapRegion> m) => m.entries
+    .map((e) => BootstrapEndpoint(url: e.key, region: e.value))
+    .toList();
 
 void main() {
+  test('VPN 开时国内成功记忆仅在兜底组内优先，不能越过海外组', () {
+    final c = EndpointRaceController(
+      probe: (_) async => false,
+      vpnActive: true,
+    );
+    c.seedEndpoints(
+      [],
+      _mixed({
+        'https://cn.test': BootstrapRegion.cn,
+        'https://o.test': BootstrapRegion.overseas,
+      }),
+    );
+    c.rememberSubscriptionWinner('https://cn.test');
+    expect(c.subscriptionCandidates(), ['https://o.test', 'https://cn.test']);
+    c.dispose();
+  });
+
+  test('真实下载记忆不触发恢复反馈，探测完成才通知可用性', () async {
+    var recoveries = 0;
+    final c = EndpointRaceController(
+      probe: (_) async => true,
+      onSubscriptionAvailable: () => recoveries++,
+    );
+    c.seedEndpoints([], _eps(['https://a.test']));
+    c.rememberSubscriptionWinner('https://a.test');
+    expect(recoveries, 0);
+    await c.raceSubscription(_eps(['https://a.test']));
+    expect(recoveries, 1);
+    c.dispose();
+  });
+
+  test('本地列表可在探测前读取，更新配置移除旧赢家', () {
+    final c = EndpointRaceController(probe: (_) async => false);
+    c.seedEndpoints([], _eps(['https://a.test', 'https://b.test']));
+    expect(c.subscriptionCandidates(), ['https://a.test', 'https://b.test']);
+    c.rememberSubscriptionWinner('https://b.test');
+    expect(c.subscriptionCandidates().first, 'https://b.test');
+    c.seedEndpoints([], _eps(['https://new.test']));
+    expect(c.subscriptionCandidates(), ['https://new.test']);
+    c.dispose();
+  });
+
   test('D10：竞速前 currentApiEndpoint 为 null', () {
     final c = EndpointRaceController(probe: (_) async => true);
     expect(c.currentApiEndpoint, isNull);
@@ -81,6 +125,7 @@ void main() {
     probeCalls = 0;
     // 并发触发两次 failOver，串行化锁应让第二次复用第一次的 in-flight。
     await Future.wait([c.failOverApi(), c.failOverApi()]);
+    expect(probeCalls, 3);
     expect(c.currentApiEndpoint, 'https://b.com');
     c.dispose();
   });
@@ -108,10 +153,12 @@ void main() {
         vpnActive: false,
         probe: (e) async => e.contains('cn'),
       );
-      await c.raceApi(_mixed({
-        'https://overseas.com': BootstrapRegion.overseas,
-        'https://cn.com': BootstrapRegion.cn,
-      }));
+      await c.raceApi(
+        _mixed({
+          'https://overseas.com': BootstrapRegion.overseas,
+          'https://cn.com': BootstrapRegion.cn,
+        }),
+      );
       expect(c.currentApiEndpoint, 'https://cn.com');
       c.dispose();
     });
@@ -121,10 +168,12 @@ void main() {
         vpnActive: true,
         probe: (_) async => true, // 全可达
       );
-      await c.raceApi(_mixed({
-        'https://overseas.com': BootstrapRegion.overseas,
-        'https://cn.com': BootstrapRegion.cn,
-      }));
+      await c.raceApi(
+        _mixed({
+          'https://overseas.com': BootstrapRegion.overseas,
+          'https://cn.com': BootstrapRegion.cn,
+        }),
+      );
       expect(c.currentApiEndpoint, 'https://overseas.com');
       c.dispose();
     });
@@ -134,10 +183,12 @@ void main() {
         vpnActive: true,
         probe: (e) async => e.contains('cn'), // 仅国内可达
       );
-      await c.raceApi(_mixed({
-        'https://overseas.com': BootstrapRegion.overseas,
-        'https://cn.com': BootstrapRegion.cn,
-      }));
+      await c.raceApi(
+        _mixed({
+          'https://overseas.com': BootstrapRegion.overseas,
+          'https://cn.com': BootstrapRegion.cn,
+        }),
+      );
       expect(c.currentApiEndpoint, 'https://cn.com');
       c.dispose();
     });
@@ -150,10 +201,12 @@ void main() {
         onApiSwitch: switches.add,
       );
       // VPN 关：平等竞速（并发，结果不定但会选到某个可达者）。
-      await c.raceApi(_mixed({
-        'https://overseas.com': BootstrapRegion.overseas,
-        'https://cn.com': BootstrapRegion.cn,
-      }));
+      await c.raceApi(
+        _mixed({
+          'https://overseas.com': BootstrapRegion.overseas,
+          'https://cn.com': BootstrapRegion.cn,
+        }),
+      );
       // 开 VPN → 重竞速应切到海外。
       c.setVpnActive(true);
       await Future<void>.delayed(const Duration(milliseconds: 20));
@@ -183,11 +236,9 @@ void main() {
   group('R4.2 订阅 failOver / subscriptionCandidates', () {
     test('竞速已选首发：候选首发在前 + 其余当替补（去重）', () async {
       final c = EndpointRaceController(probe: (e) async => e.contains('sub2'));
-      await c.raceSubscription(_eps([
-        'https://sub1.com',
-        'https://sub2.com',
-        'https://sub3.com',
-      ]));
+      await c.raceSubscription(
+        _eps(['https://sub1.com', 'https://sub2.com', 'https://sub3.com']),
+      );
       expect(c.currentSubscriptionEndpoint, 'https://sub2.com');
       // 首发 sub2 排最前，其余按原序补上，sub2 不重复。
       expect(c.subscriptionCandidates(), [
@@ -219,14 +270,18 @@ void main() {
         vpnActive: true,
         probe: (e) async => e.contains('overseas'),
       );
-      await c.raceSubscription(_mixed({
-        'https://cn.com': BootstrapRegion.cn,
-        'https://overseas.com': BootstrapRegion.overseas,
-      }));
+      await c.raceSubscription(
+        _mixed({
+          'https://cn.com': BootstrapRegion.cn,
+          'https://overseas.com': BootstrapRegion.overseas,
+        }),
+      );
       expect(c.currentSubscriptionEndpoint, 'https://overseas.com');
       // 海外首发在前，国内当替补。
-      expect(c.subscriptionCandidates(),
-          ['https://overseas.com', 'https://cn.com']);
+      expect(c.subscriptionCandidates(), [
+        'https://overseas.com',
+        'https://cn.com',
+      ]);
       c.dispose();
     });
 

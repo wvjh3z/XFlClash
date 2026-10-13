@@ -1,5 +1,7 @@
 /// W5.3.7 — XboardLifecycleObserver：移动端 paused 暂停 / desktop 不暂停 / resumed 重启 + 竞速。
 
+library;
+
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -17,6 +19,24 @@ void main() {
     raceRefreshes = 0;
     race = EndpointRaceController(probe: (_) async => true);
   });
+
+  test(
+    'desktop resumed invokes pending recovery independently of mobile timers',
+    () {
+      var recovered = 0;
+      var mobileResumed = 0;
+      final obs = XboardLifecycleObserver(
+        raceController: race,
+        isMobileOverride: false,
+        onRecoverPending: () => recovered++,
+        onResumeTimers: () => mobileResumed++,
+      );
+      obs.didChangeAppLifecycleState(AppLifecycleState.resumed);
+      expect(recovered, 1);
+      expect(mobileResumed, 0);
+      obs.dispose();
+    },
+  );
 
   test('移动端 paused → 暂停 Timer 回调触发', () {
     var paused = false;
@@ -44,11 +64,12 @@ void main() {
 
   test('移动端 resumed → 重启 Timer + 后台竞速', () async {
     var resumed = false;
-    final raceProbe = EndpointRaceController(probe: (_) async {
-      raceRefreshes++;
-      return true;
-    })
-      ..raceApi([const BootstrapEndpoint(url: 'https://a.com')]);
+    final raceProbe = EndpointRaceController(
+      probe: (_) async {
+        raceRefreshes++;
+        return true;
+      },
+    )..raceApi([const BootstrapEndpoint(url: 'https://a.com')]);
     await Future<void>.delayed(const Duration(milliseconds: 5));
     final obs = XboardLifecycleObserver(
       raceController: raceProbe,
@@ -66,7 +87,8 @@ void main() {
   test('desktop resumed → 不重启 Timer 但仍后台竞速', () async {
     var resumed = false;
     final obs = XboardLifecycleObserver(
-      raceController: race..raceApi([const BootstrapEndpoint(url: 'https://a.com')]),
+      raceController: race
+        ..raceApi([const BootstrapEndpoint(url: 'https://a.com')]),
       isMobileOverride: false,
       onResumeTimers: () => resumed = true,
     );

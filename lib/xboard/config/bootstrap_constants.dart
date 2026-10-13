@@ -17,9 +17,8 @@ const String kEncryptedSubscriptionPathSegment = 'encrypted';
 /// R4.1 加密订阅单次拉取超时（密文 ~数十 KB，比 config.json envelope 大，给足余量）。
 const Duration kEncryptedSubscriptionTimeout = Duration(seconds: 15);
 
-/// R4.2 加密订阅 failOver 总预算：按候选 endpoint 顺序逐个串行试，总耗时上限（防多个慢超时
-/// 让后台干等过久）。死地址通常快速失败（连接拒绝/复位 <1s），预算只对「连得上但卡住」的
-/// 慢地址兜底。单地址超时仍受 [kEncryptedSubscriptionTimeout] 约束。
+/// 真实订阅下载/解密预算，不包含 SDK 获取 URL 和 Profile 落地。
+/// 两个地区组存在时给兜底组预留一半，赢家/组截止/会话结束取消在途请求。
 const Duration kEncryptedSubscriptionTotalBudget = Duration(seconds: 40);
 
 /// Bootstrap 本地缓存 key（DD-22 v1；存外层 envelope 密文，不存明文 R15.D.25/D.28）。

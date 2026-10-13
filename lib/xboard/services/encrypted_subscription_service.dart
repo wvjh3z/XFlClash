@@ -18,19 +18,19 @@
 /// **错误分流（contract §5）**：HTTP 非 2xx → 后端明文 JSON `{code,message}`（不加密），按
 /// code 归类（token 类 / 无套餐 / 加密未配置 / 其他）；2xx → 走解密；解密失败 → 数据损坏。
 ///
-/// **R4.2 failOver**（[fetchWithFailOver]）：按候选 host 列表（竞速排序 + 去重，来自
-/// `EndpointRaceController.subscriptionCandidates()`）串行试穿——某 host 网络/解密失败就试下一个，
-/// 业务类错误（token/无套餐/未配置）立即停（换 host 无意义），全程受总预算约束；候选为空退回原
-/// URL host 兜底。"列表是输入、竞速是优化"——不依赖竞速是否跑完，无空窗。
-///
-/// **永不抛**（Property 1）：任何失败返 [EncryptedSubscriptionResult.failure]。
+/// 实际下载按地区分组、组内最多两个并发；首个解密且基本 YAML 合法的结果胜出。
+/// 公开 guest 探测只提供排序提示，不替代真实下载。副作用由同步服务执行一次。
 library;
 
+import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
-import 'package:flutter/foundation.dart' show visibleForTesting;
+import 'package:flutter/foundation.dart' show visibleForTesting, debugPrint;
+import 'package:yaml/yaml.dart';
+
+import '../models/bootstrap_payload.dart';
 
 import '../config/bootstrap_constants.dart';
 import 'bootstrap_decryptor.dart';
@@ -54,7 +54,7 @@ enum EncryptedSubscriptionFailure {
   /// 本周期流量已耗尽（后端 40307，v1.1.0 起）。token/套餐有效但流量用尽 → UI 引导购买流量包/套餐。
   trafficExhausted,
 
-  /// 后端加密未配置（50001）/ 插件禁用（404）—— 运营侧问题，非客户端可恢复。
+  /// 后端明确返回加密未配置（50001）；裸 404 不能据此定性。
   serverNotConfigured,
 
   /// 网络失败（连不上 / 超时 / 全 endpoint 不可达）。
@@ -85,9 +85,10 @@ class EncryptedSubscriptionResult {
   factory EncryptedSubscriptionResult.failure(
     EncryptedSubscriptionFailure failure, {
     String? serverMessage,
-  }) =>
-      EncryptedSubscriptionResult._(
-          failure: failure, serverMessage: serverMessage);
+  }) => EncryptedSubscriptionResult._(
+    failure: failure,
+    serverMessage: serverMessage,
+  );
 
   /// 成功时的明文 ClashMeta YAML 字节（喂 [ProfileSyncPort.putFileProfile]）。
   final Uint8List? yamlBytes;
@@ -110,9 +111,11 @@ class EncryptedSubscriptionService {
     required BootstrapDecryptor decryptor,
     String aad = kEncryptedSubscriptionAad,
     Dio? dio,
-  })  : _decryptor = decryptor,
-        _aad = aad,
-        _dio = dio ?? buildReleasedIsolatedDio(timeout: kEncryptedSubscriptionTimeout);
+  }) : _decryptor = decryptor,
+       _aad = aad,
+       _dio =
+           dio ??
+           buildReleasedIsolatedDio(timeout: kEncryptedSubscriptionTimeout);
 
   final BootstrapDecryptor _decryptor;
   final String _aad;
@@ -126,8 +129,10 @@ class EncryptedSubscriptionService {
   /// [overrideHost]（可选，R4.9 竞速选中的订阅 endpoint）：形如 `https://1.2.3.4` 或
   /// `https://sub.cdn.com`，替换原 URL 的 scheme+host（保留改写后的 path+token+query）。
   @visibleForTesting
-  static String? buildEncryptedUrl(String originalSubscribeUrl,
-      {String? overrideHost}) {
+  static String? buildEncryptedUrl(
+    String originalSubscribeUrl, {
+    String? overrideHost,
+  }) {
     final uri = Uri.tryParse(originalSubscribeUrl.trim());
     if (uri == null || uri.host.isEmpty) return null;
     final segments = uri.pathSegments.where((s) => s.isNotEmpty).toList();
@@ -160,82 +165,157 @@ class EncryptedSubscriptionService {
     String originalSubscribeUrl, {
     String? subscriptionEndpoint,
   }) async {
-    final url = buildEncryptedUrl(originalSubscribeUrl,
-        overrideHost: subscriptionEndpoint);
+    final url = buildEncryptedUrl(
+      originalSubscribeUrl,
+      overrideHost: subscriptionEndpoint,
+    );
     if (url == null) {
       return EncryptedSubscriptionResult.failure(
-          EncryptedSubscriptionFailure.noSubscribeUrl);
+        EncryptedSubscriptionFailure.noSubscribeUrl,
+      );
     }
     return _fetchOne(url);
   }
 
-  /// R4.2：按候选 host 列表串行 failOver 拉取（首发挂了顺位试下一个，总预算内）。
-  ///
-  /// - [originalSubscribeUrl]：SDK 原订阅 URL（提供 token + path，host 会被候选替换）。
-  /// - [candidateHosts]：已排序去重的订阅 endpoint host 串（来自
-  ///   `EndpointRaceController.subscriptionCandidates()`，首发在前 / VPN 开海外在前）。
-  ///   **空列表** → 退回用原始 URL host 原样拉一次（终极兜底，列表未解出时不致无路可走）。
-  /// - [budget]：总预算（默认 [kEncryptedSubscriptionTotalBudget]），耗尽即停止试更多 host。
-  ///
-  /// **智能停止**（不是所有失败都值得换 host）：
-  /// - `network` / `decryptFailed`（连不上 / 超时 / 数据损坏）→ 该 host 不行，**试下一个**。
-  /// - `unauthorized` / `noActivePlan` / `serverNotConfigured`（后端明确拒绝）→ 换 host 也一样，
-  ///   **立即返回**该业务错误（呼应错误文案透传，不浪费时间穷举）。
-  ///
-  /// 返回首个成功结果；全部失败返回**最后一次有意义的失败**（优先保留业务错误，否则网络错误）。
+  /// 总预算只包含下载/解密阶段。VPN 开时海外先行，预留一半预算给其他地区。
+  /// 同组每个请求最多占用 5 秒，防止前两个慢地址独占全部预算。
   Future<EncryptedSubscriptionResult> fetchWithFailOver(
     String originalSubscribeUrl, {
     required List<String> candidateHosts,
+    List<BootstrapEndpoint>? endpoints,
+    bool vpnActive = false,
+    CancelToken? cancelToken,
     Duration budget = kEncryptedSubscriptionTotalBudget,
+    Duration attemptTimeout = const Duration(seconds: 5),
   }) async {
-    // 候选为空 → 原始 URL host 兜底（不替换 host）。
-    if (candidateHosts.isEmpty) {
-      return fetch(originalSubscribeUrl);
+    final seen = <String>{};
+    final candidates =
+        (endpoints ?? candidateHosts.map((url) => BootstrapEndpoint(url: url)))
+            .where((e) => e.url.isNotEmpty && seen.add(e.url))
+            .toList();
+    final overseas = candidates
+        .where((e) => e.region == BootstrapRegion.overseas)
+        .toList();
+    final rest = candidates
+        .where((e) => e.region != BootstrapRegion.overseas)
+        .toList();
+    final groups = vpnActive && overseas.isNotEmpty && rest.isNotEmpty
+        ? [overseas, rest]
+        : [candidates];
+    final clock = Stopwatch()..start();
+    final failures = <EncryptedSubscriptionResult>[];
+    for (var groupIndex = 0; groupIndex < groups.length; groupIndex++) {
+      if (cancelToken?.isCancelled ?? false) break;
+      final remaining = budget - clock.elapsed;
+      if (remaining <= Duration.zero) break;
+      final groupBudget = groups.length == 2 && groupIndex == 0
+          ? Duration(microseconds: remaining.inMicroseconds ~/ 2)
+          : remaining;
+      final hosts = groups[groupIndex];
+      final done = Completer<EncryptedSubscriptionResult?>();
+      final tokens = <CancelToken>[];
+      var next = 0;
+      var workers = 0;
+      // Empty configuration retains the original URL, under the same deadline.
+      final count = hosts.isEmpty ? 1 : hosts.length;
+      final timer = Timer(groupBudget, () {
+        if (!done.isCompleted) done.complete(null);
+      });
+      if (cancelToken != null) {
+        unawaited(
+          cancelToken.whenCancel.then((_) {
+            if (!done.isCompleted) done.complete(null);
+          }),
+        );
+      }
+      Future<void> worker() async {
+        workers++;
+        try {
+          while (!done.isCompleted && next < count) {
+            final index = next++;
+            final endpoint = hosts.isEmpty ? null : hosts[index];
+            final token = CancelToken();
+            tokens.add(token);
+            final watch = Stopwatch()..start();
+            final url = buildEncryptedUrl(
+              originalSubscribeUrl,
+              overrideHost: endpoint?.url,
+            );
+            final result = url == null
+                ? EncryptedSubscriptionResult.failure(
+                    EncryptedSubscriptionFailure.noSubscribeUrl,
+                  )
+                : await _fetchOne(url, cancelToken: token).timeout(
+                    attemptTimeout,
+                    onTimeout: () {
+                      token.cancel('attempt deadline');
+                      return EncryptedSubscriptionResult.failure(
+                        EncryptedSubscriptionFailure.network,
+                      );
+                    },
+                  );
+            if (done.isCompleted) return;
+            debugPrint(
+              '[Subscription] download group=$groupIndex candidate=$index '
+              'region=${endpoint?.region.name ?? "original"} ms=${watch.elapsedMilliseconds} '
+              'result=${result.isSuccess ? "ok" : result.failure?.name}',
+            );
+            if (result.isSuccess) {
+              done.complete(result);
+              return;
+            }
+            failures.add(result);
+          }
+        } finally {
+          workers--;
+          if (workers == 0 && !done.isCompleted) done.complete(null);
+        }
+      }
+
+      unawaited(worker());
+      if (count > 1) unawaited(worker());
+      final winner = await done.future;
+      timer.cancel();
+      for (final token in tokens) {
+        if (!token.isCancelled) token.cancel('race finished');
+      }
+      if (winner != null) return winner;
     }
-
-    final deadline = DateTime.now().add(budget);
-    EncryptedSubscriptionResult? lastFailure;
-
-    for (final host in candidateHosts) {
-      if (DateTime.now().isAfter(deadline)) break; // 总预算耗尽。
-      final r = await fetch(originalSubscribeUrl, subscriptionEndpoint: host);
-      if (r.isSuccess) return r;
-
-      // 业务类错误：换 host 无意义，立即返回。
-      if (_isTerminal(r.failure!)) return r;
-
-      // 网络 / 解密类：记录后试下一个 host。
-      lastFailure = r;
-    }
-    // 全部失败 → 返最后一次失败（候选非空时 lastFailure 必非 null）。
-    return lastFailure ??
+    // A single mirror's rejection must not suppress a valid response from another.
+    // Stable enum priority makes the all-failed result independent of response timing.
+    failures.sort((a, b) => a.failure!.index.compareTo(b.failure!.index));
+    return failures.where((r) => _isBusinessFailure(r.failure!)).firstOrNull ??
+        failures.firstOrNull ??
         EncryptedSubscriptionResult.failure(
-            EncryptedSubscriptionFailure.network);
+          EncryptedSubscriptionFailure.network,
+        );
   }
 
-  /// 该失败是否「终态」（换 host 也救不了，应立即停止 failOver）。
-  static bool _isTerminal(EncryptedSubscriptionFailure f) => switch (f) {
-        EncryptedSubscriptionFailure.unauthorized ||
-        EncryptedSubscriptionFailure.subscriptionExpired ||
-        EncryptedSubscriptionFailure.noActivePlan ||
-        EncryptedSubscriptionFailure.trafficExhausted ||
-        EncryptedSubscriptionFailure.serverNotConfigured ||
-        EncryptedSubscriptionFailure.noSubscribeUrl =>
-          true,
-        EncryptedSubscriptionFailure.network ||
-        EncryptedSubscriptionFailure.decryptFailed ||
-        EncryptedSubscriptionFailure.unknown =>
-          false,
-      };
+  /// 全部候选失败时优先保留明确业务结果，不用于提前终止竞速。
+  static bool _isBusinessFailure(EncryptedSubscriptionFailure f) => switch (f) {
+    EncryptedSubscriptionFailure.unauthorized ||
+    EncryptedSubscriptionFailure.subscriptionExpired ||
+    EncryptedSubscriptionFailure.noActivePlan ||
+    EncryptedSubscriptionFailure.trafficExhausted ||
+    EncryptedSubscriptionFailure.serverNotConfigured ||
+    EncryptedSubscriptionFailure.noSubscribeUrl => true,
+    EncryptedSubscriptionFailure.network ||
+    EncryptedSubscriptionFailure.decryptFailed ||
+    EncryptedSubscriptionFailure.unknown => false,
+  };
 
   /// 单个加密订阅 URL 的拉取 + 解密（[fetch] / [fetchWithFailOver] 共用核心）。永不抛。
-  Future<EncryptedSubscriptionResult> _fetchOne(String url) async {
+  Future<EncryptedSubscriptionResult> _fetchOne(
+    String url, {
+    CancelToken? cancelToken,
+  }) async {
     // 1. 拉密文（放行 dio，bytes 响应）。
     Response<List<int>> resp;
     try {
       resp = await _dio.getUri<List<int>>(
         Uri.parse(url),
         options: Options(responseType: ResponseType.bytes),
+        cancelToken: cancelToken,
       );
     } on DioException catch (e) {
       // 4xx/5xx 也走这里（dio 默认 validateStatus 仅 2xx 不抛 → 实际非 2xx 抛 badResponse）。
@@ -244,10 +324,12 @@ class EncryptedSubscriptionService {
         return _mapHttpError(r.statusCode!, _bytesToString(r.data));
       }
       return EncryptedSubscriptionResult.failure(
-          EncryptedSubscriptionFailure.network);
+        EncryptedSubscriptionFailure.network,
+      );
     } catch (_) {
       return EncryptedSubscriptionResult.failure(
-          EncryptedSubscriptionFailure.network);
+        EncryptedSubscriptionFailure.network,
+      );
     }
 
     final code = resp.statusCode ?? 0;
@@ -258,7 +340,8 @@ class EncryptedSubscriptionService {
     final data = resp.data;
     if (data == null || data.isEmpty) {
       return EncryptedSubscriptionResult.failure(
-          EncryptedSubscriptionFailure.decryptFailed);
+        EncryptedSubscriptionFailure.decryptFailed,
+      );
     }
     final bytes = Uint8List.fromList(data);
 
@@ -266,7 +349,8 @@ class EncryptedSubscriptionService {
     final parsed = BootstrapFetcher.parseEnvelopeBytes(bytes);
     if (parsed == null) {
       return EncryptedSubscriptionResult.failure(
-          EncryptedSubscriptionFailure.decryptFailed);
+        EncryptedSubscriptionFailure.decryptFailed,
+      );
     }
 
     // 3. AES-GCM 核心解密（AAD = 加密订阅用途）。
@@ -276,9 +360,25 @@ class EncryptedSubscriptionService {
     );
     if (!raw.isSuccess || raw.clearBytes == null) {
       return EncryptedSubscriptionResult.failure(
-          EncryptedSubscriptionFailure.decryptFailed);
+        EncryptedSubscriptionFailure.decryptFailed,
+      );
     }
 
+    // Basic syntax/shape only; full core validation stays in the existing Profile port.
+    try {
+      final yaml = loadYaml(utf8.decode(raw.clearBytes!));
+      if (yaml is! YamlMap ||
+          !(yaml['proxies'] is YamlList ||
+              yaml['proxy-providers'] is YamlMap)) {
+        return EncryptedSubscriptionResult.failure(
+          EncryptedSubscriptionFailure.decryptFailed,
+        );
+      }
+    } catch (_) {
+      return EncryptedSubscriptionResult.failure(
+        EncryptedSubscriptionFailure.decryptFailed,
+      );
+    }
     return EncryptedSubscriptionResult.success(
       yamlBytes: raw.clearBytes!,
       winnerUrl: url,
@@ -301,11 +401,11 @@ class EncryptedSubscriptionService {
       40307 => EncryptedSubscriptionFailure.trafficExhausted,
       50001 => EncryptedSubscriptionFailure.serverNotConfigured,
       _ => switch (httpStatus) {
-          401 || 403 => EncryptedSubscriptionFailure.unauthorized,
-          404 => EncryptedSubscriptionFailure.serverNotConfigured,
-          >= 500 => EncryptedSubscriptionFailure.network,
-          _ => EncryptedSubscriptionFailure.unknown,
-        },
+        401 || 403 => EncryptedSubscriptionFailure.network,
+        404 => EncryptedSubscriptionFailure.network,
+        >= 500 => EncryptedSubscriptionFailure.network,
+        _ => EncryptedSubscriptionFailure.unknown,
+      },
     };
     return EncryptedSubscriptionResult.failure(failure, serverMessage: message);
   }

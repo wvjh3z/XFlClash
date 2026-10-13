@@ -168,7 +168,7 @@ XboardSubscriptionService subscriptionService(Ref ref) {
       'subscriptionService 在 tokenStorage 注入前被访问 —— 应先 gate bootstrap 完成',
     );
   }
-  return XboardSubscriptionService(
+  final service = XboardSubscriptionService(
     service: ref.watch(xboardServiceProvider),
     encrypted: ref.watch(encryptedSubscriptionServiceProvider),
     profilePort: RiverpodProfileSyncPort(ref),
@@ -176,11 +176,21 @@ XboardSubscriptionService subscriptionService(Ref ref) {
     tokenStorage: tokenStorage,
     flavorId: XboardConfig.current.flavorId,
     sessionRevision: () => ref.read(authStateProvider.notifier).sessionRevision,
-    // R4.2：竞速候选 host 串（首发在前 + 地区序替补）；竞速未就绪 → 空（退回原 URL host 兜底）。
+    subscriptionEndpoints: () =>
+        ref.read(injectedRaceControllerProvider)?.subscriptionEndpoints() ??
+        const [],
+    vpnActive: () =>
+        ref.read(injectedRaceControllerProvider)?.vpnActive ?? false,
+    onWinnerHost: (host) => ref
+        .read(injectedRaceControllerProvider)
+        ?.rememberSubscriptionWinner(host),
+    // Compatibility host view; production uses the typed regional snapshot.
     subscriptionCandidates: () =>
         ref.read(injectedRaceControllerProvider)?.subscriptionCandidates() ??
         const <String>[],
   );
+  ref.onDispose(service.dispose);
+  return service;
 }
 
 // ───────── 客户端更新状态 ─────────

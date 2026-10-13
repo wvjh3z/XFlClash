@@ -3,7 +3,7 @@
 /// **v0.2 R4 重构**（取代 v0.1 的「复用 FlClash `Profile.update` 拉 URL」D62 方案）：SDK 自拉
 /// 加密订阅密文 → 解密 → 明文 ClashMeta YAML 字节 → 写 **file 型 profile** 喂 FlClash core。
 /// 链路：`getSubscribeUrl()`（拿带 token 的原订阅 URL）→ [EncryptedSubscriptionService.fetchWithFailOver]
-/// （按竞速候选 host 串行 failOver 拉 + 解密，R4.1/R4.2）→ [ProfileSyncPort.putFileProfile]
+/// （按地区分组限并发下载 + 解密）→ [ProfileSyncPort.putFileProfile]
 /// （`Profile.saveFile` 写明文文件 + 通知 core 重载，零改上游）。
 ///
 /// **不再调 checkLogin**（用户 2026-06-03 决策）：加密订阅 API 已完全绕过 IpAuth（后端插件坐实），
@@ -19,9 +19,13 @@ library;
 
 import 'dart:async';
 
+import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_xboard_sdk/flutter_xboard_sdk.dart' show TokenStorage;
 
 import '../data/xboard_database.dart';
+import '../models/bootstrap_payload.dart';
+import '../models/xb_domain_error.dart';
 import '../models/xb_result.dart';
 import '../sdk/xboard_service.dart';
 import '../util/pii_mask.dart';
@@ -33,7 +37,7 @@ import 'sentry_bootstrap.dart';
 ///
 /// 状态全部由加密订阅端点的服务端真相决定（插件错误码，token-in-URL 不依赖登录 JWT）：
 /// 40304→[subscriptionExpired]、40305→[noSubscription]、40307→[trafficExhausted]、
-/// 40301/40302/40303 + HTTP 401·403→[authExpired]。UI 据此直出文案/空态，不再回查用户信息。
+/// 明确 40301/40302/40303→[authExpired]；裸 HTTP 拒绝不认定 API 会话失效。
 enum XbSyncOutcome {
   ok,
   noSubscription,
@@ -57,6 +61,12 @@ class XboardSubscriptionService {
     required XboardDatabase db,
     required TokenStorage tokenStorage,
     SubscriptionCandidatesProvider? subscriptionCandidates,
+    List<BootstrapEndpoint> Function()? subscriptionEndpoints,
+    bool Function()? vpnActive,
+    List<Duration> retryDelays = const [
+      Duration(seconds: 3),
+      Duration(seconds: 10),
+    ],
     void Function(String winnerHost)? onWinnerHost,
     int Function()? sessionRevision,
     String flavorId = 'default',
@@ -66,6 +76,9 @@ class XboardSubscriptionService {
        _db = db,
        _tokenStorage = tokenStorage,
        _candidates = subscriptionCandidates ?? (() => const <String>[]),
+       _endpoints = subscriptionEndpoints,
+       _vpnActive = vpnActive ?? (() => false),
+       _retryDelays = List.unmodifiable(retryDelays),
        _onWinnerHost = onWinnerHost,
        _sessionRevision = sessionRevision ?? (() => 0),
        _flavorId = flavorId;
@@ -82,6 +95,70 @@ class XboardSubscriptionService {
   final String _flavorId;
   final int Function() _sessionRevision;
 
+  final List<BootstrapEndpoint> Function()? _endpoints;
+  final bool Function() _vpnActive;
+  final List<Duration> _retryDelays;
+  Timer? _retryTimer;
+  String? _retryOwner;
+  int? _retryRevision;
+  int _retryGeneration = 0;
+  int _retryAttempt = 0;
+  bool _retryable = false;
+  bool _disposed = false;
+  CancelToken? _downloadCancel;
+  String _stage = 'idle';
+
+  void dispose() {
+    _disposed = true;
+    _retryGeneration++;
+    _retryTimer?.cancel();
+    _retryTimer = null;
+    _downloadCancel?.cancel('session ended');
+  }
+
+  /// Resume/address availability only accelerates an already scheduled retry.
+  void recoverPending() {
+    if (_retryTimer?.isActive != true || _inFlight != null) return;
+    _retryTimer!.cancel();
+    _retryTimer = null;
+    unawaited(_runPendingRetry());
+  }
+
+  void _scheduleRetry(String ownerHash, int revision) {
+    if (!_isCurrent(revision) ||
+        !_retryable ||
+        _retryAttempt >= _retryDelays.length) {
+      return;
+    }
+    _retryGeneration++;
+    _retryOwner = ownerHash;
+    _retryRevision = revision;
+    final delay = _retryDelays[_retryAttempt++];
+    _retryTimer = Timer(delay, () {
+      _retryTimer = null;
+      unawaited(_runPendingRetry());
+    });
+  }
+
+  Future<void> _runPendingRetry() async {
+    final generation = _retryGeneration;
+    final owner = _retryOwner;
+    final revision = _retryRevision;
+    _retryOwner = null;
+    _retryRevision = null;
+    try {
+      if (owner != null &&
+          revision != null &&
+          await _ownsSession(owner, revision) &&
+          generation == _retryGeneration &&
+          _isCurrent(revision)) {
+        await _sync(isRetry: true);
+      }
+    } catch (_) {
+      debugPrint('[Subscription] retry session_check_failed');
+    }
+  }
+
   Completer<XbSyncOutcome>? _inFlight;
   bool _pendingForce = false;
 
@@ -95,25 +172,38 @@ class XboardSubscriptionService {
   String? _cleanupOwnerHash;
 
   /// R7 主同步（single-flight + force 队列，§ A）。
-  Future<XbSyncOutcome> sync({bool force = false}) async {
-    if (_loggingOut) return XbSyncOutcome.skipped; // 登出期间不同步（θ-8）。
+  Future<XbSyncOutcome> sync({bool force = false}) => _sync(force: force);
+
+  Future<XbSyncOutcome> _sync({
+    bool force = false,
+    bool isRetry = false,
+  }) async {
+    if (_disposed || _loggingOut) return XbSyncOutcome.skipped; // 登出期间不同步（θ-8）。
     final inFlight = _inFlight;
     if (inFlight != null) {
       if (force) _pendingForce = true; // 队列上限 1，多个 force 合并。
       return inFlight.future;
     }
+    _retryTimer?.cancel();
+    _retryTimer = null;
+    if (!isRetry) {
+      _retryGeneration++;
+      _retryAttempt = 0;
+    }
+    final revision = _sessionRevision();
+    String? ownerHash;
+    final watch = Stopwatch()..start();
     final completer = Completer<XbSyncOutcome>();
     _inFlight = completer;
     var outcome = XbSyncOutcome.failed;
     try {
-      final revision = _sessionRevision();
       final token = await _tokenStorage.readToken();
       if (token == null || token.isEmpty || !_isCurrent(revision)) {
         outcome = XbSyncOutcome.skipped;
         return outcome;
       }
       // 在网络请求前捕获归属，不能在 A 下载完成后才读取已属于 B 的 Token。
-      final ownerHash = userIdHashFromToken(token);
+      ownerHash = userIdHashFromToken(token);
       outcome = await _doSync(ownerHash, revision);
       if (_pendingForce && await _ownsSession(ownerHash, revision)) {
         _pendingForce = false;
@@ -132,16 +222,26 @@ class XboardSubscriptionService {
       completer.complete(outcome);
       _inFlight = null;
       _pendingForce = false;
+      debugPrint(
+        '[Subscription] sync stage=$_stage result=${outcome.name} '
+        'ms=${watch.elapsedMilliseconds} retry=$_retryAttempt',
+      );
+      if (outcome == XbSyncOutcome.failed && ownerHash != null) {
+        _scheduleRetry(ownerHash, revision);
+      }
     }
     return outcome;
   }
 
   Future<XbSyncOutcome> _doSync(String ownerHash, int revision) async {
+    _retryable = false;
+    _stage = 'get_url';
     if (!await _ownsSession(ownerHash, revision)) return XbSyncOutcome.skipped;
     // 1. 拿订阅 URL（含 token）。失败 → 用 getSubscription 区分无套餐 / 鉴权过期。
     final subUrlResult = await _service.getSubscribeUrl();
     if (!await _ownsSession(ownerHash, revision)) return XbSyncOutcome.skipped;
-    if (subUrlResult case XbFailure()) {
+    if (subUrlResult case XbFailure(:final error)) {
+      _retryable = error is XbNetwork;
       final sub = await _service.getSubscription();
       if (!await _ownsSession(ownerHash, revision)) {
         return XbSyncOutcome.skipped;
@@ -157,17 +257,25 @@ class XboardSubscriptionService {
     }
     final originalUrl = (subUrlResult as XbSuccess<String>).data;
 
-    // 2. 按竞速候选 host 串行 failOver 拉密文 + 解密（R4.1/R4.2）。
+    // 2. 按地区分组限并发下载 + 解密。
+    _stage = 'download_decrypt';
+    final vpnActive = _vpnActive();
+    _downloadCancel = CancelToken();
     final result = await _encrypted.fetchWithFailOver(
       originalUrl,
       candidateHosts: _candidates(),
+      endpoints: _endpoints?.call(),
+      vpnActive: vpnActive,
+      cancelToken: _downloadCancel,
     );
     if (!await _ownsSession(ownerHash, revision)) return XbSyncOutcome.skipped;
     if (!result.isSuccess) {
+      _retryable = result.failure == EncryptedSubscriptionFailure.network;
       return _mapFetchFailure(result.failure!);
     }
 
     // 3. 写 file 型 profile（明文 YAML 字节）+ 维护外挂索引（去重：同用户同 flavor 一个 profile）。
+    _stage = 'lookup_profile';
     final existingId = await _db.findProfileId(
       flavorId: _flavorId,
       userIdHash: ownerHash,
@@ -176,6 +284,7 @@ class XboardSubscriptionService {
     final live =
         existingId != null && _port.currentProfileIds().contains(existingId);
     try {
+      _stage = 'write_apply_profile';
       final newId = await _port.putFileProfile(
         profileId: live ? existingId : null,
         yamlBytes: result.yamlBytes!,
@@ -187,6 +296,7 @@ class XboardSubscriptionService {
         return XbSyncOutcome.skipped;
       }
       if (!live) {
+        _stage = 'write_index';
         await _db.putIndex(
           profileId: newId,
           flavorId: _flavorId,
@@ -213,7 +323,8 @@ class XboardSubscriptionService {
 
     // 4. 回馈命中 host（接线层可更新竞速 current sub；纯通知，失败无害）。
     final host = _hostOf(result.winnerUrl);
-    if (host != null) _onWinnerHost?.call(host);
+    if (host != null && vpnActive == _vpnActive()) _onWinnerHost?.call(host);
+    _stage = 'complete';
 
     return XbSyncOutcome.ok;
   }
@@ -228,6 +339,7 @@ class XboardSubscriptionService {
   /// 清理失败保留该条索引并继续其他记录，最后报告失败，便于后续恢复。
   Future<void> clearForSessionOwner(String ownerHash) {
     _loggingOut = true;
+    dispose();
     _pendingForce = false;
     if (ownerHash.isEmpty || ownerHash == 'anon') return Future<void>.value();
     // 同一个已经结束的服务只清理一次。重复认证失败/登出通知不能在新会话开始后
@@ -267,6 +379,7 @@ class XboardSubscriptionService {
   /// 因 SDK 此时可能已经删除 Token。立即封住旧服务，不等待在途下载/校验。
   Future<void> clearForCurrentUser() async {
     _loggingOut = true;
+    dispose();
     final userIdHash = await _currentUserIdHash();
     await clearForSessionOwner(userIdHash);
   }
@@ -318,7 +431,7 @@ class XboardSubscriptionService {
   }
 
   bool _isCurrent(int revision) =>
-      !_loggingOut && _sessionRevision() == revision;
+      !_disposed && !_loggingOut && _sessionRevision() == revision;
 
   Future<bool> _ownsSession(String ownerHash, int revision) async {
     if (!_isCurrent(revision)) return false;

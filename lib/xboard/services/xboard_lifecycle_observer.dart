@@ -22,9 +22,10 @@ class XboardLifecycleObserver with WidgetsBindingObserver {
     required EndpointRaceController raceController,
     this.onPauseTimers,
     this.onResumeTimers,
+    this.onRecoverPending,
     bool? isMobileOverride,
-  })  : _race = raceController,
-        _isMobile = isMobileOverride ?? (Platform.isAndroid || Platform.isIOS);
+  }) : _race = raceController,
+       _isMobile = isMobileOverride ?? (Platform.isAndroid || Platform.isIOS);
 
   final EndpointRaceController _race;
 
@@ -33,6 +34,7 @@ class XboardLifecycleObserver with WidgetsBindingObserver {
 
   /// 移动端 resumed 时重启 Timer 的回调。
   final VoidCallback? onResumeTimers;
+  final VoidCallback? onRecoverPending;
 
   final bool _isMobile;
   bool _attached = false;
@@ -55,6 +57,7 @@ class XboardLifecycleObserver with WidgetsBindingObserver {
           debugPrint('[XboardLifecycle] paused (desktop) → Timer 保持运行');
         }
       case AppLifecycleState.resumed:
+        onRecoverPending?.call();
         if (_isMobile) {
           debugPrint('[XboardLifecycle] resumed (mobile) → 重启 Timer');
           onResumeTimers?.call();

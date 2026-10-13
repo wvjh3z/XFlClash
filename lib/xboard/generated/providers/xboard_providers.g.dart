@@ -694,7 +694,7 @@ final class SubscriptionServiceProvider
 }
 
 String _$subscriptionServiceHash() =>
-    r'870a275008bede3de79dab2da4509ab1016a931e';
+    r'e0c3a5814eb6cc862677a5a538e2f07fa411f5b3';
 
 /// 可用更新信息（冷启动自动检查/手动检查后写入）。null = 无更新/未检查。
 ///

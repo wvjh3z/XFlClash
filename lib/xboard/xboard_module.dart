@@ -181,6 +181,7 @@ class XboardModule {
     }
 
     // 3. endpoint 竞速 → 最快可达者经 onApiSwitch 回调热替换 SDK baseUrl + 写 provider。
+    race.seedEndpoints(payload.apiEndpoints, payload.subscriptionEndpoints);
     await race.raceApi(payload.apiEndpoints);
     await race.raceSubscription(payload.subscriptionEndpoints);
 
@@ -434,11 +435,25 @@ class XboardModule {
           // single-flight 保证游客不触发、不重复拉。
           SubscriptionTriggers.onAuthenticated(container);
         },
+        onSubscriptionAvailable: () {
+          if (container.read(authStateProvider) == AuthState.authenticated) {
+            container.read(subscriptionServiceProvider).recoverPending();
+          }
+        },
         onSubscriptionSwitch: (ep) =>
             container.read(subscriptionEndpointProvider.notifier).set(ep),
       );
+      _raceController!.seedEndpoints(
+        _localPayload?.apiEndpoints ?? const [],
+        _localPayload?.subscriptionEndpoints ?? const [],
+      );
       _lifecycleObserver = XboardLifecycleObserver(
         raceController: _raceController!,
+        onRecoverPending: () {
+          if (container.read(authStateProvider) == AuthState.authenticated) {
+            container.read(subscriptionServiceProvider).recoverPending();
+          }
+        },
         // R4.6 step2b-fix：切回前台 → 订阅 + 账号刷新（24h 节流内部判定）。始终存活，
         // 不依赖任何 UI 页面构建。observer 已在监听 resumed 事件，这里把空回调填上。
         // 同时触发更新检查（24h 节流，fire-and-forget）。

@@ -171,17 +171,143 @@ void main() {
     void Function(String)? onWinnerHost,
     FakeTokenStorage? tokenStorage,
     int Function()? sessionRevision,
-  }) => XboardSubscriptionService(
-    service: service,
-    encrypted: enc,
-    profilePort: port,
-    db: db,
-    tokenStorage: tokenStorage ?? FakeTokenStorage(initialToken: 'tokA'),
-    sessionRevision: sessionRevision,
-    subscriptionCandidates: () => candidates,
-    onWinnerHost: onWinnerHost,
-    flavorId: 'brandA',
-  );
+    List<Duration> retryDelays = const [],
+  }) {
+    final instance = XboardSubscriptionService(
+      service: service,
+      encrypted: enc,
+      profilePort: port,
+      db: db,
+      tokenStorage: tokenStorage ?? FakeTokenStorage(initialToken: 'tokA'),
+      sessionRevision: sessionRevision,
+      retryDelays: retryDelays,
+      subscriptionCandidates: () => candidates,
+      onWinnerHost: onWinnerHost,
+      flavorId: 'brandA',
+    );
+    addTearDown(instance.dispose);
+    return instance;
+  }
+
+  test('网络失败自动恢复且仅写一次 Profile，成功后停止重试', () async {
+    var requests = 0;
+    final adapter = _StubAdapter((o) async {
+      requests++;
+      if (requests == 1) throw DioException(requestOptions: o);
+      return _plain(cipher);
+    });
+    final s = sut(
+      encWith(adapter),
+      retryDelays: const [
+        Duration(milliseconds: 10),
+        Duration(milliseconds: 10),
+      ],
+    );
+    expect(await s.sync(), XbSyncOutcome.failed);
+    await Future<void>.delayed(const Duration(milliseconds: 120));
+    expect(requests, 2);
+    expect(
+      await db.findProfileId(
+        flavorId: 'brandA',
+        userIdHash: userIdHashFromToken('tokA'),
+      ),
+      isNotNull,
+    );
+  });
+
+  test('持续网络失败最多自动重试两次，恢复事件不能无限续期', () async {
+    var requests = 0;
+    final s = sut(
+      encWith(
+        _StubAdapter((o) async {
+          requests++;
+          throw DioException(requestOptions: o);
+        }),
+      ),
+      retryDelays: const [
+        Duration(milliseconds: 10),
+        Duration(milliseconds: 10),
+      ],
+    );
+    expect(await s.sync(), XbSyncOutcome.failed);
+    await Future<void>.delayed(const Duration(milliseconds: 120));
+    s.recoverPending();
+    await Future<void>.delayed(const Duration(milliseconds: 30));
+    expect(requests, 3);
+  });
+
+  test('等待重试期间换会话，不再发旧请求', () async {
+    var revision = 1;
+    var requests = 0;
+    final s = sut(
+      encWith(
+        _StubAdapter((o) async {
+          requests++;
+          throw DioException(requestOptions: o);
+        }),
+      ),
+      sessionRevision: () => revision,
+      retryDelays: const [Duration(milliseconds: 20)],
+    );
+    expect(await s.sync(), XbSyncOutcome.failed);
+    revision++;
+    await Future<void>.delayed(const Duration(milliseconds: 60));
+    expect(requests, 1);
+  });
+
+  test('明确业务失败不自动重试，恢复事件也不新建重试', () async {
+    var requests = 0;
+    final s = sut(
+      encWith(
+        _StubAdapter((o) async {
+          requests++;
+          return ResponseBody.fromString('{"code":40305}', 403);
+        }),
+      ),
+      retryDelays: const [Duration(milliseconds: 10)],
+    );
+    expect(await s.sync(), XbSyncOutcome.noSubscription);
+    s.recoverPending();
+    await Future<void>.delayed(const Duration(milliseconds: 40));
+    expect(requests, 1);
+  });
+
+  test('换号后恢复事件不能绕过原重试的会话归属', () async {
+    var revision = 1;
+    var requests = 0;
+    final s = sut(
+      encWith(
+        _StubAdapter((o) async {
+          requests++;
+          throw DioException(requestOptions: o);
+        }),
+      ),
+      sessionRevision: () => revision,
+      retryDelays: const [Duration(seconds: 1)],
+    );
+    await s.sync();
+    revision++;
+    s.recoverPending();
+    await Future<void>.delayed(const Duration(milliseconds: 40));
+    expect(requests, 1);
+  });
+
+  test('dispose 取消重试计时器', () async {
+    var requests = 0;
+    final s = sut(
+      encWith(
+        _StubAdapter((o) async {
+          requests++;
+          throw DioException(requestOptions: o);
+        }),
+      ),
+      retryDelays: const [Duration(milliseconds: 20)],
+    );
+    await s.sync();
+    s.dispose();
+    await Future<void>.delayed(const Duration(milliseconds: 60));
+    expect(requests, 1);
+  });
 
   test('主路径：getSubscribeUrl → 拉密文解密 → putFileProfile + 写索引', () async {
     final adapter = _StubAdapter((_) async => _plain(cipher));
@@ -327,13 +453,13 @@ void main() {
     expect(r, XbSyncOutcome.trafficExhausted);
   });
 
-  test('内容接口裸 401（无插件码）→ authExpired', () async {
+  test('内容接口裸 401（无插件码）→ failed，不认定会话失效', () async {
     final adapter = _StubAdapter(
       (_) async => ResponseBody.fromString('unauthorized', 401),
     );
     final s = sut(encWith(adapter), candidates: ['https://1.1.1.1']);
     final r = await s.sync();
-    expect(r, XbSyncOutcome.authExpired);
+    expect(r, XbSyncOutcome.failed);
   });
 
   test('getSubscribeUrl 失败 + 无套餐 → noSubscription', () async {

@@ -17,6 +17,9 @@
 
 > 当前维护决策：D03 订阅孤儿/重复索引暂缓；D06 校验空值行为跟随上游、暂不修复；D04 续费后账号和节点恢复已获用户实测正常，隔离状态边界与设备行为的差异仍待查。本记录不将这些事项列为已修复。
 
+### Fixed
+- 订阅在登录前装入完整地区候选；真实下载按地区限并发竞速、保留中国地址兜底预算，网络失败最多自动重试两次，成功地址记忆与会话取消接线，增加脱敏阶段诊断。保留手动刷新 60 秒冷却。
+
 ### Added
 - W0 基础设施：客户端经 sibling path 依赖 `flutter_xboard_sdk`（接缝点 #3）+ cryptography / sentry_flutter / flutter_secure_storage / qr_flutter / flutter_html 5 包
 - 工程基础设施：`.githooks/`（commit-msg `[xfork]` 强制 + pre-commit 行号锚点校验）/ `tool/prepare_flavor.dart`（flavor 校验器）/ `tool/check-line-anchors.dart`（DD-21 接缝点漂移校验）/ `test/_fixtures/`（共享 fake）/ `flavors/brand_a/`（flavor 模板）
