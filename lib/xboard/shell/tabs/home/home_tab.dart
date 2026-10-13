@@ -12,6 +12,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:fl_clash/xboard/config/xboard_config.dart';
 import 'package:fl_clash/xboard/providers/auth_state_provider.dart';
 import 'package:fl_clash/xboard/providers/xboard_providers.dart';
+import 'package:fl_clash/xboard/util/format.dart' show xbLatencyDisplay;
 import 'package:fl_clash/xboard/widgets/xb_center_toast.dart';
 import 'package:fl_clash/xboard/widgets/xb_theme.dart' show XbTokens;
 import 'package:fl_clash/xboard/widgets/xb_announcement.dart';
@@ -612,7 +613,7 @@ class _SpeedTilesDesktop extends ConsumerWidget {
           child: _SpeedTile(
             icon: Icons.network_ping,
             iconColor: scheme.onSurfaceVariant,
-            value: hasLatency ? latencyMs.toString() : '--',
+            value: hasLatency ? xbLatencyDisplay(latencyMs!) : '--',
             unit: hasLatency ? 'ms' : '',
             label: '延迟',
           ),

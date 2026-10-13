@@ -29,6 +29,7 @@ import '../services/encrypted_subscription_service.dart';
 import '../services/endpoint_race_controller.dart';
 import '../services/riverpod_profile_sync_port.dart';
 import '../services/xboard_subscription_service.dart';
+import 'auth_state_provider.dart';
 
 part '../generated/providers/xboard_providers.g.dart';
 
@@ -150,7 +151,8 @@ XboardDatabase xboardDatabase(Ref ref) {
 @Riverpod(keepAlive: true)
 EncryptedSubscriptionService encryptedSubscriptionService(Ref ref) {
   final decryptor = BootstrapDecryptor(
-      aesKey: XboardConfig.current.effectiveSubscriptionAesKeyBytes);
+    aesKey: XboardConfig.current.effectiveSubscriptionAesKeyBytes,
+  );
   return EncryptedSubscriptionService(decryptor: decryptor);
 }
 
@@ -173,6 +175,7 @@ XboardSubscriptionService subscriptionService(Ref ref) {
     db: ref.watch(xboardDatabaseProvider),
     tokenStorage: tokenStorage,
     flavorId: XboardConfig.current.flavorId,
+    sessionRevision: () => ref.read(authStateProvider.notifier).sessionRevision,
     // R4.2：竞速候选 host 串（首发在前 + 地区序替补）；竞速未就绪 → 空（退回原 URL host 兜底）。
     subscriptionCandidates: () =>
         ref.read(injectedRaceControllerProvider)?.subscriptionCandidates() ??

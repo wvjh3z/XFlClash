@@ -8,6 +8,8 @@
 /// - 永不抛（Property 1）：任意 SDK 形态 → 返 XbResult
 /// - 未填实方法返 XbUnexpected('not_implemented')
 
+library;
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_xboard_sdk/flutter_xboard_sdk.dart';
 import 'package:mocktail/mocktail.dart';
@@ -33,54 +35,61 @@ void main() {
 
   group('login（SdkResult 形态归一）', () {
     test('Success → XbSuccess(token)', () async {
-      when(() => apis.authApi.loginResult(any(), any()))
-          .thenAnswer((_) async => const Success('bearer-token'));
+      when(
+        () => apis.authApi.loginResult(any(), any()),
+      ).thenAnswer((_) async => const Success('bearer-token'));
       final r = await service.login('A@B.com', 'pw');
       expect(r, isA<XbSuccess<String>>());
       expect((r as XbSuccess<String>).data, 'bearer-token');
     });
 
     test('D69 email 预处理（trim + lowercase）', () async {
-      when(() => apis.authApi.loginResult(any(), any()))
-          .thenAnswer((_) async => const Success('t'));
+      when(
+        () => apis.authApi.loginResult(any(), any()),
+      ).thenAnswer((_) async => const Success('t'));
       await service.login('  A@B.com  ', 'pw');
       verify(() => apis.authApi.loginResult('a@b.com', 'pw')).called(1);
     });
 
     test('Failure(UnauthorizedError) → XbFailure(XbUnauthorized)', () async {
-      when(() => apis.authApi.loginResult(any(), any()))
-          .thenAnswer((_) async => const Failure(UnauthorizedError('未登录')));
+      when(
+        () => apis.authApi.loginResult(any(), any()),
+      ).thenAnswer((_) async => const Failure(UnauthorizedError('未登录')));
       final r = await service.login('a@b.com', 'pw');
       expect((r as XbFailure).error, isA<XbUnauthorized>());
     });
 
     test('W3.9：成功登录 → 显式 saveToken（F406，loginResult 不自动存）', () async {
-      when(() => apis.authApi.loginResult(any(), any()))
-          .thenAnswer((_) async => const Success('bearer-token'));
+      when(
+        () => apis.authApi.loginResult(any(), any()),
+      ).thenAnswer((_) async => const Success('bearer-token'));
       await service.login('a@b.com', 'pw');
-      verify(() => sdk.saveToken('bearer-token')).called(1);
+      verify(() => sdk.saveTokenIfSession('bearer-token', 1)).called(1);
     });
 
     test('W3.9：登录失败 → 不 saveToken', () async {
-      when(() => apis.authApi.loginResult(any(), any()))
-          .thenAnswer((_) async => const Failure(UnauthorizedError('bad')));
+      when(
+        () => apis.authApi.loginResult(any(), any()),
+      ).thenAnswer((_) async => const Failure(UnauthorizedError('bad')));
       await service.login('a@b.com', 'pw');
-      verifyNever(() => sdk.saveToken(any()));
+      verifyNever(() => sdk.saveTokenIfSession(any(), any()));
     });
 
-    test('W3.9：saveToken 抛异常 → 仍返 XbSuccess（Property 1 永不抛）', () async {
-      when(() => apis.authApi.loginResult(any(), any()))
-          .thenAnswer((_) async => const Success('t'));
+    test('W3.9：saveToken 抛异常 → 返 XbFailure，不能建立僵尸登录态', () async {
+      when(
+        () => apis.authApi.loginResult(any(), any()),
+      ).thenAnswer((_) async => const Success('t'));
       when(() => sdk.saveToken(any())).thenThrow(Exception('storage fail'));
       final r = await service.login('a@b.com', 'pw');
-      expect(r, isA<XbSuccess<String>>());
+      expect(r, isA<XbFailure<String>>());
     });
   });
 
   group('_mapError 7 子类映射（经 login Failure 驱动）', () {
     Future<XbDomainError> mapVia(SdkError e) async {
-      when(() => apis.authApi.loginResult(any(), any()))
-          .thenAnswer((_) async => Failure(e));
+      when(
+        () => apis.authApi.loginResult(any(), any()),
+      ).thenAnswer((_) async => Failure(e));
       final r = await service.login('a@b.com', 'pw');
       return (r as XbFailure).error;
     }
@@ -90,22 +99,40 @@ void main() {
     });
     test('RateLimitError → XbRateLimit(kind, minutes)', () async {
       final e = await mapVia(
-          const RateLimitError('m', kind: RateLimitKind.login, retryAfterMinutes: 5));
+        const RateLimitError(
+          'm',
+          kind: RateLimitKind.login,
+          retryAfterMinutes: 5,
+        ),
+      );
       expect(e, isA<XbRateLimit>());
       expect((e as XbRateLimit).retryAfterMinutes, 5);
       expect(e.kind, RateLimitKind.login);
     });
-    test('BusinessError → XbBusiness(kind, validationErrors)（不持 httpStatusCode）', () async {
-      final e = await mapVia(const BusinessError('m',
-          httpStatusCode: 422,
-          kind: BusinessErrorKind.validationFailed,
-          validationErrors: {'email': ['invalid']}));
-      expect(e, isA<XbBusiness>());
-      expect((e as XbBusiness).kind, BusinessErrorKind.validationFailed);
-      expect(e.validationErrors, {'email': ['invalid']});
-    });
+    test(
+      'BusinessError → XbBusiness(kind, validationErrors)（不持 httpStatusCode）',
+      () async {
+        final e = await mapVia(
+          const BusinessError(
+            'm',
+            httpStatusCode: 422,
+            kind: BusinessErrorKind.validationFailed,
+            validationErrors: {
+              'email': ['invalid'],
+            },
+          ),
+        );
+        expect(e, isA<XbBusiness>());
+        expect((e as XbBusiness).kind, BusinessErrorKind.validationFailed);
+        expect(e.validationErrors, {
+          'email': ['invalid'],
+        });
+      },
+    );
     test('NetworkError → XbNetwork(kind)', () async {
-      final e = await mapVia(const NetworkError('m', kind: NetworkErrorKind.timeout));
+      final e = await mapVia(
+        const NetworkError('m', kind: NetworkErrorKind.timeout),
+      );
       expect((e as XbNetwork).kind, NetworkErrorKind.timeout);
     });
     test('ServerError → XbServer(status)', () async {
@@ -116,17 +143,29 @@ void main() {
       expect(await mapVia(const SecurityError('m')), isA<XbSecurity>());
     });
     test('UnexpectedError → XbUnexpected(operation)', () async {
-      final e = await mapVia(UnexpectedError('m',
-          cause: 'x', stackTrace: StackTrace.empty, operation: 'op'));
+      final e = await mapVia(
+        const UnexpectedError(
+          'm',
+          cause: 'x',
+          stackTrace: StackTrace.empty,
+          operation: 'op',
+        ),
+      );
       expect((e as XbUnexpected).operation, 'op');
     });
   });
 
   group('getSubscription（throw 形态归一）', () {
     test('正常 → XbSuccess + R6.8 usedBytes = u + d', () async {
-      when(() => apis.subscriptionApi.getSubscription()).thenAnswer((_) async =>
-          const SubscriptionModel(
-              email: 'a@b.com', uuid: 'uid', u: 100, d: 200, transferEnable: 1000));
+      when(() => apis.subscriptionApi.getSubscription()).thenAnswer(
+        (_) async => const SubscriptionModel(
+          email: 'a@b.com',
+          uuid: 'uid',
+          u: 100,
+          d: 200,
+          transferEnable: 1000,
+        ),
+      );
       final r = await service.getSubscription();
       expect(r, isA<XbSuccess>());
       final sub = (r as XbSuccess).data;
@@ -136,15 +175,15 @@ void main() {
     });
 
     test('抛 AuthException → XbFailure(XbUnauthorized)（永不抛）', () async {
-      when(() => apis.subscriptionApi.getSubscription())
-          .thenThrow(AuthException('过期'));
+      when(
+        () => apis.subscriptionApi.getSubscription(),
+      ).thenThrow(AuthException('过期'));
       final r = await service.getSubscription();
       expect((r as XbFailure).error, isA<XbUnauthorized>());
     });
 
     test('抛任意 Object（θ-11 broad catch）→ XbUnexpected，不闪退', () async {
-      when(() => apis.subscriptionApi.getSubscription())
-          .thenThrow(TypeError());
+      when(() => apis.subscriptionApi.getSubscription()).thenThrow(TypeError());
       final r = await service.getSubscription();
       expect((r as XbFailure).error, isA<XbUnexpected>());
     });
@@ -162,7 +201,12 @@ void main() {
         attempt++;
         if (attempt == 1) throw NetworkException('timeout'); // 首次网络失败
         return const SubscriptionModel(
-            email: 'a@b.com', uuid: 'uid', u: 1, d: 2, transferEnable: 100);
+          email: 'a@b.com',
+          uuid: 'uid',
+          u: 1,
+          d: 2,
+          transferEnable: 100,
+        );
       });
       final r = await svc.getSubscription();
       expect(r, isA<XbSuccess>(), reason: '换域名重试后成功');
@@ -188,8 +232,9 @@ void main() {
     });
 
     test('无 failover 钩子（未注入）→ 网络错误原地返回失败，不崩', () async {
-      when(() => apis.subscriptionApi.getSubscription())
-          .thenThrow(NetworkException('down'));
+      when(
+        () => apis.subscriptionApi.getSubscription(),
+      ).thenThrow(NetworkException('down'));
       final r = await service.getSubscription(); // service 无 apiFailover
       expect((r as XbFailure).error, isA<XbNetwork>());
     });
@@ -214,74 +259,102 @@ void main() {
 
   group('未填实方法', () {
     test('fireAllMirrors void 不抛（Property 1 例外）', () {
-      expect(() => service.fireAllMirrors(['https://m1', 'https://m2']),
-          returnsNormally);
+      expect(
+        () => service.fireAllMirrors(['https://m1', 'https://m2']),
+        returnsNormally,
+      );
     });
   });
 
   group('W3 反腐层认证方法填实', () {
     test('register（SdkResult）+ D69 email 预处理', () async {
-      when(() => apis.authApi.registerResult(any(), any(),
-              emailCode: any(named: 'emailCode'),
-              inviteCode: any(named: 'inviteCode')))
-          .thenAnswer((_) async => const Success(true));
+      when(
+        () => apis.authApi.registerResult(
+          any(),
+          any(),
+          emailCode: any(named: 'emailCode'),
+          inviteCode: any(named: 'inviteCode'),
+        ),
+      ).thenAnswer((_) async => const Success(true));
       final r = await service.register('  A@B.com ', 'pw', emailCode: '123456');
       expect((r as XbSuccess).data, isTrue);
-      verify(() => apis.authApi.registerResult('a@b.com', 'pw',
-          emailCode: '123456', inviteCode: null)).called(1);
+      verify(
+        () => apis.authApi.registerResult(
+          'a@b.com',
+          'pw',
+          emailCode: '123456',
+          inviteCode: null,
+        ),
+      ).called(1);
     });
 
-    test('sendEmailVerifyCode 限流 → XbBusiness(emailVerifyCodeRateLimit)', () async {
-      when(() => apis.authApi.sendEmailVerifyCodeResult(any())).thenAnswer(
-        (_) async => const Failure(BusinessError('rate',
-            httpStatusCode: 400, kind: BusinessErrorKind.emailVerifyCodeRateLimit)),
-      );
-      final r = await service.sendEmailVerifyCode('a@b.com');
-      final e = (r as XbFailure).error as XbBusiness;
-      expect(e.kind, BusinessErrorKind.emailVerifyCodeRateLimit);
-    });
+    test(
+      'sendEmailVerifyCode 限流 → XbBusiness(emailVerifyCodeRateLimit)',
+      () async {
+        when(() => apis.authApi.sendEmailVerifyCodeResult(any())).thenAnswer(
+          (_) async => const Failure(
+            BusinessError(
+              'rate',
+              httpStatusCode: 400,
+              kind: BusinessErrorKind.emailVerifyCodeRateLimit,
+            ),
+          ),
+        );
+        final r = await service.sendEmailVerifyCode('a@b.com');
+        final e = (r as XbFailure).error as XbBusiness;
+        expect(e.kind, BusinessErrorKind.emailVerifyCodeRateLimit);
+      },
+    );
 
     test('forgotPassword（throw 形态）成功 → XbSuccess(true)', () async {
-      when(() => apis.authApi.forgotPassword(any(), any(), any()))
-          .thenAnswer((_) async => true);
+      when(
+        () => apis.authApi.forgotPassword(any(), any(), any()),
+      ).thenAnswer((_) async => true);
       final r = await service.forgotPassword('a@b.com', '123456', 'newpw');
       expect((r as XbSuccess).data, isTrue);
     });
 
     test('checkLogin → XbCheckLogin(isLogin)', () async {
-      when(() => apis.userApi.checkLogin())
-          .thenAnswer((_) async => const CheckLoginResult(isLogin: true));
+      when(
+        () => apis.userApi.checkLogin(),
+      ).thenAnswer((_) async => const CheckLoginResult(isLogin: true));
       final r = await service.checkLogin();
       expect((r as XbSuccess).data.isLogin, isTrue);
     });
 
     test('getSubscribeUrl → XbSuccess(url)', () async {
-      when(() => apis.subscriptionApi.getSubscribeUrl())
-          .thenAnswer((_) async => 'https://h/sub/tok');
+      when(
+        () => apis.subscriptionApi.getSubscribeUrl(),
+      ).thenAnswer((_) async => 'https://h/sub/tok');
       final r = await service.getSubscribeUrl();
       expect((r as XbSuccess).data, 'https://h/sub/tok');
     });
 
-    test('logout：服务端撤销 + 永不抛（即便 SDK logout 抛）', () async {
+    test('logout：条件清本地会话，不调用缺失的服务端撤销接口', () async {
       when(() => sdk.auth).thenReturn(apis.authApi);
       when(() => apis.authApi.logout()).thenThrow(Exception('server down'));
       final r = await service.logout();
-      expect(r, isA<XbSuccess<void>>()); // θ-2：服务端失败不阻塞本地
+      expect(r, isA<XbSuccess<void>>());
+      verify(() => sdk.clearTokenIfSession(1)).called(1);
+      verifyNever(() => apis.authApi.logout());
     });
   });
 
   group('getEmailSuffixes（form-a R5.6，throw 形态归一）', () {
     test('返带后缀列表 → XbSuccess(suffixes)', () async {
-      when(() => apis.configApi.getConfig()).thenAnswer((_) async =>
-          const ConfigModel(emailWhitelistSuffix: ['gmail.com', 'qq.com']));
+      when(() => apis.configApi.getConfig()).thenAnswer(
+        (_) async =>
+            const ConfigModel(emailWhitelistSuffix: ['gmail.com', 'qq.com']),
+      );
       final r = await service.getEmailSuffixes();
       expect(r, isA<XbSuccess<List<String>>>());
       expect((r as XbSuccess<List<String>>).data, ['gmail.com', 'qq.com']);
     });
 
     test('空列表（白名单禁用 F208）→ XbSuccess([])', () async {
-      when(() => apis.configApi.getConfig())
-          .thenAnswer((_) async => const ConfigModel());
+      when(
+        () => apis.configApi.getConfig(),
+      ).thenAnswer((_) async => const ConfigModel());
       final r = await service.getEmailSuffixes();
       expect((r as XbSuccess<List<String>>).data, isEmpty);
     });

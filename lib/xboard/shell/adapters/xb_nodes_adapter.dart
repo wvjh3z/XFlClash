@@ -17,7 +17,6 @@ import 'package:fl_clash/common/compute.dart' show computeRealSelectedProxyState
 import 'package:fl_clash/core/core.dart' show coreController;
 import 'package:fl_clash/models/models.dart' show Delay, Group, GroupExt, Proxy;
 import 'package:fl_clash/providers/providers.dart';
-import 'package:fl_clash/state.dart' show globalState;
 import 'package:fl_clash/views/proxies/common.dart' as proxies_common;
 import 'package:fl_clash/views/proxies/tab.dart' show ProxyGroupView;
 import 'package:fl_clash/enum/enum.dart'
@@ -254,7 +253,7 @@ class XbNodesAdapter {
       ref.watch(delayProvider(proxyName: proxyName, testUrl: testUrl));
 
   /// 测当前生效节点延迟 **3 次取最低**（连接 / 切换节点后触发），结果写入 [homeLatencyProvider]
-  /// 供首页速度卡显示。**不写全局延迟表**（首页延迟独立于节点列表延迟）。
+  /// 供首页速度卡显示，并将最低原始值写回全局延迟表。
   ///
   /// [explicitNode] 指定则测它（切换节点后传刚选的节点名，避开 provider 同步帧未刷新读到旧值）；
   /// 否则取 [currentSelection] 当前生效节点。经 `computeRealSelectedProxyState` 解析真实节点 +
@@ -383,24 +382,32 @@ class XbNodesAdapter {
   /// 用于「测速中 N/M」进度——**基于完成计数而非读延迟表**：重测时节点已有上次延迟值，
   /// core 把测速中节点逐个重置为 0 占位再回填，按「非0节点数」估算会在 M↔M-1 横跳（用户反馈）。
   Future<void> _delayTestPooled(
+    WidgetRef ref,
+    ProviderContainer container,
     List<Proxy> proxies,
     String? testUrl, {
     void Function(int done, int total)? onProgress,
   }) async {
+    // 容器由公共入口在 await 前捕获，跨组刷新和关闭页面后不再读取 WidgetRef。
+    final measuring = container.read(xbMeasuringNodesProvider.notifier);
     final total = proxies.length;
     var done = 0;
     await runPooledConcurrent<Proxy>(
       proxies,
       _kDelayConcurrency,
       (p) async {
-        // 不超时只测 1 次；超时（<0）重测，累计最多 _kDelayGroupMaxAttempts 次直到不超时。
-        for (var attempt = 1; attempt <= _kDelayGroupMaxAttempts; attempt++) {
-          await proxies_common.proxyDelayTest(p, testUrl);
-          final v = globalState.container.read(
-            delayProvider(proxyName: p.name, testUrl: testUrl),
-          );
-          if (v == null || v >= 0) break; // 非超时（成功/无值）→ 停
-          // v < 0 超时 → 继续重测（未达上限时）
+        // 整轮（含失败重试）保持测速态，避免 -1 → 转圈 → 延迟的中间跳变。
+        measuring.start(p.name);
+        try {
+          for (var attempt = 1; attempt <= _kDelayGroupMaxAttempts; attempt++) {
+            await testNode(ref, proxyName: p.name, type: p.type, testUrl: testUrl);
+            final v = container.read(
+              delayProvider(proxyName: p.name, testUrl: testUrl),
+            );
+            if (v == null || v >= 0) break; // 非超时（成功/无值）→ 停
+          }
+        } finally {
+          measuring.finish(p.name);
         }
         done++;
         onProgress?.call(done, total);
@@ -423,7 +430,9 @@ class XbNodesAdapter {
       (g) => g.name == groupName,
       orElse: () => throw ArgumentError('group not found: $groupName'),
     );
-    await _delayTestPooled(group.all, group.testUrl, onProgress: onProgress);
+    final container = ProviderScope.containerOf(ref.context, listen: false);
+    await _delayTestPooled(ref, container, group.all, group.testUrl,
+        onProgress: onProgress);
   }
 
   /// 单节点测速（点击节点行延迟数字触发）。复用 `proxyDelayTest`。
@@ -496,11 +505,12 @@ class XbNodesAdapter {
   /// 对指定组（默认所有可见组）内节点批量竞速；触发后节点行延迟着色自动更新（R4.5）。
   Future<void> refresh(WidgetRef ref, {String? groupName}) async {
     final tabState = ref.read(proxiesTabStateProvider);
+    final container = ProviderScope.containerOf(ref.context, listen: false);
     final groups = groupName == null
         ? tabState.groups
         : tabState.groups.where((g) => g.name == groupName);
     for (final group in groups) {
-      await _delayTestPooled(group.all, group.testUrl);
+      await _delayTestPooled(ref, container, group.all, group.testUrl);
     }
   }
 }
@@ -510,9 +520,9 @@ final xbNodesAdapterProvider = Provider<XbNodesAdapter>(
   (ref) => const XbNodesAdapter(),
 );
 
-/// 「正在 3 次取最低测速中」的节点名集合（首页连接/切换节点触发的 measureCurrentNodeBest 用）。
+/// 首页多次取最低和分组失败重试共用的测速中节点名集合。
 ///
-/// 节点页延迟行据此显示转圈、屏蔽中间 3 次跳变；测完写入最低值后移出集合 → 显示最低值。
+/// 节点页据此转圈并屏蔽中间结果；同名节点全部在途测试结束后才显示原始结果的换算值。
 final xbMeasuringNodesProvider =
     NotifierProvider<XbMeasuringNodesNotifier, Set<String>>(
   XbMeasuringNodesNotifier.new,
@@ -520,10 +530,28 @@ final xbMeasuringNodesProvider =
 
 /// 测速中节点集合 Notifier。
 class XbMeasuringNodesNotifier extends Notifier<Set<String>> {
+  final _activeTests = <String, int>{};
+
   @override
-  Set<String> build() => const {};
+  Set<String> build() {
+    _activeTests.clear();
+    return const {};
+  }
 
-  void start(String name) => state = {...state, name};
+  void start(String name) {
+    final count = (_activeTests[name] ?? 0) + 1;
+    _activeTests[name] = count;
+    if (count == 1) state = {...state, name};
+  }
 
-  void finish(String name) => state = {...state}..remove(name);
+  void finish(String name) {
+    final count = _activeTests[name];
+    if (count == null) return;
+    if (count > 1) {
+      _activeTests[name] = count - 1;
+      return;
+    }
+    _activeTests.remove(name);
+    state = {...state}..remove(name);
+  }
 }

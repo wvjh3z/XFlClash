@@ -1,90 +1,61 @@
-# 构建与版本管理（形态 A / MyClient / brand_a）
+<!-- docs-migration:start -->
+> **当前品牌构建导航。** 完整流程见 [DEVELOPMENT](https://github.com/wvjh3z/proxy-suite-docs/blob/main/DEVELOPMENT.md) 与 [Android release skill](https://github.com/wvjh3z/proxy-suite-docs/blob/main/skills/xflclash-android-release/SKILL.md)。旧构建说明已由当前 Docs 承接；Docs 为私有仓库，需要 GitHub 授权。
+<!-- docs-migration:end -->
 
-MyClient 的版本号、debug/release 构建方式。**当前为本地构建**（开发期，本地服务器够快，
-暂不上 GitHub CI）。目标：版本可追溯、能正确覆盖更新、debug 与 release 不混淆。
+# XFlclash 品牌构建与发布入口
 
----
+XFlclash 当前维护形态 A 商业客户端，FlClash 底座仍为 **v0.8.93**。产品展示版本、底座版本、构建号及 APK 原生版本分别核对，不能用一个“版本号”代替全部发布输入。
 
-## 1. 版本号（与 FlClash 底座脱钩，MyClient 自有）
+完整流程由 [DEVELOPMENT](https://github.com/wvjh3z/proxy-suite-docs/blob/main/DEVELOPMENT.md#多品牌构建和版本) 和 [Android release skill](https://github.com/wvjh3z/proxy-suite-docs/blob/main/skills/xflclash-android-release/SKILL.md) 唯一维护。本页是客户端仓库的导航与检查摘要。Docs 仓库及 [SDK](https://github.com/wvjh3z/Xboard_sdk) 为私有仓库，需要维护者授予 GitHub 访问权限；本地分别 checkout 为客户端平级的 `Docs/` 和 `Xboard_sdk/`。
 
-| 项 | 来源 | 说明 |
-|---|---|---|
-| **versionName** | `flavors/brand_a/flavor.yaml` 的 `versionName`（如 `0.0.1`） | MyClient 产品版本，语义化 `v0.0.1 / v0.0.2 / ...`，功能发布手动递增。**不再用 FlClash 的 0.8.93** |
-| **versionCode** | `scripts/build_number.txt` | 整数，每次 **release** 构建脚本自动 +1（单调递增，Android 靠它判定升级/覆盖） |
-| **buildTag** | 构建时间戳 `YYYYMMDDHHMM`（如 `202606071230`） | 关于页显示,简洁有意义、每次构建必变（核对编译产物是否最新,防构建缓存复用旧码） |
+## 版本与构建输入
 
-关于页（我的 → 关于 / 设置 → 关于）显示：`v0.0.1-202606071230`
+| 值 | 当前来源与用途 |
+| --- | --- |
+| 产品版本 | 私密 `flavors/<brand>/flavor.yaml` 的 `versionName`，构建时注入 `XB_PRODUCT_VERSION`，用于产品关于页和文件命名 |
+| 底座版本 | `pubspec.yaml` 的 FlClash 版本，通过 `--build-name` 进入 PackageInfo / Android 原生 versionName |
+| 品牌构建号 | `scripts/build_number.<brand>.txt` 和该批次固定输入；注入 `XB_BUILD_NUMBER` 供应用内更新比较 |
+| Android versionCode | `--build-number` 与 ABI 打包策略共同决定；本机单 ABI 包核对为批次构建号，split-per-abi 可能产生 ABI 偏移 |
+| buildTag | 批次时间标识 `YYYYMMDDHHMM`，注入 `XB_BUILD_TAG`，用于产品关于页辨认构建 |
+| ABI | Flutter target、Gradle 原生库筛选和 `XB_ANDROID_ABI` 一起核对；`XB_TARGET_ABI` 是 Gradle 输入，不是同一个 Dart 键 |
 
-> `pubspec.yaml` 的 `version:` 仅作 plain `flutter build` 的兜底默认（已设 `0.1.0+1`）；
-> 正式构建一律走 `scripts/build_local.sh`，用 `--build-name`/`--build-number` 覆盖。
+`prepare_flavor` 当前不会把 pubspec 改为 `<产品版本>+flclash<底座版本>`。应用内更新比较 `XB_BUILD_NUMBER`，Android 安装另检查原生 versionCode、包名和签名；两层都要验证。
 
-### ⚠️ AES key 自动注入（本地自测）
-`flavor.yaml` 按设计不存密钥（D58，绝不入 git），`prepare_flavor.dart` 生成的
-`flavor_defines.json` 里 `XB_AES_KEY_B64` 恒为空。**没有 key → bootstrap 无法解密 config.json
-→ 拿不到真实 API 地址 → 登录打到 COS 桶报 `MethodNotAllowed`**。
+本地 release 批次读取计数后只分配一次新构建号。失败重试使用同一批次输入，成功并完成产物核验后才更新计数。CI 的计数更新时序按其 workflow 和构建记录核对，仓库中的数字不自动等于某个旧下载包的编号。最新实际 APK 和验证状态见 [STATUS](https://github.com/wvjh3z/proxy-suite-docs/blob/main/STATUS.md)。
 
-`build_local.sh` 已内置：构建前从 gitignored 的 `.secrets/xboard-dev-secrets.md` 提取真实
-32 字节 base64 主密钥，注入 `flavor_defines.json` 的 `XB_AES_KEY_B64`。所以**即便手动跑过
-`prepare_flavor` 把 key 冲空，下次 `build_local.sh` 会自动补回**，无需手工维护。
-CI 环境无 `.secrets/`，靠 CI secrets 注入（不受影响）。
+## 品牌配置与签名
 
-### 发布新版本
-1. 改 `flavors/brand_a/flavor.yaml` 的 `versionName`（如 `0.0.1` → `0.0.2`）。
-2. `bash scripts/build_local.sh release arm64` —— versionCode 自动 +1。
+- 真实 `flavor.yaml`、`fallback.bin`、AES、Token、Sentry 上传凭据和签名材料保持 Git 忽略，不写入公开文档或构建日志。
+- 从该品牌私密配置准备生产输入；AES 可以存在于被忽略的 flavor 配置中，不能沿用早期“生成文件恒为空、从开发 secrets 文档补 key”的说法。
+- 生产包使用该品牌原签名。缺少签名材料时停止生产打包，不以 debug 签名替代，也不生成新的 keystore 冒充原签名。
+- 构建前核对 SDK path、lockfile、子模块和生成代码顺序；准备工具成功不等于 APK 已生成或业务已入包。
 
----
-
-## 2. Debug vs Release
-
-| 维度 | Debug | Release |
-|---|---|---|
-| 用途 | 开发自测、模拟器、看日志 | 真机分发 |
-| 命令 | `bash scripts/build_local.sh debug` | `bash scripts/build_local.sh release arm64` |
-| 包名 | `com.follow.clash.dev` | `com.follow.clash` |
-| 签名 | debug 签名 | release keystore（缺则回退 debug 签名 + `.dev` 后缀） |
-| 日志 | `print`/`debugPrint` 可见 | 裁剪 |
-| ABI | 全 ABI（模拟器可跑） | split-per-abi（arm64 真机 / x64 模拟器） |
-| versionCode | 沿用当前计数（不自增） | 自增 +1 |
-
-> Debug 与 Release **包名不同**（`.dev` 后缀），可在同一台手机共存，互不覆盖。
-
----
-
-## 3. ⚠️ 构建缓存铁律
-
-Flutter 增量缓存（`.dart_tool/flutter_build`）在 release AOT 构建时可能复用陈旧 `app.dill`，
-导致**代码改动未编译进包**（表现：改了 UI/版本但 release 包仍是旧的）。
-`scripts/build_local.sh` 已内置每次 `flutter clean`（彻底,比只删 flutter_build 可靠），无需手动处理。
-
----
-
-## 4. 本地构建
+品牌准备工具可按目标使用，例如：
 
 ```bash
-# Release（真机，arm64；versionCode 自增）
-bash scripts/build_local.sh release arm64
-
-# Release x64（模拟器跑 release）
-bash scripts/build_local.sh release x64
-
-# Debug（全 ABI，模拟器自测，versionCode 不变）
-bash scripts/build_local.sh debug
+dart run tool/prepare_flavor.dart --flavor brand_a --target prod --android-signing
 ```
 
-产物在 `build/app/outputs/flutter-apk/`，脚本末尾打印 versionName/versionCode/buildTag。
+这一步生成配置与签名输入，完整 release 仍需按当前 DEVELOPMENT / skill 固定版本、ABI、dart-define 和本地构建参数。旧 `scripts/build_local.sh` 及包装脚本包含历史测试配置、上传或部署逻辑，执行前核对任务授权和全部副作用，不作为当前品牌生产构建的默认入口。
 
----
+## Release 构建与核验
 
-## 5. 分发与覆盖更新
+1. 保存源码、SDK commit、lockfile、品牌、版本、构建号、buildTag、ABI 和签名证书等批次输入；保留需要回退的旧 APK 与报告。
+2. 执行该修改对应的静态检查、测试和守卫。当前未关闭事项及设备验收边界以 STATUS 为准，隔离测试通过不等于整套客户端已验收。
+3. 本机 Dart 业务改动的发布执行项目 `flutter clean`，然后严格使用当前 lockfile 重新解析依赖并完整编译。项目 clean 与全局 SDK / Gradle / Pub / Go 缓存清理是不同动作。
+4. 使用 aapt 检查包名、名称、原生版本、min/target SDK、debuggable 和 ABI；使用 apksigner 验签并比较原品牌证书，使用 zipalign 检查 APK 对齐。
+5. 核对必需原生库、品牌 fallback，以及未将 flavor、keystore 或生成的敏感输入作为独立文件误打入 APK。
+6. 比较最终 APK 内 `libapp.so` 的 AOT `.text` 和 `.rodata` 与本轮 Flutter 输出，使用 [check_apk_aot.py](https://github.com/wvjh3z/proxy-suite-docs/blob/main/skills/xflclash-android-release/scripts/check_apk_aot.py)。签名成功、versionCode 增加或 APK hash 变化均不能替代业务代码入包核验。
+7. 核验后才复制到 dist、写校验和与报告、更新计数；下载安装后的实际品牌、账号、订阅、节点和 VPN 行为按任务范围另行验收。
 
-- 本地构建产物拷到下载服务（`/root/projects/.tmp/apk_download/`）供真机下载。
-- versionCode 单调递增 → 新版可直接覆盖旧版（无需卸载），**除非**装过早期 versionCode
-  畸大的历史包（`2026052901` 那批），那种需卸载一次。
-- 真机装后「我的 → 关于」核对 buildTag 是否与本次构建一致。
+完整 clean 是本机曾出现 Gradle 合并旧 Dart 库后的规避措施。AOT 代码段比较证明当轮代码入包；签名、APK 对齐和组件测试各证明自己的边界，不能因此宣称所有设备或 ELF 页大小均已验证。
 
----
+## Debug、下载站与正式发布
 
-## 6. 上 GitHub CI（v0.x 开发完成后再启用）
+Debug 用于开发输入、日志与界面验证；生产 release 使用生产品牌配置和原签名。不同构建的 applicationId、后缀和签名以实际工程与产物为准，不沿用早期文档写死的通用包名。覆盖安装必须满足同一 applicationId、签名兼容及系统版本规则。
 
-开发稳定后可加 `release.yml`（tag 触发签名 release）。届时 versionCode 可改用
-`github.run_number`，versionName 仍取 flavor.yaml。当前**不启用**。
+本机原型与安卓下载站的配置和发布流程见 [NGINX 维护](https://github.com/wvjh3z/proxy-suite-docs/blob/main/DEVELOPMENT.md#nginx-原型与安卓下载服务)。现有策略为同名覆盖 APK，构建号与大小在下载页及 manifest 中记录，不增加 build-N 下载目录。只有任务授权包含下载站发布时才执行部署，并核对页面、完整下载、Range、校验和及原型服务状态。
+
+上传源码、测试下载站更新和 AppVersion 自更新清单发布是不同动作。正式发布要维护 [CHANGELOG_XBOARD](../CHANGELOG_XBOARD.md)，按 [更新契约](https://github.com/wvjh3z/proxy-suite-docs/blob/main/CONTRACTS.md#免登录自更新) 核对每包 hash、镜像、版本与 ABI；更新插件生产配置、创建 release/tag 或推送安装包都按具体任务授权执行。
+
+早期构建说明曾包含旧 `.kiro` 路径、开发 key 补写、debug 签名回退及旧下载目录；这些步骤已经由当前 Docs 承接，不作为现行生产流程。

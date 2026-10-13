@@ -2,7 +2,7 @@
 ///
 /// **What**：UI / Provider 唯一依赖的 Xboard 操作面，屏蔽 SDK 类型与双返回形态。
 /// **Why**：SDK 重构 / 换实现 / 加加密层都不动 UI 一行（conventions §2.1）。
-/// **How**：实现类 `xboard_service_impl.dart` 是全工程唯一 import SDK barrel 的文件（F410）。
+/// **How**：业务适配集中在 `xboard_service_impl.dart`；基础设施的公共类型使用限定导入。
 ///
 /// **18 个领域方法**（概念区分：SDK 是 11 个 adapter getter，本接口在其上聚合 18 个领域方法）：
 /// 5 认证 + 3 账号订阅 + 7 套餐订单 + 1 支付 + 2 IpMirror。全部返 `Future<XbResult<T>>`
@@ -18,6 +18,19 @@ import '../models/xb_invite.dart';
 import '../models/xb_notice.dart';
 import '../models/xb_result.dart';
 import '../models/xb_tutorial.dart';
+
+/// 会话结束所需的本地生命周期能力，独立于面板业务接口。
+/// 归属和 SDK revision 必须在清 Token 前捕获，旧会话不能清理新会话。
+abstract interface class XboardSessionLifecycle {
+  void invalidateSessionRequests();
+
+  Future<void> endSession({
+    required String? ownerHash,
+    required int? sdkRevision,
+    required bool expired,
+  });
+}
+
 /// 反腐层抽象：UI / providers 与 SDK 之间的唯一桥梁。
 abstract interface class XboardService {
   // ───────── 认证（R1/R2/R3/R4，5 方法）─────────
@@ -43,7 +56,7 @@ abstract interface class XboardService {
     String newPassword,
   );
 
-  /// 退出登录（清服务端 + 本地 token）。
+  /// 退出本地登录会话；Xboard 当前无服务端 logout 端点。
   Future<XbResult<void>> logout();
 
   // ───────── 站点配置（form-a R5.6，1 方法）─────────

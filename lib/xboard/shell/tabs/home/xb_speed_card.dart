@@ -17,6 +17,7 @@ library;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'package:fl_clash/xboard/util/format.dart' show xbLatencyDisplay;
 import 'package:fl_clash/xboard/widgets/xb_theme.dart' show XbTokens;
 import '../../adapters/xb_traffic_adapter.dart';
 
@@ -24,7 +25,7 @@ import '../../adapters/xb_traffic_adapter.dart';
 class XbSpeedCard extends ConsumerWidget {
   const XbSpeedCard({super.key, this.latencyMs});
 
-  /// 当前线路延迟（ms）；null = 未连接 / 未知（显示 `--`）。
+  /// 当前线路原始延迟（ms）；null = 未连接 / 未知（显示 `--`）。
   final int? latencyMs;
 
   @override
@@ -61,7 +62,7 @@ class XbSpeedCard extends ConsumerWidget {
           child: _Metric(
             icon: Icons.network_ping,
             iconColor: scheme.onSurfaceVariant,
-            value: hasLatency ? latencyMs.toString() : '--',
+            value: hasLatency ? xbLatencyDisplay(latencyMs!) : '--',
             unit: hasLatency ? 'ms' : '',
           ),
         ),

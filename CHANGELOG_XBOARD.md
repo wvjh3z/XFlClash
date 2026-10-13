@@ -1,12 +1,11 @@
 # Xboard 客户端产品 CHANGELOG
 
-> **本文件是 Xboard 客户端「产品」发版记录**（form B：FlClash + 账号侧栏）。
-> 与上游 `CHANGELOG.md`（FlClash 自身发版，v0.8.x...）**分开维护** —— 见 conventions §2.8 双轨版本号。
-> upstream sync 永远不碰带 `_XBOARD` 后缀的文件（零冲突）。
+> **本文件是 XFlclash「产品」变更记录**，当前为形态 A「首页 / 节点 / 我的」商业客户端。
+> 与上游 `CHANGELOG.md`（FlClash 自身发版）分开维护；同步上游时保留本 fork 的产品记录。
 >
 > **版本号**：产品版本走自己的 SemVer，与上游 FlClash 版本独立递增。
-> 最终 app 版本号 = `<产品版本>+flclash<底座版本>`（如 `0.1.0+flclash0.8.93`，由 `tool/prepare_flavor.dart` 构建时注入）。
-> **底座版本**：当前 fork 的 FlClash upstream tag（见 `.kiro/specs/xboard-mvp-form-b/flclash-anchors.md` 基线 + `.kiro/UPSTREAM_SYNC.md`）。
+> 产品关于页读取 `XB_PRODUCT_VERSION` / `XB_BUILD_TAG`；原生 `build-name` 保留底座版本，构建号另行注入。`prepare_flavor` 当前不改写 pubspec 为产品与底座的拼接版本。
+> **底座版本**：当前为 FlClash v0.8.93；规则、发布流程及已验证批次见 [当前文档](https://github.com/wvjh3z/proxy-suite-docs/blob/main/README.md)。Docs 和 SDK 为私有仓库，需要维护者授予访问权限；旧 `.kiro` 仅作历史追溯，不是开发前置条件。
 >
 > 格式遵循 [Keep a Changelog](https://keepachangelog.com/)：`Added` 新增 / `Changed` 变更 / `Fixed` 修复 / `Synced` FlClash 底座同步。
 
@@ -14,7 +13,9 @@
 
 > 开发中累积（尚无正式 release）；首个真实用户 release 时切走为 `## [x.y.z] — YYYY-MM-DD`。
 > 当前底座：**FlClash v0.8.93**（upstream `ac2f6b9`）。
-> 注：早期按形态 B（v0.1）规划，实际已演进到**形态 A 商业 UI**（唯一 UI）+ v0.2 加密订阅 / Crisp + v0.3 自更新均累积于此 [Unreleased]。产品版本号最终切走时再定（见 conventions §2.8）。
+> 注：早期按形态 B（v0.1）规划，实际已演进到**形态 A 商业 UI**（唯一 UI）+ v0.2 加密订阅 / Crisp + v0.3 自更新，均累积于此 [Unreleased]。下方历史批次编号用于追溯，发布完成度和设备验证以 [STATUS](https://github.com/wvjh3z/proxy-suite-docs/blob/main/STATUS.md) 为准。
+
+> 当前维护决策：D03 订阅孤儿/重复索引暂缓；D06 校验空值行为跟随上游、暂不修复；D04 续费后账号和节点恢复已获用户实测正常，隔离状态边界与设备行为的差异仍待查。本记录不将这些事项列为已修复。
 
 ### Added
 - W0 基础设施：客户端经 sibling path 依赖 `flutter_xboard_sdk`（接缝点 #3）+ cryptography / sentry_flutter / flutter_secure_storage / qr_flutter / flutter_html 5 包
@@ -42,13 +43,15 @@
 - API/订阅/config.json 全链路浏览器 UA 伪装（R4.4，SDK `allowNonFlclashUa` opt-out + `config/xboard_user_agent.dart`）
 
 #### v0.3 客户端自更新（spec `xboard-mvp-v03-self-update`）
-- 版本检查走 Xboard guest 接口 `/api/v1/guest/app/version`（免登录，反腐层 `AppUpdateApi`，照 NoticeApi 分层永不抛）+ 冷启动/进前台 30 分钟节流 + 「我的→关于」手动检查
+- 版本检查走 Xboard guest 接口 `/api/v1/guest/app/version`（免登录，由 SDK `AppUpdateApi` 适配）+ 冷启动与前台自动检查 + 「我的→关于」手动检查；不同入口的实际节流和失败边界见 [更新机制](.github/UPDATE_MECHANISM.md)。
 - 多源下载（`{url, region}` 多镜像）+ sha256 校验 + Android 档1（跳浏览器）/ 档2（应用内下载 + 系统安装器，接缝点 #4.quater `ApkInstallerPlugin` + FileProvider）
 - 桌面应用内自更新（Windows .exe / Linux AppImage）
 
 ### Changed
+- 支付页手动检测显示转圈、禁用重复操作及分状态提示；「处理中」改为「开通中」，开通中保留检测入口，手机与桌面共用状态逻辑，按页面实际可用宽度切换单列/双栏。
+- 首页（移动端/桌面端）和节点列表的延迟数字按原始测速值 ÷ 2 后向下取整展示，界面不增加换算标注；原始结果、测速状态、选优、排序和颜色判断保持原口径。具体契约见 [当前文档](https://github.com/wvjh3z/proxy-suite-docs/blob/main/CONTRACTS.md#延迟测量与显示契约)。
 - **形态 A 取代形态 B 成为唯一 UI**：回退 FlClash 侧栏注入（接缝点 #5/#6 / `PageLabel.xboard`），改由自定义三 Tab 外壳接管首屏（接缝点 #9）
-- formA 屏蔽 FlClash 上游更新检查（接缝点 #10 `action.dart` autoCheckUpdate）：MyClient 自有版本号 + v0.3 自更新，不再弹「发现 FlClash 新版本」
+- formA 屏蔽 FlClash 上游更新检查（接缝点 #10 `action.dart` autoCheckUpdate）：XFlclash 自有产品版本与更新链，不再弹「发现 FlClash 新版本」
 - 接缝点 #7 改用途：撤销 globalUa 强制注入（v0.2 UA 解耦），改为「首次默认开 IPv6」
 - 流量重置包移出常规套餐购买流程（下单页周期网格 + 列表最小价均过滤 resetTraffic），改由账号卡按需触发
 - Bootstrap TLS 证书全放行（用户知情 override θ-1，与 FlClash 上游一致；明网 MITM 风险见 `SECURITY.md`）
@@ -56,6 +59,11 @@
 - **管理流量证书放行统一为单一策略**（`XboardReleaseHttp` SSoT）：原仅 release dio（config.json/订阅/更新下载）放行证书，现 **SDK API 通道（登录/注册/账号/套餐/订单/支付/版本检查）也证书放行**。可用性优先（裸 IP endpoint 可达，接受 MITM 风险，见 `SECURITY.md`）；UA 伪装 + 直连两条通道同源。SDK 加 `HttpConfig.allowBadCertificate`（v1.18.0）。
 
 ### Fixed
+- 当前认证会话失效后统一清理旧账号订阅/缓存并回到「我的」游客入口，只提示一次登录过期；手工 Profile 保留。只停用当前被清理的账号 Profile，新账号开始同步前等待旧清理完成。
+- SDK/客户端按会话 revision 隔离旧请求、重试、订单缓存和凭据条件保存/清除；旧登录弹窗失败与旧节点/账号刷新结果不再覆盖新账号。登录凭据保存失败返回失败；失败的 Profile 清理保留索引并记录诊断。详见 [认证会话契约](https://github.com/wvjh3z/proxy-suite-docs/blob/main/CONTRACTS.md#认证会话与失效事件)。
+- 支付页窗口缩放时不再重复写入 late final 容器而报错；扣除桌面侧栏后按剩余宽度排布。「我的」账号卡流量数字与总量可换行，避免内容刚进入双栏时横向溢出，数值与字号保持原规则。
+- 支付页取消不再触发到账订阅刷新；详情查询合并在途请求并隔离旧响应，支付返回后读取最新详情，完成刷新按订单/登录上下文去重；首次加载失败后重试成功清除错误。扫码弹窗保留静默轮询并明确二维码尺寸，查询失败保留原订单状态。
+- 分组测速在超时重试期间持续显示测速中，成功或最多三次失败后才显示最终延迟/超时，消除中间超时闪现；同名节点的并行测速分别计数，避免首页测速提前结束分组的转圈状态。
 - 登录/全链路错误：后端真实 message（如「邮箱或密码错误」「套餐周期错误」）不再被吞成兜底「操作失败，请稍后重试」
 - 双仪表盘 Tab：`PageLabel.xboard` 唯一寻址修复「我的服务」入口（接缝点 #6 / 决策 #8 修订 a）
 - 套餐详情/订单支付页 pushed 到 root navigator 丢失品牌主题 → 包 `XbBrandTheme` 修复品牌红

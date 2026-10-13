@@ -4,18 +4,30 @@
 # 🔴 当前仅手动触发（workflow_dispatch）：v0.1 开发期 + sibling SDK 需 SIBLING_SDK_TOKEN secret，
 #    自动跑会失败。配齐 secrets 后改回 push/pull_request 触发（见下方注释块）。
 #
-# 依赖 secrets（与 release-build.yml 统一命名，brand 前缀为未来 brand_b 留位）：
+# 依赖 secrets（与 release-package.yml 命名一致，brand 前缀支持品牌 B）：
 #   SIBLING_SDK_TOKEN / BRAND_A_FLAVOR_YAML_B64 / BRAND_A_FALLBACK_BIN_B64
+#   DOCS_READ_TOKEN：读取私有 proxy-suite-docs；未设置时使用 SIBLING_SDK_TOKEN，后者需有对应读取权限。
 #   🔑 AES key 内嵌在 flavor.yaml（方案 A），prepare_flavor 直接生成，无独立 BRAND_A_AES_KEY_B64。
 name: Xboard CI
 
 on:
   workflow_dispatch:
+    inputs:
+      sdk_ref:
+        description: 'SDK commit or immutable tag'
+        type: string
+        required: true
+        default: '755c686725fbaa60b960ce94b1df99aa660bce64'
+      docs_ref:
+        description: 'Current documentation commit'
+        type: string
+        required: true
+        default: '3f82fd149f2a772c4fdeaaeebda16546deddb773'
 
 # 配齐 secrets（SIBLING_SDK_TOKEN / BRAND_A_*）后启用：
 #  push:
 #    branches: [main]
-#    paths: ['lib/xboard/**', 'test/xboard/**', 'test/sdk_contract_test.dart', 'tool/**', '.kiro/**']
+#    paths: ['lib/xboard/**', 'test/xboard/**', 'test/sdk_contract_test.dart', 'tool/**']
 #  pull_request:
 #    paths: ['lib/xboard/**', 'test/xboard/**']
 
@@ -26,13 +38,29 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          fetch-depth: 0 # 校验实际 FlClash 基线需要完整历史
           submodules: recursive # tray_manager/flutter_distributor + core/Clash.Meta submodule（pub get path 依赖需在）
 
       # actions/checkout 不允许 path 在 workspace 外（`..`）；SDK 是平级 path 依赖，
       # 须手动 clone 到真正的 sibling 目录。SIBLING_SDK_TOKEN 为 secret，日志自动打码。
       - name: Checkout Xboard_sdk (sibling)
+        shell: bash
         run: |
-          git clone --depth 1 "https://x-access-token:${{ secrets.SIBLING_SDK_TOKEN }}@github.com/wvjh3z/Xboard_sdk.git" "${GITHUB_WORKSPACE}/../Xboard_sdk"
+          git clone --no-checkout "https://x-access-token:${{ secrets.SIBLING_SDK_TOKEN }}@github.com/wvjh3z/Xboard_sdk.git" "${GITHUB_WORKSPACE}/../Xboard_sdk"
+          git -C "${GITHUB_WORKSPACE}/../Xboard_sdk" checkout --detach "$SDK_REF"
+        env:
+          SDK_REF: ${{ inputs.sdk_ref }}
+
+      - name: Checkout current Docs
+        uses: actions/checkout@v4
+        with:
+          repository: wvjh3z/proxy-suite-docs
+          ref: ${{ inputs.docs_ref }}
+          token: ${{ secrets.DOCS_READ_TOKEN || secrets.SIBLING_SDK_TOKEN }}
+          path: .current-docs-checkout
+          persist-credentials: false
+      - name: Place Docs beside client
+        run: mv .current-docs-checkout "${GITHUB_WORKSPACE}/../Docs"
 
       - uses: subosito/flutter-action@v2
         with:
@@ -49,13 +77,13 @@ jobs:
         working-directory: ../Xboard_sdk
         run: |
           dart pub get
-          dart run build_runner build --delete-conflicting-outputs
+          dart run build_runner build
 
       - name: Client pub get
         run: flutter pub get
 
       - name: Client build_runner
-        run: dart run build_runner build --delete-conflicting-outputs
+        run: dart run build_runner build
 
       # DD-21：FlClash 行号锚点机器校验（接缝点未漂移）。
       - name: Check line anchors (DD-21)
@@ -63,8 +91,7 @@ jobs:
 
       # 接缝点白名单完整性（改 FlClash 既有文件必登记 PATCHES.md）。
       - name: Check seam whitelist
-        run: dart run tool/check-seam-whitelist.dart --baseline ${{ github.event.pull_request.base.sha || 'HEAD~1' }}
-        continue-on-error: true # baseline 不可达时不阻断（本地 pre-commit 已覆盖）
+        run: dart run tool/check-seam-whitelist.dart --baseline ac2f6b919ec1ad395b61b4bb1e714a39c750babe
 
       - name: Analyze (xboard module, fatal-infos)
         run: flutter analyze lib/xboard
@@ -93,16 +120,21 @@ jobs:
       # actions/checkout 不允许 path 在 workspace 外（`..`）；SDK 是平级 path 依赖，
       # 须手动 clone 到真正的 sibling 目录。SIBLING_SDK_TOKEN 为 secret，日志自动打码。
       - name: Checkout Xboard_sdk (sibling)
+        shell: bash
         run: |
-          git clone --depth 1 "https://x-access-token:${{ secrets.SIBLING_SDK_TOKEN }}@github.com/wvjh3z/Xboard_sdk.git" "${GITHUB_WORKSPACE}/../Xboard_sdk"
+          git clone --no-checkout "https://x-access-token:${{ secrets.SIBLING_SDK_TOKEN }}@github.com/wvjh3z/Xboard_sdk.git" "${GITHUB_WORKSPACE}/../Xboard_sdk"
+          git -C "${GITHUB_WORKSPACE}/../Xboard_sdk" checkout --detach "$SDK_REF"
+        env:
+          SDK_REF: ${{ inputs.sdk_ref }}
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
+          flutter-version: 3.44.0
       - name: SDK build_runner
         working-directory: ../Xboard_sdk
-        run: dart pub get && dart run build_runner build --delete-conflicting-outputs
+        run: dart pub get && dart run build_runner build
       - name: Client deps + codegen
-        run: flutter pub get && dart run build_runner build --delete-conflicting-outputs
+        run: flutter pub get && dart run build_runner build
       # 层1 后 flavor.yaml / fallback.bin 已移出仓库 → 从 secrets 还原（prepare_flavor 需要）。
       - name: Restore brand_a flavor secrets
         run: |
@@ -132,16 +164,32 @@ jobs:
       # actions/checkout 不允许 path 在 workspace 外（`..`）；SDK 是平级 path 依赖，
       # 须手动 clone 到真正的 sibling 目录。SIBLING_SDK_TOKEN 为 secret，日志自动打码。
       - name: Checkout Xboard_sdk (sibling)
+        shell: bash
         run: |
-          git clone --depth 1 "https://x-access-token:${{ secrets.SIBLING_SDK_TOKEN }}@github.com/wvjh3z/Xboard_sdk.git" "${GITHUB_WORKSPACE}/../Xboard_sdk"
+          git clone --no-checkout "https://x-access-token:${{ secrets.SIBLING_SDK_TOKEN }}@github.com/wvjh3z/Xboard_sdk.git" "${GITHUB_WORKSPACE}/../Xboard_sdk"
+          git -C "${GITHUB_WORKSPACE}/../Xboard_sdk" checkout --detach "$SDK_REF"
+        env:
+          SDK_REF: ${{ inputs.sdk_ref }}
+      - name: Checkout current Docs
+        uses: actions/checkout@v4
+        with:
+          repository: wvjh3z/proxy-suite-docs
+          ref: ${{ inputs.docs_ref }}
+          token: ${{ secrets.DOCS_READ_TOKEN || secrets.SIBLING_SDK_TOKEN }}
+          path: .current-docs-checkout
+          persist-credentials: false
+      - name: Place Docs beside client
+        run: mv .current-docs-checkout "${GITHUB_WORKSPACE}/../Docs"
+
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
+          flutter-version: 3.44.0
       - name: SDK build_runner
         working-directory: ../Xboard_sdk
-        run: dart pub get && dart run build_runner build --delete-conflicting-outputs
+        run: dart pub get && dart run build_runner build
       - name: Client deps + codegen
-        run: flutter pub get && dart run build_runner build --delete-conflicting-outputs
+        run: flutter pub get && dart run build_runner build
 
       # W6.1 / Property 2：形态 A 上游零侵入（仅接缝点 #9 application.dart）。
       - name: Form-A upstream diff assert (Property 2)

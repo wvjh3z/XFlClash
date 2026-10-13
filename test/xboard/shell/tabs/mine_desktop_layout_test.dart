@@ -53,7 +53,7 @@ void main() {
     await pumpDesktopMine(tester);
 
     // 账户信息卡在左栏（套餐名可见）。
-    expect(find.text('专业版'), findsOneWidget);
+    expect(find.text('专业版', findRichText: true), findsOneWidget);
     // 账户组 / 应用组标签都在。
     expect(find.text('账户'), findsOneWidget);
     expect(find.text('应用'), findsOneWidget);
@@ -70,7 +70,7 @@ void main() {
     expect(find.text('设置'), findsNothing);
 
     // 信息卡（套餐名）也在左栏。
-    final plan = tester.getCenter(find.text('专业版'));
+    final plan = tester.getCenter(find.text('专业版', findRichText: true));
     expect(plan.dx, lessThan(app.dx), reason: '信息卡应在左栏');
   });
 }

@@ -32,47 +32,67 @@ class XboardProfileIndexV1 extends Table {
 @DriftDatabase(tables: [XboardProfileIndexV1])
 class XboardDatabase extends _$XboardDatabase {
   XboardDatabase([QueryExecutor? executor])
-      : super(executor ?? driftDatabase(name: 'xboard_index'));
+    : super(executor ?? driftDatabase(name: 'xboard_index'));
 
   @override
   int get schemaVersion => 1;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
-        onUpgrade: (m, from, to) async {
-          // DD-22 占位：v2 schema 升级时在此迁移。
-        },
-      );
+    onUpgrade: (m, from, to) async {
+      // DD-22 占位：v2 schema 升级时在此迁移。
+    },
+  );
 
   /// 记录索引（新建 profile 后；冲突则覆盖）。
   Future<void> putIndex({
     required int profileId,
     required String flavorId,
     required String userIdHash,
-  }) =>
-      into(xboardProfileIndexV1).insertOnConflictUpdate(
-        XboardProfileIndexV1Companion(
-          profileId: Value(profileId),
-          flavorId: Value(flavorId),
-          userIdHash: Value(userIdHash),
-        ),
-      );
+  }) => into(xboardProfileIndexV1).insertOnConflictUpdate(
+    XboardProfileIndexV1Companion(
+      profileId: Value(profileId),
+      flavorId: Value(flavorId),
+      userIdHash: Value(userIdHash),
+    ),
+  );
 
   /// R7.6 去重查询：当前 flavor + userIdHash 已有的 profileId（无则 null）。
   Future<int?> findProfileId({
     required String flavorId,
     required String userIdHash,
   }) async {
-    final row = await (select(xboardProfileIndexV1)
-          ..where((t) => t.flavorId.equals(flavorId) & t.userIdHash.equals(userIdHash)))
-        .getSingleOrNull();
+    final row =
+        await (select(xboardProfileIndexV1)..where(
+              (t) =>
+                  t.flavorId.equals(flavorId) & t.userIdHash.equals(userIdHash),
+            ))
+            .getSingleOrNull();
     return row?.profileId;
   }
 
+  /// 会话结束时枚举旧账号的全部索引，包括历史版本留下的重复归属记录。
+  /// 不改变 schema 或同步去重规则；清理不能依赖 getSingleOrNull。
+  Future<List<int>> findProfileIds({
+    required String flavorId,
+    required String userIdHash,
+  }) async {
+    final rows =
+        await (select(xboardProfileIndexV1)
+              ..where(
+                (t) =>
+                    t.flavorId.equals(flavorId) &
+                    t.userIdHash.equals(userIdHash),
+              )
+              ..orderBy([(t) => OrderingTerm.asc(t.profileId)]))
+            .get();
+    return rows.map((row) => row.profileId).toList();
+  }
+
   /// 删索引（退出登录 / 孤儿清理）。
-  Future<void> deleteByProfileId(int profileId) =>
-      (delete(xboardProfileIndexV1)..where((t) => t.profileId.equals(profileId)))
-          .go();
+  Future<void> deleteByProfileId(int profileId) => (delete(
+    xboardProfileIndexV1,
+  )..where((t) => t.profileId.equals(profileId))).go();
 
   /// 全部索引行（孤儿对账用，§C）。
   Future<List<XboardProfileIndexV1Data>> allRows() =>

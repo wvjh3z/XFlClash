@@ -3,13 +3,18 @@
 /// 覆盖：
 /// - 正常 logout → authState 切 unauthenticated + 调反腐层 logout
 /// - 反腐层 logout 失败（返 XbFailure）→ 仍切 unauthenticated（永不卡中间态）
-/// - 重入 logout（连点登出）→ idempotent，service.logout 各自调用，终态 unauthenticated
-/// - logout 数据层（service impl）：step 0 服务端撤销 + step 5 clearToken；
-///   SDK logout 抛异常 / clearToken 抛异常 → 仍返 XbSuccess（Property 1 永不抛）。
+/// - 重入 logout（连点登出）→ idempotent，service.logout 合并一次，终态 unauthenticated
+/// - logout 数据层条件清除所捕获 SDK 会话，存储失败仍结束内存会话。
+
+library;
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_xboard_sdk/flutter_xboard_sdk.dart' hide AuthState;
+import 'package:flutter_xboard_sdk/flutter_xboard_sdk.dart'
+    as sdk_types
+    show AuthState;
 import 'package:mocktail/mocktail.dart';
 
 import 'dart:typed_data';
@@ -17,7 +22,6 @@ import 'dart:typed_data';
 import 'package:drift/native.dart';
 import 'package:fl_clash/xboard/data/xboard_database.dart';
 import 'package:fl_clash/xboard/providers/auth_state_provider.dart';
-import 'package:fl_clash/xboard/providers/user_profile_provider.dart';
 import 'package:fl_clash/xboard/providers/xboard_providers.dart';
 import 'package:fl_clash/xboard/sdk/xboard_service.dart';
 import 'package:fl_clash/xboard/sdk/xboard_service_impl.dart';
@@ -35,29 +39,32 @@ class _MockService extends Mock implements XboardService {}
 
 class _MockSdk extends Mock implements XBoardSDK {}
 
-class _MockAuthApi extends Mock implements AuthApi {}
-
 /// 内存 fake profile 端口（记录删除调用，验证 step 4）。
 class _FakePort implements ProfileSyncPort {
   final Map<int, String> profiles = {};
   final List<int> deleted = [];
 
   @override
-  Future<int> createAndPutProfile(
-      {required String url, required String label}) async {
+  Future<int> createAndPutProfile({
+    required String url,
+    required String label,
+  }) async {
     profiles[999] = url;
     return 999;
   }
 
   @override
-  Future<void> updateProfileUrl(
-      {required int profileId, required String url}) async {}
+  Future<void> updateProfileUrl({
+    required int profileId,
+    required String url,
+  }) async {}
 
   @override
   Future<int> putFileProfile({
     required int? profileId,
     required Uint8List yamlBytes,
     required String label,
+    bool Function()? isSessionCurrent,
   }) async {
     final id = profileId ?? 777;
     profiles[id] = 'file';
@@ -88,8 +95,9 @@ void main() {
     tearDown(() => c.dispose());
 
     test('正常 logout → 切 unauthenticated + 调反腐层 logout', () async {
-      when(() => service.logout())
-          .thenAnswer((_) async => XbResult<void>.success(null));
+      when(
+        () => service.logout(),
+      ).thenAnswer((_) async => XbResult<void>.success(null));
       c.read(authStateProvider.notifier).markAuthenticated();
 
       await c.read(authStateProvider.notifier).logout();
@@ -100,7 +108,9 @@ void main() {
 
     test('反腐层 logout 失败 → 仍切 unauthenticated（不卡中间态）', () async {
       when(() => service.logout()).thenAnswer(
-          (_) async => XbResult<void>.failure(XbDomainError.unexpected('logout', 'boom')));
+        (_) async =>
+            XbResult<void>.failure(XbDomainError.unexpected('logout', 'boom')),
+      );
       c.read(authStateProvider.notifier).markAuthenticated();
 
       await c.read(authStateProvider.notifier).logout();
@@ -109,8 +119,9 @@ void main() {
     });
 
     test('重入 logout（连点）→ idempotent，终态 unauthenticated', () async {
-      when(() => service.logout())
-          .thenAnswer((_) async => XbResult<void>.success(null));
+      when(
+        () => service.logout(),
+      ).thenAnswer((_) async => XbResult<void>.success(null));
       c.read(authStateProvider.notifier).markAuthenticated();
 
       await Future.wait([
@@ -119,7 +130,7 @@ void main() {
       ]);
 
       expect(c.read(authStateProvider), AuthState.unauthenticated);
-      verify(() => service.logout()).called(2); // 各自调用，service 侧 _isLoggingOut 幂等
+      verify(() => service.logout()).called(1); // 同一会话退出共用清理 Future
     });
   });
 
@@ -134,28 +145,36 @@ void main() {
       service = _MockService();
       port = _FakePort();
       db = XboardDatabase(NativeDatabase.memory());
-      when(() => service.logout())
-          .thenAnswer((_) async => XbResult<void>.success(null));
+      when(
+        () => service.logout(),
+      ).thenAnswer((_) async => XbResult<void>.success(null));
 
       // 预置：当前用户 token=tokA 已同步出一个 profile（id=777）+ 索引。
       final hash = userIdHashFromToken(token);
-      await port.putFileProfile(profileId: null, yamlBytes: Uint8List(0), label: '我的套餐');
+      await port.putFileProfile(
+        profileId: null,
+        yamlBytes: Uint8List(0),
+        label: '我的套餐',
+      );
       await db.putIndex(profileId: 777, flavorId: 'brandA', userIdHash: hash);
 
       final subService = XboardSubscriptionService(
         service: service,
         encrypted: EncryptedSubscriptionService(
-            decryptor: BootstrapDecryptor(aesKey: null)),
+          decryptor: BootstrapDecryptor(aesKey: null),
+        ),
         profilePort: port,
         db: db,
         tokenStorage: FakeTokenStorage(initialToken: token),
         flavorId: 'brandA',
       );
 
-      c = ProviderContainer(overrides: [
-        xboardServiceProvider.overrideWithValue(service),
-        subscriptionServiceProvider.overrideWithValue(subService),
-      ]);
+      c = ProviderContainer(
+        overrides: [
+          xboardServiceProvider.overrideWithValue(service),
+          subscriptionServiceProvider.overrideWithValue(subService),
+        ],
+      );
     });
     tearDown(() async {
       c.dispose();
@@ -169,8 +188,13 @@ void main() {
 
       // step 4：profile 被删 + 索引清空。
       expect(port.deleted, contains(777));
-      expect(await db.findProfileId(flavorId: 'brandA', userIdHash: userIdHashFromToken(token)),
-          isNull);
+      expect(
+        await db.findProfileId(
+          flavorId: 'brandA',
+          userIdHash: userIdHashFromToken(token),
+        ),
+        isNull,
+      );
       // step 5：反腐层 logout 调用。
       verify(() => service.logout()).called(1);
       // step 6：切未登录。
@@ -178,47 +202,37 @@ void main() {
     });
   });
 
-  group('XboardServiceImpl.logout 数据层（step 0 + step 5，Property 1 永不抛）', () {
+  group('XboardServiceImpl.logout 条件本地清理', () {
     late _MockSdk sdk;
-    late _MockAuthApi auth;
 
     setUp(() {
+      SharedPreferences.setMockInitialValues({});
       sdk = _MockSdk();
-      auth = _MockAuthApi();
-      when(() => sdk.auth).thenReturn(auth);
+      when(() => sdk.authSession).thenReturn(
+        const AuthSessionSnapshot(
+          revision: 7,
+          state: sdk_types.AuthState.authenticated,
+        ),
+      );
+      when(() => sdk.getToken()).thenAnswer((_) async => 'test-token');
+      when(() => sdk.clearTokenIfSession(7)).thenAnswer((_) async => true);
     });
 
-    test('正常：调 auth.logout + clearToken → XbSuccess', () async {
-      when(() => auth.logout()).thenAnswer((_) async => true);
-      when(() => sdk.clearToken()).thenAnswer((_) async {});
-      final impl = XboardServiceImpl(sdk: sdk);
-
-      final r = await impl.logout();
-
-      expect(r.isSuccess, isTrue);
-      verify(() => auth.logout()).called(1);
-      verify(() => sdk.clearToken()).called(1);
+    test('只清退出时捕获的 revision，不调用服务端或无条件清Token', () async {
+      final result = await XboardServiceImpl(sdk: sdk).logout();
+      expect(result.isSuccess, isTrue);
+      verify(() => sdk.clearTokenIfSession(7)).called(1);
+      verifyNever(() => sdk.clearToken());
+      verifyNever(() => sdk.auth);
     });
 
-    test('step 0 服务端 logout 抛异常 → 仍 clearToken + XbSuccess', () async {
-      when(() => auth.logout()).thenThrow(Exception('server down'));
-      when(() => sdk.clearToken()).thenAnswer((_) async {});
-      final impl = XboardServiceImpl(sdk: sdk);
-
-      final r = await impl.logout();
-
-      expect(r.isSuccess, isTrue); // 不阻塞本地清理
-      verify(() => sdk.clearToken()).called(1); // step 5 仍执行
-    });
-
-    test('step 5 clearToken 抛异常 → 仍 XbSuccess（永不抛 Property 1）', () async {
-      when(() => auth.logout()).thenAnswer((_) async => true);
-      when(() => sdk.clearToken()).thenThrow(Exception('storage error'));
-      final impl = XboardServiceImpl(sdk: sdk);
-
-      final r = await impl.logout();
-
-      expect(r.isSuccess, isTrue);
+    test('持久化删除失败仍收尾缓存，并保持结果契约', () async {
+      when(
+        () => sdk.clearTokenIfSession(7),
+      ).thenThrow(Exception('storage error'));
+      final result = await XboardServiceImpl(sdk: sdk).logout();
+      expect(result.isSuccess, isTrue);
+      verify(() => sdk.clearTokenIfSession(7)).called(1);
     });
   });
 }

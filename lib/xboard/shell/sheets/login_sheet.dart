@@ -59,16 +59,31 @@ class _LoginSheetState extends ConsumerState<LoginSheet>
     }
     setState(() => _banner = null);
     await runSubmit(() async {
-      ref.read(authStateProvider.notifier).startAuthenticating();
+      final auth = ref.read(authStateProvider.notifier);
+      final attempt = auth.startAuthenticating();
+      await auth.waitForSessionCleanup();
+      if (!mounted || !auth.isAuthenticationCurrent(attempt)) return;
       final result = await ref.read(xboardServiceProvider).login(email, pw);
       if (!mounted) return;
       switch (result) {
-        case XbSuccess():
-          ref.read(authStateProvider.notifier).markAuthenticated();
-          Navigator.of(context).pop();
+        case XbSuccess(:final data):
+          final established = await auth.completeAuthentication(
+            token: data,
+            attempt: attempt,
+          );
+          if (!mounted) return;
+          if (established) {
+            Navigator.of(context).pop();
+          } else if (auth.isAuthenticationCurrent(attempt)) {
+            auth.failAuthentication(attempt);
+            setState(() => _banner = '登录信息保存失败或已过期，请重试');
+          }
         case XbFailure(:final error):
-          ref.read(authStateProvider.notifier).markUnauthenticated();
-          setState(() => _banner = resolveErrorText(error, fallback: '登录失败，请重试'));
+          if (!auth.isAuthenticationCurrent(attempt)) return;
+          auth.failAuthentication(attempt);
+          setState(
+            () => _banner = resolveErrorText(error, fallback: '登录失败，请重试'),
+          );
       }
     });
   }
@@ -106,9 +121,7 @@ class _LoginSheetState extends ConsumerState<LoginSheet>
           controller: _emailCtrl,
           keyboardType: TextInputType.emailAddress,
           autofillHints: const [AutofillHints.email],
-          decoration: const InputDecoration(
-            labelText: '邮箱账号',
-          ),
+          decoration: const InputDecoration(labelText: '邮箱账号'),
         ),
         const SizedBox(height: 12),
         TextField(

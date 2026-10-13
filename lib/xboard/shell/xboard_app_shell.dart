@@ -14,8 +14,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_xboard_sdk/flutter_xboard_sdk.dart' show AppUpdateModel;
 
 import 'package:fl_clash/xboard/config/xboard_config.dart';
+import 'package:fl_clash/xboard/providers/auth_expiry_notice_provider.dart';
+import 'package:fl_clash/xboard/providers/auth_state_provider.dart';
 import 'package:fl_clash/xboard/providers/xboard_providers.dart';
 import 'package:fl_clash/xboard/util/app_version.dart';
+import 'package:fl_clash/xboard/widgets/xb_center_toast.dart';
 import 'package:fl_clash/xboard/widgets/xb_ui_kit.dart' show XbBrandTheme;
 import 'package:fl_clash/xboard/widgets/xb_update_dialog.dart';
 
@@ -74,6 +77,9 @@ class _XboardAppShellState extends ConsumerState<XboardAppShell> {
 
   /// 本会话是否已自动弹过更新弹窗（一次会话只自动弹一次，避免反复打扰）。
   bool _updateDialogShown = false;
+
+  /// 只消费有效会话过期通知；普通登出、登录失败或网络错误不会触发此导航。
+  int _lastAuthExpiryNotice = 0;
 
   @override
   void initState() {
@@ -145,6 +151,10 @@ class _XboardAppShellState extends ConsumerState<XboardAppShell> {
 
   @override
   Widget build(BuildContext context) {
+    ref.listen<int>(authExpiryNoticeProvider, (previous, next) {
+      if (next > _lastAuthExpiryNotice) _returnToGuestMine(next);
+    });
+
     // 检测到更新 → 在三 Tab 主界面自动弹一次更新弹窗（页面控制 + 一次会话一次）。
     // 监听 provider 变化（VPN 连上/onResume 后检测到）+ build 时补查（冷启动已检测到）。
     ref.listen<AppUpdateModel?>(availableUpdateProvider, (prev, next) {
@@ -164,6 +174,33 @@ class _XboardAppShellState extends ConsumerState<XboardAppShell> {
       brandColor: Color(XboardConfig.current.brandColor),
       child: _buildScaffold(context),
     );
+  }
+
+  /// 认证清理后收起受保护子页与弹窗，恢复「我的」游客入口。
+  ///
+  /// 清理和页面重建可能同帧发生，导航放到帧后；若期间新账号已经登录，旧通知
+  /// 不再关闭新账号的页面或显示过期提示。通知计数使 rebuild 不会重复提示。
+  void _returnToGuestMine(int notice) {
+    _lastAuthExpiryNotice = notice;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted ||
+          ref.read(authExpiryNoticeProvider) != notice ||
+          ref.read(authStateProvider) != AuthState.unauthenticated) {
+        return;
+      }
+
+      final shellRoute = ModalRoute.of(context);
+      Navigator.of(context, rootNavigator: true).popUntil(
+        (route) => shellRoute == null ? route.isFirst : route == shellRoute,
+      );
+      _goTo(2);
+      XbCenterToast.show(
+        context,
+        '登录已过期，请重新登录',
+        icon: Icons.lock_outline_rounded,
+        tone: XbToastTone.warning,
+      );
+    });
   }
 
   /// 自动弹更新弹窗（页面控制 + 一次会话一次）。
@@ -244,9 +281,7 @@ class _XboardAppShellState extends ConsumerState<XboardAppShell> {
         child: PageView(
           controller: _pager,
           onPageChanged: _onPageChanged,
-          children: [
-            for (final body in bodies) _KeepAliveTab(child: body),
-          ],
+          children: [for (final body in bodies) _KeepAliveTab(child: body)],
         ),
       ),
       // W1.3 自定义底栏 XbBottomBar。

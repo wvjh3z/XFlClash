@@ -198,10 +198,10 @@ jobs:
         working-directory: ../Xboard_sdk
         run: |
           dart pub get
-          dart run build_runner build --delete-conflicting-outputs
+          dart run build_runner build
 
       - name: Client codegen
-        run: dart run build_runner build --delete-conflicting-outputs
+        run: dart run build_runner build
 
       # prepare_flavor 生成 flavor_defines.json（含真实 aesKey）。Android 额外 --android-signing
       # 落地 keystore.jks + local.properties。多 ABI 打包：删掉 prepare_flavor 写的 XB_TARGET_ABI，

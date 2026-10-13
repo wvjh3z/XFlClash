@@ -25,6 +25,11 @@ import 'package:fl_clash/xboard/providers/xboard_providers.dart'
     show bootstrapReadyProvider;
 import 'package:fl_clash/xboard/shell/xboard_app_shell.dart';
 import 'package:fl_clash/xboard/shell/widgets/xb_responsive.dart';
+import 'package:fl_clash/xboard/shell/widgets/xb_bottom_bar.dart';
+import 'package:fl_clash/xboard/shell/widgets/xb_nav_rail.dart';
+import 'package:fl_clash/xboard/shell/tabs/home/xb_connect_orb.dart';
+import 'package:fl_clash/xboard/shell/tabs/home/xb_line_card.dart';
+import 'package:fl_clash/xboard/shell/tabs/mine/mine_tab.dart';
 
 import '_net_detection_stub.dart';
 
@@ -65,7 +70,11 @@ XbDomainSubscription _sub() => XbDomainSubscription(
       planId: 1,
     );
 
-Future<void> pumpAt(WidgetTester tester, Size size) async {
+Future<ProviderContainer> pumpAt(
+  WidgetTester tester,
+  Size size, {
+  bool useWidthGate = false,
+}) async {
   tester.view.physicalSize = size;
   tester.view.devicePixelRatio = 1.0;
   addTearDown(tester.view.resetPhysicalSize);
@@ -83,7 +92,7 @@ Future<void> pumpAt(WidgetTester tester, Size size) async {
 
   final tab = _tab();
   final container = ProviderContainer(overrides: [
-    isMobileViewProvider.overrideWith((ref) => false),
+    if (!useWidthGate) isMobileViewProvider.overrideWith((ref) => false),
     authStateProvider.overrideWith(() => _FakeAuth(AuthState.authenticated)),
     isStartProvider.overrideWith((ref) => true),
     proxiesTabStateProvider.overrideWith((ref) => tab),
@@ -104,6 +113,7 @@ Future<void> pumpAt(WidgetTester tester, Size size) async {
     ],
   ]);
   addTearDown(container.dispose);
+  container.read(viewSizeProvider.notifier).value = size;
   container.read(bootstrapReadyProvider.notifier).set(true);
   container.read(coreStatusProvider.notifier).value = CoreStatus.connected;
 
@@ -118,9 +128,111 @@ Future<void> pumpAt(WidgetTester tester, Size size) async {
   );
   await tester.pump();
   await tester.pump(const Duration(milliseconds: 400));
+  return container;
+}
+
+Future<void> resizeShell(
+  WidgetTester tester,
+  ProviderContainer container,
+  double width,
+) async {
+  final size = Size(width, 800);
+  tester.view.physicalSize = size;
+  container.read(viewSizeProvider.notifier).value = size;
+  await tester.pump();
+  await tester.pump(const Duration(milliseconds: 400));
+}
+
+Future<void> selectShellTab(WidgetTester tester, String label) async {
+  final navigation = find.byType(XbNavRail).evaluate().isNotEmpty
+      ? find.byType(XbNavRail)
+      : find.byType(XbBottomBar);
+  await tester.tap(find.descendant(of: navigation, matching: find.text(label)));
+  await tester.pump();
+  await tester.pump(const Duration(milliseconds: 800));
+}
+
+void responsiveShellTest(
+  String name,
+  Future<void> Function(WidgetTester) run,
+) {
+  testWidgets(name, (tester) async {
+    final originalErrorBuilder = ErrorWidget.builder;
+    final originalErrorHandler = FlutterError.onError;
+    FlutterError.onError = (details) {
+      FlutterError.dumpErrorToConsole(details, forceReport: true);
+      originalErrorHandler?.call(details);
+    };
+    try {
+      await run(tester);
+    } finally {
+      await tester.pumpWidget(const SizedBox.shrink());
+      ErrorWidget.builder = originalErrorBuilder;
+      FlutterError.onError = originalErrorHandler;
+    }
+  });
 }
 
 void main() {
+  responsiveShellTest('真实宽度 gate：600/601 缩放切换导航并保留当前 Tab', (tester) async {
+    final container = await pumpAt(
+      tester,
+      const Size(600, 800),
+      useWidthGate: true,
+    );
+    expect(find.byType(XbBottomBar), findsOneWidget);
+    expect(find.byType(XbNavRail), findsNothing);
+    await selectShellTab(tester, '我的');
+    expect(tester.widget<XbBottomBar>(find.byType(XbBottomBar)).currentIndex, 2);
+
+    await resizeShell(tester, container, 601);
+    expect(find.byType(XbBottomBar), findsNothing);
+    expect(find.byType(XbNavRail), findsOneWidget);
+    expect(tester.widget<XbNavRail>(find.byType(XbNavRail)).currentIndex, 2);
+    expect(tester.takeException(), isNull);
+
+    await resizeShell(tester, container, 600);
+    expect(find.byType(XbBottomBar), findsOneWidget);
+    expect(find.byType(XbNavRail), findsNothing);
+    expect(tester.widget<XbBottomBar>(find.byType(XbBottomBar)).currentIndex, 2);
+    expect(tester.takeException(), isNull);
+  });
+
+  responsiveShellTest('内容839/840边界扣除侧栏：三 Tab 可缩放且首页单列/双栏切换', (tester) async {
+    final container = await pumpAt(
+      tester,
+      const Size(1280, 800),
+      useWidthGate: true,
+    );
+    final railWidth = tester.getSize(find.byType(XbNavRail)).width;
+    for (final contentWidth in [839.0, 840.0, 839.0]) {
+      await selectShellTab(tester, '首页');
+      await resizeShell(tester, container, railWidth + contentWidth);
+      final orb = tester.getRect(find.byType(XbConnectOrb));
+      final line = tester.getRect(find.byType(XbLineCard));
+      if (contentWidth < 840) {
+        expect(line.top, greaterThan(orb.bottom), reason: '窄内容区应把线路放在连接球下方');
+      } else {
+        expect(line.left, greaterThan(orb.right), reason: '宽内容区应把线路放在连接球右侧');
+      }
+      expect(tester.takeException(), isNull);
+      for (final label in ['节点', '我的']) {
+        await selectShellTab(tester, label);
+        if (label == '我的') {
+          await tester.pump(const Duration(milliseconds: 800));
+          for (final value in ['155.0', '/ 250.0 GB', '已用 62%']) {
+            expect(
+              find.descendant(of: find.byType(MineTab), matching: find.text(value)),
+              findsOneWidget,
+            );
+          }
+        }
+        expect(find.byType(XboardAppShell), findsOneWidget);
+        expect(tester.takeException(), isNull, reason: '$label 在$contentWidth内容宽度应无溢出');
+      }
+    }
+  });
+
   final sizes = <String, Size>{
     '1080P (1920x1080)': const Size(1920, 1080),
     '1440P (2560x1440)': const Size(2560, 1440),

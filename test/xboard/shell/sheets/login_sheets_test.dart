@@ -14,6 +14,7 @@ import 'package:fl_clash/xboard/providers/xboard_providers.dart';
 import 'package:fl_clash/xboard/sdk/xboard_service.dart';
 import 'package:fl_clash/xboard/shell/sheets/login_sheet.dart';
 import 'package:fl_clash/xboard/shell/sheets/register_sheet.dart';
+import 'package:fl_clash/xboard/shell/sheets/forgot_pwd_sheet.dart';
 
 class _MockService extends Mock implements XboardService {}
 
@@ -57,6 +58,39 @@ class _FakeReady extends BootstrapReady {
 }
 
 void main() {
+  for (final width in [599.0, 1280.0]) {
+    testWidgets('登录弹窗 $width：注册/忘记密码切换与返回', (tester) async {
+      tester.view.physicalSize = Size(width, 800);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      await pumpWithSheet(tester, ready: true, open: showLoginSheet);
+      await tester.tap(find.text('注册账号'));
+      await tester.pumpAndSettle();
+      expect(find.byType(LoginSheet), findsNothing);
+      expect(find.byType(RegisterSheet), findsOneWidget);
+      expect(find.byType(TextField), findsNWidgets(3));
+      expect(find.byType(Dialog), width >= 600 ? findsOneWidget : findsNothing);
+      Navigator.of(tester.element(find.byType(RegisterSheet))).pop();
+      await tester.pumpAndSettle();
+      expect(find.byType(RegisterSheet), findsNothing);
+
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('忘记密码？'));
+      await tester.pumpAndSettle();
+      expect(find.byType(LoginSheet), findsNothing);
+      expect(find.byType(ForgotPwdSheet), findsOneWidget);
+      expect(find.byType(TextField), findsNWidgets(3));
+      expect(find.byType(Dialog), width >= 600 ? findsOneWidget : findsNothing);
+      Navigator.of(tester.element(find.byType(ForgotPwdSheet))).pop();
+      await tester.pumpAndSettle();
+      expect(find.byType(ForgotPwdSheet), findsNothing);
+      expect(find.text('open'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+  }
+
   testWidgets('LoginSheet：bootstrap 未就绪 → 按钮「准备中…」禁用（R5.2）', (tester) async {
     await pumpWithSheet(tester, ready: false, open: showLoginSheet);
     expect(find.text('准备中…'), findsOneWidget);
@@ -73,8 +107,9 @@ void main() {
     expect(find.text('忘记密码？'), findsOneWidget);
   });
 
-  testWidgets('RegisterSheet：有白名单 → 后缀下拉（R5.6）+ 验证码在密码上方（R5.7）',
-      (tester) async {
+  testWidgets('RegisterSheet：有白名单 → 后缀下拉（R5.6）+ 验证码在密码上方（R5.7）', (
+    tester,
+  ) async {
     await pumpWithSheet(
       tester,
       ready: true,

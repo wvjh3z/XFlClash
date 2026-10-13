@@ -1,107 +1,267 @@
-/// 登录态状态机（R4 / DD-19 / 数据一致性 § G）。
-///
-/// **3 态枚举（§ G ε7）**：`unauthenticated` / `authenticating` / `authenticated`。
-/// transition：
-/// - login/register 发起 → authenticating
-/// - SDK 返 Success → authenticated
-/// - SDK 返 Failure（密码错/限流/网络）→ unauthenticated
-/// - 401/403 双重判定（R4.4 自动登出）/ R4.5 主动登出 → unauthenticated
-/// - R7 sync 进行中**不进 refreshing 子态**（后台静默，UI 各页面 loading 体现，§ G）
-///
-/// **401 尾递归保护**：切 unauthenticated 后再次切是 no-op（idempotent），UI R12 跳登录只触发一次。
-///
-/// **首帧登录态判定（已知风险表 SDK initialize 注）**：反腐层用 `authStateStream` 首帧 /
-/// `SecureStorageTokenStorage.readToken()` 直读判定，**不**同步读 `XBoardSDK.isAuthenticated`
-/// （init 返回后同步读有竞态——有 token 却短暂判未登录；SDK v1.15.0 已 await ready 缓解，仍推荐首帧）。
+/// 客户端登录态及会话结束编排。SDK revision 防旧事件，本地 revision 防旧业务写入。
 library;
 
+import 'dart:async';
+
+import 'package:flutter_xboard_sdk/flutter_xboard_sdk.dart'
+    as sdk
+    show XBoardSDK, AuthSessionChange, AuthSessionChangeReason, AuthState;
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
+import '../sdk/xboard_service.dart';
 import '../services/sentry_bootstrap.dart';
 import '../services/subscription_triggers.dart';
+import '../util/pii_mask.dart';
+import 'auth_expiry_notice_provider.dart';
+import 'invite_provider.dart';
+import 'pending_order_provider.dart';
 import 'user_profile_provider.dart';
 import 'xboard_providers.dart';
 
 part '../generated/providers/auth_state_provider.g.dart';
 
-/// 登录态 3 态（§ G）。
-enum AuthState {
-  /// 未登录（游客可继续用 FlClash 默认功能，R4.3/D6）。
-  unauthenticated,
+enum AuthState { unauthenticated, authenticating, authenticated }
 
-  /// 登录 / 注册请求中（R1.7/R2.7 按钮 disabled + spinner）。
-  authenticating,
-
-  /// 已登录。
-  authenticated,
-}
-
-/// 登录态 provider（keepAlive，DD-19）。
-///
-/// **W3.2 不在 W1.6 基础设施集**：单独建避免 codegen 同名冲突（design §I 注）。
 @Riverpod(keepAlive: true)
 class AuthStateNotifier extends _$AuthStateNotifier {
-  @override
-  AuthState build() => AuthState.unauthenticated;
+  sdk.XBoardSDK? _sdk;
+  StreamSubscription<sdk.AuthSessionChange>? _sessionListener;
+  int _revision = 0;
+  int _authAttempt = 0;
+  int? _sdkRevision;
+  String? _ownerHash;
+  Future<void>? _ending;
 
-  /// 状态切换 + DD-23 auth.state tag（W5.7 / 5.7.2）。
+  /// 客户端业务世代；建立/结束会话都会变化，不等同于 SDK revision。
+  int get sessionRevision => _revision;
+
+  @override
+  AuthState build() {
+    ref.onDispose(unbindSdkSessions);
+    return AuthState.unauthenticated;
+  }
+
   void _set(AuthState next) {
     state = next;
     SentryBootstrap.tagAuthState(next.name);
   }
 
-  /// 发起登录 / 注册（→ authenticating）。
-  void startAuthenticating() => _set(AuthState.authenticating);
-
-  /// 认证成功（→ authenticated）。
-  void markAuthenticated() => _set(AuthState.authenticated);
-
-  /// 未登录 / 登录失败 / 登出（→ unauthenticated）。
-  ///
-  /// 401 尾递归保护：已是 unauthenticated 时再调是 no-op（idempotent）。
-  void markUnauthenticated() {
-    if (state == AuthState.unauthenticated) return; // R12 跳登录只触发一次
-    _set(AuthState.unauthenticated);
+  /// 由模块在 SDK 初始化后、恢复登录态前绑定，模块释放时摘除。
+  void bindSdkSessions(sdk.XBoardSDK instance) {
+    unbindSdkSessions();
+    _sdk = instance;
+    _sessionListener = instance.authSessionChanges.listen((change) {
+      if (!ref.mounted || _sdkRevision == null || _ownerHash == null) return;
+      if (change.reason == sdk.AuthSessionChangeReason.signedIn) return;
+      final current = instance.authSession;
+      if (_sdkRevision != change.previous.revision ||
+          current.revision != change.current.revision ||
+          current.state != sdk.AuthState.unauthenticated) {
+        return;
+      }
+      unawaited(
+        _endSession(
+          expired: change.reason == sdk.AuthSessionChangeReason.expired,
+          tokenAlreadyCleared: true,
+        ),
+      );
+    });
   }
 
-  /// R4.5 主动登出编排（数据一致性总章 § B step 4-6 + idempotency）。
-  ///
-  /// **清理顺序**（§ B）：
-  /// 1. step 4：删 file profile「我的套餐」+ 外挂索引（`clearForCurrentUser`，**必须在清 token
-  ///    前**——它用当前 token 算 userIdHash 定位 profile；清 token 后 hash 变 null 找不到，
-  ///    会残留上个账号配置 = 多租户泄漏）。
-  /// 2. step 0+2+5：反腐层 `logout()`（服务端撤销 + 清订阅缓存 + 清 token）。
-  /// 3. 清账号信息内存缓存（invalidate `userProfileProvider`，避免下个用户短暂看到上个账号数据）。
-  /// 4. step 6：切 `unauthenticated`（触发 R12 重定向）。
-  ///
-  /// **idempotent + 永不抛**：每步独立 try/catch（Property 1）；无论成败都切 unauthenticated
-  /// （本地态以"已登出"为终态，避免卡中间态）；重入安全（markUnauthenticated 幂等）。
-  Future<void> logout() async {
-    // step 4（先于清 token）：删 file profile + 外挂索引。永不抛。
-    try {
-      await ref.read(subscriptionServiceProvider).clearForCurrentUser();
-    } catch (_) {
-      // profile/索引清理失败不阻塞登出（最大努力，§ B 每步独立）。
+  void unbindSdkSessions() {
+    unawaited(_sessionListener?.cancel());
+    _sessionListener = null;
+    _sdk = null;
+  }
+
+  Future<void> waitForSessionCleanup() => _ending ?? Future<void>.value();
+
+  int startAuthenticating() {
+    _authAttempt++;
+    _set(AuthState.authenticating);
+    return _authAttempt;
+  }
+
+  bool isAuthenticationCurrent(int attempt) =>
+      ref.mounted &&
+      _authAttempt == attempt &&
+      state == AuthState.authenticating;
+
+  void failAuthentication(int attempt) {
+    if (!isAuthenticationCurrent(attempt)) return;
+    final current = _sdk?.authSession;
+    if (_ownerHash != null &&
+        current?.revision == _sdkRevision &&
+        current?.state == sdk.AuthState.authenticated) {
+      _set(AuthState.authenticated);
+    } else {
+      markUnauthenticated();
     }
-    // step 0+2+5：反腐层 logout（服务端撤销 + 清订阅缓存 + 清 token）。永不抛。
-    await ref.read(xboardServiceProvider).logout();
-    // 清账号信息内存缓存（keepAlive provider 不会自动失效）。
-    ref.invalidate(userProfileProvider);
-    // 重建订阅服务（keepAlive 单例 _loggingOut 已置 true，invalidate 让下次登录得新实例，
-    // 避免 _loggingOut 残留永久禁用 sync）。
-    ref.invalidate(subscriptionServiceProvider);
-    // 重置 onResume 24h 节流时钟（下个账号首次 onResume 不被上个账号的节流挡住）。
-    SubscriptionTriggers.resetResumeThrottle();
-    // step 6：切未登录态。
+  }
+
+  /// 兼容不依赖 SDK 的展示/组件测试；生产登录与冷恢复使用 completeAuthentication。
+  void markAuthenticated() {
+    _authAttempt++;
+    _revision++;
+    _set(AuthState.authenticated);
+  }
+
+  /// 保存归属后才启动已登录业务。旧清理未结束时不允许新账号开始 Profile 同步。
+  Future<bool> completeAuthentication({String? token, int? attempt}) async {
+    if (attempt != null && !isAuthenticationCurrent(attempt)) return false;
+    final instance = _sdk ?? ref.read(xboardSdkProvider);
+    try {
+      final snapshot = instance?.authSession;
+      final raw = instance == null ? token : await instance.getToken();
+      String? normalize(String? value) =>
+          value?.replaceFirst(RegExp(r'^Bearer\s+', caseSensitive: false), '');
+      if (token != null && normalize(token) != normalize(raw)) return false;
+      if (attempt != null && !isAuthenticationCurrent(attempt)) return false;
+      if (snapshot != null &&
+          (snapshot.state != sdk.AuthState.authenticated || raw == null)) {
+        return false;
+      }
+      if (_ownerHash != null && _sdkRevision != snapshot?.revision) {
+        // 直接换号也必须先结束 A。SDK 已保存 B 时，条件清除 A revision 会保留 B。
+        final cleanup = _endSession(expired: false);
+        if (attempt != null) attempt = _authAttempt;
+        await cleanup;
+      }
+      final ending = _ending;
+      if (ending != null) await ending;
+      if (!ref.mounted) return false;
+      if (attempt != null && _authAttempt != attempt) return false;
+      if (instance != null &&
+          (instance.authSession.revision != snapshot!.revision ||
+              instance.authSession.state != sdk.AuthState.authenticated)) {
+        return false;
+      }
+      final normalized = normalize(raw);
+      if (state == AuthState.authenticated &&
+          _sdkRevision == snapshot?.revision &&
+          _ownerHash ==
+              (normalized == null ? null : userIdHashFromToken(normalized))) {
+        return true;
+      }
+      _ownerHash = normalized == null ? null : userIdHashFromToken(normalized);
+      _sdkRevision = snapshot?.revision;
+      _authAttempt++;
+      _revision++;
+      if (instance != null) {
+        // guest/login service 绑定旧 SDK revision。建立身份前重建，所有旧持有者
+        // 都无法在 B token 已保存、A 清理尚未开始的窗口发起 B 的请求。
+        ref.invalidate(subscriptionServiceProvider);
+        ref.invalidate(xboardServiceProvider);
+      }
+      _set(AuthState.authenticated);
+      return true;
+    } catch (e, s) {
+      SentryBootstrap.captureException(
+        e,
+        stackTrace: s,
+        where: 'auth establish',
+      );
+      return false;
+    }
+  }
+
+  void markUnauthenticated() {
+    if (state == AuthState.unauthenticated) return;
+    _revision++;
     _set(AuthState.unauthenticated);
   }
 
-  /// R4.4 401/403 自动登出（D61 双重判定 / W3.7）。
-  ///
-  /// 任意需登录 API 返 `XbUnauthorized`（SDK `AuthInterceptor` 已对 401 / 403+5 子串
-  /// 主动 clearToken）时调用。**不调服务端撤销**（已经 401，token 已失效，调也无意义）+
-  /// **不重复清 token**（SDK 已清），仅切 `unauthenticated` 触发 R12 跳登录。
-  ///
-  /// 幂等：已 unauthenticated 时 no-op（401 风暴只触发一次重定向，复用 markUnauthenticated 守卫）。
+  Future<void> logout() => _endSession(expired: false);
+
+  Future<void> _endSession({
+    required bool expired,
+    bool tokenAlreadyCleared = false,
+  }) {
+    final ending = _ending;
+    if (ending != null) return ending;
+    if (state == AuthState.unauthenticated && _ownerHash == null) {
+      return Future<void>.value();
+    }
+    final owner = _ownerHash;
+    final sdkRevision = _sdkRevision;
+    XboardService? service;
+    try {
+      service = ref.read(xboardServiceProvider);
+    } catch (e, s) {
+      SentryBootstrap.captureException(
+        e,
+        stackTrace: s,
+        where: 'auth cleanup service',
+      );
+    }
+    final lifecycle = service is XboardSessionLifecycle
+        ? service as XboardSessionLifecycle
+        : null;
+    lifecycle?.invalidateSessionRequests();
+    _revision++;
+    _authAttempt++;
+    _ownerHash = null;
+    _sdkRevision = null;
+    _set(AuthState.unauthenticated);
+
+    // 调用立即锁住旧订阅实例，再 invalidate；不能先 await Token 或慢下载。
+    final profiles = _cleanup('auth cleanup profiles', () async {
+      final subscriptions = ref.read(subscriptionServiceProvider);
+      if (owner != null) {
+        await subscriptions.clearForSessionOwner(owner);
+      } else {
+        await subscriptions.clearForCurrentUser(); // 无 SDK 的旧调用/测试兼容。
+      }
+    });
+    final credentials = _cleanup('auth cleanup credentials', () async {
+      if (lifecycle != null) {
+        await lifecycle.endSession(
+          ownerHash: owner,
+          sdkRevision: sdkRevision,
+          expired: expired || tokenAlreadyCleared,
+        );
+      } else if (!expired && !tokenAlreadyCleared) {
+        // 旧实现需在按当前 Token 捕获 Profile 归属后再清 Token。
+        await profiles;
+        await service?.logout();
+      }
+    });
+    ref.invalidate(userProfileProvider);
+    ref.invalidate(pendingOrderProvider);
+    ref.invalidate(inviteInfoProvider);
+    ref.invalidate(commissionRecordsProvider);
+    ref.invalidate(withdrawConfigProvider);
+    SubscriptionTriggers.resetResumeThrottle();
+    if (expired) ref.read(authExpiryNoticeProvider.notifier).notifyExpired();
+    final future = Future.wait<void>([profiles, credentials]).then<void>((_) {
+      // 旧 port 的 Ref 在 owned Profile 停用/删除期间必须存活。
+      // 新登录等待此 Future，重建后才能开启新一代订阅同步。
+      if (ref.mounted) {
+        ref.invalidate(subscriptionServiceProvider);
+        ref.invalidate(xboardServiceProvider);
+      }
+    });
+    _ending = future;
+    unawaited(
+      future.whenComplete(() {
+        if (identical(_ending, future)) _ending = null;
+      }),
+    );
+    return future;
+  }
+
+  static Future<void> _cleanup(
+    String where,
+    Future<void> Function() action,
+  ) async {
+    try {
+      await action();
+    } catch (e, s) {
+      // 身份已结束，仍记录未清理资源；不把失败当成成功或恢复旧登录态。
+      SentryBootstrap.captureException(e, stackTrace: s, where: where);
+    }
+  }
+
+  /// 兼容入口。生产自动失效仅消费经过 SDK revision 校验的会话事件。
   void handleUnauthorized() => markUnauthenticated();
 }

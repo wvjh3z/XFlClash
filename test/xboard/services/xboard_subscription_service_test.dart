@@ -27,23 +27,52 @@ import '_bootstrap_crypto_helper.dart';
 
 class _MockService extends Mock implements XboardService {}
 
+class _BlockedIndexDatabase extends XboardDatabase {
+  _BlockedIndexDatabase() : super(NativeDatabase.memory());
+  final indexStarted = Completer<void>();
+  final indexGate = Completer<void>();
+
+  @override
+  Future<void> putIndex({
+    required int profileId,
+    required String flavorId,
+    required String userIdHash,
+  }) async {
+    indexStarted.complete();
+    await indexGate.future;
+    await super.putIndex(
+      profileId: profileId,
+      flavorId: flavorId,
+      userIdHash: userIdHash,
+    );
+  }
+}
+
 /// 内存 fake profile 端口（R4.6：putFileProfile 主路径）。
 class _FakePort implements ProfileSyncPort {
   final Map<int, String> profiles = {};
   int _nextId = 100;
   int fileCalls = 0;
+  Completer<void>? fileStarted;
+  Completer<void>? fileGate;
+  final Set<int> failingDeletes = {};
+  final List<int> deletedIds = [];
 
   @override
-  Future<int> createAndPutProfile(
-      {required String url, required String label}) async {
+  Future<int> createAndPutProfile({
+    required String url,
+    required String label,
+  }) async {
     final id = _nextId++;
     profiles[id] = url;
     return id;
   }
 
   @override
-  Future<void> updateProfileUrl(
-      {required int profileId, required String url}) async {
+  Future<void> updateProfileUrl({
+    required int profileId,
+    required String url,
+  }) async {
     profiles[profileId] = url;
   }
 
@@ -52,15 +81,25 @@ class _FakePort implements ProfileSyncPort {
     required int? profileId,
     required Uint8List yamlBytes,
     required String label,
+    bool Function()? isSessionCurrent,
   }) async {
     fileCalls++;
     final id = profileId ?? _nextId++;
+    fileStarted?.complete();
+    if (fileGate != null) await fileGate!.future;
+    if (isSessionCurrent?.call() == false) {
+      throw const ProfileSyncCancelled();
+    }
     profiles[id] = 'file:${yamlBytes.length}b';
     return id;
   }
 
   @override
-  Future<void> deleteProfile(int profileId) async => profiles.remove(profileId);
+  Future<void> deleteProfile(int profileId) async {
+    deletedIds.add(profileId);
+    if (failingDeletes.contains(profileId)) throw StateError('delete failed');
+    profiles.remove(profileId);
+  }
 
   @override
   List<int> currentProfileIds() => profiles.keys.toList();
@@ -76,8 +115,11 @@ class _StubAdapter implements HttpClientAdapter {
   void close({bool force = false}) {}
 
   @override
-  Future<ResponseBody> fetch(RequestOptions options,
-      Stream<List<int>>? requestStream, Future<void>? cancelFuture) {
+  Future<ResponseBody> fetch(
+    RequestOptions options,
+    Stream<List<int>>? requestStream,
+    Future<void>? cancelFuture,
+  ) {
     hits.add(options.uri.host);
     return handler(options);
   }
@@ -85,10 +127,13 @@ class _StubAdapter implements HttpClientAdapter {
 
 const String _yaml = 'proxies: []\nproxy-groups: []\nrules: [MATCH,DIRECT]\n';
 
-ResponseBody _plain(String body, {int code = 200}) =>
-    ResponseBody.fromString(body, code, headers: {
-      Headers.contentTypeHeader: ['text/plain']
-    });
+ResponseBody _plain(String body, {int code = 200}) => ResponseBody.fromString(
+  body,
+  code,
+  headers: {
+    Headers.contentTypeHeader: ['text/plain'],
+  },
+);
 
 void main() {
   late _MockService service;
@@ -104,8 +149,9 @@ void main() {
     service = _MockService();
     port = _FakePort();
     db = XboardDatabase(NativeDatabase.memory());
-    when(() => service.getSubscribeUrl())
-        .thenAnswer((_) async => XbResult.success('https://orig.com/thunder/tok'));
+    when(
+      () => service.getSubscribeUrl(),
+    ).thenAnswer((_) async => XbResult.success('https://orig.com/thunder/tok'));
   });
 
   tearDown(() => db.close());
@@ -123,17 +169,19 @@ void main() {
     EncryptedSubscriptionService enc, {
     List<String> candidates = const [],
     void Function(String)? onWinnerHost,
-  }) =>
-      XboardSubscriptionService(
-        service: service,
-        encrypted: enc,
-        profilePort: port,
-        db: db,
-        tokenStorage: FakeTokenStorage(initialToken: 'tokA'),
-        subscriptionCandidates: () => candidates,
-        onWinnerHost: onWinnerHost,
-        flavorId: 'brandA',
-      );
+    FakeTokenStorage? tokenStorage,
+    int Function()? sessionRevision,
+  }) => XboardSubscriptionService(
+    service: service,
+    encrypted: enc,
+    profilePort: port,
+    db: db,
+    tokenStorage: tokenStorage ?? FakeTokenStorage(initialToken: 'tokA'),
+    sessionRevision: sessionRevision,
+    subscriptionCandidates: () => candidates,
+    onWinnerHost: onWinnerHost,
+    flavorId: 'brandA',
+  );
 
   test('主路径：getSubscribeUrl → 拉密文解密 → putFileProfile + 写索引', () async {
     final adapter = _StubAdapter((_) async => _plain(cipher));
@@ -141,7 +189,10 @@ void main() {
     final r = await s.sync(force: true);
     expect(r, XbSyncOutcome.ok);
     expect(port.fileCalls, 1);
-    final id = await db.findProfileId(flavorId: 'brandA', userIdHash: _hash('tokA'));
+    final id = await db.findProfileId(
+      flavorId: 'brandA',
+      userIdHash: _hash('tokA'),
+    );
     expect(id, isNotNull);
   });
 
@@ -156,11 +207,15 @@ void main() {
     final adapter = _StubAdapter((_) async => _plain(cipher));
     final s = sut(encWith(adapter));
     await s.sync(force: true);
-    final firstId =
-        await db.findProfileId(flavorId: 'brandA', userIdHash: _hash('tokA'));
+    final firstId = await db.findProfileId(
+      flavorId: 'brandA',
+      userIdHash: _hash('tokA'),
+    );
     await s.sync(force: true);
-    final secondId =
-        await db.findProfileId(flavorId: 'brandA', userIdHash: _hash('tokA'));
+    final secondId = await db.findProfileId(
+      flavorId: 'brandA',
+      userIdHash: _hash('tokA'),
+    );
     expect(secondId, firstId); // 同一 profile
     expect(port.profiles.length, 1); // 没新增
     expect(port.fileCalls, 2);
@@ -173,8 +228,10 @@ void main() {
       }
       return _plain(cipher);
     });
-    final s = sut(encWith(adapter),
-        candidates: ['https://1.1.1.1', 'https://2.2.2.2']);
+    final s = sut(
+      encWith(adapter),
+      candidates: ['https://1.1.1.1', 'https://2.2.2.2'],
+    );
     final r = await s.sync(force: true);
     expect(r, XbSyncOutcome.ok);
     expect(adapter.hits, ['1.1.1.1', '2.2.2.2']);
@@ -183,8 +240,11 @@ void main() {
   test('onWinnerHost 回调命中 host', () async {
     final adapter = _StubAdapter((_) async => _plain(cipher));
     String? winner;
-    final s = sut(encWith(adapter),
-        candidates: ['https://2.2.2.2'], onWinnerHost: (h) => winner = h);
+    final s = sut(
+      encWith(adapter),
+      candidates: ['https://2.2.2.2'],
+      onWinnerHost: (h) => winner = h,
+    );
     await s.sync(force: true);
     expect(winner, 'https://2.2.2.2');
   });
@@ -220,8 +280,10 @@ void main() {
   });
 
   test('无套餐（后端 40305）→ noSubscription', () async {
-    final adapter = _StubAdapter((_) async => ResponseBody.fromString(
-        '{"code":40305,"message":"无有效套餐"}', 403));
+    final adapter = _StubAdapter(
+      (_) async =>
+          ResponseBody.fromString('{"code":40305,"message":"无有效套餐"}', 403),
+    );
     final s = sut(encWith(adapter), candidates: ['https://1.1.1.1']);
     final r = await s.sync();
     expect(r, XbSyncOutcome.noSubscription);
@@ -229,8 +291,12 @@ void main() {
 
   test('鉴权失败（后端 40302）→ authExpired', () async {
     // 40301/40302/40303 = 真·token 问题 → authExpired（subscribe 端点权威，无需回查用户信息）。
-    final adapter = _StubAdapter((_) async => ResponseBody.fromString(
-        '{"code":40302,"message":"invalid token"}', 403));
+    final adapter = _StubAdapter(
+      (_) async => ResponseBody.fromString(
+        '{"code":40302,"message":"invalid token"}',
+        403,
+      ),
+    );
     final s = sut(encWith(adapter), candidates: ['https://1.1.1.1']);
     final r = await s.sync();
     expect(r, XbSyncOutcome.authExpired);
@@ -238,16 +304,24 @@ void main() {
 
   test('套餐过期（后端 40304）→ subscriptionExpired（不再误报 authExpired）', () async {
     // 回归「套餐过期被判登录已过期」：插件对过期套餐回独立码 40304 → subscriptionExpired。
-    final adapter = _StubAdapter((_) async => ResponseBody.fromString(
-        '{"code":40304,"message":"subscription expired"}', 403));
+    final adapter = _StubAdapter(
+      (_) async => ResponseBody.fromString(
+        '{"code":40304,"message":"subscription expired"}',
+        403,
+      ),
+    );
     final s = sut(encWith(adapter), candidates: ['https://1.1.1.1']);
     final r = await s.sync();
     expect(r, XbSyncOutcome.subscriptionExpired);
   });
 
   test('流量耗尽（后端 40307，v1.1.0）→ trafficExhausted', () async {
-    final adapter = _StubAdapter((_) async => ResponseBody.fromString(
-        '{"code":40307,"message":"traffic exhausted"}', 403));
+    final adapter = _StubAdapter(
+      (_) async => ResponseBody.fromString(
+        '{"code":40307,"message":"traffic exhausted"}',
+        403,
+      ),
+    );
     final s = sut(encWith(adapter), candidates: ['https://1.1.1.1']);
     final r = await s.sync();
     expect(r, XbSyncOutcome.trafficExhausted);
@@ -255,19 +329,29 @@ void main() {
 
   test('内容接口裸 401（无插件码）→ authExpired', () async {
     final adapter = _StubAdapter(
-        (_) async => ResponseBody.fromString('unauthorized', 401));
+      (_) async => ResponseBody.fromString('unauthorized', 401),
+    );
     final s = sut(encWith(adapter), candidates: ['https://1.1.1.1']);
     final r = await s.sync();
     expect(r, XbSyncOutcome.authExpired);
   });
 
   test('getSubscribeUrl 失败 + 无套餐 → noSubscription', () async {
-    when(() => service.getSubscribeUrl())
-        .thenAnswer((_) async => XbResult.failure(
-            XbDomainError.network(XbNetworkKind.unknown, 'no url')));
-    when(() => service.getSubscription()).thenAnswer((_) async =>
-        XbResult.success(const XbDomainSubscription(
-            email: 'a@b.com', uuid: 'x', totalBytes: 0, usedBytes: 0)));
+    when(() => service.getSubscribeUrl()).thenAnswer(
+      (_) async => XbResult.failure(
+        XbDomainError.network(XbNetworkKind.unknown, 'no url'),
+      ),
+    );
+    when(() => service.getSubscription()).thenAnswer(
+      (_) async => XbResult.success(
+        const XbDomainSubscription(
+          email: 'a@b.com',
+          uuid: 'x',
+          totalBytes: 0,
+          usedBytes: 0,
+        ),
+      ),
+    );
     final adapter = _StubAdapter((_) async => _plain(cipher));
     final s = sut(encWith(adapter));
     final r = await s.sync();
@@ -275,10 +359,12 @@ void main() {
   });
 
   test('getSubscribeUrl 失败 + 鉴权过期 → authExpired', () async {
-    when(() => service.getSubscribeUrl())
-        .thenAnswer((_) async => XbResult.failure(XbDomainError.unauthorized('过期')));
-    when(() => service.getSubscription())
-        .thenAnswer((_) async => XbResult.failure(XbDomainError.unauthorized('过期')));
+    when(() => service.getSubscribeUrl()).thenAnswer(
+      (_) async => XbResult.failure(XbDomainError.unauthorized('过期')),
+    );
+    when(() => service.getSubscription()).thenAnswer(
+      (_) async => XbResult.failure(XbDomainError.unauthorized('过期')),
+    );
     final adapter = _StubAdapter((_) async => _plain(cipher));
     final s = sut(encWith(adapter));
     final r = await s.sync();
@@ -286,10 +372,13 @@ void main() {
   });
 
   test('全候选网络挂 → failed', () async {
-    final adapter = _StubAdapter((opts) async =>
-        throw DioException(requestOptions: opts));
-    final s = sut(encWith(adapter),
-        candidates: ['https://1.1.1.1', 'https://2.2.2.2']);
+    final adapter = _StubAdapter(
+      (opts) async => throw DioException(requestOptions: opts),
+    );
+    final s = sut(
+      encWith(adapter),
+      candidates: ['https://1.1.1.1', 'https://2.2.2.2'],
+    );
     final r = await s.sync(force: true);
     expect(r, XbSyncOutcome.failed);
   });
@@ -299,7 +388,10 @@ void main() {
     final s = sut(encWith(adapter));
     await s.sync(force: true);
     await s.clearForLogout(_hash('tokA'));
-    final id = await db.findProfileId(flavorId: 'brandA', userIdHash: _hash('tokA'));
+    final id = await db.findProfileId(
+      flavorId: 'brandA',
+      userIdHash: _hash('tokA'),
+    );
     expect(id, isNull);
     expect(port.profiles.isEmpty, isTrue);
   });
@@ -314,24 +406,215 @@ void main() {
     final r = await s.sync(force: true);
     expect(r, XbSyncOutcome.skipped);
     expect(port.fileCalls, 1); // 未再写文件
-    final id = await db.findProfileId(flavorId: 'brandA', userIdHash: _hash('tokA'));
+    final id = await db.findProfileId(
+      flavorId: 'brandA',
+      userIdHash: _hash('tokA'),
+    );
     expect(id, isNull); // 索引未被重建
   });
 
   test('clearForCurrentUser：不阻塞——在途 sync 慢也立即返回', () async {
-    // getSubscribeUrl 慢 1s 模拟在途 sync 卡住；clearForCurrentUser 不应 await 它。
+    final started = Completer<void>();
+    final gate = Completer<void>();
     when(() => service.getSubscribeUrl()).thenAnswer((_) async {
-      await Future<void>.delayed(const Duration(seconds: 1));
+      started.complete();
+      await gate.future;
       return XbResult.success('https://orig.com/thunder/tok');
     });
     final adapter = _StubAdapter((_) async => _plain(cipher));
     final s = sut(encWith(adapter));
-    unawaited(s.sync(force: true)); // 启动慢 sync（不 await）
-    await Future<void>.delayed(const Duration(milliseconds: 20)); // 让它进 in-flight
-    final sw = Stopwatch()..start();
-    await s.clearForCurrentUser(); // 不应等 1s
-    sw.stop();
-    expect(sw.elapsedMilliseconds, lessThan(500)); // 立即返回（远小于 1s）
+    final syncing = s.sync(force: true);
+    await started.future;
+    await s.clearForCurrentUser().timeout(const Duration(milliseconds: 500));
+    gate.complete();
+    expect(await syncing, XbSyncOutcome.skipped);
+    expect(port.fileCalls, 0);
+  });
+
+  test('Token 已清后仍按旧归属清理所有重复索引，保留手工与其他账号配置', () async {
+    final storage = FakeTokenStorage(initialToken: 'tokA');
+    final s = sut(
+      encWith(_StubAdapter((_) async => _plain(cipher))),
+      tokenStorage: storage,
+    );
+    port.profiles.addAll({1: 'owned', 2: 'duplicate', 3: 'other', 4: 'manual'});
+    port.profiles[5] = 'other flavor';
+    await db.putIndex(
+      profileId: 1,
+      flavorId: 'brandA',
+      userIdHash: _hash('tokA'),
+    );
+    await db.putIndex(
+      profileId: 2,
+      flavorId: 'brandA',
+      userIdHash: _hash('tokA'),
+    );
+    await db.putIndex(
+      profileId: 3,
+      flavorId: 'brandA',
+      userIdHash: _hash('tokB'),
+    );
+    await db.putIndex(
+      profileId: 5,
+      flavorId: 'brandB',
+      userIdHash: _hash('tokA'),
+    );
+    await storage.deleteToken();
+
+    await s.clearForSessionOwner(_hash('tokA'));
+
+    expect(port.profiles.keys, unorderedEquals([3, 4, 5]));
+    expect((await db.allRows()).map((row) => row.profileId), [3, 5]);
+    expect(await s.sync(), XbSyncOutcome.skipped);
+  });
+
+  test('清理失败保留该索引且继续清理其他归属记录，向调用者报告失败', () async {
+    final s = sut(encWith(_StubAdapter((_) async => _plain(cipher))));
+    port.profiles.addAll({1: 'owned', 2: 'owned'});
+    port.failingDeletes.add(1);
+    await db.putIndex(
+      profileId: 1,
+      flavorId: 'brandA',
+      userIdHash: _hash('tokA'),
+    );
+    await db.putIndex(
+      profileId: 2,
+      flavorId: 'brandA',
+      userIdHash: _hash('tokA'),
+    );
+
+    await expectLater(
+      s.clearForSessionOwner(_hash('tokA')),
+      throwsA(isA<StateError>()),
+    );
+
+    expect(port.profiles.keys, [1]);
+    expect((await db.allRows()).map((row) => row.profileId), [1]);
+    expect(port.deletedIds, [1, 2]);
+  });
+
+  test('重复结束会话通知复用已完成清理，不删除同归属新会话的 Profile', () async {
+    final s = sut(encWith(_StubAdapter((_) async => _plain(cipher))));
+    port.profiles[1] = 'old session';
+    await db.putIndex(
+      profileId: 1,
+      flavorId: 'brandA',
+      userIdHash: _hash('tokA'),
+    );
+    await Future.wait([
+      s.clearForSessionOwner(_hash('tokA')),
+      s.clearForSessionOwner(_hash('tokA')),
+    ]);
+    expect(port.deletedIds, [1]);
+    port.profiles[2] = 'new session';
+    await db.putIndex(
+      profileId: 2,
+      flavorId: 'brandA',
+      userIdHash: _hash('tokA'),
+    );
+
+    await s.clearForSessionOwner(_hash('tokA'));
+
+    expect(port.profiles.keys, [2]);
+    expect(port.deletedIds, [1]);
+    expect((await db.allRows()).map((row) => row.profileId), [2]);
+  });
+
+  test('A 的订阅 URL 晚到 B 登录后被丢弃，不下载、不写 Profile', () async {
+    final storage = FakeTokenStorage(initialToken: 'tokA');
+    var revision = 1;
+    final started = Completer<void>();
+    final url = Completer<XbResult<String>>();
+    when(() => service.getSubscribeUrl()).thenAnswer((_) {
+      started.complete();
+      return url.future;
+    });
+    final adapter = _StubAdapter((_) async => _plain(cipher));
+    final s = sut(
+      encWith(adapter),
+      tokenStorage: storage,
+      sessionRevision: () => revision,
+    );
+    final syncing = s.sync();
+    await started.future;
+    await storage.writeToken('tokB');
+    revision++;
+    url.complete(XbResult.success('https://orig.com/thunder/tokenA'));
+
+    expect(await syncing, XbSyncOutcome.skipped);
+    expect(adapter.hits, isEmpty);
+    expect(port.fileCalls, 0);
+    expect(await db.allRows(), isEmpty);
+  });
+
+  test('下载在途退出后晚到结果被丢弃，force 队列不重跑且不回馈 host', () async {
+    final downloaded = Completer<void>();
+    final response = Completer<ResponseBody>();
+    final adapter = _StubAdapter((_) {
+      downloaded.complete();
+      return response.future;
+    });
+    var winners = 0;
+    final s = sut(encWith(adapter), onWinnerHost: (_) => winners++);
+    final syncing = s.sync();
+    await downloaded.future;
+    final queued = s.sync(force: true);
+    await s.clearForSessionOwner(_hash('tokA'));
+    response.complete(_plain(cipher));
+
+    expect(await syncing, XbSyncOutcome.skipped);
+    expect(await queued, XbSyncOutcome.skipped);
+    expect(port.fileCalls, 0);
+    expect(winners, 0);
+    verify(() => service.getSubscribeUrl()).called(1);
+  });
+
+  test('Profile 校验期间退出后晚到写入被 guard 拒绝，不激活或重建索引', () async {
+    port.fileStarted = Completer<void>();
+    port.fileGate = Completer<void>();
+    final s = sut(encWith(_StubAdapter((_) async => _plain(cipher))));
+    final syncing = s.sync();
+    await port.fileStarted!.future;
+    await s.clearForSessionOwner(_hash('tokA'));
+    port.fileGate!.complete();
+
+    expect(await syncing, XbSyncOutcome.skipped);
+    expect(port.profiles, isEmpty);
+    expect(await db.allRows(), isEmpty);
+  });
+
+  test('退出发生在外挂索引提交期间，提交后撤销旧 Profile 和晚到索引', () async {
+    await db.close();
+    final blockedDb = _BlockedIndexDatabase();
+    db = blockedDb;
+    final s = sut(encWith(_StubAdapter((_) async => _plain(cipher))));
+    final syncing = s.sync();
+    await blockedDb.indexStarted.future;
+    await s.clearForSessionOwner(_hash('tokA'));
+    blockedDb.indexGate.complete();
+
+    expect(await syncing, XbSyncOutcome.skipped);
+    expect(port.profiles, isEmpty);
+    expect(await db.allRows(), isEmpty);
+  });
+
+  test('无会话版本注入时下载后仍核对旧 Token 归属，不写入 B 账号', () async {
+    final storage = FakeTokenStorage(initialToken: 'tokA');
+    final started = Completer<void>();
+    final response = Completer<ResponseBody>();
+    final adapter = _StubAdapter((_) {
+      started.complete();
+      return response.future;
+    });
+    final s = sut(encWith(adapter), tokenStorage: storage);
+    final syncing = s.sync();
+    await started.future;
+    await storage.writeToken('tokB');
+    response.complete(_plain(cipher));
+
+    expect(await syncing, XbSyncOutcome.skipped);
+    expect(port.fileCalls, 0);
+    expect(await db.allRows(), isEmpty);
   });
 
   test('validateProfileIndex：孤儿索引清理', () async {

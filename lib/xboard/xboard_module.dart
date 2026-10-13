@@ -19,7 +19,8 @@ import 'package:flutter_xboard_sdk/flutter_xboard_sdk.dart'
     show SdkLogger, TokenStorage, XBoardSDK;
 import 'package:shared_preferences/shared_preferences.dart';
 
-import '../providers/config.dart' show patchClashConfigProvider, appSettingProvider;
+import '../providers/config.dart'
+    show patchClashConfigProvider, appSettingProvider;
 import '../providers/app.dart' show initProvider;
 import '../providers/state.dart' show isStartProvider;
 import 'config/xboard_config.dart';
@@ -62,6 +63,7 @@ class XboardModule {
   /// R4.6 step2b-fix：authState 监听句柄（登录/冷启动跃迁 → 订阅同步，dispose 时关）。
   /// **始终存活**（住 module，不依赖任何 UI 页面构建）—— 根治「不进我的服务页订阅不触发」。
   static ProviderSubscription<AuthState>? _authStateListener;
+  static AuthStateNotifier? _sessionNotifier;
 
   /// #1：attach 完成后重链 `FlutterError.onError` 到 Sentry 的 initProvider 监听句柄（dispose 时关）。
   static ProviderSubscription<bool>? _sentryRechainListener;
@@ -93,11 +95,13 @@ class XboardModule {
     @visibleForTesting EndpointProbe? debugProbe,
   }) async {
     try {
-      await _bootstrapSyncPhase(container,
-          tokenStorage: tokenStorage,
-          sdk: sdk,
-          config: config,
-          debugProbe: debugProbe);
+      await _bootstrapSyncPhase(
+        container,
+        tokenStorage: tokenStorage,
+        sdk: sdk,
+        config: config,
+        debugProbe: debugProbe,
+      );
     } catch (e, s) {
       // DD-2：同步阶段任何异常全吞 —— bootstrapReady 保持 false，UI gate 登录禁用 + banner。
       // W8.3 SentryBootstrap 完成后此处尽力上报。
@@ -160,7 +164,9 @@ class XboardModule {
         final env = result.winnerEnvelope;
         if (env != null) await loader.writeCache(env);
         // R4.7：写 next_bootstrap_urls 缓存（地址自举滚动；payload 已 normalized）。
-        await loader.writeNextBootstrapUrls(payload?.nextBootstrapUrls ?? const []);
+        await loader.writeNextBootstrapUrls(
+          payload?.nextBootstrapUrls ?? const [],
+        );
       }
     }
 
@@ -219,7 +225,9 @@ class XboardModule {
   ///   Linux 不可用降级 AES-SharedPrefs，ζ1）。AES key 缺失（未注入）→ null（SDK 自带兜底）。
   /// 永不抛（DD-2）：创建失败返 null（降级 SDK 自带存储，登录态不持久化但不崩）。
   static Future<TokenStorage?> _resolveTokenStorage(
-      TokenStorage? injected, XboardConfig config) async {
+    TokenStorage? injected,
+    XboardConfig config,
+  ) async {
     if (injected != null) return injected;
     if (config.kIsTest) return null;
     final keyBytes = config.bootstrapAesKeyBytes;
@@ -231,7 +239,8 @@ class XboardModule {
       return await SecureStorageTokenStorage.create(
         fallbackAesKey: Uint8List.fromList(keyBytes),
         onDegraded: () => debugPrint(
-            '[XboardModule] secure_storage 不可用 → 降级 AES-SharedPrefs（ζ1）'),
+          '[XboardModule] secure_storage 不可用 → 降级 AES-SharedPrefs（ζ1）',
+        ),
       );
     } catch (e, s) {
       _reportSwallowed('token storage create failed', e, s);
@@ -259,8 +268,10 @@ class XboardModule {
     // - 显式注入（测试 fake / 调用方传）→ 用注入的。
     // - 测试环境（kIsTest）→ null（step4 走 useMemoryStorage，SDK 自带）。
     // - 生产 → SecureStorageTokenStorage.create（Linux 不可用降级 AES-SharedPrefs，ζ1）。
-    final resolvedTokenStorage =
-        await _resolveTokenStorage(tokenStorage, activeConfig);
+    final resolvedTokenStorage = await _resolveTokenStorage(
+      tokenStorage,
+      activeConfig,
+    );
 
     // step 0：firstLaunch 检测（合规 § F / § J）。
     // 「首次进入 Xboard 模块」= 无鉴权 token **且** 无 consent 记录（xb_consent_v1）。
@@ -286,10 +297,14 @@ class XboardModule {
     //   + 链式 wrap FlutterError/PlatformDispatcher.onError（DD-14）+ 灌入已累积 tag。
     //   dsn 空（未配置 / dev）→ 全 no-op。独立 try/catch：失败绝不阻塞后续 SDK initialize。
     try {
-      const productVersion =
-          String.fromEnvironment('XB_PRODUCT_VERSION', defaultValue: '0.0.0');
-      const buildNumber =
-          String.fromEnvironment('XB_BUILD_NUMBER', defaultValue: '0');
+      const productVersion = String.fromEnvironment(
+        'XB_PRODUCT_VERSION',
+        defaultValue: '0.0.0',
+      );
+      const buildNumber = String.fromEnvironment(
+        'XB_BUILD_NUMBER',
+        defaultValue: '0',
+      );
       await SentryBootstrap.installEarly(
         dsn: activeConfig.sentryDsn.isEmpty ? null : activeConfig.sentryDsn,
         release: '${activeConfig.flavorId}@$productVersion+$buildNumber',
@@ -302,11 +317,15 @@ class XboardModule {
     // step 3：BootstrapLocalLoader.loadLocal()（W5.6 真实 AES-256-GCM 解密，零网络）。
     //   优先级：本地缓存密文 → 出厂 fallback 资产 → null（双双损坏走 config 出厂 endpoint 兜底）。
     //   解出的 payload 暂存（_localPayload），异步阶段远端拉取失败时作竞速候选。
-    final decryptor = BootstrapDecryptor(aesKey: activeConfig.bootstrapAesKeyBytes);
+    final decryptor = BootstrapDecryptor(
+      aesKey: activeConfig.bootstrapAesKeyBytes,
+    );
     String apiEndpoint = activeConfig.devApiEndpoint;
     String subscriptionEndpoint = activeConfig.devSubscriptionEndpoint;
     try {
-      final local = await BootstrapLocalLoader(decryptor: decryptor).loadLocal();
+      final local = await BootstrapLocalLoader(
+        decryptor: decryptor,
+      ).loadLocal();
       final payload = local.payload;
       if (payload != null && payload.isValid) {
         _localPayload = payload;
@@ -327,7 +346,8 @@ class XboardModule {
     await instance.initialize(
       apiEndpoint,
       panelType: 'xboard',
-      customStorage: resolvedTokenStorage, // 生产 SecureStorage / 测试 fake；null → SDK 自带
+      customStorage:
+          resolvedTokenStorage, // 生产 SecureStorage / 测试 fake；null → SDK 自带
       useMemoryStorage: resolvedTokenStorage == null && activeConfig.kIsTest,
       httpConfig: XboardReleaseHttp.sdkHttpConfig(timeoutSeconds: 5),
       enableLogging: activeConfig.debug,
@@ -356,7 +376,8 @@ class XboardModule {
       final backendLocale = activeConfig.formA
           ? mapToBackendLocale('zh-CN')
           : mapToBackendLocale(
-              PlatformDispatcher.instance.locale.toLanguageTag());
+              PlatformDispatcher.instance.locale.toLanguageTag(),
+            );
       // design L484 授权反腐层注入 Content-Language；SDK 无 default-headers 公共 API，
       // dio getter 是唯一注入点，受控例外。
       // ignore: deprecated_member_use
@@ -369,19 +390,27 @@ class XboardModule {
 
     // step 6：写运行期值（DD-18，非 override）。fallback 兜底即 bootstrapReady=true。
     container.read(apiEndpointProvider.notifier).set(apiEndpoint);
-    container.read(subscriptionEndpointProvider.notifier).set(subscriptionEndpoint);
+    container
+        .read(subscriptionEndpointProvider.notifier)
+        .set(subscriptionEndpoint);
     container.read(xboardSdkProvider.notifier).set(instance);
+    _sessionNotifier = container.read(authStateProvider.notifier);
+    _sessionNotifier!.bindSdkSessions(instance);
     container.read(bootstrapReadyProvider.notifier).set(true);
 
     // R4.6 step2a：注入 TokenStorage（订阅服务 provider 据此取 userIdHash）+ 冷启动登录态恢复。
     if (resolvedTokenStorage != null) {
-      container.read(injectedTokenStorageProvider.notifier).set(resolvedTokenStorage);
+      container
+          .read(injectedTokenStorageProvider.notifier)
+          .set(resolvedTokenStorage);
       // 冷启动登录态恢复（v0.1 欠账补齐）：有持久化 token → 标记 authenticated，
       // 驱动 T2「已登录冷启动」自动同步订阅（接线层 listen authState 触发）。永不抛。
       try {
         final hasToken = (await resolvedTokenStorage.readToken()) != null;
         if (hasToken) {
-          container.read(authStateProvider.notifier).markAuthenticated();
+          await container
+              .read(authStateProvider.notifier)
+              .completeAuthentication();
         }
       } catch (e, s) {
         _reportSwallowed('auth restore failed', e, s);
@@ -408,8 +437,7 @@ class XboardModule {
         onSubscriptionSwitch: (ep) =>
             container.read(subscriptionEndpointProvider.notifier).set(ep),
       );
-      _lifecycleObserver =
-          XboardLifecycleObserver(
+      _lifecycleObserver = XboardLifecycleObserver(
         raceController: _raceController!,
         // R4.6 step2b-fix：切回前台 → 订阅 + 账号刷新（24h 节流内部判定）。始终存活，
         // 不依赖任何 UI 页面构建。observer 已在监听 resumed 事件，这里把空回调填上。
@@ -429,33 +457,33 @@ class XboardModule {
       // R4.6 step2b-fix：监听 authState（T1 登录跃迁 / T2 冷启动恢复）→ 订阅同步。
       // **关键**：触发接线住 module（始终存活），不再依赖「我的服务」页构建——根治
       // 「登录后不进我的服务页 → 订阅不导入」的 bug。
-      // 时序：step6 的冷启动 markAuthenticated 已先于此发生 → listen 捕获不到那次跃迁，
+      // 时序：step6 的冷启动 completeAuthentication 已先于此发生 → listen 捕获不到那次跃迁，
       // 故注册后**立即补查一次**（已 authenticated 就 fire onAuthenticated，覆盖 T2）；
       // listen 负责后续 T1 登录跃迁。
       try {
-        _authStateListener = container.listen<AuthState>(
-          authStateProvider,
-          (prev, next) {
-            if (prev != AuthState.authenticated &&
-                next == AuthState.authenticated) {
-              SubscriptionTriggers.onAuthenticated(container);
-              // 登录（游客→登录）：清掉之前的匿名/旧 Crisp 会话——否则游客在 chatbox
-              // 手动填的邮箱 A 会残留，B 登录后开客服可能仍归到 A（身份串号，D9）。
-              // 注：冷启动恢复登录态的 markAuthenticated 在本监听注册之前发生（step6<step7），
-              // 故此分支只在「真实游客→登录」动作触发，不会每次冷启动误清已登录用户历史。
-              // ignore: discarded_futures
-              CrispSupportService.reset();
-            }
-            // 登出（含 token 失效自动登出）→ 清 Crisp 本地会话，避免下个用户/游客
-            // 残留上一账号的身份与会话数据（换号 / 退出客服信息不清问题，D9）。
-            if (prev == AuthState.authenticated &&
-                next != AuthState.authenticated) {
-              // ignore: discarded_futures
-              CrispSupportService.reset();
-            }
-          },
-        );
-        // T2 冷启动补查（step6 已 markAuthenticated，listen 错过该次跃迁）。
+        _authStateListener = container.listen<AuthState>(authStateProvider, (
+          prev,
+          next,
+        ) {
+          if (prev != AuthState.authenticated &&
+              next == AuthState.authenticated) {
+            SubscriptionTriggers.onAuthenticated(container);
+            // 登录（游客→登录）：清掉之前的匿名/旧 Crisp 会话——否则游客在 chatbox
+            // 手动填的邮箱 A 会残留，B 登录后开客服可能仍归到 A（身份串号，D9）。
+            // 注：冷启动恢复登录态的 completeAuthentication 在本监听注册之前发生（step6<step7），
+            // 故此分支只在「真实游客→登录」动作触发，不会每次冷启动误清已登录用户历史。
+            // ignore: discarded_futures
+            CrispSupportService.reset();
+          }
+          // 登出（含 token 失效自动登出）→ 清 Crisp 本地会话，避免下个用户/游客
+          // 残留上一账号的身份与会话数据（换号 / 退出客服信息不清问题，D9）。
+          if (prev == AuthState.authenticated &&
+              next != AuthState.authenticated) {
+            // ignore: discarded_futures
+            CrispSupportService.reset();
+          }
+        });
+        // T2 冷启动补查（step6 已 completeAuthentication，listen 错过该次跃迁）。
         final authNow = container.read(authStateProvider);
         if (authNow == AuthState.authenticated) {
           SubscriptionTriggers.onAuthenticated(container);
@@ -468,27 +496,26 @@ class XboardModule {
       // 用 fireImmediately 一次性拿初值 + 后续变化（避免单独 read 留挂起 dispose timer）；
       // race controller 不绑 riverpod，保持可测试（决策 #14 风格）。
       try {
-        _vpnStateListener = container.listen<bool>(
-          isStartProvider,
-          (prev, next) {
-            _raceController?.setVpnActive(next);
-            // VPN 连上跃迁（false→true）→ 触发更新检查（解决冷启动域名被墙检测失败，
-            // 连上 VPN 后出口可达再查；24h 节流内部判定，fire-and-forget 不阻塞）。
-            if (prev != true && next) {
-              // ignore: discarded_futures
-              XbUpdateService.autoCheckThrottled(container);
-              // 连上 VPN：延迟一会儿（待网络稳定）再查 geo 库是否需更新（≥7 天才更）；
-              // 到点复核仍连着才拉。
-              XbGeoUpdateService.onConnected(
-                () => container.read(isStartProvider),
-              );
-            } else if (prev == true && !next) {
-              // 断开 VPN：取消尚未到点的 geo 延迟检查。
-              XbGeoUpdateService.onDisconnected();
-            }
-          },
-          fireImmediately: true,
-        );
+        _vpnStateListener = container.listen<bool>(isStartProvider, (
+          prev,
+          next,
+        ) {
+          _raceController?.setVpnActive(next);
+          // VPN 连上跃迁（false→true）→ 触发更新检查（解决冷启动域名被墙检测失败，
+          // 连上 VPN 后出口可达再查；24h 节流内部判定，fire-and-forget 不阻塞）。
+          if (prev != true && next) {
+            // ignore: discarded_futures
+            XbUpdateService.autoCheckThrottled(container);
+            // 连上 VPN：延迟一会儿（待网络稳定）再查 geo 库是否需更新（≥7 天才更）；
+            // 到点复核仍连着才拉。
+            XbGeoUpdateService.onConnected(
+              () => container.read(isStartProvider),
+            );
+          } else if (prev == true && !next) {
+            // 断开 VPN：取消尚未到点的 geo 延迟检查。
+            XbGeoUpdateService.onDisconnected();
+          }
+        }, fireImmediately: true);
       } catch (e, s) {
         _reportSwallowed('vpn-state wire failed', e, s);
       }
@@ -552,7 +579,9 @@ class XboardModule {
     Future<void> applyOnce() async {
       try {
         final prefs = await SharedPreferences.getInstance();
-        if (prefs.getBool(kXbIpv6DefaultAppliedKey) == true) return; // 已应用过 → 尊重用户。
+        if (prefs.getBool(kXbIpv6DefaultAppliedKey) == true) {
+          return; // 已应用过 → 尊重用户。
+        }
         container
             .read(patchClashConfigProvider.notifier)
             .update((s) => s.copyWith(ipv6: true));
@@ -610,6 +639,8 @@ class XboardModule {
     _vpnStateListener = null;
     _authStateListener?.close();
     _authStateListener = null;
+    _sessionNotifier?.unbindSdkSessions();
+    _sessionNotifier = null;
     _sentryRechainListener?.close();
     _sentryRechainListener = null;
     // 3. dispose endpoint 竞速控制器（最后，前面已无人触发它）。

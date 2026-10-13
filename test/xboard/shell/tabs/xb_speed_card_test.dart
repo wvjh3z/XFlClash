@@ -36,7 +36,7 @@ Future<void> pumpCard(
 
 void main() {
   // 新布局：每张卡 = 图标 + RichText(数值 + 内联单位)，无独立标签行。
-  // findRichText:true → 在 RichText 内匹配拼接文本（如「8.0 Mbps」「38 ms」）。
+  // findRichText:true → 在 RichText 内匹配拼接文本（如「8.0 Mbps」「19 ms」）。
   testWidgets('字节/秒 → Mbps（×8/1e6，1 位小数）', (tester) async {
     // 1,000,000 B/s = 8 Mbps；500,000 B/s = 4 Mbps。
     await pumpCard(tester, down: 1000000, up: 500000);
@@ -53,10 +53,17 @@ void main() {
     expect(find.textContaining('Kbps', findRichText: true), findsNWidgets(2));
   });
 
-  testWidgets('传延迟 → 显示数值 + ms 单位', (tester) async {
+  testWidgets('传原始延迟 → 显示一半数值 + ms 单位', (tester) async {
     await pumpCard(tester, down: 0, up: 0, latencyMs: 38);
-    expect(find.textContaining('38', findRichText: true), findsOneWidget);
-    expect(find.textContaining('ms', findRichText: true), findsOneWidget);
+    expect(find.text('19 ms', findRichText: true), findsOneWidget);
+    expect(find.text('38 ms', findRichText: true), findsNothing);
+  });
+
+  testWidgets('最小正数延迟 → 显示整数零，保持有效结果', (tester) async {
+    await pumpCard(tester, down: 0, up: 0, latencyMs: 1);
+    expect(find.text('0 ms', findRichText: true), findsOneWidget);
+    expect(find.text('0.5 ms', findRichText: true), findsNothing);
+    expect(find.text('--', findRichText: true), findsNothing);
   });
 
   testWidgets('上传数字不标绿 + 等宽数字（R2.7/R8.4）', (tester) async {

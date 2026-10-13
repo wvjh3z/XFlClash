@@ -80,8 +80,10 @@ void main() {
     expect(find.text('线路分组'), findsOneWidget);
 
     // 选中「香港」组的两节点都在，双列并排。
-    final aRect = tester.getRect(find.text('港A'));
-    final bRect = tester.getRect(find.text('港B'));
+    final aRect = tester.getRect(find.text('港A', findRichText: true));
+    final bRect = tester.getRect(find.text('港B', findRichText: true));
+    expect(find.text('24 ms'), findsNWidgets(2));
+    expect(find.text('48 ms'), findsNothing);
     expect((aRect.top - bRect.top).abs(), lessThan(20),
         reason: '两节点应在同一行（双列网格）');
     expect(aRect.center.dx, lessThan(bRect.center.dx),

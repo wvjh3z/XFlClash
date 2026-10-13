@@ -10,7 +10,7 @@
 /// - [XbCooldownGuard]：`setState` 倒计时变体，从 N 递减，支持 [XbCooldownGuard.resetCooldown]
 ///   「发送失败立即解锁」——**验证码场景**（register / forgot sheet）。
 /// - 本 mixin：**单调时钟（Stopwatch）节流**，防用户改系统时钟绕过冷却——**刷新节流场景**。
-///   不支持中途 reset（节流本就该按真实时间走）。
+///   会话结束可 reset，避免新账号继承旧账号的刷新冷却。
 ///
 /// **契约**：
 /// 1. [startThrottle] 后开始计时；`cooldownSeconds` 从 [throttleSeconds] 每秒 -1 到 0 自动停。
@@ -49,6 +49,14 @@ mixin XbRefreshThrottleGuard<T extends StatefulWidget> on State<T> {
   void startThrottle() {
     _throttleSw = Stopwatch()..start();
     _startTicker();
+  }
+
+  /// 登录身份变化时清理旧账号的计时，不用于绕过同会话刷新节流。
+  void resetThrottle() {
+    _ticker?.cancel();
+    _ticker = null;
+    _throttleSw = null;
+    _cooldownSec = 0;
   }
 
   void _startTicker() {

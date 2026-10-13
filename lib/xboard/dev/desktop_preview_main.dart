@@ -77,34 +77,40 @@ final _groups = <Group>[
 ];
 
 ProxiesTabState _tab() => ProxiesTabState(
-      groups: _groups,
-      currentGroupName: '优选',
-      proxyCardType: ProxyCardType.expand,
-      columns: 2,
-    );
+  groups: _groups,
+  currentGroupName: '优选',
+  proxyCardType: ProxyCardType.expand,
+  columns: 2,
+);
 
-XbDomainSubscription _sub() => XbDomainSubscription(
-      email: 'user@example.com',
-      uuid: 'uid-preview',
-      planName: '标准套餐 · VIP',
-      totalBytes: 250 * 1024 * 1024 * 1024,
-      usedBytes: 155 * 1024 * 1024 * 1024,
-      expiredAt: DateTime(2026, 7, 1, 8, 30),
-      nextResetAt: DateTime(2026, 6, 20, 11, 17),
-      planId: 1,
-    );
+XbDomainSubscription _sub({required bool expiredDemo}) => XbDomainSubscription(
+  email: 'user@example.com',
+  uuid: 'uid-preview',
+  planName: '标准套餐 · VIP',
+  totalBytes: 250 * 1024 * 1024 * 1024,
+  usedBytes: 155 * 1024 * 1024 * 1024,
+  // Keep the default demo usable when the calendar advances. An expired
+  // fixture remains available explicitly for the blocked UI scenario.
+  expiredAt: expiredDemo
+      ? DateTime(2000, 7, 1, 8, 30)
+      : DateTime.now().add(const Duration(days: 30)),
+  nextResetAt: DateTime.now().add(const Duration(days: 7)),
+  planId: 1,
+);
 
-void main() {
+void main(List<String> args) {
   WidgetsFlutterBinding.ensureInitialized();
 
-  XboardConfig.bind(const XboardConfig(
-    subscribeUserAgent: 'x flclash',
-    devApiEndpoint: 'https://x',
-    devSubscriptionEndpoint: 'https://x',
-    debug: false,
-    kIsTest: true,
-    formA: true,
-  ));
+  XboardConfig.bind(
+    const XboardConfig(
+      subscribeUserAgent: 'x flclash',
+      devApiEndpoint: 'https://x',
+      devSubscriptionEndpoint: 'https://x',
+      debug: false,
+      kIsTest: true,
+      formA: true,
+    ),
+  );
 
   final tab = _tab();
   const detState = NetworkDetectionState(
@@ -112,28 +118,38 @@ void main() {
     ipInfo: IpInfo(ip: '47.243.10.20', countryCode: 'HK'),
   );
 
-  final container = ProviderContainer(overrides: [
-    isMobileViewProvider.overrideWith((ref) => false),
-    authStateProvider.overrideWith(() => _FakeAuth(AuthState.authenticated)),
-    isStartProvider.overrideWith((ref) => true),
-    proxiesTabStateProvider.overrideWith((ref) => tab),
-    networkDetectionProvider
-        .overrideWith(() => _FakeNetworkDetection(detState)),
-    userProfileProvider.overrideWith((ref) => Future.value(_sub())),
-    groupsProvider.overrideWithValue(_groups),
-    selectedMapProvider.overrideWith(
-        (ref) => const {'优选': '🇭🇰 香港 IEPL 专线 01', '香港': '🇭🇰 香港 BGP 02'}),
-    currentProfileProvider.overrideWith((ref) => null),
-    patchClashConfigProvider
-        .overrideWithBuild((ref, _) => const PatchClashConfig(mode: Mode.rule)),
-    for (final g in tab.groups) ...[
-      selectedProxyNameProvider(g.name).overrideWithValue(g.now),
-      proxyNameProvider(g.name).overrideWithValue(null),
-      for (final p in g.all)
-        delayProvider(proxyName: p.name, testUrl: g.testUrl)
-            .overrideWithValue(48),
+  final container = ProviderContainer(
+    overrides: [
+      isMobileViewProvider.overrideWith((ref) => false),
+      authStateProvider.overrideWith(() => _FakeAuth(AuthState.authenticated)),
+      isStartProvider.overrideWith((ref) => true),
+      proxiesTabStateProvider.overrideWith((ref) => tab),
+      networkDetectionProvider.overrideWith(
+        () => _FakeNetworkDetection(detState),
+      ),
+      userProfileProvider.overrideWith(
+        (ref) =>
+            Future.value(_sub(expiredDemo: args.contains('--expired-demo'))),
+      ),
+      groupsProvider.overrideWithValue(_groups),
+      selectedMapProvider.overrideWith(
+        (ref) => const {'优选': '🇭🇰 香港 IEPL 专线 01', '香港': '🇭🇰 香港 BGP 02'},
+      ),
+      currentProfileProvider.overrideWith((ref) => null),
+      patchClashConfigProvider.overrideWithBuild(
+        (ref, _) => const PatchClashConfig(mode: Mode.rule),
+      ),
+      for (final g in tab.groups) ...[
+        selectedProxyNameProvider(g.name).overrideWithValue(g.now),
+        proxyNameProvider(g.name).overrideWithValue(null),
+        for (final p in g.all)
+          delayProvider(
+            proxyName: p.name,
+            testUrl: g.testUrl,
+          ).overrideWithValue(48),
+      ],
     ],
-  ]);
+  );
   container.read(bootstrapReadyProvider.notifier).set(true);
   container.read(coreStatusProvider.notifier).value = CoreStatus.connected;
 

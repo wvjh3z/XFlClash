@@ -66,8 +66,7 @@ class MineTab extends ConsumerStatefulWidget {
 
 /// 刷新信息节流窗口默认 60s（节流逻辑见 XbRefreshThrottleGuard）。
 
-class _MineTabState extends ConsumerState<MineTab>
-    with XbRefreshThrottleGuard {
+class _MineTabState extends ConsumerState<MineTab> with XbRefreshThrottleGuard {
   /// 刷新中（点按钮到反腐层落定）。
   bool _refreshing = false;
 
@@ -77,6 +76,7 @@ class _MineTabState extends ConsumerState<MineTab>
       xbToast(context, '信息刚刷新过，请稍后再试');
       return;
     }
+    final revision = ref.read(authStateProvider.notifier).sessionRevision;
     setState(() => _refreshing = true);
     // 并行：① 刷新账号订阅（反腐层 getSubscription，内置 apiFailover + 5s 超时，永不抛）
     //       ② 检查应用更新（带 failover；检测到则点亮徽章/触发弹窗）。
@@ -84,7 +84,11 @@ class _MineTabState extends ConsumerState<MineTab>
       ref.read(xboardServiceProvider).getSubscription().then((_) {}),
       _checkAppUpdate(),
     ]);
-    if (!mounted) return;
+    if (!mounted ||
+        ref.read(authStateProvider.notifier).sessionRevision != revision ||
+        ref.read(authStateProvider) != AuthState.authenticated) {
+      return;
+    }
     ref.invalidate(userProfileProvider);
     startThrottle();
     setState(() => _refreshing = false);
@@ -95,8 +99,10 @@ class _MineTabState extends ConsumerState<MineTab>
     final sdk = ref.read(xboardSdkProvider);
     if (sdk == null) return;
     final race = ref.read(injectedRaceControllerProvider);
-    final result =
-        await XbUpdateService.check(sdk, apiFailover: race?.failOverApi);
+    final result = await XbUpdateService.check(
+      sdk,
+      apiFailover: race?.failOverApi,
+    );
     if (!mounted) return;
     if (result is UpdateAvailable) {
       ref.read(availableUpdateProvider.notifier).set(result.info);
@@ -105,8 +111,13 @@ class _MineTabState extends ConsumerState<MineTab>
 
   @override
   Widget build(BuildContext context) {
-    final isGuest =
-        ref.watch(authStateProvider) != AuthState.authenticated;
+    ref.listen<AuthState>(authStateProvider, (previous, next) {
+      if (previous != next) {
+        resetThrottle();
+        setState(() => _refreshing = false);
+      }
+    });
+    final isGuest = ref.watch(authStateProvider) != AuthState.authenticated;
 
     return SafeArea(
       child: LayoutBuilder(
@@ -127,7 +138,10 @@ class _MineTabState extends ConsumerState<MineTab>
           final accountBlock = isGuest
               ? _GuestCard(onTapLogin: widget.onTapLogin)
               : _AccountSection(
-                  active: widget.active, now: widget.now, large: isDesktop);
+                  active: widget.active,
+                  now: widget.now,
+                  large: isDesktop,
+                );
 
           // 宽窗口双栏（C-分支，原型对齐）：左=信息卡/按钮/重置 + 账户组；右=应用组。
           if (isDesktop) {
@@ -151,8 +165,8 @@ class _MineTabState extends ConsumerState<MineTab>
                     child: Center(
                       child: ConstrainedBox(
                         constraints: BoxConstraints(
-                            maxWidth:
-                                xbContentMaxWidth(constraints.maxWidth)),
+                          maxWidth: xbContentMaxWidth(constraints.maxWidth),
+                        ),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
@@ -168,19 +182,21 @@ class _MineTabState extends ConsumerState<MineTab>
                                       accountBlock,
                                       const SizedBox(height: 8),
                                       _SettingsSection(
-                                          isGuest: isGuest,
-                                          showApp: false,
-                                          large: true),
+                                        isGuest: isGuest,
+                                        showApp: false,
+                                        large: true,
+                                      ),
                                     ],
                                   ),
                                 ),
                                 const SizedBox(width: 22),
                                 Expanded(
                                   child: _SettingsSection(
-                                      isGuest: isGuest,
-                                      showAccount: false,
-                                      large: true,
-                                      hideSettingsEntry: true),
+                                    isGuest: isGuest,
+                                    showAccount: false,
+                                    large: true,
+                                    hideSettingsEntry: true,
+                                  ),
                                 ),
                               ],
                             ),
@@ -340,10 +356,11 @@ class _AccountSectionState extends ConsumerState<_AccountSection> {
       data: (sub) => Column(
         children: [
           _AccountCard(
-              sub: sub,
-              active: widget.active,
-              now: widget.now,
-              large: widget.large),
+            sub: sub,
+            active: widget.active,
+            now: widget.now,
+            large: widget.large,
+          ),
           SizedBox(height: widget.large ? 13 : 12),
           _PlanActions(sub: sub, large: widget.large),
         ],
@@ -354,7 +371,12 @@ class _AccountSectionState extends ConsumerState<_AccountSection> {
 
 /// 账号卡（原型 .plan：品牌渐变卡 + 白字 + 大号流量数字 + 到期/重置两行，R6.1/R6.2）。
 class _AccountCard extends StatefulWidget {
-  const _AccountCard({required this.sub, this.active = true, this.now, this.large = false});
+  const _AccountCard({
+    required this.sub,
+    this.active = true,
+    this.now,
+    this.large = false,
+  });
 
   final XbDomainSubscription sub;
 
@@ -407,8 +429,7 @@ class _AccountCardState extends State<_AccountCard>
     }
   }
 
-  bool get _reduced =>
-      MediaQuery.maybeDisableAnimationsOf(context) ?? false;
+  bool get _reduced => MediaQuery.maybeDisableAnimationsOf(context) ?? false;
 
   @override
   void dispose() {
@@ -439,9 +460,15 @@ class _AccountCardState extends State<_AccountCard>
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
           colors: [
-            Color.alphaBlend(Colors.white.withValues(alpha: 0.18), scheme.primary),
+            Color.alphaBlend(
+              Colors.white.withValues(alpha: 0.18),
+              scheme.primary,
+            ),
             scheme.primary,
-            Color.alphaBlend(Colors.black.withValues(alpha: 0.22), scheme.primary),
+            Color.alphaBlend(
+              Colors.black.withValues(alpha: 0.22),
+              scheme.primary,
+            ),
           ],
           stops: const [0, 0.55, 1],
         ),
@@ -503,34 +530,41 @@ class _AccountCardState extends State<_AccountCard>
             ],
           ),
           const SizedBox(height: 13),
-          // 流量行：大数字 + 单位 + 「已用 N%」(右)。
+          // 流量行：数字与总量按可用空间换行，百分比保留在右侧。
           Row(
-            crossAxisAlignment: CrossAxisAlignment.baseline,
-            textBaseline: TextBaseline.alphabetic,
+            crossAxisAlignment: CrossAxisAlignment.end,
             children: [
-              // 已用流量 GB：随 _fill 从 0 count-up 到终值（变可见时重放，golden settle 后不变）。
-              AnimatedBuilder(
-                animation: _fill,
-                builder: (context, _) => Text(
-                  (usedGb * _fill.value).toStringAsFixed(1),
-                  style: TextStyle(
-                    fontSize: large ? 30 : 23,
-                    fontWeight: FontWeight.w700,
-                    color: white,
-                    fontFeatures: const [FontFeature.tabularFigures()],
-                  ),
+              Expanded(
+                child: Wrap(
+                  spacing: 6,
+                  runSpacing: 4,
+                  crossAxisAlignment: WrapCrossAlignment.end,
+                  children: [
+                    // 已用流量随 _fill 从0增长，保持原始值和字号。
+                    AnimatedBuilder(
+                      animation: _fill,
+                      builder: (context, _) => Text(
+                        (usedGb * _fill.value).toStringAsFixed(1),
+                        style: TextStyle(
+                          fontSize: large ? 30 : 23,
+                          fontWeight: FontWeight.w700,
+                          color: white,
+                          fontFeatures: const [FontFeature.tabularFigures()],
+                        ),
+                      ),
+                    ),
+                    Text(
+                      '/ ${_gb(sub.totalBytes)} GB',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w500,
+                        color: white70,
+                      ),
+                    ),
+                  ],
                 ),
               ),
-              const SizedBox(width: 6),
-              Text(
-                '/ ${_gb(sub.totalBytes)} GB',
-                style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w500,
-                  color: white70,
-                ),
-              ),
-              const Spacer(),
+              const SizedBox(width: 8),
               AnimatedBuilder(
                 animation: _fill,
                 builder: (context, _) => Text(
@@ -564,16 +598,18 @@ class _AccountCardState extends State<_AccountCard>
           const SizedBox(height: 11),
           // 到期行（保持原风格）。
           _InfoRow(
-              icon: Icons.event,
-              text: _expireText(sub, now: widget.now),
-              color: white70),
+            icon: Icons.event,
+            text: _expireText(sub, now: widget.now),
+            color: white70,
+          ),
           // 流量重置行（有重置日才显示，保持原风格）。
           if (_resetText(sub, now: widget.now) != null) ...[
             const SizedBox(height: 3),
             _InfoRow(
-                icon: Icons.autorenew,
-                text: _resetText(sub, now: widget.now)!,
-                color: white70),
+              icon: Icons.autorenew,
+              text: _resetText(sub, now: widget.now)!,
+              color: white70,
+            ),
           ],
         ],
       ),
@@ -655,9 +691,12 @@ class _PlanActions extends ConsumerWidget {
                     onPressed: () => _openRenew(context),
                     style: FilledButton.styleFrom(
                       textStyle: const TextStyle(
-                          fontSize: 14, fontWeight: FontWeight.w600),
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                      ),
                       shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(XbTokens.rButton)),
+                        borderRadius: BorderRadius.circular(XbTokens.rButton),
+                      ),
                     ),
                     child: const Text('续费当前套餐'),
                   ),
@@ -670,11 +709,16 @@ class _PlanActions extends ConsumerWidget {
                   style: OutlinedButton.styleFrom(
                     foregroundColor: scheme.primary,
                     textStyle: const TextStyle(
-                        fontSize: 14, fontWeight: FontWeight.w600),
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                    ),
                     side: BorderSide(
-                        color: scheme.primary.withValues(alpha: 0.4), width: 1.6),
+                      color: scheme.primary.withValues(alpha: 0.4),
+                      width: 1.6,
+                    ),
                     shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(XbTokens.rButton)),
+                      borderRadius: BorderRadius.circular(XbTokens.rButton),
+                    ),
                   ),
                   child: Text(sub.hasNoPlan ? '购买套餐' : '购买 / 更改套餐'),
                 ),
@@ -693,8 +737,7 @@ class _PlanActions extends ConsumerWidget {
 
   // ◇ 复用形态 B 套餐页（不经 adapter）。
   void _openPlans(BuildContext context) {
-    xbPush(context, const PlanListPage(),
-        brandColor: xbBrandColor());
+    xbPush(context, const PlanListPage(), brandColor: xbBrandColor());
   }
 
   /// 续费当前套餐（R6.4）：与「购买/更改」走同一模式——**立即跳转**，由 [PlanRenewLoader]
@@ -730,7 +773,10 @@ class _ResetCard extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     // 告警色：原型 .resetcard 用 --warn 琥珀（非品牌红/error 红）。
     const warn = XbTokens.warn;
-    final cardBg = Color.alphaBlend(warn.withValues(alpha: 0.10), scheme.surfaceContainerLowest);
+    final cardBg = Color.alphaBlend(
+      warn.withValues(alpha: 0.10),
+      scheme.surfaceContainerLowest,
+    );
     return Material(
       color: cardBg,
       borderRadius: BorderRadius.circular(XbTokens.rMd),
@@ -784,7 +830,10 @@ class _ResetCard extends StatelessWidget {
               ),
               const SizedBox(width: 10),
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 8,
+                ),
                 decoration: BoxDecoration(
                   color: warn,
                   borderRadius: BorderRadius.circular(XbTokens.rSm),
@@ -821,7 +870,9 @@ class _AccountSkeleton extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         // 顶部同步条（原型 .syncbar）。
-        bannerText != null ? XbSyncBanner(text: bannerText!) : const XbSyncBanner(),
+        bannerText != null
+            ? XbSyncBanner(text: bannerText!)
+            : const XbSyncBanner(),
         const SizedBox(height: 12),
         // 白底骨架卡（原型 .plancmp.plan-skel，紧凑无头像）。
         Container(
@@ -878,9 +929,12 @@ class _DisabledPlanActions extends StatelessWidget {
                 onPressed: null,
                 style: FilledButton.styleFrom(
                   textStyle: const TextStyle(
-                      fontSize: 14, fontWeight: FontWeight.w600),
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                  ),
                   shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(XbTokens.rButton)),
+                    borderRadius: BorderRadius.circular(XbTokens.rButton),
+                  ),
                 ),
                 child: const Text('续费当前套餐'),
               ),
@@ -892,11 +946,16 @@ class _DisabledPlanActions extends StatelessWidget {
                 style: OutlinedButton.styleFrom(
                   foregroundColor: scheme.primary,
                   textStyle: const TextStyle(
-                      fontSize: 14, fontWeight: FontWeight.w600),
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                  ),
                   side: BorderSide(
-                      color: scheme.primary.withValues(alpha: 0.4), width: 1.6),
+                    color: scheme.primary.withValues(alpha: 0.4),
+                    width: 1.6,
+                  ),
                   shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(XbTokens.rButton)),
+                    borderRadius: BorderRadius.circular(XbTokens.rButton),
+                  ),
                 ),
                 child: const Text('购买 / 更改套餐'),
               ),
@@ -940,10 +999,15 @@ class _AccountErrorCard extends StatelessWidget {
             decoration: BoxDecoration(
               shape: BoxShape.circle,
               color: Color.alphaBlend(
-                  XbTokens.bad.withValues(alpha: 0.10), t.sfc),
+                XbTokens.bad.withValues(alpha: 0.10),
+                t.sfc,
+              ),
             ),
-            child: const Icon(Icons.cloud_off_rounded,
-                size: 25, color: XbTokens.bad),
+            child: const Icon(
+              Icons.cloud_off_rounded,
+              size: 25,
+              color: XbTokens.bad,
+            ),
           ),
           const SizedBox(width: 14),
           // 标题 + 一行说明。
@@ -952,9 +1016,14 @@ class _AccountErrorCard extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: [
-                Text('账号信息加载失败',
-                    style: TextStyle(
-                        fontSize: 15, fontWeight: FontWeight.w600, color: t.on)),
+                Text(
+                  '账号信息加载失败',
+                  style: TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w600,
+                    color: t.on,
+                  ),
+                ),
                 const SizedBox(height: 3),
                 Text(
                   '请检查网络后重试，期间不影响连接与节点使用',
@@ -972,13 +1041,18 @@ class _AccountErrorCard extends StatelessWidget {
             style: OutlinedButton.styleFrom(
               foregroundColor: scheme.primary,
               side: BorderSide(
-                  color: scheme.primary.withValues(alpha: 0.40), width: 1.6),
+                color: scheme.primary.withValues(alpha: 0.40),
+                width: 1.6,
+              ),
               minimumSize: const Size(0, 38),
               padding: const EdgeInsets.symmetric(horizontal: 14),
-              textStyle:
-                  const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+              textStyle: const TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+              ),
               shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(XbTokens.rMd)),
+                borderRadius: BorderRadius.circular(XbTokens.rMd),
+              ),
             ),
           ),
         ],
@@ -1028,16 +1102,21 @@ class _GuestCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           // 未登录标题（无头像，紧凑版）—— 文案居中（与原型一致）。
-          const Text('未登录',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                  fontSize: 15,
-                  fontWeight: FontWeight.w600,
-                  color: Colors.white)),
+          const Text(
+            '未登录',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.w600,
+              color: Colors.white,
+            ),
+          ),
           const SizedBox(height: 4),
-          Text('登录后同步专属节点与套餐',
-              textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 12, color: white70)),
+          Text(
+            '登录后同步专属节点与套餐',
+            textAlign: TextAlign.center,
+            style: TextStyle(fontSize: 12, color: white70),
+          ),
           const SizedBox(height: 13),
           // CTA：亮色=白底/品牌字（灰卡高对比，原型）；暗色=品牌红底/白字（不刺眼、更协调）。
           SizedBox(
@@ -1069,6 +1148,7 @@ class _SettingsSection extends ConsumerWidget {
   });
 
   final bool isGuest;
+
   /// 桌面双栏：左栏只渲染账户组、右栏只渲染应用组；移动端两者都渲染。
   final bool showAccount;
   final bool showApp;
@@ -1110,8 +1190,7 @@ class _SettingsSection extends ConsumerWidget {
   /// 在线客服（D9 Crisp）：已登录透传账号订阅（邮箱/套餐/到期/流量/来源），游客匿名；
   /// 永不抛（失败 toast）。
   Future<void> _openSupport(BuildContext context, WidgetRef ref) async {
-    final sub =
-        isGuest ? null : ref.read(userProfileProvider).asData?.value;
+    final sub = isGuest ? null : ref.read(userProfileProvider).asData?.value;
     final ok = await CrispSupportService.open(sub: sub);
     if (!ok && context.mounted) {
       xbToast(context, '客服暂时无法打开，请稍后再试');
@@ -1126,95 +1205,110 @@ class _SettingsSection extends ConsumerWidget {
         if (showAccount) ...[
           // ── 账户组 ──
           const XbGroupLabel('账户'),
-        XbListCard(
-          rows: [
-            XbListRow(
-              icon: Icons.receipt_long,
-              label: '我的订单',
-              large: large,
-              badge: isGuest ? '登录后可见' : null,
-              showChevron: !isGuest,
-              onTap: isGuest
-                  ? null
-                  : () => xbPush(context, const OrderListPage(),
-                      brandColor: xbBrandColor()),
-            ),
-            // 邀请返佣（form-a 邀请功能）：需登录（佣金/邀请码依赖 token）。游客显示「登录后可见」、
-            // 不可点；登录态尾部品牌色「返佣 X%」teaser（比例读 inviteInfoProvider 后台下发）+ chevron。
-            XbListRow(
-              icon: Icons.redeem,
-              label: '邀请返佣',
-              large: large,
-              trailing: isGuest ? null : const _RebateBadge(),
-              badge: isGuest ? '登录后可见' : null,
-              showChevron: !isGuest,
-              onTap: isGuest
-                  ? null
-                  : () => xbPush(context, const InviteCommissionPage(),
-                      brandColor: xbBrandColor()),
-            ),
-            // 使用教程（form-a）：需登录（知识库是 user 接口，带 token）。游客显示「登录后可见」、
-            // 不可点；登录态 push 教程列表（仅后端「官方客户端」分类）。
-            XbListRow(
-              icon: Icons.menu_book,
-              label: '使用教程',
-              large: large,
-              badge: isGuest ? '登录后可见' : null,
-              showChevron: !isGuest,
-              onTap: isGuest
-                  ? null
-                  : () => xbPush(context, const TutorialListPage(),
-                      brandColor: xbBrandColor()),
-            ),
-            // 在线客服（D9 Crisp）：不登录也可用（游客匿名会话）。
-            // websiteId 未配置（XboardConfig.crispWebsiteId 空）→ 隐藏入口，不暴露空会话。
-            if (CrispSupportService.isEnabled)
+          XbListCard(
+            rows: [
               XbListRow(
-                icon: Icons.support_agent,
-                label: '在线客服',
+                icon: Icons.receipt_long,
+                label: '我的订单',
                 large: large,
-                onTap: () => _openSupport(context, ref),
+                badge: isGuest ? '登录后可见' : null,
+                showChevron: !isGuest,
+                onTap: isGuest
+                    ? null
+                    : () => xbPush(
+                        context,
+                        const OrderListPage(),
+                        brandColor: xbBrandColor(),
+                      ),
               ),
-          ],
-        ),
+              // 邀请返佣（form-a 邀请功能）：需登录（佣金/邀请码依赖 token）。游客显示「登录后可见」、
+              // 不可点；登录态尾部品牌色「返佣 X%」teaser（比例读 inviteInfoProvider 后台下发）+ chevron。
+              XbListRow(
+                icon: Icons.redeem,
+                label: '邀请返佣',
+                large: large,
+                trailing: isGuest ? null : const _RebateBadge(),
+                badge: isGuest ? '登录后可见' : null,
+                showChevron: !isGuest,
+                onTap: isGuest
+                    ? null
+                    : () => xbPush(
+                        context,
+                        const InviteCommissionPage(),
+                        brandColor: xbBrandColor(),
+                      ),
+              ),
+              // 使用教程（form-a）：需登录（知识库是 user 接口，带 token）。游客显示「登录后可见」、
+              // 不可点；登录态 push 教程列表（仅后端「官方客户端」分类）。
+              XbListRow(
+                icon: Icons.menu_book,
+                label: '使用教程',
+                large: large,
+                badge: isGuest ? '登录后可见' : null,
+                showChevron: !isGuest,
+                onTap: isGuest
+                    ? null
+                    : () => xbPush(
+                        context,
+                        const TutorialListPage(),
+                        brandColor: xbBrandColor(),
+                      ),
+              ),
+              // 在线客服（D9 Crisp）：不登录也可用（游客匿名会话）。
+              // websiteId 未配置（XboardConfig.crispWebsiteId 空）→ 隐藏入口，不暴露空会话。
+              if (CrispSupportService.isEnabled)
+                XbListRow(
+                  icon: Icons.support_agent,
+                  label: '在线客服',
+                  large: large,
+                  onTap: () => _openSupport(context, ref),
+                ),
+            ],
+          ),
         ],
         if (showApp) ...[
-        // ── 应用组 ──
-        const XbGroupLabel('应用'),
-        XbListCard(
-          rows: [
-            // 「设置」入口：仅在无独立设置 Tab 时显示（移动端）。桌面有独立设置 Tab → 隐藏去重。
-            if (!hideSettingsEntry)
+          // ── 应用组 ──
+          const XbGroupLabel('应用'),
+          XbListCard(
+            rows: [
+              // 「设置」入口：仅在无独立设置 Tab 时显示（移动端）。桌面有独立设置 Tab → 隐藏去重。
+              if (!hideSettingsEntry)
+                XbListRow(
+                  icon: Icons.settings,
+                  label: '设置',
+                  large: large,
+                  // 设置 → 形态 A 风格设置页（组件库列表 → FlClash 原生子页，R6.8）。
+                  onTap: () => xbPush(
+                    context,
+                    const XbSettingsPage(),
+                    brandColor: xbBrandColor(),
+                  ),
+                ),
+              // 分享好友（form-a 分享功能）：免登录（ShareLink 是 guest 接口）—— 游客也可点，
+              // 打开仅展示下载落地页主/备地址供分享，无邀请码 / 无佣金。
               XbListRow(
-                icon: Icons.settings,
-                label: '设置',
+                icon: Icons.share,
+                label: '分享好友',
                 large: large,
-                // 设置 → 形态 A 风格设置页（组件库列表 → FlClash 原生子页，R6.8）。
-                onTap: () => xbPush(context, const XbSettingsPage(),
-                    brandColor: xbBrandColor()),
+                onTap: () => xbPush(
+                  context,
+                  const ShareFriendPage(),
+                  brandColor: xbBrandColor(),
+                ),
               ),
-            // 分享好友（form-a 分享功能）：免登录（ShareLink 是 guest 接口）—— 游客也可点，
-            // 打开仅展示下载落地页主/备地址供分享，无邀请码 / 无佣金。
-            XbListRow(
-              icon: Icons.share,
-              label: '分享好友',
-              large: large,
-              onTap: () => xbPush(context, const ShareFriendPage(),
-                  brandColor: xbBrandColor()),
-            ),
-            _AboutRow(large: large),
-            if (!isGuest)
-              XbListRow(
-                icon: Icons.logout,
-                label: '退出登录',
-                large: large,
-                danger: true,
-                showChevron: false,
-                // 破坏性操作二次确认（与「取消订单」一致），确认后执行登出（◇ 复用形态 B 编排，R6.11）。
-                onTap: () => _confirmLogout(context, ref),
-              ),
-          ],
-        ),
+              _AboutRow(large: large),
+              if (!isGuest)
+                XbListRow(
+                  icon: Icons.logout,
+                  label: '退出登录',
+                  large: large,
+                  danger: true,
+                  showChevron: false,
+                  // 破坏性操作二次确认（与「取消订单」一致），确认后执行登出（◇ 复用形态 B 编排，R6.11）。
+                  onTap: () => _confirmLogout(context, ref),
+                ),
+            ],
+          ),
         ],
       ],
     );
@@ -1236,9 +1330,14 @@ class _RebateBadge extends ConsumerWidget {
       mainAxisSize: MainAxisSize.min,
       children: [
         if (rate != null && rate > 0) ...[
-          Text('返佣 $rate%',
-              style: TextStyle(
-                  fontSize: 12.5, fontWeight: FontWeight.w600, color: brand)),
+          Text(
+            '返佣 $rate%',
+            style: TextStyle(
+              fontSize: 12.5,
+              fontWeight: FontWeight.w600,
+              color: brand,
+            ),
+          ),
           const SizedBox(width: 6),
         ],
         Icon(Icons.chevron_right, color: t.onv, size: 20),
@@ -1291,11 +1390,15 @@ class _AboutRow extends ConsumerWidget {
             ),
           ],
           const SizedBox(width: 6),
-          Icon(Icons.chevron_right,
-              color: Theme.of(context).colorScheme.onSurfaceVariant, size: 20),
+          Icon(
+            Icons.chevron_right,
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+            size: 20,
+          ),
         ],
       ),
-      onTap: () => xbPush(context, const XbAboutPage(), brandColor: xbBrandColor()),
+      onTap: () =>
+          xbPush(context, const XbAboutPage(), brandColor: xbBrandColor()),
     );
   }
 }

@@ -7,7 +7,6 @@
 /// 内核数据（延迟/选中/选择/测速）经 [XbNodesAdapter] 收口（适配层铁律），不直接碰 `lib/views/**`。
 library;
 
-
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -20,7 +19,8 @@ import 'package:fl_clash/xboard/pages/reset_traffic_page.dart';
 import 'package:fl_clash/xboard/services/xboard_subscription_service.dart';
 import 'package:fl_clash/widgets/widgets.dart';
 import 'package:fl_clash/xboard/widgets/xb_components.dart';
-import 'package:fl_clash/xboard/widgets/xb_feedback.dart' show xbToast, xbBrandColor;
+import 'package:fl_clash/xboard/widgets/xb_feedback.dart'
+    show xbToast, xbBrandColor;
 import 'package:fl_clash/xboard/widgets/xb_refresh_throttle_guard.dart';
 import 'package:fl_clash/xboard/widgets/xb_theme.dart' show XbTokens, xbPush;
 
@@ -114,16 +114,19 @@ class _NodesTabState extends ConsumerState<NodesTab>
       xbToast(context, '节点刚刷新过，请稍后再试');
       return;
     }
+    final revision = ref.read(authStateProvider.notifier).sessionRevision;
     setState(() => _refreshing = true);
     var outcome = XbSyncOutcome.failed;
     try {
-      outcome = await ref
-          .read(subscriptionServiceProvider)
-          .sync(force: true);
+      outcome = await ref.read(subscriptionServiceProvider).sync(force: true);
     } catch (_) {
       // 永不抛（Property 1）；当作失败处理。
     }
-    if (!mounted) return;
+    if (!mounted ||
+        ref.read(authStateProvider.notifier).sessionRevision != revision ||
+        ref.read(authStateProvider) != AuthState.authenticated) {
+      return;
+    }
     startThrottle();
     setState(() {
       _refreshing = false;
@@ -156,7 +159,8 @@ class _NodesTabState extends ConsumerState<NodesTab>
     final o = _lastRefreshOutcome;
     final localExpired = sub != null && _isExpired(sub);
     // 用尽判定带 totalBytes>0 守卫：避免「不限量套餐 totalBytes==0」被误判为用尽。
-    final localExhausted = sub != null &&
+    final localExhausted =
+        sub != null &&
         !sub.hasNoPlan &&
         sub.totalBytes > 0 &&
         sub.usedBytes >= sub.totalBytes;
@@ -182,9 +186,11 @@ class _NodesTabState extends ConsumerState<NodesTab>
       onBuyResetPack: () {
         final id = sub?.planId;
         if (id != null) {
-          xbPush(context,
-              ResetTrafficPage(planId: id, planName: sub?.planName),
-              brandColor: xbBrandColor());
+          xbPush(
+            context,
+            ResetTrafficPage(planId: id, planName: sub?.planName),
+            brandColor: xbBrandColor(),
+          );
         } else {
           xbPush(context, const PlanListPage(), brandColor: xbBrandColor());
         }
@@ -200,9 +206,10 @@ class _NodesTabState extends ConsumerState<NodesTab>
     return Column(
       children: [
         _NodesHeader(
-            onRefresh: _refreshNodes,
-            refreshing: _refreshing,
-            cooldownSec: cooldownSeconds),
+          onRefresh: _refreshNodes,
+          refreshing: _refreshing,
+          cooldownSec: cooldownSeconds,
+        ),
         if (_refreshing)
           const Padding(
             padding: EdgeInsets.fromLTRB(16, 4, 16, 0),
@@ -215,8 +222,16 @@ class _NodesTabState extends ConsumerState<NodesTab>
 
   @override
   Widget build(BuildContext context) {
-    final isGuest =
-        ref.watch(authStateProvider) != AuthState.authenticated;
+    ref.listen<AuthState>(authStateProvider, (previous, next) {
+      if (previous != next) {
+        setState(() {
+          _refreshing = false;
+          _lastRefreshOutcome = null;
+        });
+        resetThrottle();
+      }
+    });
+    final isGuest = ref.watch(authStateProvider) != AuthState.authenticated;
     if (isGuest) {
       return _GuestNodes(onTapLogin: widget.onTapLogin);
     }
@@ -243,14 +258,16 @@ class _NodesTabState extends ConsumerState<NodesTab>
     );
 
     // 顶部分组 tab：窄窗口横向；宽窗口 master-detail（左竖排分组栏 + 右双列节点网格，C-分支）。
-    final scrollNode = (_pendingScrollNode != null &&
+    final scrollNode =
+        (_pendingScrollNode != null &&
             current.nodes.any((n) => n.name == _pendingScrollNode))
         ? _pendingScrollNode
         : null;
     final header = _NodesHeader(
-        onRefresh: _refreshNodes,
-        refreshing: _refreshing,
-        cooldownSec: cooldownSeconds);
+      onRefresh: _refreshNodes,
+      refreshing: _refreshing,
+      cooldownSec: cooldownSeconds,
+    );
     final banner = _refreshing
         ? const Padding(
             padding: EdgeInsets.fromLTRB(16, 4, 16, 0),
@@ -260,8 +277,7 @@ class _NodesTabState extends ConsumerState<NodesTab>
 
     return LayoutBuilder(
       builder: (context, constraints) {
-        final masterDetail =
-            xbIsDesktopWidth(constraints.maxWidth);
+        final masterDetail = xbIsDesktopWidth(constraints.maxWidth);
         if (masterDetail) {
           // 标题栏与下方内容区用同一 maxW（同居中限宽）→ 顶部「刷新节点」与分组头「测延迟」
           // 右缘严格对齐（修宽窗口下 md 限 1000 居中、而标题栏全宽导致的错位）。
@@ -463,7 +479,9 @@ class _GroupTabBar extends StatelessWidget {
                   end: Alignment.bottomRight,
                   colors: [
                     Color.alphaBlend(
-                        Colors.white.withValues(alpha: 0.12), scheme.primary),
+                      Colors.white.withValues(alpha: 0.12),
+                      scheme.primary,
+                    ),
                     scheme.primary,
                   ],
                 )
@@ -566,12 +584,15 @@ class _NodesHeader extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(16, 8, 8, 2),
       child: Row(
         children: [
-          Text('选择线路',
-              style: TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: -0.4,
-                  color: t.on)),
+          Text(
+            '选择线路',
+            style: TextStyle(
+              fontSize: 20,
+              fontWeight: FontWeight.w700,
+              letterSpacing: -0.4,
+              color: t.on,
+            ),
+          ),
           const Spacer(),
           _NodesRefreshAction(
             onRefresh: onRefresh,
@@ -614,11 +635,13 @@ class _NodesRefreshAction extends StatelessWidget {
       onPressed: refreshing ? null : onRefresh,
       icon: refreshing
           ? const XbSpinner(color: XbTokens.warn, size: 16, stroke: 2)
-          : Icon(Icons.refresh,
+          : Icon(
+              Icons.refresh,
               size: 16,
               color: coolingDown
                   ? scheme.onSurfaceVariant.withValues(alpha: 0.5)
-                  : scheme.primary),
+                  : scheme.primary,
+            ),
       label: Text(label),
       style: TextButton.styleFrom(
         foregroundColor: coolingDown
@@ -696,4 +719,3 @@ class _ExhaustedNodes extends StatelessWidget {
     );
   }
 }
-

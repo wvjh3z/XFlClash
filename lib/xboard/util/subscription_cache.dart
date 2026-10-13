@@ -21,6 +21,23 @@ class SubscriptionCache {
   SubscriptionCache({SharedPreferences? prefs}) : _injected = prefs;
 
   final SharedPreferences? _injected;
+  static final Map<String, Future<void>> _ownerWrites = {};
+
+  // 同 owner 重新登录也可能换 revision。串行化旧写撤销、退出删除和新写，
+  // 防止旧异步 setString 的补偿删除误删新一代缓存。
+  Future<void> _serialize(String owner, Future<void> Function() action) {
+    final previous = _ownerWrites[owner] ?? Future<void>.value();
+    final next = previous.then((_) => action());
+    final settled = next.then<void>(
+      (_) {},
+      onError: (Object _, StackTrace _) {},
+    );
+    _ownerWrites[owner] = settled;
+    settled.then((_) {
+      if (identical(_ownerWrites[owner], settled)) _ownerWrites.remove(owner);
+    });
+    return next;
+  }
 
   Future<SharedPreferences> get _prefs async =>
       _injected ?? await SharedPreferences.getInstance();
@@ -29,14 +46,24 @@ class SubscriptionCache {
       '$kSubscriptionCachePrefix$userIdHash';
 
   /// 写缓存（PII 脱敏后 jsonEncode）。[token] 派生 userIdHash。
-  Future<void> write(XbDomainSubscription sub, {required String? token}) async {
+  Future<void> write(
+    XbDomainSubscription sub, {
+    required String? token,
+    bool Function()? isSessionCurrent,
+  }) async {
     final userIdHash = userIdHashFromToken(token);
     final masked = sub.copyWith(
       email: maskEmail(sub.email),
       uuid: maskUuid(sub.uuid),
     );
-    final prefs = await _prefs;
-    await prefs.setString(keyFor(userIdHash), jsonEncode(masked.toJson()));
+    await _serialize(userIdHash, () async {
+      final prefs = await _prefs;
+      if (isSessionCurrent != null && !isSessionCurrent()) return;
+      await prefs.setString(keyFor(userIdHash), jsonEncode(masked.toJson()));
+      if (isSessionCurrent != null && !isSessionCurrent()) {
+        await prefs.remove(keyFor(userIdHash));
+      }
+    });
   }
 
   /// 读缓存（决策 #13：损坏 → delete + 返 null）。返回的 email/uuid 已是脱敏值。
@@ -47,7 +74,8 @@ class SubscriptionCache {
     if (raw == null) return null;
     try {
       return XbDomainSubscription.fromJson(
-          jsonDecode(raw) as Map<String, dynamic>);
+        jsonDecode(raw) as Map<String, dynamic>,
+      );
     } catch (_) {
       await prefs.remove(keyFor(userIdHash)); // 决策 #13 损坏即删
       return null;
@@ -56,8 +84,14 @@ class SubscriptionCache {
 
   /// 清缓存（logout step 2）。
   Future<void> clear({required String? token}) async {
-    final userIdHash = userIdHashFromToken(token);
-    final prefs = await _prefs;
-    await prefs.remove(keyFor(userIdHash));
+    await clearForOwner(userIdHashFromToken(token));
+  }
+
+  /// SDK 已清 Token 后仍使用编排层保留的旧账号归属。
+  Future<void> clearForOwner(String userIdHash) async {
+    await _serialize(userIdHash, () async {
+      final prefs = await _prefs;
+      await prefs.remove(keyFor(userIdHash));
+    });
   }
 }

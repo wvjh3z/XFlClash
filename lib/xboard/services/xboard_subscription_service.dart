@@ -58,15 +58,17 @@ class XboardSubscriptionService {
     required TokenStorage tokenStorage,
     SubscriptionCandidatesProvider? subscriptionCandidates,
     void Function(String winnerHost)? onWinnerHost,
+    int Function()? sessionRevision,
     String flavorId = 'default',
-  })  : _service = service,
-        _encrypted = encrypted,
-        _port = profilePort,
-        _db = db,
-        _tokenStorage = tokenStorage,
-        _candidates = subscriptionCandidates ?? (() => const <String>[]),
-        _onWinnerHost = onWinnerHost,
-        _flavorId = flavorId;
+  }) : _service = service,
+       _encrypted = encrypted,
+       _port = profilePort,
+       _db = db,
+       _tokenStorage = tokenStorage,
+       _candidates = subscriptionCandidates ?? (() => const <String>[]),
+       _onWinnerHost = onWinnerHost,
+       _sessionRevision = sessionRevision ?? (() => 0),
+       _flavorId = flavorId;
 
   final XboardService _service;
   final EncryptedSubscriptionService _encrypted;
@@ -78,6 +80,7 @@ class XboardSubscriptionService {
   /// 成功拉取后回调命中的订阅 host（R4.6 接线层可据此更新竞速 current sub，下次从好地址起）。
   final void Function(String winnerHost)? _onWinnerHost;
   final String _flavorId;
+  final int Function() _sessionRevision;
 
   Completer<XbSyncOutcome>? _inFlight;
   bool _pendingForce = false;
@@ -88,6 +91,8 @@ class XboardSubscriptionService {
 
   /// θ-8：退出登录期间为 true —— 新 sync 直接 skip（避免删 profile 后 in-flight sync 重建孤儿）。
   bool _loggingOut = false;
+  Future<void>? _cleanupFuture;
+  String? _cleanupOwnerHash;
 
   /// R7 主同步（single-flight + force 队列，§ A）。
   Future<XbSyncOutcome> sync({bool force = false}) async {
@@ -101,29 +106,46 @@ class XboardSubscriptionService {
     _inFlight = completer;
     var outcome = XbSyncOutcome.failed;
     try {
-      outcome = await _doSync();
-      if (_pendingForce) {
+      final revision = _sessionRevision();
+      final token = await _tokenStorage.readToken();
+      if (token == null || token.isEmpty || !_isCurrent(revision)) {
+        outcome = XbSyncOutcome.skipped;
+        return outcome;
+      }
+      // 在网络请求前捕获归属，不能在 A 下载完成后才读取已属于 B 的 Token。
+      final ownerHash = userIdHashFromToken(token);
+      outcome = await _doSync(ownerHash, revision);
+      if (_pendingForce && await _ownsSession(ownerHash, revision)) {
         _pendingForce = false;
-        outcome = await _doSync();
+        outcome = await _doSync(ownerHash, revision);
       }
     } catch (e, s) {
       outcome = XbSyncOutcome.failed; // 永不抛。
       // #2 监测：网络/业务失败已在 _doSync 内归一为 outcome（不抛），故能到这里 = 未预期异常
       // （蓝图外的 throw）→ 上报 Sentry。dsn 空 → no-op；Sentry 按 fingerprint 去重不刷屏。
-      SentryBootstrap.captureException(e,
-          stackTrace: s, where: 'subscription sync (unexpected)');
+      SentryBootstrap.captureException(
+        e,
+        stackTrace: s,
+        where: 'subscription sync (unexpected)',
+      );
     } finally {
       completer.complete(outcome);
       _inFlight = null;
+      _pendingForce = false;
     }
     return outcome;
   }
 
-  Future<XbSyncOutcome> _doSync() async {
+  Future<XbSyncOutcome> _doSync(String ownerHash, int revision) async {
+    if (!await _ownsSession(ownerHash, revision)) return XbSyncOutcome.skipped;
     // 1. 拿订阅 URL（含 token）。失败 → 用 getSubscription 区分无套餐 / 鉴权过期。
     final subUrlResult = await _service.getSubscribeUrl();
+    if (!await _ownsSession(ownerHash, revision)) return XbSyncOutcome.skipped;
     if (subUrlResult case XbFailure()) {
       final sub = await _service.getSubscription();
+      if (!await _ownsSession(ownerHash, revision)) {
+        return XbSyncOutcome.skipped;
+      }
       if (sub case XbFailure(:final error)) {
         if (_isUnauthorized(error)) return XbSyncOutcome.authExpired;
         return XbSyncOutcome.failed;
@@ -140,40 +162,52 @@ class XboardSubscriptionService {
       originalUrl,
       candidateHosts: _candidates(),
     );
+    if (!await _ownsSession(ownerHash, revision)) return XbSyncOutcome.skipped;
     if (!result.isSuccess) {
       return _mapFetchFailure(result.failure!);
     }
 
     // 3. 写 file 型 profile（明文 YAML 字节）+ 维护外挂索引（去重：同用户同 flavor 一个 profile）。
-    // θ-8：写文件前再查一次登出 flag——若登出已发起，**不写**（避免删 profile 后又被本次 in-flight
-    // sync 重建孤儿）。logout 不 await 本 sync（slow validateConfig 可能数分钟），靠此 flag 收口。
-    if (_loggingOut) return XbSyncOutcome.skipped;
-    final userIdHash = await _currentUserIdHash();
-    final existingId =
-        await _db.findProfileId(flavorId: _flavorId, userIdHash: userIdHash);
-    final live = existingId != null && _port.currentProfileIds().contains(existingId);
+    final existingId = await _db.findProfileId(
+      flavorId: _flavorId,
+      userIdHash: ownerHash,
+    );
+    if (!await _ownsSession(ownerHash, revision)) return XbSyncOutcome.skipped;
+    final live =
+        existingId != null && _port.currentProfileIds().contains(existingId);
     try {
       final newId = await _port.putFileProfile(
         profileId: live ? existingId : null,
         yamlBytes: result.yamlBytes!,
         label: '我的套餐',
+        isSessionCurrent: () => _isCurrent(revision),
       );
-      // putFileProfile 期间（validateConfig 可能数分钟）若登出已发起 → 撤销刚写的 profile + 不写索引。
-      if (_loggingOut) {
-        try {
-          await _port.deleteProfile(newId);
-        } catch (_) {}
+      if (!await _ownsSession(ownerHash, revision)) {
+        await _discardProfile(newId);
         return XbSyncOutcome.skipped;
       }
       if (!live) {
         await _db.putIndex(
-            profileId: newId, flavorId: _flavorId, userIdHash: userIdHash);
+          profileId: newId,
+          flavorId: _flavorId,
+          userIdHash: ownerHash,
+        );
       }
+      // 清理可能发生在索引提交期间；再删除晚到提交，避免退出后重建旧账号索引。
+      if (!await _ownsSession(ownerHash, revision)) {
+        await _discardProfile(newId);
+        return XbSyncOutcome.skipped;
+      }
+    } on ProfileSyncCancelled {
+      return XbSyncOutcome.skipped;
     } catch (e, s) {
       // saveFile/validateConfig 失败（中文字符串异常，R7.9）→ failed。
       // #2 监测：写/校验 ClashMeta 配置失败是核心功能盲区（节点不更新），上报 Sentry。
-      SentryBootstrap.captureException(e,
-          stackTrace: s, where: 'subscription putProfile (saveFile/validateConfig)');
+      SentryBootstrap.captureException(
+        e,
+        stackTrace: s,
+        where: 'subscription putProfile (saveFile/validateConfig)',
+      );
       return XbSyncOutcome.failed;
     }
 
@@ -186,28 +220,55 @@ class XboardSubscriptionService {
 
   /// R7.12 退出登录删 profile + 清索引（C7）。
   Future<void> clearForLogout(String userIdHash) async {
-    final id =
-        await _db.findProfileId(flavorId: _flavorId, userIdHash: userIdHash);
-    if (id != null) {
+    await clearForSessionOwner(userIdHash);
+  }
+
+  /// SDK 已清 Token 时仍以认证编排保留的旧归属清理，不读取当前（可能为 B）的 Token。
+  /// 在任何 await 前封住服务；不等待慢下载/内核校验，晚到响应由会话 guard 丢弃。
+  /// 清理失败保留该条索引并继续其他记录，最后报告失败，便于后续恢复。
+  Future<void> clearForSessionOwner(String ownerHash) {
+    _loggingOut = true;
+    _pendingForce = false;
+    if (ownerHash.isEmpty || ownerHash == 'anon') return Future<void>.value();
+    // 同一个已经结束的服务只清理一次。重复认证失败/登出通知不能在新会话开始后
+    // 再次按 owner 扫描，误删新会话刚创建的 Profile。
+    if (_cleanupOwnerHash != null && _cleanupOwnerHash != ownerHash) {
+      return Future<void>.error(StateError('Session cleanup owner changed'));
+    }
+    _cleanupOwnerHash = ownerHash;
+    return _cleanupFuture ??= _clearSessionOwner(ownerHash);
+  }
+
+  Future<void> _clearSessionOwner(String ownerHash) async {
+    final ids = await _db.findProfileIds(
+      flavorId: _flavorId,
+      userIdHash: ownerHash,
+    );
+    final failures = <int>[];
+    for (final id in ids) {
       try {
         await _port.deleteProfile(id);
-      } catch (_) {}
-      await _db.deleteByProfileId(id);
+        await _db.deleteByProfileId(id);
+      } catch (e, s) {
+        failures.add(id);
+        SentryBootstrap.captureException(
+          e,
+          stackTrace: s,
+          where: 'subscription session cleanup',
+        );
+      }
+    }
+    if (failures.isNotEmpty) {
+      throw StateError('Session Profile cleanup failed for IDs: $failures');
     }
   }
 
-  /// 退出登录便捷入口（数据一致性 § B step 4）：内部用**当前 token** 算 userIdHash 再删
-  /// profile + 索引。**必须在反腐层 logout 清 token 之前调**（清 token 后 hash 变 null 找不到）。
-  ///
-  /// **θ-8 race 防御（不阻塞）**：先置 `_loggingOut`——挡新 sync + 让在途 sync 在写文件前/后
-  /// 自查 flag 跳过或自撤销（见 `_doSync`）。**不 await 在途 sync**（其 validateConfig 可能数分钟，
-  /// await 会让登出卡死）。立即删当前 userIdHash 的 profile + 索引；在途 sync 即便晚于此完成，
-  /// 也因 flag 不会重建（它会 deleteProfile 自己刚写的 + 不写索引）。删完不复位 flag——logout
-  /// 编排随后 invalidate `subscriptionServiceProvider` 重建实例，下次登录得干净的新实例。
+  /// 显式登出的兼容入口，必须仍持有旧 Token。认证失效时使用 clearForSessionOwner，
+  /// 因 SDK 此时可能已经删除 Token。立即封住旧服务，不等待在途下载/校验。
   Future<void> clearForCurrentUser() async {
     _loggingOut = true;
     final userIdHash = await _currentUserIdHash();
-    await clearForLogout(userIdHash);
+    await clearForSessionOwner(userIdHash);
   }
 
   /// §C 孤儿索引对账：FlClash 已删但索引仍存的 profileId → 清索引。
@@ -225,19 +286,18 @@ class XboardSubscriptionService {
 
   /// 加密订阅拉取失败 → 同步结果（呼应错误透传：业务类各有语义，网络/解密类归 failed）。
   XbSyncOutcome _mapFetchFailure(EncryptedSubscriptionFailure f) => switch (f) {
-        EncryptedSubscriptionFailure.unauthorized => XbSyncOutcome.authExpired,
-        EncryptedSubscriptionFailure.subscriptionExpired =>
-          XbSyncOutcome.subscriptionExpired,
-        EncryptedSubscriptionFailure.trafficExhausted =>
-          XbSyncOutcome.trafficExhausted,
-        EncryptedSubscriptionFailure.noActivePlan => XbSyncOutcome.noSubscription,
-        EncryptedSubscriptionFailure.noSubscribeUrl ||
-        EncryptedSubscriptionFailure.serverNotConfigured ||
-        EncryptedSubscriptionFailure.network ||
-        EncryptedSubscriptionFailure.decryptFailed ||
-        EncryptedSubscriptionFailure.unknown =>
-          XbSyncOutcome.failed,
-      };
+    EncryptedSubscriptionFailure.unauthorized => XbSyncOutcome.authExpired,
+    EncryptedSubscriptionFailure.subscriptionExpired =>
+      XbSyncOutcome.subscriptionExpired,
+    EncryptedSubscriptionFailure.trafficExhausted =>
+      XbSyncOutcome.trafficExhausted,
+    EncryptedSubscriptionFailure.noActivePlan => XbSyncOutcome.noSubscription,
+    EncryptedSubscriptionFailure.noSubscribeUrl ||
+    EncryptedSubscriptionFailure.serverNotConfigured ||
+    EncryptedSubscriptionFailure.network ||
+    EncryptedSubscriptionFailure.decryptFailed ||
+    EncryptedSubscriptionFailure.unknown => XbSyncOutcome.failed,
+  };
 
   bool _isUnauthorized(Object error) =>
       error.runtimeType.toString().contains('XbUnauthorized');
@@ -255,5 +315,22 @@ class XboardSubscriptionService {
   Future<String> _currentUserIdHash() async {
     final token = await _tokenStorage.readToken();
     return userIdHashFromToken(token);
+  }
+
+  bool _isCurrent(int revision) =>
+      !_loggingOut && _sessionRevision() == revision;
+
+  Future<bool> _ownsSession(String ownerHash, int revision) async {
+    if (!_isCurrent(revision)) return false;
+    final token = await _tokenStorage.readToken();
+    return _isCurrent(revision) &&
+        token != null &&
+        token.isNotEmpty &&
+        userIdHashFromToken(token) == ownerHash;
+  }
+
+  Future<void> _discardProfile(int profileId) async {
+    await _port.deleteProfile(profileId);
+    await _db.deleteByProfileId(profileId);
   }
 }

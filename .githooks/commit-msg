@@ -74,7 +74,7 @@ upstream sync 例外(放行):
 跳过 (仅紧急情况, 不推荐):
     git commit --no-verify -m "..."
 
-完整规则: 项目根 .kiro/steering/conventions.md §2.4
+完整规则: Docs/CONVENTIONS.md「生成代码、版本与提交」
 EOF
     exit 1
 fi

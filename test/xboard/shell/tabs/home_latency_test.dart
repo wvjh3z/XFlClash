@@ -81,11 +81,10 @@ void main() {
       await t.pump();
     }
 
-    testWidgets('有延迟 → 显示数字 + ms 单位', (t) async {
+    testWidgets('有延迟 → 显示一半数字 + ms 单位', (t) async {
       await pump(t, 66);
-      // 新布局：延迟卡 RichText 拼接「66 ms」。
-      expect(find.textContaining('66', findRichText: true), findsOneWidget);
-      expect(find.textContaining('ms', findRichText: true), findsOneWidget);
+      expect(find.text('33 ms', findRichText: true), findsOneWidget);
+      expect(find.text('66 ms', findRichText: true), findsNothing);
     });
 
     testWidgets('无延迟(null) → 显示 --', (t) async {

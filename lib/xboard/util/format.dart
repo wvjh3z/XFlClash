@@ -1,4 +1,4 @@
-/// 形态 A 通用格式化助手（金额 / 日期 / 流量 / 百分比）。
+/// 形态 A 通用格式化助手（金额 / 日期 / 流量 / 百分比 / 延迟）。
 ///
 /// **设计意图**：金额 `¥x.toStringAsFixed(2)`、日期 `YYYY-MM-DD`、流量 GB、百分比等
 /// 格式化散落在 9+ 处页面，各写一份易飘（精度/分隔/语义不一致）。集中到此，改一处全改。
@@ -14,6 +14,11 @@ String xbYuanMinus(double yuan) => '-¥${yuan.abs().toStringAsFixed(2)}';
 
 /// 字节 → GB（保留 1 位小数，不带单位）：`245.7`。
 String xbGb(int bytes) => (bytes / (1024 * 1024 * 1024)).toStringAsFixed(1);
+
+/// 正数原始延迟 → 首页和节点列表的显示数字（原始 ms ÷ 2，不带单位）。
+/// 除以 2 后向下取整；调用方先按原始值处理未知、测速中和超时状态。
+/// 仅用于文字展示，不回写测速结果或参与选优、排序、颜色判断。
+String xbLatencyDisplay(int rawMs) => (rawMs ~/ 2).toString();
 
 /// 日期 `YYYY-MM-DD`。
 String xbDate(DateTime d) =>

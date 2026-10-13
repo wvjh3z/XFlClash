@@ -20,6 +20,7 @@ import 'package:fl_clash/providers/providers.dart'
 import 'package:fl_clash/xboard/providers/auth_state_provider.dart';
 import 'package:fl_clash/xboard/providers/xboard_providers.dart';
 import 'package:fl_clash/xboard/shell/tabs/home/home_tab.dart';
+import 'package:fl_clash/xboard/shell/tabs/home/home_latency_provider.dart';
 import 'package:fl_clash/xboard/shell/tabs/home/xb_connect_orb.dart';
 import 'package:fl_clash/xboard/shell/tabs/home/xb_ip_card.dart';
 import 'package:fl_clash/xboard/shell/tabs/home/xb_line_card.dart';
@@ -33,9 +34,10 @@ class _FakeAuth extends AuthStateNotifier {
   AuthState build() => _initial;
 }
 
-Future<void> pumpDesktopHome(
+Future<ProviderContainer> pumpDesktopHome(
   WidgetTester tester, {
   required AuthState auth,
+  int? rawLatency,
 }) async {
   // 桌面宽窗视口（1280×800）。
   await tester.binding.setSurfaceSize(const Size(1280, 800));
@@ -77,6 +79,9 @@ Future<void> pumpDesktopHome(
   addTearDown(container.dispose);
   container.read(bootstrapReadyProvider.notifier).set(true);
   container.read(coreStatusProvider.notifier).value = CoreStatus.disconnected;
+  if (rawLatency != null) {
+    container.read(homeLatencyProvider.notifier).setResult(rawLatency);
+  }
   await tester.pumpWidget(
     UncontrolledProviderScope(
       container: container,
@@ -84,11 +89,20 @@ Future<void> pumpDesktopHome(
     ),
   );
   await tester.pump();
+  return container;
 }
 
 void main() {
   testWidgets('桌面已登录：左栏连接球/速率 + 右栏线路/模式/出口，左右分栏', (tester) async {
-    await pumpDesktopHome(tester, auth: AuthState.authenticated);
+    final container = await pumpDesktopHome(
+      tester,
+      auth: AuthState.authenticated,
+      rawLatency: 121,
+    );
+    expect(find.text('60 ms', findRichText: true), findsOneWidget);
+    expect(find.text('60.5 ms', findRichText: true), findsNothing);
+    expect(find.text('121 ms', findRichText: true), findsNothing);
+    expect(container.read(homeLatencyProvider).ms, 121);
 
     // 五个子组件齐全（连接球 + 速率磁贴 + 线路 + 模式 + 出口）。
     expect(find.byType(XbConnectOrb), findsOneWidget);

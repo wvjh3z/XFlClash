@@ -4,7 +4,7 @@
 #
 # What:
 #   commit 之前自动跑 DD-21 行号锚点校验（tool/check-line-anchors.dart），
-#   确保 flclash-anchors.md / PATCHES.md 登记的 FlClash 真实代码引用未漂移。
+#   确保 Docs/FLCLASH_ANCHORS.md / PATCHES.md 的真实代码引用未漂移。
 #
 # Why（conventions §3.6 / 用户强调「记录好，影响后期 FlClash sync」）:
 #   接缝点 + 锚点是上游 sync 的命脉。若有人改了 FlClash 既有文件（接缝点上下文）
@@ -14,18 +14,19 @@
 #   仅当本次 staged 改动触及以下任一时才跑校验：
 #     - 任何接缝点 / 锚点指向的 FlClash 既有文件（lib/main.dart, lib/common/,
 #       lib/state.dart, lib/providers/, lib/models/, lib/enum/, android gradle）
-#     - 锚点清单 flclash-anchors.md 本身
 #     - 校验器 tool/check-line-anchors.dart 本身
+#   Docs 是独立仓库；只改文档需在 Docs/DEVELOPMENT.md 所列流程中手动跑守卫。
 #
 # 跳过（仅紧急，不推荐）:
 #   git commit --no-verify -m "..."
 #
 # 安装: bash tool/setup-hooks.sh
-# 关联: conventions §3.3/§3.6 / DD-21 / .kiro/PATCHES.md
+# 关联: Docs/CONVENTIONS.md / Docs/FLCLASH_ANCHORS.md / Docs/PATCHES.md
 ###############################################################################
 set -euo pipefail
 
 REPO_ROOT="$(git rev-parse --show-toplevel)"
+cd "$REPO_ROOT"
 VALIDATOR="$REPO_ROOT/tool/check-line-anchors.dart"
 
 # 校验器不存在（老 working copy）则跳过，向后兼容
@@ -50,15 +51,15 @@ fi
 echo "[pre-commit] 检测到接缝点/锚点相关文件变动 → 跑 DD-21 行号锚点 + 接缝点白名单校验…"
 
 # (a) DD-21 行号锚点校验（已登记接缝点行号是否漂移）
-if ! dart run "$VALIDATOR" --anchors "$REPO_ROOT/../.kiro/specs/xboard-mvp-form-b/flclash-anchors.md" 2>&1; then
+if ! dart run "$VALIDATOR" 2>&1; then
     cat >&2 <<'EOF'
 
 [pre-commit] ✗ 行号锚点校验未通过 —— FlClash 引用已漂移/丢失。
 
-修复（conventions §3.3 步骤 4）：三处同步改，缺一不可
-  ① flclash-anchors.md 的 ```anchors 块行号
-  ② .kiro/PATCHES.md 对应接缝点段行号 + diff 上下文
-  ③ design.md 里引用该位置的正文
+修复（Docs/DEVELOPMENT.md 上游同步）：核对三个当前维护位置
+  ① Docs/FLCLASH_ANCHORS.md 的 ```anchors 块行号
+  ② Docs/PATCHES.md 对应接缝点段行号 + diff 上下文
+  ③ Docs/ARCHITECTURE.md 的现行调用链与定位引用
 改完重跑 `dart run tool/check-line-anchors.dart` 直到全命中。
 
 紧急跳过（不推荐，会把漂移带进历史）: git commit --no-verify -m "..."
@@ -69,13 +70,17 @@ fi
 # (b) 接缝点白名单完整性校验（改了 FlClash 既有文件却没登记 PATCHES.md）
 SEAM_VALIDATOR="$REPO_ROOT/tool/check-seam-whitelist.dart"
 if [[ -f "$SEAM_VALIDATOR" ]]; then
-    if ! dart run "$SEAM_VALIDATOR" 2>&1; then
+    # 克隆不一定有 upstream/main；允许显式选择经核对的真实上游提交。
+    # 不退回 HEAD，否则会把只检查本次改动误写成完整 fork 检查。
+    SEAM_BASELINE="$(git config --get xflclash.seamBaseline || true)"
+    SEAM_BASELINE="${SEAM_BASELINE:-upstream/main}"
+    if ! dart run "$SEAM_VALIDATOR" --baseline "$SEAM_BASELINE" 2>&1; then
         cat >&2 <<'EOF'
 
 [pre-commit] ✗ 接缝点白名单校验未通过 —— 改了 FlClash 既有文件但未登记 PATCHES.md。
 
-修复（conventions §1.2）：
-  - 有意接缝点 → 先 chat 确认扩白名单 → PATCHES.md 加接缝点段（diff + 锚点）
+修复（Docs/CONVENTIONS.md）：
+  - 有意接缝点 → 核对任务授权，未授权时确认范围 → PATCHES.md 加接缝点段（diff + 锚点）
   - 误改 upstream → git checkout 还原
 
 紧急跳过（不推荐）: git commit --no-verify -m "..."

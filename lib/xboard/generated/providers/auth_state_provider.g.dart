@@ -8,21 +8,12 @@ part of '../../providers/auth_state_provider.dart';
 
 // GENERATED CODE - DO NOT MODIFY BY HAND
 // ignore_for_file: type=lint, type=warning
-/// 登录态 provider（keepAlive，DD-19）。
-///
-/// **W3.2 不在 W1.6 基础设施集**：单独建避免 codegen 同名冲突（design §I 注）。
 
 @ProviderFor(AuthStateNotifier)
 final authStateProvider = AuthStateNotifierProvider._();
 
-/// 登录态 provider（keepAlive，DD-19）。
-///
-/// **W3.2 不在 W1.6 基础设施集**：单独建避免 codegen 同名冲突（design §I 注）。
 final class AuthStateNotifierProvider
     extends $NotifierProvider<AuthStateNotifier, AuthState> {
-  /// 登录态 provider（keepAlive，DD-19）。
-  ///
-  /// **W3.2 不在 W1.6 基础设施集**：单独建避免 codegen 同名冲突（design §I 注）。
   AuthStateNotifierProvider._()
     : super(
         from: null,
@@ -50,11 +41,7 @@ final class AuthStateNotifierProvider
   }
 }
 
-String _$authStateNotifierHash() => r'58407b37600fff820ce37cc3d8c3535f56297ffa';
-
-/// 登录态 provider（keepAlive，DD-19）。
-///
-/// **W3.2 不在 W1.6 基础设施集**：单独建避免 codegen 同名冲突（design §I 注）。
+String _$authStateNotifierHash() => r'e63cfd9781d31501bce944710504c332b2e61663';
 
 abstract class _$AuthStateNotifier extends $Notifier<AuthState> {
   AuthState build();

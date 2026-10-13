@@ -5,6 +5,8 @@
 /// Property 3：7 个 SdkError 子类全覆盖映射 + 旧异常体系 3 子类 + catch-all 兜底
 /// Property 4：XbResult 分支名 XbSuccess/XbFailure（非 Ok/Err，编译期穷举）
 
+library;
+
 import 'dart:io';
 import 'dart:math';
 
@@ -49,8 +51,12 @@ void main() {
         case 5:
           return const SecurityError('m');
         default:
-          return UnexpectedError('m',
-              cause: 'c', stackTrace: StackTrace.empty, operation: 'op');
+          return const UnexpectedError(
+            'm',
+            cause: 'c',
+            stackTrace: StackTrace.empty,
+            operation: 'op',
+          );
       }
     }
 
@@ -88,26 +94,42 @@ void main() {
 
   group('Property 3：7 SdkError 子类全覆盖 + 旧异常 3 子类 + 兜底', () {
     Future<XbDomainError> mapVia(SdkError e) async {
-      when(() => apis.authApi.loginResult(any(), any()))
-          .thenAnswer((_) async => Failure(e));
+      when(
+        () => apis.authApi.loginResult(any(), any()),
+      ).thenAnswer((_) async => Failure(e));
       return ((await service.login('a@b.com', 'pw')) as XbFailure).error;
     }
 
     test('7 SdkError 子类各映射到对应 XbDomainError', () async {
       expect(await mapVia(const UnauthorizedError('m')), isA<XbUnauthorized>());
-      expect(await mapVia(const RateLimitError('m', kind: RateLimitKind.generic)),
-          isA<XbRateLimit>());
-      expect(await mapVia(const BusinessError('m', httpStatusCode: 400)),
-          isA<XbBusiness>());
-      expect(await mapVia(const NetworkError('m', kind: NetworkErrorKind.unknown)),
-          isA<XbNetwork>());
-      expect(await mapVia(const ServerError('m', httpStatusCode: 500)),
-          isA<XbServer>());
+      expect(
+        await mapVia(const RateLimitError('m', kind: RateLimitKind.generic)),
+        isA<XbRateLimit>(),
+      );
+      expect(
+        await mapVia(const BusinessError('m', httpStatusCode: 400)),
+        isA<XbBusiness>(),
+      );
+      expect(
+        await mapVia(const NetworkError('m', kind: NetworkErrorKind.unknown)),
+        isA<XbNetwork>(),
+      );
+      expect(
+        await mapVia(const ServerError('m', httpStatusCode: 500)),
+        isA<XbServer>(),
+      );
       expect(await mapVia(const SecurityError('m')), isA<XbSecurity>());
       expect(
-          await mapVia(UnexpectedError('m',
-              cause: 'c', stackTrace: StackTrace.empty, operation: 'o')),
-          isA<XbUnexpected>());
+        await mapVia(
+          const UnexpectedError(
+            'm',
+            cause: 'c',
+            stackTrace: StackTrace.empty,
+            operation: 'o',
+          ),
+        ),
+        isA<XbUnexpected>(),
+      );
     });
 
     test('旧异常体系 3 子类（throw 形态）→ 对应映射', () async {
@@ -127,9 +149,9 @@ void main() {
   group('Property 4：XbResult 分支名 XbSuccess/XbFailure（非 Ok/Err）', () {
     test('sealed switch 编译期穷举两分支', () {
       String label(XbResult<int> r) => switch (r) {
-            XbSuccess<int>() => 'success',
-            XbFailure<int>() => 'failure',
-          };
+        XbSuccess<int>() => 'success',
+        XbFailure<int>() => 'failure',
+      };
       expect(label(const XbSuccess(1)), 'success');
       expect(label(const XbFailure(XbUnauthorized('x'))), 'failure');
     });
@@ -137,12 +159,16 @@ void main() {
 
   // W2.8.3：恶意构造响应（θ-11）→ 走 XbUnexpected 不闪退（NFR-7/R11.5）
   group('W2.8.3 θ-11 恶意响应 broad catch', () {
-    test('SDK getSubscription 抛 TypeError（如 total_amount="abc"）→ XbUnexpected', () async {
-      when(() => apis.subscriptionApi.getSubscription())
-          .thenThrow(TypeError());
-      final r = await service.getSubscription();
-      expect((r as XbFailure).error, isA<XbUnexpected>());
-    });
+    test(
+      'SDK getSubscription 抛 TypeError（如 total_amount="abc"）→ XbUnexpected',
+      () async {
+        when(
+          () => apis.subscriptionApi.getSubscription(),
+        ).thenThrow(TypeError());
+        final r = await service.getSubscription();
+        expect((r as XbFailure).error, isA<XbUnexpected>());
+      },
+    );
   });
 
   // Property 2：UI/Provider 0 处 import SDK barrel（唯一例外 xboard_service_impl.dart）
@@ -150,15 +176,17 @@ void main() {
     test('lib/xboard/ 下仅 xboard_service_impl.dart import SDK barrel', () {
       final dir = Directory('lib/xboard');
       final offenders = <String>[];
-      for (final f in dir
-          .listSync(recursive: true)
-          .whereType<File>()
-          .where((f) => f.path.endsWith('.dart'))) {
+      for (final f
+          in dir
+              .listSync(recursive: true)
+              .whereType<File>()
+              .where((f) => f.path.endsWith('.dart'))) {
         // 跳过生成产物（freezed/g.dart 不 import SDK barrel）
         if (f.path.contains('/generated/')) continue;
         final src = f.readAsStringSync();
-        final importsSdk =
-            src.contains("import 'package:flutter_xboard_sdk/flutter_xboard_sdk.dart'");
+        final importsSdk = src.contains(
+          "import 'package:flutter_xboard_sdk/flutter_xboard_sdk.dart'",
+        );
         if (!importsSdk) continue;
         final base = f.uri.pathSegments.last;
         // 允许：反腐层 impl（唯一桥梁）+ 仅用 SDK enum/type 别名的 models/providers
@@ -167,14 +195,18 @@ void main() {
         // 故校验「非 impl 文件若 import，必须用 show 限定（不全量穿透）」。
         if (base == 'xboard_service_impl.dart') continue;
         final usesShow = RegExp(
-                r"import 'package:flutter_xboard_sdk/flutter_xboard_sdk\.dart'\s+show ")
-            .hasMatch(src);
+          r"import 'package:flutter_xboard_sdk/flutter_xboard_sdk\.dart'\s+(?:as\s+\w+\s+)?show ",
+        ).hasMatch(src);
         if (!usesShow) {
           offenders.add(f.path);
         }
       }
-      expect(offenders, isEmpty,
-          reason: '以下文件全量 import SDK barrel（应只 impl 或 show 限定）：\n${offenders.join('\n')}');
+      expect(
+        offenders,
+        isEmpty,
+        reason:
+            '以下文件全量 import SDK barrel（应只 impl 或 show 限定）：\n${offenders.join('\n')}',
+      );
     });
   });
 }

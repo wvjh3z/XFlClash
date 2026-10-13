@@ -1,7 +1,11 @@
-# MyClient 形态 A · UI 框架参考
+<!-- docs-migration:start -->
+> **持续维护的 UI 专项参考。** 当前跨仓规则见 [CONVENTIONS](https://github.com/wvjh3z/proxy-suite-docs/blob/main/CONVENTIONS.md)，实现与验证状态见 [STATUS](https://github.com/wvjh3z/proxy-suite-docs/blob/main/STATUS.md)。本文件继续维护组件/token/guard 用法，不重复跨仓规则与版本状态。Docs 为私有仓库，需要 GitHub 授权；本地 checkout 路径为客户端平级的 `Docs/`。
+<!-- docs-migration:end -->
 
-> 适用范围：`lib/xboard/` 自有 UI 层（形态 A 商业客户端 MyClient）。
-> 设计真源：spec `xboard-form-a-ui-revamp` 原型 `prototype/full.html`(CSS) + `full.js`(各屏渲染)。
+# XFlclash 形态 A · UI 框架参考
+
+> 适用范围：`lib/xboard/` 自有 UI 层（形态 A 商业客户端 XFlclash）。
+> 设计原型源：[移动端 full.html](https://github.com/wvjh3z/proxy-suite-docs/blob/main/prototypes/xflclash/full.html)（CSS）+ [full.js](https://github.com/wvjh3z/proxy-suite-docs/blob/main/prototypes/xflclash/full.js)（各屏渲染），桌面端见 [full-win.html](https://github.com/wvjh3z/proxy-suite-docs/blob/main/prototypes/xflclash/full-win.html)；[维护与预览说明](https://github.com/wvjh3z/proxy-suite-docs/blob/main/prototypes/xflclash/README.md)。原型已迁入当前 Docs 仓库，旧 spec 仅保留设计背景。
 > 本文档为「加页面 / 改页面」时的组件与 token 速查表，避免散改、避免重复造轮子。
 
 ## 0. 分层总览
@@ -20,7 +24,7 @@ lib/xboard/widgets/
 lib/xboard/shell/sheets/
 └── sheet_scaffold.dart  认证 sheet 外壳 + 邮箱/验证码字段
 lib/xboard/util/
-└── format.dart          金额/流量/日期/百分比格式化
+└── format.dart          金额/流量/日期/百分比/延迟格式化
 ```
 
 **设计原则**
@@ -254,7 +258,7 @@ XbFitText(xbYuan(p.amountYuan), alignment: Alignment.center, ...);          // �
 | `xbBrandColor()` | 取当前 flavor 品牌色。 |
 | `xbToast(context, message)` | 顶部/底部轻提示。 |
 | `xbConfirm(context, {title, message, confirmLabel, cancelLabel, destructive})` | 二次确认对话框，返回 `Future<bool>`。 |
-| `XbCenterToast`（xb_center_toast.dart） | 屏幕中央浮层提示（连接拦截等）。 |
+| `XbCenterToast`（xb_center_toast.dart） | 居中浮层提示；默认琥珀色，支持可选 title 与 XbToastTone（warning/info/success/error/neutral）。show 返回可选关闭回调，所属页面在换账号/离页时关闭自己的提示，不影响后来显示的另一条提示；默认调用方式保留。 |
 
 ### 7.2 格式化（util/format.dart）
 | 函数 | 输出 |
@@ -265,6 +269,7 @@ XbFitText(xbYuan(p.amountYuan), alignment: Alignment.center, ...);          // �
 | `xbDate(DateTime)` | `2026-06-05` |
 | `xbDateTime(DateTime)` | `2026-06-05 12:30` |
 | `xbPercentInt(double 0~1)` | `98`（整数百分比） |
+| `xbLatencyDisplay(int rawMs)` | 正数原始 ms 除以 2 后向下取整；只供首页和节点文字显示，调用方先处理未知/测速中/超时，不回写原始结果或参与选优、排序、颜色判断 |
 
 ---
 
@@ -280,7 +285,7 @@ XbFitText(xbYuan(p.amountYuan), alignment: Alignment.center, ...);          // �
 8. **图标方块**：用 `XbIconBadge`，不手写 Container+BoxDecoration+Icon。
 9. **金额/日期/流量**：用 `util/format.dart`，不在页面里 `toStringAsFixed`。
 10. **弹窗**：说明类用 `XbInfoSheet`；确认类用 `xbConfirm`；认证类用 `XbSheetScaffold`。
-11. **验证**：改完 `flutter analyze lib/xboard` → 视觉变更跑 golden（`--update-goldens`）→ 三守卫。
+11. **验证**：按改动执行静态检查和对应 Widget/golden 测试，再跑适配层导入、主题入口与锚点守卫。只有确认实际视觉变更并审阅图片后才限定范围使用 `--update-goldens`，随后不带 update 重新验证；环境与失败边界见 [golden README](../test/xboard/golden/README.md)。
 
 ---
 
@@ -296,4 +301,4 @@ XbFitText(xbYuan(p.amountYuan), alignment: Alignment.center, ...);          // �
 | `test/xboard/golden/home_states_golden_test.dart` | 首页游客/未连接/已连接 |
 | `test/xboard/golden/a11y_golden_test.dart` | 套餐详情/支付页 × light/dark × 1.0/1.5/2.0 + 对比度 |
 
-> 视觉改动后用 `--update-goldens` 刷新 baseline；golden 不带 update 跑通 = 像素零变化（用于验证「纯重构不改外观」）。
+> 正常回归不带 `--update-goldens`；像素失配先核对字体、Flutter 环境和实际界面变化。需要刷新时限定测试范围并审阅图片，随后不带 update 复测。像素匹配证明该夹具和环境下与基线一致，不代替真实设备或全部业务流程验收。

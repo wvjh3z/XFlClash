@@ -1,5 +1,5 @@
-/// 反腐层实现 —— **全工程唯一** `import 'package:flutter_xboard_sdk/flutter_xboard_sdk.dart'`
-/// 的文件（conventions §2.1 / F410）。
+/// 反腐层实现：在此消费 SDK 面板业务接口并映射为客户端领域模型。
+/// 基础设施 provider 可通过 show 限定导入已登记的公共会话类型。
 ///
 /// **注入式构造（决策 #9）**：`XboardServiceImpl({required XBoardSDK sdk})` —— 生产端从
 /// `xboardSdkProvider` 读 `XBoardSDK.instance`，测试端注入 fake（W0.3）。conventions §2.2
@@ -12,8 +12,7 @@
 /// 绝不向 UI 抛异常（含 SDK 内部 `fromJson` 的 TypeError，θ-11 broad catch）。`fireAllMirrors`
 /// 是 void fire-and-forget 例外。
 ///
-/// **θ-8 in-flight race 防御**：logout 期间置 `_isLoggingOut=true`，success 回调写 cache 前
-/// 先查该 flag（W3.6 / W4.4 用 `_writeIfNotLoggingOut` 守卫）。
+/// 会话结束永久封住旧实例；每次请求还核对 SDK revision，拒绝旧响应与跨账号重试。
 library;
 
 import 'package:flutter_xboard_sdk/flutter_xboard_sdk.dart';
@@ -36,14 +35,16 @@ import 'xboard_service.dart';
 /// 使用教程取自知识库的「官方客户端」分类（用户确认的确切分类名）。
 const String _kTutorialCategory = '官方客户端';
 
-class XboardServiceImpl implements XboardService {
+class XboardServiceImpl implements XboardService, XboardSessionLifecycle {
   XboardServiceImpl({
     required XBoardSDK sdk,
     SubscriptionCache? subscriptionCache,
     Future<void> Function()? apiFailover,
-  })  : _sdk = sdk,
-        _subscriptionCache = subscriptionCache ?? SubscriptionCache(),
-        _apiFailover = apiFailover;
+  }) : _sdk = sdk,
+       _subscriptionCache = subscriptionCache ?? SubscriptionCache(),
+       _apiFailover = apiFailover {
+    _boundSdkRevision = _sdkRevision;
+  }
 
   final XBoardSDK _sdk;
 
@@ -56,14 +57,58 @@ class XboardServiceImpl implements XboardService {
   /// （测试 / SDK 未就绪）→ 退化为不重试（行为同旧版）。
   final Future<void> Function()? _apiFailover;
 
-  /// θ-8：logout 期间为 true，反腐层 success 回调写 cache 前先查（W3.6 填实清理链时置位）。
-  // ignore: prefer_final_fields  (W3.6 logout 会写 true/false，非 final)
   bool _isLoggingOut = false;
+  int _operationEpoch = 0;
+  late final int? _boundSdkRevision;
 
-  /// in-flight 写守卫（θ-8）：logout 期间丢弃 success 写入（design § B 末段）。
-  Future<void> _writeIfNotLoggingOut(Future<void> Function() writeOp) async {
-    if (_isLoggingOut) return;
-    await writeOp();
+  int? get _sdkRevision {
+    try {
+      return _sdk.authSession.revision;
+    } catch (_) {
+      // 未初始化 SDK / 旧测试替身没有会话快照；生产 bootstrap 后总有 revision。
+      return null;
+    }
+  }
+
+  bool _isCurrent(int epoch, int? revision) =>
+      !_isLoggingOut &&
+      _operationEpoch == epoch &&
+      _boundSdkRevision == revision &&
+      _sdkRevision == revision;
+
+  XbResult<T> _stale<T>() => XbResult.failure(
+    XbDomainError.network(NetworkErrorKind.cancelled, '请求所属会话已结束'),
+  );
+
+  @override
+  void invalidateSessionRequests() {
+    _operationEpoch++;
+    _isLoggingOut = true;
+  }
+
+  @override
+  Future<void> endSession({
+    required String? ownerHash,
+    required int? sdkRevision,
+    required bool expired,
+  }) async {
+    invalidateSessionRequests();
+    // SDK 已自动失效时不再清 Token；手动退出只清被捕获的 revision。
+    // 不能在慢 Profile/cache 清理完成后无条件清当前 Token。
+    if (!expired && sdkRevision != null) {
+      try {
+        await _sdk.clearTokenIfSession(sdkRevision);
+      } catch (e, s) {
+        SentryBootstrap.captureException(
+          e,
+          stackTrace: s,
+          where: 'auth token delete',
+        );
+      }
+    }
+    if (ownerHash != null && ownerHash != 'anon') {
+      await _subscriptionCache.clearForOwner(ownerHash);
+    }
   }
 
   // ───────── _mapError：SdkError sealed → XbDomainError（DD-3/D26/D67，唯一翻译入口）─────────
@@ -71,18 +116,22 @@ class XboardServiceImpl implements XboardService {
   // 🟡 C37：XbBusiness 故意不持 SDK BusinessError.httpStatusCode（业务层不暴露 HTTP 细节）；
   // ServerError.httpStatusCode 仅给 XbServer（"服务端故障"语义，UI 不分 4xx/5xx 细分）。
   XbDomainError _mapError(SdkError e) => switch (e) {
-        UnauthorizedError() => XbDomainError.unauthorized(e.message),
-        RateLimitError(:final kind, :final retryAfterMinutes) =>
-          XbDomainError.rateLimit(kind, retryAfterMinutes, e.message),
-        BusinessError(:final kind, :final validationErrors) =>
-          XbDomainError.business(kind, e.message, validationErrors),
-        NetworkError(:final kind) => XbDomainError.network(kind, e.message),
-        ServerError(:final httpStatusCode) =>
-          XbDomainError.server(httpStatusCode, e.message),
-        SecurityError() => XbDomainError.security(e.message),
-        UnexpectedError(:final operation) =>
-          XbDomainError.unexpected(operation, e.message),
-      };
+    UnauthorizedError() => XbDomainError.unauthorized(e.message),
+    RateLimitError(:final kind, :final retryAfterMinutes) =>
+      XbDomainError.rateLimit(kind, retryAfterMinutes, e.message),
+    BusinessError(:final kind, :final validationErrors) =>
+      XbDomainError.business(kind, e.message, validationErrors),
+    NetworkError(:final kind) => XbDomainError.network(kind, e.message),
+    ServerError(:final httpStatusCode) => XbDomainError.server(
+      httpStatusCode,
+      e.message,
+    ),
+    SecurityError() => XbDomainError.security(e.message),
+    UnexpectedError(:final operation) => XbDomainError.unexpected(
+      operation,
+      e.message,
+    ),
+  };
 
   /// throw 形态归一（design L797-833 + C37）：旧异常体系 3 子类 + catch-all 兜底。
   ///
@@ -91,7 +140,11 @@ class XboardServiceImpl implements XboardService {
     String operation,
     Future<T> Function() body,
   ) async {
+    final epoch = _operationEpoch;
+    final revision = _sdkRevision;
+    if (!_isCurrent(epoch, revision)) return _stale<T>();
     final first = await _runGuarded(operation, body);
+    if (!_isCurrent(epoch, revision)) return _stale<T>();
     // 失败且可换域名挽救（网络/服务端类）→ failOver 切域名后重试一次。业务/鉴权类换域名无用，不重试。
     if (first case XbFailure(:final error) when _shouldFailover(error)) {
       final hook = _apiFailover;
@@ -101,7 +154,9 @@ class XboardServiceImpl implements XboardService {
         } catch (_) {
           // failOver 内部永不抛；保险吞错。
         }
-        return _runGuarded(operation, body); // 用（可能已切换的）新域名重试一次。
+        if (!_isCurrent(epoch, revision)) return _stale<T>();
+        final retry = await _runGuarded(operation, body);
+        return _isCurrent(epoch, revision) ? retry : _stale<T>();
       }
     }
     return first;
@@ -118,26 +173,34 @@ class XboardServiceImpl implements XboardService {
       return XbResult.failure(XbDomainError.unauthorized(e.message));
     } on NetworkException catch (e) {
       return XbResult.failure(
-          XbDomainError.network(NetworkErrorKind.unknown, e.message));
+        XbDomainError.network(NetworkErrorKind.unknown, e.message),
+      );
     } on ApiException catch (e) {
       return XbResult.failure(
-          XbDomainError.business(BusinessErrorKind.generic, e.message, null));
+        XbDomainError.business(BusinessErrorKind.generic, e.message, null),
+      );
     } catch (e, s) {
       // #1 监测：θ-11 catch-all = SDK 抛了未预期异常（fromJson TypeError / 后端结构变更等）。
       // 「本不该发生」的盲区 → 上报 Sentry（带 operation 上下文）。预期错（auth/network/business
       // 已在上面分流）不报，零噪音；dsn 空 → no-op。
-      SentryBootstrap.captureException(e, stackTrace: s, where: 'api:$operation');
-      return XbResult.failure(XbDomainError.unexpected(operation, e.toString()));
+      SentryBootstrap.captureException(
+        e,
+        stackTrace: s,
+        where: 'api:$operation',
+      );
+      return XbResult.failure(
+        XbDomainError.unexpected(operation, e.toString()),
+      );
     }
   }
 
   /// 该错误是否值得「换域名重试」：仅网络不可达 / 服务端故障（当前域名被墙或挂了，换一个可能通）。
   /// 鉴权失效、业务错误（如优惠码无效）、安全错误换域名也救不了 → 不重试，避免无谓延迟。
   static bool _shouldFailover(XbDomainError error) => switch (error) {
-        XbNetwork() => true,
-        XbServer() => true,
-        _ => false,
-      };
+    XbNetwork() => true,
+    XbServer() => true,
+    _ => false,
+  };
 
   /// SdkResult 形态归一（switch 解构，Success/Failure 非 Ok/Err，F410）。
   XbResult<R> _fromSdkResult<S, R>(SdkResult<S> r, R Function(S data) map) =>
@@ -153,14 +216,20 @@ class XboardServiceImpl implements XboardService {
     Future<SdkResult<S>> Function() body,
     R Function(S data) map,
   ) async {
+    final epoch = _operationEpoch;
+    final revision = _sdkRevision;
+    if (!_isCurrent(epoch, revision)) return _stale<R>();
     final first = await _runGuardedSdk(operation, body, map);
+    if (!_isCurrent(epoch, revision)) return _stale<R>();
     if (first case XbFailure(:final error) when _shouldFailover(error)) {
       final hook = _apiFailover;
       if (hook != null) {
         try {
           await hook();
         } catch (_) {}
-        return _runGuardedSdk(operation, body, map);
+        if (!_isCurrent(epoch, revision)) return _stale<R>();
+        final retry = await _runGuardedSdk(operation, body, map);
+        return _isCurrent(epoch, revision) ? retry : _stale<R>();
       }
     }
     return first;
@@ -175,8 +244,14 @@ class XboardServiceImpl implements XboardService {
       return _fromSdkResult(await body(), map);
     } catch (e, s) {
       // #1 监测：SDK adapter 理论返 SdkResult 不抛，真抛 = 未预期（panel TypeError 等）→ 上报。
-      SentryBootstrap.captureException(e, stackTrace: s, where: 'api:$operation');
-      return XbResult.failure(XbDomainError.unexpected(operation, e.toString()));
+      SentryBootstrap.captureException(
+        e,
+        stackTrace: s,
+        where: 'api:$operation',
+      );
+      return XbResult.failure(
+        XbDomainError.unexpected(operation, e.toString()),
+      );
     }
   }
 
@@ -184,6 +259,8 @@ class XboardServiceImpl implements XboardService {
 
   @override
   Future<XbResult<String>> login(String email, String password) async {
+    final epoch = _operationEpoch;
+    final revision = _sdkRevision;
     // SdkResult 形态 + Property 1 异常防御（D69 email 预处理 trim+lowercase）。
     final result = await _guardSdkResult<String, String>(
       'login',
@@ -194,9 +271,26 @@ class XboardServiceImpl implements XboardService {
     // `loginWithCredentials` 才存）；反腐层必须显式 saveToken，否则后续 API 无 Authorization。
     if (result case XbSuccess(:final data)) {
       try {
-        await _sdk.saveToken(data);
-      } catch (_) {
-        // 存储失败不改变登录结果（Property 1 永不抛）；下次启动需重登。
+        if (revision == null) {
+          return XbResult.failure(XbDomainError.unexpected('login', '认证服务未就绪'));
+        }
+        final saved = await _sdk.saveTokenIfSession(data, revision);
+        if (saved == null) return _stale<String>();
+        if (_operationEpoch != epoch || _isLoggingOut) {
+          // 慢 save 已入队，退出未必能清其新 revision。只撤销本次保存，保留后来的 B。
+          await _sdk.clearTokenIfSession(saved.revision);
+          return _stale<String>();
+        }
+        if (_sdkRevision != saved.revision) return _stale<String>();
+      } catch (e, s) {
+        SentryBootstrap.captureException(
+          e,
+          stackTrace: s,
+          where: 'auth token save',
+        );
+        return XbResult.failure(
+          XbDomainError.unexpected('login', '登录信息保存失败，请重试'),
+        );
       }
     }
     return result;
@@ -239,48 +333,45 @@ class XboardServiceImpl implements XboardService {
     String newPassword,
   ) async {
     // throw 形态（SDK forgotPassword 无 Result 变体）。
-    return _guard('forgotPassword',
-        () => _sdk.auth.forgotPassword(email.toLowerCase().trim(), code, newPassword));
+    return _guard(
+      'forgotPassword',
+      () => _sdk.auth.forgotPassword(
+        email.toLowerCase().trim(),
+        code,
+        newPassword,
+      ),
+    );
   }
 
   @override
   Future<XbResult<void>> logout() async {
-    // W3.6 数据层 logout（数据一致性总章 § B）—— θ-8 in-flight race 防御 + θ-2 服务端撤销。
-    //
-    // 本方法负责「SDK / token」侧（step 0 + step 5）；完整 7 步中的离线缓存清理（step 2）、
-    // 订阅 path 清理（step 3）、外挂索引 + profile 删除（step 4）依赖 W4/W6/W7 才建的
-    // drift 索引表 + SharedPreferences 缓存，在那些 wave 接入（已留 hook：success 写回均经
-    // _writeIfNotLoggingOut 守卫，logout 期间丢弃）。authState 切换（step 6）由
-    // AuthStateNotifier.logout() 编排（需 ref，见 auth_state_provider.dart）。
-    _isLoggingOut = true; // 🔴 θ-8：先置 flag，确保清理期间任何 in-flight success 被丢弃
     try {
-      // step 0：服务端撤销（θ-2，fire-and-forget + 3s timeout，失败不阻塞本地）。
-      // 注：XBoard 后端无 logout 端点，SDK auth.logout() 当前是 no-op 返 true；step 0 保留
-      // 调用点，待后端支持 token 撤销（v0.2 / refresh token 模型）时天然生效。
+      final snapshot = _sdk.authSession;
+      String? owner;
       try {
-        await _sdk.auth.logout().timeout(const Duration(seconds: 3));
-      } catch (_) {
-        // 服务端撤销失败不阻塞本地清理（最大努力）。
+        owner = userIdHashFromToken(await _sdk.getToken());
+      } catch (e, s) {
+        SentryBootstrap.captureException(
+          e,
+          stackTrace: s,
+          where: 'logout owner',
+        );
       }
-
-      // step 5：清本地 token —— 调 SDK clearToken() 清注入的 TokenStorage
-      // （SecureStorageTokenStorage → 删 xb_access_token_v1；SDK auth.logout() 不碰 token）。
-      // step 2（部分）：清 R6 订阅离线缓存（W4.4 已建 SubscriptionCache；需在清 token 前取 hash）。
-      try {
-        final token = await _sdk.getToken();
-        await _subscriptionCache.clear(token: token);
-      } catch (_) {
-        // 清缓存失败不阻塞（最大努力）。
-      }
-      try {
-        await _sdk.clearToken();
-      } catch (_) {
-        // 清 token 失败（storage 异常）也不抛 —— Property 1 永不抛。
-      }
-
+      await endSession(
+        ownerHash: owner,
+        sdkRevision: snapshot.revision,
+        expired: false,
+      );
       return XbResult.success(null);
-    } finally {
-      _isLoggingOut = false; // 解除 flag（authState 已由编排层切，cache 写回也无害）
+    } catch (e, s) {
+      SentryBootstrap.captureException(
+        e,
+        stackTrace: s,
+        where: 'logout local cleanup',
+      );
+      return XbResult.failure(
+        XbDomainError.unexpected('logout', '部分本地会话数据清理失败'),
+      );
     }
   }
 
@@ -295,7 +386,16 @@ class XboardServiceImpl implements XboardService {
 
   @override
   Future<XbResult<XbDomainSubscription>> getSubscription() async {
-    // throw 形态（_guard 归一）+ SubscriptionModel → XbDomainSubscription 映射（R6.8）。
+    final epoch = _operationEpoch;
+    final revision = _sdkRevision;
+    String? token;
+    try {
+      token = await _sdk.getToken();
+    } catch (_) {
+      // 缓存不可用不影响在线错误归一。
+    }
+    if (!_isCurrent(epoch, revision)) return _stale<XbDomainSubscription>();
+    // 网络发起前捕获原归属，不能响应后读取新账号 Token。
     final result = await _guard('getSubscription', () async {
       final m = await _sdk.subscription.getSubscription();
       return XbDomainSubscription(
@@ -314,15 +414,18 @@ class XboardServiceImpl implements XboardService {
     // 缓存写失败绝不影响返回结果（Property 1 永不抛）—— 整体 try/catch 吞掉。
     if (result case XbSuccess(:final data)) {
       try {
-        await _writeIfNotLoggingOut(() async {
-          final token = await _sdk.getToken();
-          await _subscriptionCache.write(data, token: token);
-        });
+        await _subscriptionCache.write(
+          data,
+          token: token,
+          isSessionCurrent: () => _isCurrent(epoch, revision),
+        );
       } catch (_) {
         // 缓存写失败（storage 异常 / 平台 binding 未初始化等）不影响在线数据返回。
       }
     }
-    return result;
+    return _isCurrent(epoch, revision)
+        ? result
+        : _stale<XbDomainSubscription>();
   }
 
   @override
@@ -330,13 +433,11 @@ class XboardServiceImpl implements XboardService {
       _guard('getSubscribeUrl', () => _sdk.subscription.getSubscribeUrl());
 
   @override
-  Future<XbResult<XbCheckLogin>> checkLogin() async => _guard(
-        'checkLogin',
-        () async {
-          final r = await _sdk.user.checkLogin();
-          return XbCheckLogin(isLogin: r.isLogin);
-        },
-      );
+  Future<XbResult<XbCheckLogin>> checkLogin() async =>
+      _guard('checkLogin', () async {
+        final r = await _sdk.user.checkLogin();
+        return XbCheckLogin(isLogin: r.isLogin);
+      });
 
   @override
   Future<XbResult<List<PlanItem>>> getPlans() async =>
@@ -352,9 +453,14 @@ class XboardServiceImpl implements XboardService {
     String? couponCode,
   }) async =>
       // SDK createOrder 收 String（PlanPeriod.value，旧版 *_price 命名 F338）→ 返 tradeNo。
-      _guard('createOrder',
-          () => _sdk.order.createOrder(planId, _toSdkPeriod(period).value,
-              couponCode: couponCode));
+      _guard(
+        'createOrder',
+        () => _sdk.order.createOrder(
+          planId,
+          _toSdkPeriod(period).value,
+          couponCode: couponCode,
+        ),
+      );
 
   @override
   Future<XbResult<ui.CheckoutOutcomeUi>> checkout(
@@ -372,17 +478,21 @@ class XboardServiceImpl implements XboardService {
     int page = 1,
     int pageSize = 20,
     bool forceRefresh = false,
-  }) async =>
-      _guard('getOrders', () async {
-        final paged = await _sdk.order
-            .getOrders(page: page, pageSize: pageSize, forceRefresh: forceRefresh);
-        return XbPagedList<OrderSummary>(
-          items: paged.data.map(_mapOrderSummary).toList(), // PaginatedList.data（第12轮）
-          page: page,
-          pageSize: pageSize,
-          total: paged.total,
-        );
-      });
+  }) async => _guard('getOrders', () async {
+    final paged = await _sdk.order.getOrders(
+      page: page,
+      pageSize: pageSize,
+      forceRefresh: forceRefresh,
+    );
+    return XbPagedList<OrderSummary>(
+      items: paged.data
+          .map(_mapOrderSummary)
+          .toList(), // PaginatedList.data（第12轮）
+      page: page,
+      pageSize: pageSize,
+      total: paged.total,
+    );
+  });
 
   @override
   Future<XbResult<OrderDetail?>> getOrder(String tradeNo) async =>
@@ -410,8 +520,11 @@ class XboardServiceImpl implements XboardService {
   ) async =>
       // SDK checkCoupon 收 SDK PlanPeriod（非 String，第12轮非对称）。
       _guard('checkCoupon', () async {
-        final m =
-            await _sdk.order.checkCoupon(code, planId, _toSdkPeriod(period));
+        final m = await _sdk.order.checkCoupon(
+          code,
+          planId,
+          _toSdkPeriod(period),
+        );
         if (m == null) return null;
         return CouponInfo(
           code: code,
@@ -476,7 +589,8 @@ class XboardServiceImpl implements XboardService {
           pendingYuan: info.pendingCommission / 100, // stat[2] cents → yuan
           totalYuan: info.totalCommission / 100, // stat[1] cents → yuan
           commissionRate: info.commissionRate, // stat[3] 百分比整数
-          commissionBalanceYuan: user.commissionBalanceInYuan, // user.commission_balance/100
+          commissionBalanceYuan:
+              user.commissionBalanceInYuan, // user.commission_balance/100
           accountBalanceYuan: user.balanceInYuan, // user.balance/100
         );
       });
@@ -490,18 +604,21 @@ class XboardServiceImpl implements XboardService {
   Future<XbResult<List<XbCommissionRecord>>> getCommissionRecords({
     int page = 1,
     int pageSize = 20,
-  }) async =>
-      _guard('getCommissionRecords', () async {
-        final details =
-            await _sdk.invite.getCommissionDetails(page: page, pageSize: pageSize);
-        return details
-            .map((d) => XbCommissionRecord(
-                  id: d.id,
-                  getAmountYuan: d.getAmountInYuan, // get_amount cents → yuan
-                  createdAt: d.createdAt,
-                ))
-            .toList();
-      });
+  }) async => _guard('getCommissionRecords', () async {
+    final details = await _sdk.invite.getCommissionDetails(
+      page: page,
+      pageSize: pageSize,
+    );
+    return details
+        .map(
+          (d) => XbCommissionRecord(
+            id: d.id,
+            getAmountYuan: d.getAmountInYuan, // get_amount cents → yuan
+            createdAt: d.createdAt,
+          ),
+        )
+        .toList();
+  });
 
   @override
   Future<XbResult<bool>> withdrawCommission({
@@ -509,14 +626,18 @@ class XboardServiceImpl implements XboardService {
     required String account,
   }) async =>
       // throw 形态。后端整笔提现工单制；门槛 / 收款方式白名单校验在后端（失败 → BusinessError）。
-      _guard('withdrawCommission',
-          () => _sdk.invite.withdrawCommission(method: method, account: account));
+      _guard(
+        'withdrawCommission',
+        () => _sdk.invite.withdrawCommission(method: method, account: account),
+      );
 
   @override
   Future<XbResult<bool>> transferCommissionToBalance(double yuan) async =>
       // SDK 收 cents（double，内部 .toInt()）：UI 传 yuan → *100 转 cents（F73 单位铁律）。
-      _guard('transferCommissionToBalance',
-          () => _sdk.invite.transferCommissionToBalance(yuan * 100));
+      _guard(
+        'transferCommissionToBalance',
+        () => _sdk.invite.transferCommissionToBalance(yuan * 100),
+      );
 
   @override
   Future<XbResult<List<String>>> getWithdrawMethods() async =>
@@ -552,20 +673,22 @@ class XboardServiceImpl implements XboardService {
       });
 
   @override
-  Future<XbResult<XbTutorialDetail>> getTutorialDetail(int id) async =>
-      _guard('getTutorialDetail', () async {
-        final a = await _sdk.knowledge.getKnowledgeDetail(id);
-        return XbTutorialDetail(
-          id: a.id,
-          title: a.title,
-          // 正文相对地址（img src / a href）的解析统一在消费端做（html_link 框架的
-          // resolveHtmlLink，base=apiEndpoint）：_TutorialImage 解析 img src、onLinkTap
-          // 解析 href。故此处不再在适配层预转绝对（去掉只覆盖「根相对」的 _absolutizeHtmlUrls，
-          // 单一机制，§11）。
-          body: a.body,
-          updatedAt: _epochToDate(a.updatedAt),
-        );
-      });
+  Future<XbResult<XbTutorialDetail>> getTutorialDetail(int id) async => _guard(
+    'getTutorialDetail',
+    () async {
+      final a = await _sdk.knowledge.getKnowledgeDetail(id);
+      return XbTutorialDetail(
+        id: a.id,
+        title: a.title,
+        // 正文相对地址（img src / a href）的解析统一在消费端做（html_link 框架的
+        // resolveHtmlLink，base=apiEndpoint）：_TutorialImage 解析 img src、onLinkTap
+        // 解析 href。故此处不再在适配层预转绝对（去掉只覆盖「根相对」的 _absolutizeHtmlUrls，
+        // 单一机制，§11）。
+        body: a.body,
+        updatedAt: _epochToDate(a.updatedAt),
+      );
+    },
+  );
 
   @override
   Future<XbResult<List<XbNotice>>> getNotices() =>
@@ -628,24 +751,25 @@ class XboardServiceImpl implements XboardService {
   }
 
   OrderSummary _mapOrderSummary(OrderModel m) => OrderSummary(
-        tradeNo: m.tradeNo ?? '',
-        planName: m.orderPlan?.name,
-        period: _toXbPeriod(PlanPeriod.fromValue(m.period) ?? PlanPeriod.monthly),
-        totalAmountYuan: m.totalAmountInYuan ?? 0,
-        status: _mapOrderStatus(OrderStatus.fromRaw(m.status)),
-        createdAt: m.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0),
-      );
+    tradeNo: m.tradeNo ?? '',
+    planName: m.orderPlan?.name,
+    period: _toXbPeriod(PlanPeriod.fromValue(m.period) ?? PlanPeriod.monthly),
+    totalAmountYuan: m.totalAmountInYuan ?? 0,
+    status: _mapOrderStatus(OrderStatus.fromRaw(m.status)),
+    createdAt: m.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0),
+  );
 
   XbOrderStatus _mapOrderStatus(OrderStatus? s) => switch (s) {
-        OrderStatus.pending => XbOrderStatus.pending,
-        OrderStatus.processing => XbOrderStatus.processing,
-        OrderStatus.cancelled => XbOrderStatus.cancelled,
-        OrderStatus.completed => XbOrderStatus.completed,
-        OrderStatus.discounted => XbOrderStatus.discounted,
-        null => XbOrderStatus.pending,
-      };
+    OrderStatus.pending => XbOrderStatus.pending,
+    OrderStatus.processing => XbOrderStatus.processing,
+    OrderStatus.cancelled => XbOrderStatus.cancelled,
+    OrderStatus.completed => XbOrderStatus.completed,
+    OrderStatus.discounted => XbOrderStatus.discounted,
+    null => XbOrderStatus.pending,
+  };
 
-  PaymentMethodItem _mapPaymentMethod(PaymentMethodModel m) => PaymentMethodItem(
+  PaymentMethodItem _mapPaymentMethod(PaymentMethodModel m) =>
+      PaymentMethodItem(
         id: m.id,
         name: m.name,
         icon: m.icon,
@@ -655,10 +779,10 @@ class XboardServiceImpl implements XboardService {
 
   /// SDK CheckoutOutcome sealed 5 分支 → UI 副本（零 SDK 类型穿透 Property 2）。
   ui.CheckoutOutcomeUi _mapCheckout(CheckoutOutcome o) => switch (o) {
-        CheckoutRedirect(:final url) => ui.CheckoutRedirect(url),
-        CheckoutQrCode(:final qrCodeUrl) => ui.CheckoutQrCode(qrCodeUrl),
-        CheckoutPaid() => const ui.CheckoutPaid(),
-        CheckoutCanceled(:final message) => ui.CheckoutCanceled(message),
-        CheckoutFailed(:final message) => ui.CheckoutFailed(message),
-      };
+    CheckoutRedirect(:final url) => ui.CheckoutRedirect(url),
+    CheckoutQrCode(:final qrCodeUrl) => ui.CheckoutQrCode(qrCodeUrl),
+    CheckoutPaid() => const ui.CheckoutPaid(),
+    CheckoutCanceled(:final message) => ui.CheckoutCanceled(message),
+    CheckoutFailed(:final message) => ui.CheckoutFailed(message),
+  };
 }

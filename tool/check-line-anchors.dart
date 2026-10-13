@@ -5,9 +5,9 @@
 //  三处 spec 钉死的名字，与 setup-hooks.sh 同款 CLI 脚本命名；非 import 的 library，
 //  连字符不影响功能，保留以维持 spec 一致性。）
 //
-// 关联：design DD-21 / flclash-anchors.md 机器可读锚点块 / PATCHES.md。
+// 关联：Docs/FLCLASH_ANCHORS.md 机器可读锚点块 / Docs/PATCHES.md。
 //
-// **为什么存在**：design 与 PATCHES.md 钉死了数十处 FlClash 真实 file:line 引用（接缝点 /
+// **为什么存在**：当前架构、锚点与 PATCHES.md 记录 FlClash 真实 file:line 引用（接缝点 /
 // R7 链路 / 启动时序 / NavigationItem 等）。FlClash 是 fork，上游 sync 后这些行号会漂移。
 // 本脚本机器对账「锚点行号 ±窗口 内是否含关键子串」，把「文档行号 vs 真实代码」从人工
 // 肉眼核对升级为 CI gate。**这是保障上游 sync 不踩雷的核心防线。**
@@ -26,9 +26,12 @@
 
 import 'dart:io';
 
-/// 默认锚点清单路径（相对 XFlClash repo root）。
-const _defaultAnchorsRelPath =
-    '../.kiro/specs/xboard-mvp-form-b/flclash-anchors.md';
+/// 默认清单候选（相对 repo root）：当前 Docs 布局优先，兼容旧工作区。
+const _defaultAnchorsPaths = <String>[
+  '../Docs/FLCLASH_ANCHORS.md',
+  '../Docs/Multi-platform-client-spec/.kiro/specs/xboard-mvp-form-b/flclash-anchors.md',
+  '../.kiro/specs/xboard-mvp-form-b/flclash-anchors.md',
+];
 
 /// 默认行号容差窗口（±N 行）。
 const _defaultWindow = 3;
@@ -48,7 +51,10 @@ class _Anchor {
 }
 
 void main(List<String> argv) {
-  var anchorsPath = _defaultAnchorsRelPath;
+  var anchorsPath = _defaultAnchorsPaths.firstWhere(
+    (path) => File(path).existsSync(),
+    orElse: () => _defaultAnchorsPaths.first,
+  );
   var window = _defaultWindow;
 
   for (var i = 0; i < argv.length; i++) {

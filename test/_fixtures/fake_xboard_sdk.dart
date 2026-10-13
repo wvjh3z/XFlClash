@@ -17,7 +17,16 @@ import 'package:flutter_xboard_sdk/flutter_xboard_sdk.dart';
 import 'package:mocktail/mocktail.dart';
 
 /// fake 顶层入口。`extends Mock implements XBoardSDK` —— 全成员经 mocktail noSuchMethod。
-class FakeXBoardSDK extends Mock implements XBoardSDK {}
+class FakeXBoardSDK extends Mock implements XBoardSDK {
+  FakeXBoardSDK() {
+    // bootstrap测试可只stub initialize；公共会话基础设施仍须提供一个有效游客快照。
+    when(() => authSession).thenReturn(
+      const AuthSessionSnapshot(revision: 0, state: AuthState.unauthenticated),
+    );
+    when(() => authSessionChanges).thenAnswer((_) => const Stream.empty());
+    when(getToken).thenAnswer((_) async => null);
+  }
+}
 
 /// 11 个 sub-API 接口的 fake（与 SDK barrel 导出的接口一一对应）。
 class FakeAuthApi extends Mock implements AuthApi {}
@@ -88,29 +97,41 @@ extension FakeXBoardSDKSetup on FakeXBoardSDK {
     // token 写/清桩（W3.9 login saveToken / W3.6 logout clearToken 默认 no-op）。
     when(() => saveToken(any())).thenAnswer((_) async {});
     when(clearToken).thenAnswer((_) async {});
+    when(() => clearTokenIfSession(any())).thenAnswer((_) async => true);
+    when(() => authSession).thenReturn(
+      const AuthSessionSnapshot(revision: 1, state: AuthState.authenticated),
+    );
+    when(() => authSessionChanges).thenAnswer((_) => const Stream.empty());
+    when(() => saveTokenIfSession(any(), any())).thenAnswer((call) async {
+      await saveToken(call.positionalArguments[0] as String);
+      return authSession;
+    });
 
     switch (scenario) {
       case XbScenario.loggedIn:
         when(() => isAuthenticated).thenReturn(true);
         when(() => authState).thenReturn(AuthState.authenticated);
-        when(() => authStateStream)
-            .thenAnswer((_) => Stream.value(AuthState.authenticated));
+        when(
+          () => authStateStream,
+        ).thenAnswer((_) => Stream.value(AuthState.authenticated));
         when(getToken).thenAnswer((_) async => 'Bearer fake-auth-token');
         when(hasToken).thenAnswer((_) async => true);
       case XbScenario.loggedOut:
       case XbScenario.firstLaunch:
         when(() => isAuthenticated).thenReturn(false);
         when(() => authState).thenReturn(AuthState.unauthenticated);
-        when(() => authStateStream)
-            .thenAnswer((_) => Stream.value(AuthState.unauthenticated));
+        when(
+          () => authStateStream,
+        ).thenAnswer((_) => Stream.value(AuthState.unauthenticated));
         when(getToken).thenAnswer((_) async => null);
         when(hasToken).thenAnswer((_) async => false);
       case XbScenario.tokenExpired:
         // 有 token 但后端会判过期；本地态先按未认证（401 后清）
         when(() => isAuthenticated).thenReturn(false);
         when(() => authState).thenReturn(AuthState.unauthenticated);
-        when(() => authStateStream)
-            .thenAnswer((_) => Stream.value(AuthState.unauthenticated));
+        when(
+          () => authStateStream,
+        ).thenAnswer((_) => Stream.value(AuthState.unauthenticated));
         when(getToken).thenAnswer((_) async => 'Bearer expired-token');
         when(hasToken).thenAnswer((_) async => true);
     }

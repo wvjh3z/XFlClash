@@ -20,6 +20,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:fl_clash/xboard/widgets/xb_components.dart'
     show XbTag, XbInfoSheet, XbInfoItem, XbSpinner;
 import 'package:fl_clash/widgets/widgets.dart';
+import 'package:fl_clash/xboard/util/format.dart' show xbLatencyDisplay;
 import 'package:fl_clash/xboard/widgets/xb_feedback.dart' show xbToast;
 import 'package:fl_clash/xboard/widgets/xb_theme.dart' show XbTokens;
 
@@ -510,7 +511,7 @@ class _DelayText extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final scheme = Theme.of(context).colorScheme;
     final delay = adapter.nodeDelay(ref, proxyName: proxyName, testUrl: testUrl);
-    // 首页「3 次取最低」测速中：屏蔽中间跳变，统一显示转圈（测完写入最低值后解除）。
+    // 首页多次取最低 / 分组失败重试期间隐藏中间结果，整轮结束后才解除转圈。
     final measuring = ref.watch(xbMeasuringNodesProvider).contains(proxyName);
 
     void test() {
@@ -519,7 +520,7 @@ class _DelayText extends ConsumerWidget {
     }
 
     if (measuring || delay == 0) {
-      // 测速中（首页 3 次取最低 / 单次 core 测速占位 0）：琥珀黄转圈（原型 .spin = warn，
+      // 测速中（首页多次取最低 / 分组重试 / 单次 core 占位 0）：琥珀黄转圈（原型 .spin = warn，
       // 非品牌红 CircularProgressIndicator）。
       return const XbSpinner(color: XbTokens.warn, size: 16, stroke: 2);
     }
@@ -534,7 +535,7 @@ class _DelayText extends ConsumerWidget {
     return GestureDetector(
       onTap: test,
       child: Text(
-        delay > 0 ? '$delay ms' : '超时',
+        delay > 0 ? '${xbLatencyDisplay(delay)} ms' : '超时',
         style: TextStyle(
           fontSize: 13.5,
           fontWeight: FontWeight.w500,

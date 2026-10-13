@@ -65,13 +65,19 @@ class _RegisterSheetState extends ConsumerState<RegisterSheet>
       return;
     }
     startCooldown();
-    final result = await ref.read(xboardServiceProvider).sendEmailVerifyCode(email);
+    final result = await ref
+        .read(xboardServiceProvider)
+        .sendEmailVerifyCode(email);
     if (!mounted) return;
     if (result is XbFailure) {
       // 发送失败 → 重置冷却（让用户可立即重发，不被无谓锁 60s）。
       resetCooldown();
-      setState(() =>
-          _banner = resolveErrorText((result as XbFailure).error, fallback: '发送失败，请重试'));
+      setState(
+        () => _banner = resolveErrorText(
+          (result as XbFailure).error,
+          fallback: '发送失败，请重试',
+        ),
+      );
     }
   }
 
@@ -89,23 +95,41 @@ class _RegisterSheetState extends ConsumerState<RegisterSheet>
     }
     setState(() => _banner = null);
     await runSubmit(() async {
+      final auth = ref.read(authStateProvider.notifier);
+      final attempt = auth.startAuthenticating();
+      await auth.waitForSessionCleanup();
+      if (!mounted || !auth.isAuthenticationCurrent(attempt)) return;
       final result = await ref
           .read(xboardServiceProvider)
           .register(email, pw, emailCode: code);
-      if (!mounted) return;
+      if (!mounted || !auth.isAuthenticationCurrent(attempt)) return;
       switch (result) {
         case XbSuccess():
           // 注册成功 → 二步登录（form B DD-9 同款：register 不返 token）。
           final login = await ref.read(xboardServiceProvider).login(email, pw);
           if (!mounted) return;
-          if (login is XbSuccess) {
-            ref.read(authStateProvider.notifier).markAuthenticated();
-            Navigator.of(context).pop();
-          } else {
+          if (login is XbSuccess<String>) {
+            final established = await auth.completeAuthentication(
+              token: login.data,
+              attempt: attempt,
+            );
+            if (!mounted) return;
+            if (established) {
+              Navigator.of(context).pop();
+            } else if (auth.isAuthenticationCurrent(attempt)) {
+              auth.failAuthentication(attempt);
+              setState(() => _banner = '注册成功，请手动登录');
+            }
+          } else if (auth.isAuthenticationCurrent(attempt)) {
+            auth.failAuthentication(attempt);
             setState(() => _banner = '注册成功，请手动登录');
           }
         case XbFailure(:final error):
-          setState(() => _banner = resolveErrorText(error, fallback: '注册失败，请重试'));
+          if (!auth.isAuthenticationCurrent(attempt)) return;
+          auth.failAuthentication(attempt);
+          setState(
+            () => _banner = resolveErrorText(error, fallback: '注册失败，请重试'),
+          );
       }
     });
   }
@@ -114,7 +138,8 @@ class _RegisterSheetState extends ConsumerState<RegisterSheet>
   Widget build(BuildContext context) {
     final ready = ref.watch(bootstrapReadyProvider);
     // 白名单后缀（fail-open：失败/加载中 → 空 = 任意后缀，不阻塞）。
-    final suffixes = ref.watch(emailSuffixesProvider).asData?.value ?? const <String>[];
+    final suffixes =
+        ref.watch(emailSuffixesProvider).asData?.value ?? const <String>[];
 
     return XbSheetScaffold(
       title: '注册',

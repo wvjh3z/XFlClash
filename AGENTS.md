@@ -1,233 +1,38 @@
-# AGENTS.md
+# XFlclash 协作说明
 
-This file provides guidance for AI coding agents working with code in this repository.
+XFlclash 是 FlClash fork，形态 A 商业客户端在 `lib/xboard/` 中维护；底座继续承担内核、VPN、代理、Profile 和平台集成。
 
-## Project Overview
+## 开始工作
 
-FlClash is a multi-platform proxy client based on ClashMeta (mihomo), built with Flutter. Supports Android, Windows,
-macOS, and Linux. Material You design with Surfboard-like UI.
+先读 [统一约定](https://github.com/wvjh3z/proxy-suite-docs/blob/main/CONVENTIONS.md)、[当前架构](https://github.com/wvjh3z/proxy-suite-docs/blob/main/ARCHITECTURE.md) 与本任务涉及的 [契约](https://github.com/wvjh3z/proxy-suite-docs/blob/main/CONTRACTS.md)。环境、生成、测试、构建和同步流程见 [DEVELOPMENT](https://github.com/wvjh3z/proxy-suite-docs/blob/main/DEVELOPMENT.md)，基线和未关闭问题见 [STATUS](https://github.com/wvjh3z/proxy-suite-docs/blob/main/STATUS.md)。
 
-## Common Development Commands
+当前 Docs 仓库 `wvjh3z/proxy-suite-docs` 和 SDK 仓库 `wvjh3z/Xboard_sdk` 为私有仓库，需要 GitHub 授权；未授权时可能显示 404。本地将 Docs checkout 为 `../Docs`、SDK checkout 为 `../Xboard_sdk`，保留工具和 path 依赖所需的平级布局。当前底座仍为 FlClash v0.8.93。
 
-### Building
+当前 DEVELOPMENT 已承接执行细节，不需要读取旧 AGENTS 快照或旧 spec；不要沿用旧 IPC、Manager 或 Flutter 固定值。
 
-```bash
-# Update submodules first (ClashMeta Go core lives in core/Clash.Meta/)
-git submodule update --init --recursive
+## 改动边界
 
-# Full package build (Go core + Flutter + packaging) via setup.dart
-dart setup.dart macos
-dart setup.dart linux
-dart setup.dart windows
-dart setup.dart android
+- 可修改代码包括本客户端、SDK 和 Xboard 插件；Xboard 主程序保持只读。协议兼容在 SDK 处理，服务端扩展通过插件实现，不修改主程序 Controller、Service、路由或插件加载框架。
+- Xboard 新业务放 `lib/xboard/`；Tab 对底座的复用通过 `shell/adapters/`，不在页面复制底座内核逻辑。
+- 面板协议、HTTP 和 Token 适配优先修 SDK，客户端用 XboardService 与 XbResult。
+- 既有 FlClash 文件改动按 [PATCHES](https://github.com/wvjh3z/proxy-suite-docs/blob/main/PATCHES.md) 实际授权登记，维护 [anchors](https://github.com/wvjh3z/proxy-suite-docs/blob/main/FLCLASH_ANCHORS.md)。不从历史“11 处”数字推断白名单。
+- 新接缝/依赖先核对当前任务授权；尚未授权时说明必要性后取得决策。
+- 生成物不手改。真实 flavor、AES、签名和 Token 不回显或提交，既有证书策略见 SECURITY.md。
 
-# Build only the Go core (skip Flutter packaging)
-bash plugins/setup/buildkit/run_build_tool.sh macos
-bash plugins/setup/buildkit/run_build_tool.sh linux
-bash plugins/setup/buildkit/run_build_tool.sh windows
-bash plugins/setup/buildkit/run_build_tool.sh android
-```
+## 校验入口
 
-### Flutter Development
+从客户端根目录执行；需先完成 SDK sibling 路径、子模块、依赖与 codegen 准备。
 
 ```bash
-# Project is pinned with FVM (.fvmrc currently uses Flutter 3.35.7)
-fvm flutter pub get
-fvm flutter run
-fvm flutter test
-
-# Plain Flutter also works when your global SDK matches the project constraints
-flutter pub get
-flutter run        # Run on connected device/desktop
-flutter test        # Run all tests (use flutter test, not dart test — models pull in Flutter types)
+flutter analyze lib
+flutter test test/xboard/ test/sdk_contract_test.dart
+flutter test tool/test/
+dart run tool/check_seam_imports.dart
+dart run tool/check_xb_theme_entrypoints.dart
+dart run tool/check-line-anchors.dart
+dart run tool/check-seam-whitelist.dart --baseline upstream/main
 ```
 
-### Code Generation
+按改动选择必需测试；upstream/main 必须存在并代表真实上游。没有该引用时，可显式传真实上游 commit，或配置 `git config xflclash.seamBaseline <真实上游提交>` 供 pre-commit 使用；不得用当前 HEAD 冒充上游。本次 GitHub 维护的基线与验证结果见 Docs/STATUS。核心工具兼容新 Docs 和旧 `.kiro` 布局，跨布局可显式传 --anchors/--patches。
 
-Required after modifying models, providers, or database schema:
-
-```bash
-dart run build_runner build --delete-conflicting-outputs
-dart run build_runner watch  # Continuous regeneration
-```
-
-Code generation covers: Riverpod providers (`riverpod_generator`), models (`freezed`, `json_serializable`), and database
-tables (`drift_dev`).
-
-### Testing
-
-Tests use `package:test/test.dart` for pure Dart logic (common utils, models) and `flutter_test` for provider/widget tests.
-`mocktail` is the mocking framework.
-
-```bash
-flutter test test/models/      # Model serialization & extension round-trip tests
-flutter test test/core/        # CoreController tests (mocked CoreHandlerInterface)
-flutter test test/providers/   # Riverpod provider tests (config & app state notifiers)
-flutter test test/common/      # Utility function tests (utils, string, iterable, fixed, etc.)
-flutter test test/database/    # Database type converter tests
-flutter test test/widgets/     # Widget-level rendering/interaction tests
-flutter test test/setup_test.dart
-flutter test plugins/proxy/test/proxy_test.dart  # Dart tests for bundled plugin packages
-```
-
-Root `flutter test` only discovers the root package's `test/` directory by default. Include bundled plugin Dart tests by
-passing their paths explicitly, or run `flutter test` from that plugin package directory. Native plugin tests under
-platform folders (for example Windows C++ tests) are not run by `flutter test`.
-
-**Mocking `CoreHandlerInterface`:** Use `CoreController.test(mock)` to inject a mock interface. Call
-`CoreController.resetInstance()` in `tearDown` to clean up the singleton between tests. Remember to
-`registerFallbackValue()` for freezed params used with `any()` matchers.
-
-**Provider tests:** Use `ProviderContainer` directly (no widget tree needed for simple notifiers). The Riverpod
-generated `update()` method takes a callback: `notifier.update((state) => newValue)`.
-
-**Model round-trip tests:** Always go through `jsonEncode`/`jsonDecode` when testing freezed models with
-nested objects — `toJson()` stores child objects directly (not as maps), so direct `fromJson(toJson())`
-fails for nested freezed types.
-
-### Build Dependencies
-
-**Linux:** `sudo apt-get install libayatana-appindicator3-dev libkeybinder-3.0-dev`
-
-**Windows:** GCC and Inno Setup. `ANDROID_NDK` env var for Android builds.
-
-**macOS:** `npm install -g appdmg` for DMG creation.
-
-## Architecture
-
-### Core Integration (Go ClashMeta <-> Flutter)
-
-This is the most important architectural concept. The Go proxy core (`core/`) operates in two modes:
-
-- **Android (lib mode):** Go core compiled as C shared library (`libclash.so`) via `go build -buildmode=c-shared` with
-  CGO. Flutter calls it via FFI through the `service` plugin. Dart-side: `lib/core/lib.dart` (`CoreLib` class).
-
-- **Desktop (core mode):** Go core runs as a separate process with `CGO_ENABLED=0`. Flutter communicates via
-  JSON-over-socket (Unix socket on macOS/Linux, TCP on Windows). Dart-side: `lib/core/service.dart` (`CoreService`
-  class).
-
-`lib/core/controller.dart` (`CoreController`) selects the implementation based on platform. `lib/core/interface.dart`
-defines the shared `CoreHandlerInterface`.
-
-Go core key files: `core/hub.go` (handler functions), `core/action.go` (dispatch), `core/lib.go` (CGO exports),
-`core/server.go` (socket server).
-
-### State Management (Riverpod)
-
-Provider files in `lib/providers/`:
-
-- `app.dart` - Runtime/UI state (logs, traffic, delays, loading, navigation)
-- `config.dart` - Persistent config providers (app settings, theme, VPN, proxy style)
-- `state.dart` - Derived/computed providers (navigation, proxy, tray, color scheme)
-- `action.dart` - Business logic notifiers (setup, backup, core lifecycle, proxy selection)
-- `database.dart` - Drift database provider wrappers
-
-`globalState` (`lib/state.dart`) is a singleton holding app lifecycle, timers, theme, and the start/stop state.
-Providers are generated into `lib/providers/generated/`.
-
-### Database (Drift/SQLite)
-
-Type-safe SQLite via Drift in `lib/database/`. Current schema version is 2. Tables are `Profiles`, `Scripts`, `Rules`,
-`ProfileRuleLinks` (`profile_rule_mapping`), `ProxyGroups`, and `IconRecords` (`icon_records`). Rule scenes distinguish
-global added rules, profile added rules, profile custom rules, and disabled links. Uses fractional indexing for rule and
-proxy-group ordering.
-
-Generated Drift output lives in `lib/database/generated/database.g.dart`. After schema changes, run code generation and
-add/update focused database tests under `test/database/` when converter or migration behavior changes.
-
-### Manager Stack (Widget Tree)
-
-Managers are nested InheritedWidgets/StatefulWidgets in `lib/application.dart`:
-
-```
-AppEnvManager > StatusManager > ThemeManager
-  > [Desktop: WindowManager > TrayManager > HotKeyManager > ProxyManager]
-  > ConnectivityManager > CoreManager > AppStateManager
-  > [Mobile: AndroidManager > VpnManager | Desktop: WindowHeaderContainer]
-```
-
-Each manager in `lib/manager/` handles a specific platform concern. Desktop-only managers are conditionally inserted.
-
-### Core Controller + Actions
-
-`lib/core/controller.dart` (`CoreController`) is a singleton facade over `CoreHandlerInterface`. All 25+ public methods
-delegate to the platform-specific interface (Android FFI or desktop socket). Has `@visibleForTesting` constructor and
-`resetInstance()` for test injection.
-
-Business logic lives in Riverpod notifier classes in `lib/providers/action.dart` (~960 lines, should be split):
-
-- `CommonAction` — update check, common UI operations
-- `SetupAction` — config setup, TUN management
-- `BackupAction` — backup/restore with WebDAV sync
-- `CoreAction` — core lifecycle (init, connect, restart, shutdown)
-- `SystemAction` — system integration (tray, exit, brightness)
-- `StoreAction` — profile storage operations
-- `ThemeAction` — theme state updates
-- `ProxiesAction` — group management, proxy selection
-- `ProfilesAction` — profile CRUD, auto-update, import
-
-### Platform Managers (`lib/manager/`)
-
-Desktop: `WindowManager`, `TrayManager`, `HotKeyManager`, `ProxyManager`
-Mobile: `AndroidManager`, `TileManager`, `VpnManager`
-Shared: `ConnectivityManager`, `CoreManager`, `AppStateManager`, `StatusManager`, `ThemeManager`
-
-### Build System
-
-`setup.dart` (project root) is the release build orchestrator:
-
-1. On Windows, pre-builds Go core via `dart run build_tool windows` and reads `core_sha256.json`
-2. Writes `env.json` (APP_ENV)
-3. Passes SHA256 as `--dart-define=CORE_SHA256=$val` (compile-time embedded, secure; Windows only)
-4. Activates `flutter_distributor` for packaging
-
-Go core building is handled by `build_tool`, a standalone Dart CLI in `plugins/setup/buildkit/build_tool/`.
-Platform build hooks inside `flutter build` trigger `build_tool` automatically:
-
-- **macOS:** podspec script phase → `build_pod.sh` → `build_tool macos`
-- **Linux:** CMake include → `buildkit/cmake/buildkit.cmake` → `build_tool linux`
-- **Windows:** CMake include → `buildkit/cmake/buildkit.cmake` → `build_tool windows` (debug: `--dev` via `CMAKE_BUILD_TYPE`)
-- **Android:** Gradle include → `buildkit/gradle/plugin.gradle` → `build_tool android`
-
-**Windows helper auth (release):** Core SHA256 is embedded in both the Flutter app (`--dart-define`) and the Rust
-helper (`TOKEN` env var during cargo build). The Dart app pings the helper and verifies the token matches.
-
-**Windows helper auth (debug):** The Rust helper skips token verification when built in debug mode
-(`cfg!(debug_assertions)`), so `flutter run` works without any SHA256 dance.
-
-`plugins/setup/` is an FFI plugin that exists solely as a build harness — it carries no Dart API, only platform build hooks
-(podspec, CMake, Gradle) that trigger Go compilation. Windows builds also compile a Rust helper (`services/helper/`) via
-`RustBuilder`.
-
-Build configuration defaults live in `build_tool/lib/src/options.dart` and can be overridden via `build_config.yaml`
-in the project root.
-
-Architecture detection is automatic (host arch via `uname -m` on Unix, `PROCESSOR_ARCHITECTURE` on Windows). The
-`--description` flag passed to flutter_distributor adds arch suffix to artifact names (e.g.,
-`FlClash-0.8.93-macos-arm64.dmg`).
-
-### Local Plugins (`plugins/`)
-
-- `setup` - Build harness FFI plugin (triggers Go/Rust compilation per platform)
-- `proxy` - System proxy configuration
-- `rust_api` - Flutter Rust Bridge FFI plugin (named pipe / local socket communication)
-- `tray_manager` - System tray (forked/custom)
-- `wifi_ssid` - Wi-Fi SSID detection
-- `window_ext` - Window extensions
-- `flutter_distributor` - App packaging/distribution
-
-### Rust Helper Service (`services/helper/`)
-
-Windows-only privileged helper for starting the core as admin and managing TUN. Built with
-`cargo build --release --features windows-service`. Token-based auth with Flutter app.
-
-### Localization
-
-ARB files in `arb/`. Generated via `flutter_intl` into `lib/l10n/`. Use `AppLocalizations.of(context)!` for strings.
-
-**Supported locales:** `en`, `zh_CN`, `ja`, `ru`
-
-**Access patterns:**
-
-- In widgets with BuildContext: `context.appLocalizations.key` (import `common.dart`)
-- In controllers/providers/non-widget code: `currentAppLocalizations.key` (import `app_localizations.dart`)
+[UI_FRAMEWORK](.github/UI_FRAMEWORK.md) 与 [golden 环境](test/xboard/golden/README.md) 继续作为专项参考。fork 提交使用现有 `[xfork] type(scope): subject` hook 格式，上游同步使用 `sync(flclash): ...`；保留上游 CHANGELOG，产品变化记 CHANGELOG_XBOARD。

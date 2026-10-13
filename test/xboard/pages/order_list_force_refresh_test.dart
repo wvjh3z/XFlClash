@@ -55,6 +55,6 @@ void main() {
         reason: '订单列表必须强制实时拉取，否则待支付订单看不到');
 
     // 待支付订单应显示出来。
-    expect(find.text('专业版'), findsOneWidget);
+    expect(find.text('专业版', findRichText: true), findsOneWidget);
   });
 }

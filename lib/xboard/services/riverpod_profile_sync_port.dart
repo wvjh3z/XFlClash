@@ -18,10 +18,13 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:fl_clash/common/path.dart' show appPath;
+import 'package:fl_clash/database/database.dart'
+    show Database, database, TableInfoExt, ProfilesCompanionExt;
 import 'package:fl_clash/models/profile.dart';
 import 'package:fl_clash/providers/database.dart' show profilesProvider;
 import 'package:fl_clash/providers/config.dart' show currentProfileIdProvider;
 import 'package:fl_clash/providers/app.dart' show initProvider;
+import 'package:fl_clash/providers/state.dart' show isStartProvider;
 import 'package:fl_clash/providers/action.dart'
     show profilesActionProvider, setupActionProvider;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -29,21 +32,33 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'profile_sync_port.dart';
 
 class RiverpodProfileSyncPort implements ProfileSyncPort {
-  RiverpodProfileSyncPort(this._ref);
+  RiverpodProfileSyncPort(
+    this._ref, {
+    Database? profileDatabase,
+    Future<String> Function(int profileId)? profilePath,
+  }) : _database = profileDatabase ?? database,
+       _profilePath =
+           profilePath ?? ((id) => appPath.getProfilePath(id.toString()));
 
   final Ref _ref;
+  final Database _database;
+  final Future<String> Function(int profileId) _profilePath;
 
   @override
-  Future<int> createAndPutProfile(
-      {required String url, required String label}) async {
+  Future<int> createAndPutProfile({
+    required String url,
+    required String label,
+  }) async {
     final profile = await Profile.normal(label: label, url: url).update();
     _ref.read(profilesActionProvider.notifier).putProfile(profile);
     return profile.id;
   }
 
   @override
-  Future<void> updateProfileUrl(
-      {required int profileId, required String url}) async {
+  Future<void> updateProfileUrl({
+    required int profileId,
+    required String url,
+  }) async {
     final profiles = _ref.read(profilesProvider);
     final existing = profiles.where((p) => p.id == profileId).firstOrNull;
     if (existing == null) {
@@ -60,26 +75,48 @@ class RiverpodProfileSyncPort implements ProfileSyncPort {
     required int? profileId,
     required Uint8List yamlBytes,
     required String label,
+    bool Function()? isSessionCurrent,
   }) async {
+    bool sessionIsCurrent() =>
+        _ref.mounted && isSessionCurrent?.call() != false;
+
+    void ensureCurrent() {
+      if (!sessionIsCurrent()) {
+        throw const ProfileSyncCancelled();
+      }
+    }
+
+    ensureCurrent();
     // file 型 profile：url 留空（ProfileType.file），明文 bytes 经 saveFile（validateConfig +
     // 写 $id.yaml）。core 从文件路径加载，不重拉 url（R4.5 查证）。
     //
-    // **真机查证（2026-06-03）**：`saveFile` → `coreController.validateConfig` 走 Go 核心，
-    // **会阻塞直到 core 就绪**（不抛错、不丢配置）；冷启动早于 core 连接时本调用挂起等待，
-    // core 起来后自动返回完成（已实测：写出 file profile「我的套餐」并激活）。后台静默无害。
+    // saveFile 内部校验和写盘可能耗时；会话结束后必须在提交/激活之前拒绝晚到结果。
+    // 内核校验超时语义由 D06 单独维护，不能由此推断配置一定经过完整有效校验。
     final profiles = _ref.read(profilesProvider);
-    final existing =
-        profileId == null ? null : profiles.where((p) => p.id == profileId).firstOrNull;
+    final existing = profileId == null
+        ? null
+        : profiles.where((p) => p.id == profileId).firstOrNull;
 
-    final Profile saved;
-    if (existing != null) {
-      // 原地覆写：保留 id + 选择态，写新明文文件。
-      saved = await existing.copyWith(label: label).saveFile(yamlBytes);
-      _ref.read(profilesProvider.notifier).put(saved);
-    } else {
-      // 新建 file 型 profile（url=''）→ saveFile → 入库。
-      saved = await Profile.normal(label: label).saveFile(yamlBytes);
-      _ref.read(profilesProvider.notifier).put(saved);
+    final pending =
+        existing?.copyWith(label: label) ?? Profile.normal(label: label);
+    final saved = await pending.saveFile(yamlBytes);
+    if (!sessionIsCurrent()) {
+      // saveFile 的校验可能跨越会话退出；只删本次旧归属 ID 的文件，不激活它。
+      await _deleteFile(saved.id);
+      throw const ProfileSyncCancelled();
+    }
+
+    // Profiles.put 是乐观状态 + 异步数据库写入。这里等待已有公开 DB API 提交，
+    // 才能在退出跨越提交时准确撤销；保留原标签去重规则，不改底座 schema/provider。
+    await _database.profiles.put(profiles.optimizeLabel(saved).toCompanion());
+    if (!sessionIsCurrent()) {
+      await deleteProfile(saved.id);
+      throw const ProfileSyncCancelled();
+    }
+    _ref.invalidate(profilesProvider);
+    if (!sessionIsCurrent()) {
+      await deleteProfile(saved.id);
+      throw const ProfileSyncCancelled();
     }
 
     // 🔴 强制激活 + 时序安全（2026-06-04 二修）：
@@ -97,7 +134,9 @@ class RiverpodProfileSyncPort implements ProfileSyncPort {
     // 都不受核心影响；只有真正的 setup（需要 getConfig 完整解析）才等核心 ready 后跑。
     _ref.read(currentProfileIdProvider.notifier).value = saved.id;
     if (_ref.read(initProvider)) {
-      _ref.read(setupActionProvider.notifier).applyProfileDebounce(silence: true);
+      _ref
+          .read(setupActionProvider.notifier)
+          .applyProfileDebounce(silence: true);
     }
     // else: 核心未就绪 → 不触发 setup。initStatus 会在核心 ready 后用 force:true 加载。
     return saved.id;
@@ -105,21 +144,27 @@ class RiverpodProfileSyncPort implements ProfileSyncPort {
 
   @override
   Future<void> deleteProfile(int profileId) async {
-    // FlClash Profiles 删除经 profilesProvider.notifier（Profiles.del(int)）。
-    _ref.read(profilesProvider.notifier).del(profileId);
-    if (_ref.read(currentProfileIdProvider) == profileId) {
-      _ref.read(currentProfileIdProvider.notifier).value = null;
+    // 仅停用当前正被使用的账号 Profile；选中的手工/其他账号 Profile 不应被误断。
+    if (_ref.mounted && _ref.read(currentProfileIdProvider) == profileId) {
+      if (_ref.read(isStartProvider)) {
+        await _ref.read(setupActionProvider.notifier).updateStatus(false);
+      }
+      // 停止期间用户可能切换 Profile，再确认选择态才清掉旧选择。
+      if (_ref.mounted && _ref.read(currentProfileIdProvider) == profileId) {
+        _ref.read(currentProfileIdProvider.notifier).value = null;
+      }
     }
-    // 🔴 隐私清理（2026-06-03）：FlClash `Profiles.del` 只删列表项 + DB 行，**不删磁盘上的
-    // `$id.yaml` 明文配置文件**（上游行为）。退出登录 / 切账号删 profile 后，上个账号的解密节点
-    // 配置（含订阅凭据）会残留磁盘。这里补一刀删文件（多租户隐私 + θ-2 残留收口）。永不抛。
-    try {
-      final path = await appPath.getProfilePath(profileId.toString());
-      final file = File(path);
-      if (await file.exists()) await file.delete();
-    } catch (_) {
-      // 删文件失败不阻塞登出（文件不存在 / IO 异常）—— Property 1 永不抛。
-    }
+    // 明文文件和 DB 任一步失败都抛出，服务保留外挂索引以供恢复，不能假报清理成功。
+    await _deleteFile(profileId);
+    await _database.profiles.remove((t) => t.id.equals(profileId));
+    // 旧订阅服务可能已被认证编排 dispose。补偿删除仍完成持久化，不能再触碰其 Ref。
+    if (_ref.mounted) _ref.invalidate(profilesProvider);
+  }
+
+  Future<void> _deleteFile(int profileId) async {
+    final path = await _profilePath(profileId);
+    final file = File(path);
+    if (await file.exists()) await file.delete();
   }
 
   @override

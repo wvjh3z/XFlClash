@@ -1,9 +1,9 @@
-// tool/check-seam-whitelist.dart — 接缝点白名单完整性 CI 校验（conventions §1.2）。
+// tool/check-seam-whitelist.dart — 接缝点白名单完整性 CI 校验。
 //
 // ignore_for_file: file_names
 // （连字符命名与 check-line-anchors.dart / setup-hooks.sh 同款 CLI 脚本约定；非 import library。）
 //
-// 关联：conventions §1.2 接缝点白名单（8 处）/ .kiro/PATCHES.md / W1.7。
+// 关联：Docs/CONVENTIONS.md / 持续维护的 PATCHES.md 登记 / W1.7。
 //
 // **为什么存在（与 check-line-anchors.dart 互补）**：
 //   - check-line-anchors.dart 管「已登记接缝点的行号是否漂移」
@@ -19,6 +19,7 @@
 // 用法：
 //   dart run tool/check-seam-whitelist.dart                  # 默认 baseline=upstream/main
 //   dart run tool/check-seam-whitelist.dart --baseline <ref>
+//   dart run tool/check-seam-whitelist.dart --patches <path>
 //
 // 退出码：0 = 全部已登记；1 = 有未登记改动；2 = 用法/环境错误。
 //
@@ -28,8 +29,12 @@ import 'dart:io';
 
 const _defaultBaseline = 'upstream/main';
 
-/// PATCHES.md 路径（相对 XFlClash repo root）。
-const _patchesRelPath = '../.kiro/PATCHES.md';
+/// 当前 Docs 布局优先，兼容旧工作区；可用 --patches 显式指定。
+const _defaultPatchesPaths = <String>[
+  '../Docs/PATCHES.md',
+  '../Docs/Multi-platform-client-spec/.kiro/PATCHES.md',
+  '../.kiro/PATCHES.md',
+];
 
 /// 我们新增物的路径前缀（「加而不改」，不占接缝点配额，diff 时排除）。
 const _ourAdditions = <String>[
@@ -80,19 +85,26 @@ const _pubGetDerivatives = <String>[
 
 void main(List<String> argv) {
   var baseline = _defaultBaseline;
+  var patchesPath = _defaultPatchesPaths.firstWhere(
+    (path) => File(path).existsSync(),
+    orElse: () => _defaultPatchesPaths.first,
+  );
   for (var i = 0; i < argv.length; i++) {
     if (argv[i] == '--baseline' && i + 1 < argv.length) {
       baseline = argv[++i];
+    } else if (argv[i] == '--patches' && i + 1 < argv.length) {
+      patchesPath = argv[++i];
     } else if (argv[i] == '-h' || argv[i] == '--help') {
-      stdout.writeln('用法：dart run tool/check-seam-whitelist.dart [--baseline <ref>]');
+      stdout.writeln('用法：dart run tool/check-seam-whitelist.dart '
+          '[--baseline <ref>] [--patches <path>]');
       exit(0);
     }
   }
 
   // 1. 解析 PATCHES.md 登记的接缝点文件
-  final patchesFile = File(_patchesRelPath);
+  final patchesFile = File(patchesPath);
   if (!patchesFile.existsSync()) {
-    stderr.writeln('[check-seam] ✗ 找不到 PATCHES.md：$_patchesRelPath');
+    stderr.writeln('[check-seam] ✗ 找不到 PATCHES.md：$patchesPath');
     exit(2);
   }
   final registered = _parseRegisteredSeams(patchesFile.readAsStringSync());
@@ -141,8 +153,8 @@ void main(List<String> argv) {
     for (final f in unregistered) {
       stderr.writeln('  • $f');
     }
-    stderr.writeln('\n修复（conventions §1.2）：');
-    stderr.writeln('  - 若是有意接缝点 → 先在 chat 确认扩白名单 → 在 PATCHES.md 加接缝点段（含 diff + 锚点）');
+    stderr.writeln('\n修复（Docs/CONVENTIONS.md）：');
+    stderr.writeln('  - 有意接缝点 → 核对任务授权，未授权时确认范围 → 登记 PATCHES.md（含 diff + 锚点）');
     stderr.writeln('  - 若是误改 upstream → git checkout 还原');
     exit(1);
   }
