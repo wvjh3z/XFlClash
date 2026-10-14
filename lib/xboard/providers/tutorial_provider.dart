@@ -9,8 +9,14 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/xb_result.dart';
 import '../models/xb_tutorial.dart';
 import '../models/xb_domain_error.dart';
+import '../sdk/xboard_service.dart';
 import 'auth_state_provider.dart';
 import 'xboard_providers.dart';
+
+/// 单次目录加载的总等待预算，含 SDK 重试与当前 service 恢复。
+final tutorialListTimeoutProvider = Provider<Duration>(
+  (ref) => const Duration(seconds: 20),
+);
 
 /// 使用教程列表（后端知识库「官方客户端」分类）。autoDispose：进页拉、离页回收。
 ///
@@ -23,11 +29,30 @@ final tutorialsProvider = FutureProvider.autoDispose<List<XbTutorial>>((
   if (ref.watch(authStateProvider) != AuthState.authenticated) {
     throw XbDomainError.unauthorized('请先登录');
   }
-  final result = await ref.watch(xboardServiceProvider).getTutorials();
-  return switch (result) {
-    XbSuccess(:final data) => data,
-    XbFailure(:final error) => throw error,
-  };
+  final service = ref.watch(xboardServiceProvider);
+  final timeout = ref.watch(tutorialListTimeoutProvider);
+  var active = true;
+  ref.onDispose(() => active = false);
+  try {
+    final pending = service is XboardTutorialRequestControl
+        ? (service as XboardTutorialRequestControl).getTutorialsForRequest(
+            isActive: () => active,
+          )
+        : service.getTutorials();
+    final result = await pending.timeout(
+      timeout,
+      onTimeout: () {
+        active = false;
+        throw XbDomainError.network(XbNetworkKind.timeout, '教程目录加载超时');
+      },
+    );
+    return switch (result) {
+      XbSuccess(:final data) => data,
+      XbFailure(:final error) => throw error,
+    };
+  } finally {
+    active = false;
+  }
 }, retry: (retryCount, error) => null);
 
 /// 单篇教程详情（按文章 id）。family + autoDispose：进详情页拉、离页回收。

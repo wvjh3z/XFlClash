@@ -37,7 +37,11 @@ import 'xboard_service.dart';
 /// 使用教程取自知识库的「官方客户端」分类（用户确认的确切分类名）。
 const String _kTutorialCategory = '官方客户端';
 
-class XboardServiceImpl implements XboardService, XboardSessionLifecycle {
+class XboardServiceImpl
+    implements
+        XboardService,
+        XboardSessionLifecycle,
+        XboardTutorialRequestControl {
   XboardServiceImpl({
     required XBoardSDK sdk,
     SubscriptionCache? subscriptionCache,
@@ -154,13 +158,16 @@ class XboardServiceImpl implements XboardService, XboardSessionLifecycle {
   /// broad catch（θ-11）拦截 SDK 内部 `fromJson` 的 `TypeError` 等，走 XbUnexpected 不闪退。
   Future<XbResult<T>> _guard<T>(
     String operation,
-    Future<T> Function() body,
-  ) async {
+    Future<T> Function() body, {
+    bool Function()? isActive,
+  }) async {
     final epoch = _operationEpoch;
     final revision = _sdkRevision;
-    if (!_isCurrent(epoch, revision)) return _stale<T>();
+    bool current() =>
+        _isCurrent(epoch, revision) && (isActive?.call() ?? true);
+    if (!current()) return _stale<T>();
     final first = await _runGuarded(operation, body);
-    if (!_isCurrent(epoch, revision)) return _stale<T>();
+    if (!current()) return _stale<T>();
     // 失败且可换域名挽救（网络/服务端类）→ failOver 切域名后重试一次。业务/鉴权类换域名无用，不重试。
     if (first case XbFailure(:final error) when _shouldFailover(error)) {
       final hook = _apiFailover;
@@ -170,9 +177,9 @@ class XboardServiceImpl implements XboardService, XboardSessionLifecycle {
         } catch (_) {
           // failOver 内部永不抛；保险吞错。
         }
-        if (!_isCurrent(epoch, revision)) return _stale<T>();
+        if (!current()) return _stale<T>();
         final retry = await _runGuarded(operation, body);
-        return _isCurrent(epoch, revision) ? retry : _stale<T>();
+        return current() ? retry : _stale<T>();
       }
     }
     return first;
@@ -673,7 +680,16 @@ class XboardServiceImpl implements XboardService, XboardSessionLifecycle {
       });
 
   @override
-  Future<XbResult<List<XbTutorial>>> getTutorials() async =>
+  Future<XbResult<List<XbTutorial>>> getTutorials() => _getTutorials();
+
+  @override
+  Future<XbResult<List<XbTutorial>>> getTutorialsForRequest({
+    required bool Function() isActive,
+  }) => _getTutorials(isActive: isActive);
+
+  Future<XbResult<List<XbTutorial>>> _getTutorials({
+    bool Function()? isActive,
+  }) =>
       // KnowledgeList 只拉目录；过滤「官方客户端」，不回退到含正文的旧列表。
       _guard('getTutorials', () async {
         final items = await _sdk.knowledgeList.getKnowledgeList();
@@ -686,7 +702,7 @@ class XboardServiceImpl implements XboardService, XboardSessionLifecycle {
                 updatedAt: _epochToDate(it.updatedAt),
               ),
         ];
-      });
+      }, isActive: isActive);
 
   @override
   Future<XbResult<XbTutorialDetail>> getTutorialDetail(int id) async => _guard(

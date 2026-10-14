@@ -10,6 +10,7 @@ import 'package:fl_clash/xboard/models/xb_tutorial.dart';
 import 'package:fl_clash/xboard/pages/tutorial_detail_page.dart';
 import 'package:fl_clash/xboard/pages/tutorial_list_page.dart';
 import 'package:fl_clash/xboard/providers/auth_state_provider.dart';
+import 'package:fl_clash/xboard/providers/tutorial_provider.dart';
 import 'package:fl_clash/xboard/providers/xboard_providers.dart';
 import 'package:fl_clash/xboard/sdk/xboard_service.dart';
 import 'package:fl_clash/xboard/sdk/xboard_service_impl.dart';
@@ -47,11 +48,15 @@ Future<ProviderContainer> _pumpList(
   XboardService service, {
   bool guest = false,
   List<TutorialReaderContent>? readerInputs,
+  Duration? listTimeout,
+  Brightness brightness = Brightness.light,
 }) async {
   final container = ProviderContainer(
     // 目录 provider 自己关闭自动重试；保留真实容器默认策略验证错误立即可见。
     overrides: [
       xboardServiceProvider.overrideWithValue(service),
+      if (listTimeout != null)
+        tutorialListTimeoutProvider.overrideWithValue(listTimeout),
       authStateProvider.overrideWith(
         () =>
             _Auth(guest ? AuthState.unauthenticated : AuthState.authenticated),
@@ -70,7 +75,10 @@ Future<ProviderContainer> _pumpList(
   await tester.pumpWidget(
     UncontrolledProviderScope(
       container: container,
-      child: const MaterialApp(home: TutorialListPage()),
+      child: MaterialApp(
+        theme: ThemeData(brightness: brightness),
+        home: const TutorialListPage(),
+      ),
     ),
   );
   await _finish(tester);
@@ -82,6 +90,49 @@ Future<void> _finish(WidgetTester tester) async {
   await tester.pump();
   await tester.pump();
   await tester.pump(const Duration(milliseconds: 800));
+}
+
+Future<void> _pullList(WidgetTester tester) async {
+  await tester.drag(find.byType(Scrollable).first, const Offset(0, 420));
+  await _finish(tester);
+}
+
+const _emptyDescription = '教程正在准备中，请稍后再来看看。';
+const _failureTitle = '教程加载失败';
+const _failureDescription = '暂时无法加载，请稍后重试。';
+const _timeoutTitle = '加载超时';
+const _timeoutDescription = '等待时间较长，请重试。';
+
+void _expectListState(String title, String description, String action) {
+  expect(find.text(title, findRichText: true), findsOneWidget);
+  expect(find.text(description, findRichText: true), findsOneWidget);
+  expect(find.text(action), findsOneWidget);
+}
+
+enum _ListState { empty, failure, timeout, normal }
+
+XbResult<List<XbTutorial>> _listResponse(_ListState state) => switch (state) {
+  _ListState.empty => const XbSuccess(<XbTutorial>[]),
+  _ListState.failure => const XbFailure(
+    XbNetwork(XbNetworkKind.connectionFailed, '受控网络错误详情'),
+  ),
+  _ListState.timeout => const XbFailure(
+    XbNetwork(XbNetworkKind.timeout, '受控超时错误详情'),
+  ),
+  _ListState.normal => XbResult.success([_tutorial(title: '刷新前的目录')]),
+};
+
+void _expectInitialListState(_ListState state) {
+  switch (state) {
+    case _ListState.empty:
+      _expectListState('暂无使用教程', _emptyDescription, '刷新');
+    case _ListState.failure:
+      _expectListState(_failureTitle, _failureDescription, '重试');
+    case _ListState.timeout:
+      _expectListState(_timeoutTitle, _timeoutDescription, '重试');
+    case _ListState.normal:
+      expect(find.text('刷新前的目录'), findsOneWidget);
+  }
 }
 
 class _ReaderPlaceholder extends StatefulWidget {
@@ -314,6 +365,8 @@ void main() {
     await _pumpList(tester, XboardServiceImpl(sdk: instance));
 
     expect(find.text('暂无使用教程', findRichText: true), findsOneWidget);
+    expect(find.text(_emptyDescription, findRichText: true), findsOneWidget);
+    expect(find.text('刷新'), findsOneWidget);
     expect(find.text('其他分类的教程'), findsNothing);
     verify(knowledgeList.getKnowledgeList).called(1);
     verifyNever(knowledge.getKnowledgeList);
@@ -439,7 +492,8 @@ void main() {
       );
 
       expect(find.text('重试'), findsOneWidget);
-      expect(find.text('测试目录插件不可用', findRichText: true), findsOneWidget);
+      _expectListState(_failureTitle, _failureDescription, '重试');
+      expect(find.text('测试目录插件不可用', findRichText: true), findsNothing);
       expect(find.text('暂无使用教程', findRichText: true), findsNothing);
       expect(calls, 1);
       expect(failoverCalls, 0, reason: '插件不可用属于业务错误，无需切换网络地址');
@@ -534,6 +588,211 @@ void main() {
     expect(find.text('重试'), findsNothing);
     expect(tester.takeException(), isNull);
   });
+
+  for (final state in _ListState.values) {
+    testWidgets('${state.name}短目录可通过下拉刷新恢复，登录状态保持不变', (tester) async {
+      final service = _Service();
+      var calls = 0;
+      when(service.getTutorials).thenAnswer((_) async {
+        calls++;
+        return calls == 1
+            ? _listResponse(state)
+            : XbResult.success([_tutorial(title: '下拉取得的新目录')]);
+      });
+      final container = await _pumpList(tester, service);
+      _expectInitialListState(state);
+      expect(calls, 1);
+
+      await _pullList(tester);
+
+      expect(calls, 2);
+      expect(find.text('下拉取得的新目录'), findsOneWidget);
+      expect(find.text('刷新前的目录'), findsNothing);
+      expect(find.text('暂无使用教程', findRichText: true), findsNothing);
+      expect(find.text(_failureTitle, findRichText: true), findsNothing);
+      expect(find.text(_timeoutTitle, findRichText: true), findsNothing);
+      expect(container.read(authStateProvider), AuthState.authenticated);
+      expect(tester.takeException(), isNull);
+    });
+  }
+
+  testWidgets('空目录刷新按钮与下拉共用请求，在途重复动作不再发起新请求', (tester) async {
+    final service = _Service();
+    final refreshing = Completer<XbResult<List<XbTutorial>>>();
+    var calls = 0;
+    when(service.getTutorials).thenAnswer((_) {
+      calls++;
+      return calls == 1
+          ? Future.value(const XbSuccess(<XbTutorial>[]))
+          : refreshing.future;
+    });
+    await _pumpList(tester, service);
+    _expectListState('暂无使用教程', _emptyDescription, '刷新');
+
+    // 两次点按之间不 pump，验证旧按钮尚未重建的事件窗口也不能重复请求。
+    await tester.tap(find.text('刷新'));
+    await tester.tap(find.text('刷新'));
+    await _finish(tester);
+    expect(calls, 2);
+    expect(find.text('刷新'), findsNothing);
+    await _pullList(tester);
+    expect(calls, 2);
+
+    refreshing.complete(XbResult.success([_tutorial(title: '按钮刷新的目录')]));
+    await _finish(tester);
+    expect(find.text('按钮刷新的目录'), findsOneWidget);
+    expect(calls, 2);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('教程目录默认最多等待20秒，整体截止后显示可重试超时态', (tester) async {
+    final service = _Service();
+    final pending = Completer<XbResult<List<XbTutorial>>>();
+    var calls = 0;
+    when(service.getTutorials).thenAnswer((_) {
+      calls++;
+      return pending.future;
+    });
+    final container = await _pumpList(tester, service);
+    expect(
+      container.read(tutorialListTimeoutProvider),
+      const Duration(seconds: 20),
+    );
+
+    // _pumpList 已推进800ms；19.8秒时仍在等待，20秒后必须结束等待。
+    await tester.pump(const Duration(seconds: 19));
+    expect(find.text(_timeoutTitle, findRichText: true), findsNothing);
+    expect(calls, 1, reason: '整体等待期间不通过provider后台重试增加请求');
+    await tester.pump(const Duration(milliseconds: 201));
+    await _finish(tester);
+
+    _expectListState(_timeoutTitle, _timeoutDescription, '重试');
+    expect(container.read(tutorialsProvider).error, isA<XbNetwork>());
+    final error = container.read(tutorialsProvider).error! as XbNetwork;
+    expect(error.kind, XbNetworkKind.timeout);
+    expect(container.read(authStateProvider), AuthState.authenticated);
+    expect(calls, 1);
+    pending.complete(XbResult.success([_tutorial(title: '截止后晚到的目录')]));
+    await _finish(tester);
+    _expectListState(_timeoutTitle, _timeoutDescription, '重试');
+    expect(find.text('截止后晚到的目录'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  for (final lateError in [false, true]) {
+    testWidgets('目录超时后晚到${lateError ? '错误' : '成功'}不覆盖重试取得的新目录', (tester) async {
+      final service = _Service();
+      final pending = Completer<XbResult<List<XbTutorial>>>();
+      var calls = 0;
+      when(service.getTutorials).thenAnswer((_) {
+        calls++;
+        return calls == 1
+            ? pending.future
+            : Future.value(XbResult.success([_tutorial(title: '重试取得的新目录')]));
+      });
+      final container = await _pumpList(
+        tester,
+        service,
+        listTimeout: const Duration(seconds: 2),
+      );
+      await tester.pump(const Duration(seconds: 2));
+      await _finish(tester);
+      _expectListState(_timeoutTitle, _timeoutDescription, '重试');
+      expect(calls, 1);
+
+      await tester.tap(find.text('重试'));
+      await _finish(tester);
+      expect(calls, 2);
+      expect(find.text('重试取得的新目录'), findsOneWidget);
+      if (lateError) {
+        pending.completeError(StateError('截止后晚到的错误'));
+      } else {
+        pending.complete(XbResult.success([_tutorial(title: '旧请求晚到的目录')]));
+      }
+      await _finish(tester);
+
+      expect(find.text('重试取得的新目录'), findsOneWidget);
+      expect(find.text('旧请求晚到的目录'), findsNothing);
+      expect(find.text(_timeoutTitle, findRichText: true), findsNothing);
+      expect(find.text(_failureTitle, findRichText: true), findsNothing);
+      expect(container.read(authStateProvider), AuthState.authenticated);
+      expect(tester.takeException(), isNull);
+    });
+  }
+
+  testWidgets('退出隐藏在途目录，重新登录后旧目录不能覆盖新账号结果', (tester) async {
+    final service = _Service();
+    final previous = Completer<XbResult<List<XbTutorial>>>();
+    var calls = 0;
+    when(service.getTutorials).thenAnswer((_) {
+      calls++;
+      return calls == 1
+          ? previous.future
+          : Future.value(XbResult.success([_tutorial(title: '账号B的目录')]));
+    });
+    final container = await _pumpList(tester, service);
+    expect(calls, 1);
+
+    container.read(authStateProvider.notifier).markUnauthenticated();
+    await _finish(tester);
+    expect(find.text('请先登录', findRichText: true), findsOneWidget);
+    expect(calls, 1);
+    container.read(authStateProvider.notifier).markAuthenticated();
+    await _finish(tester);
+    expect(find.text('账号B的目录'), findsOneWidget);
+    expect(calls, 2);
+    previous.complete(XbResult.success([_tutorial(title: '账号A晚到的目录')]));
+    await _finish(tester);
+
+    expect(find.text('账号B的目录'), findsOneWidget);
+    expect(find.text('账号A晚到的目录'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('目录认证错误保留登录过期提示，不混成普通失败或空态', (tester) async {
+    final service = _Service();
+    when(service.getTutorials).thenAnswer(
+      (_) async => const XbFailure<List<XbTutorial>>(XbUnauthorized('受控401')),
+    );
+    await _pumpList(tester, service);
+
+    expect(find.text('登录已过期，请重新登录', findRichText: true), findsOneWidget);
+    expect(find.text('登录后查看使用教程。', findRichText: true), findsOneWidget);
+    expect(find.text(_failureTitle, findRichText: true), findsNothing);
+    expect(find.text('暂无使用教程', findRichText: true), findsNothing);
+    expect(find.text('重试'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  for (final state in [
+    _ListState.empty,
+    _ListState.failure,
+    _ListState.timeout,
+  ]) {
+    for (final width in [320.0, 1280.0]) {
+      for (final brightness in Brightness.values) {
+        testWidgets(
+          '${state.name}状态在${width.toInt()}px/${brightness.name}可见且无溢出',
+          (tester) async {
+            tester.view.devicePixelRatio = 1;
+            tester.view.physicalSize = Size(width, 800);
+            addTearDown(tester.view.resetPhysicalSize);
+            addTearDown(tester.view.resetDevicePixelRatio);
+            final service = _Service();
+            when(
+              service.getTutorials,
+            ).thenAnswer((_) async => _listResponse(state));
+            await _pumpList(tester, service, brightness: brightness);
+            _expectInitialListState(state);
+
+            final action = find.text(state == _ListState.empty ? '刷新' : '重试');
+            expect(action.hitTestable(), findsOneWidget);
+            expect(tester.takeException(), isNull);
+          },
+        );
+      }
+    }
+  }
 
   testWidgets('详情请求失败后点重试，重新取正文并创建阅读器', (tester) async {
     final f = _DetailFixture();
