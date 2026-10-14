@@ -8,13 +8,19 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/xb_result.dart';
 import '../models/xb_tutorial.dart';
+import '../models/xb_domain_error.dart';
+import 'auth_state_provider.dart';
 import 'xboard_providers.dart';
 
 /// 使用教程列表（后端知识库「官方客户端」分类）。autoDispose：进页拉、离页回收。
 ///
 /// 成功但空（该分类无文章）也是 data 态（非 error）——UI 据空列表显示空态。
-final tutorialsProvider =
-    FutureProvider.autoDispose<List<XbTutorial>>((ref) async {
+final tutorialsProvider = FutureProvider.autoDispose<List<XbTutorial>>((
+  ref,
+) async {
+  if (ref.watch(authStateProvider) != AuthState.authenticated) {
+    throw XbDomainError.unauthorized('请先登录');
+  }
   final result = await ref.watch(xboardServiceProvider).getTutorials();
   return switch (result) {
     XbSuccess(:final data) => data,
@@ -23,11 +29,16 @@ final tutorialsProvider =
 });
 
 /// 单篇教程详情（按文章 id）。family + autoDispose：进详情页拉、离页回收。
-final tutorialDetailProvider =
-    FutureProvider.autoDispose.family<XbTutorialDetail, int>((ref, id) async {
-  final result = await ref.watch(xboardServiceProvider).getTutorialDetail(id);
-  return switch (result) {
-    XbSuccess(:final data) => data,
-    XbFailure(:final error) => throw error,
-  };
-});
+final tutorialDetailProvider = FutureProvider.autoDispose
+    .family<XbTutorialDetail, int>((ref, id) async {
+      if (ref.watch(authStateProvider) != AuthState.authenticated) {
+        throw XbDomainError.unauthorized('请先登录');
+      }
+      final result = await ref
+          .watch(xboardServiceProvider)
+          .getTutorialDetail(id);
+      return switch (result) {
+        XbSuccess(:final data) => data,
+        XbFailure(:final error) => throw error,
+      };
+    });

@@ -36,6 +36,10 @@ class XbTutorialDetail {
   /// 正文（后端 HTML / Markdown 文本）。
   final String body;
 
+  /// Canonical resource base from brand configuration or the panel app_url.
+  /// Null leaves the current API address as the compatibility fallback.
+  final String? resourceBase;
+
   /// 最后更新时间。
   final DateTime updatedAt;
 
@@ -44,5 +48,6 @@ class XbTutorialDetail {
     required this.title,
     required this.body,
     required this.updatedAt,
+    this.resourceBase,
   });
 }

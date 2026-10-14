@@ -15,6 +15,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/xb_tutorial.dart';
+import '../providers/auth_state_provider.dart';
 import '../providers/tutorial_provider.dart';
 import '../util/format.dart';
 import '../widgets/xb_async_view.dart';
@@ -29,9 +30,17 @@ class TutorialListPage extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    return const XbBrandScaffold(
+    final authenticated =
+        ref.watch(authStateProvider) == AuthState.authenticated;
+    return XbBrandScaffold(
       title: '使用教程',
-      body: _TutorialListBody(),
+      body: authenticated
+          ? const _TutorialListBody()
+          : const XbEmptyState(
+              icon: Icons.lock_outline,
+              title: '请先登录',
+              description: '登录后查看使用教程。',
+            ),
     );
   }
 }
@@ -78,26 +87,24 @@ class _TutorialListBody extends ConsumerWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                const XbGroupLabel('官方客户端 · 使用教程'),
                 XbCard(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 4,
+                  ),
                   child: Column(
                     children: [
                       for (var i = 0; i < tutorials.length; i++) ...[
                         if (i != 0)
                           Divider(
-                              height: 1,
-                              thickness: 1,
-                              color: XbTokens.of(context).hair),
+                            height: 1,
+                            thickness: 1,
+                            color: XbTokens.of(context).hair,
+                          ),
                         _TutorialRow(tutorial: tutorials[i]),
                       ],
                     ],
                   ),
-                ),
-                const SizedBox(height: 8),
-                const XbInfoCard(
-                  icon: Icons.info_outline,
-                  text: '仅展示「官方客户端」分类的教程，内容由服务端知识库下发。',
                 ),
               ],
             ),
@@ -143,16 +150,21 @@ class _TutorialRow extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Text(tutorial.title,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w600,
-                          color: t.on)),
+                  Text(
+                    tutorial.title,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: t.on,
+                    ),
+                  ),
                   const SizedBox(height: 3),
-                  Text('更新于 ${xbDate(tutorial.updatedAt)}',
-                      style: TextStyle(fontSize: 11.5, color: t.onv)),
+                  Text(
+                    '更新于 ${xbDate(tutorial.updatedAt)}',
+                    style: TextStyle(fontSize: 11.5, color: t.onv),
+                  ),
                 ],
               ),
             ),

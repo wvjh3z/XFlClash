@@ -96,8 +96,9 @@ String wrapEmojiForHtml(String html) {
 /// 从「完整 HTML 文档」提取可供 flutter_html 渲染的正文片段。
 ///
 /// 知识库（使用教程）正文常是整页 HTML 文档（doctype + html/head/style + body）。
-/// flutter_html 不应用 `style` 标签里的 CSS，且会把 `style` / `head` 的源码当成普通文字渲染出来
-/// （一大坨 CSS）。本函数：
+/// flutter_html 3.0.0 支持部分样式表，但不能提供完整浏览器的 CSS/JS 能力。
+/// 此兼容清洗只供 Flutter HTML 回退使用；原生教程入口使用 buildTutorialHtml 保留作者 CSS。
+/// 本函数：
 /// - 取 `body` 内层（无 body 标签则用原文）；
 /// - 去除 `style` / `script` / `head` 标签块与 HTML 注释；
 /// - 去除后端未替换的模板占位符 `{{...}}`（如非订阅用户的 `{{apple_accounts}}`）。
@@ -110,7 +111,7 @@ String htmlRenderableBody(String input) {
   final body = RegExp(r'<body[^>]*>([\s\S]*?)</body>', caseSensitive: false)
       .firstMatch(s);
   if (body != null) s = body.group(1) ?? s;
-  // 2. 去 <style> / <script>（含 body 内联块），否则其源码会被当正文显示。
+  // 2. 兼容回退不采用原文样式表或脚本，使用下方清洗和页面 Style map。
   s = s.replaceAll(
       RegExp(r'<style[^>]*>[\s\S]*?</style>', caseSensitive: false), '');
   s = s.replaceAll(
@@ -123,8 +124,8 @@ String htmlRenderableBody(String input) {
   s = s.replaceAll(RegExp(r'\{\{[^}]*\}\}'), '');
   // 5. 处理内联样式颜色，保证暗/亮两种主题都清晰。
   //    知识库正文是「纯浅色模式」撰写的整页 HTML，标题/正文用了硬编码深色（如 color:#111827、
-  //    color:#6b7280），暗色模式下深字压暗底几乎不可见。flutter_html 又不应用 <style> CSS、
-  //    无法解析 var()，且内联 style 会覆盖页面 Style map（无 force-override）→ 只能在字符串里处理。
+  //    color:#6b7280），暗色模式下深字压暗底几乎不可见。回退已删除原样式表，
+  //    未展开 var()，因此保留既有的局部颜色清洗；不声称插件不支持 style 或自定义覆盖。
   //    策略（既修不可见标题，又不破坏本就正常的彩色框）：
   //    - 元素**自带背景**（如 background:#fff3cd 警告框、background:#d92e1a 按钮）：color 与背景
   //      成对撰写、自洽，两种主题都清晰 → 整条 style 原样保留。

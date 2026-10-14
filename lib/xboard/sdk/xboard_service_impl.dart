@@ -17,6 +17,7 @@ library;
 
 import 'package:flutter_xboard_sdk/flutter_xboard_sdk.dart';
 
+import '../config/xboard_config.dart';
 import '../models/checkout_outcome_ui.dart' as ui;
 import '../models/order_summary.dart';
 import '../models/plan_item.dart';
@@ -30,6 +31,7 @@ import '../models/xb_tutorial.dart';
 import '../services/sentry_bootstrap.dart';
 import '../util/pii_mask.dart';
 import '../util/subscription_cache.dart';
+import '../util/tutorial_resource_base.dart';
 import 'xboard_service.dart';
 
 /// 使用教程取自知识库的「官方客户端」分类（用户确认的确切分类名）。
@@ -47,6 +49,20 @@ class XboardServiceImpl implements XboardService, XboardSessionLifecycle {
   }
 
   final XBoardSDK _sdk;
+  String? _tutorialResourceBase;
+
+  Future<String?> _readTutorialResourceBase() async {
+    final configured = tutorialResourceBase(XboardConfig.current.tutorialBaseUrl)?.toString();
+    if (configured != null) return configured;
+    if (_tutorialResourceBase != null) return _tutorialResourceBase;
+    try {
+      // This auxiliary guest request must not prevent reading a valid article.
+      final config = await _sdk.config.getConfig().timeout(const Duration(seconds: 3));
+      return _tutorialResourceBase = tutorialResourceBase(config.appUrl)?.toString();
+    } catch (_) {
+      return null;
+    }
+  }
 
   /// R6 离线缓存（决策 #11 success-write，W4.4）。
   final SubscriptionCache _subscriptionCache;
@@ -676,15 +692,14 @@ class XboardServiceImpl implements XboardService, XboardSessionLifecycle {
   Future<XbResult<XbTutorialDetail>> getTutorialDetail(int id) async => _guard(
     'getTutorialDetail',
     () async {
+      final baseFuture = _readTutorialResourceBase();
       final a = await _sdk.knowledge.getKnowledgeDetail(id);
       return XbTutorialDetail(
         id: a.id,
         title: a.title,
-        // 正文相对地址（img src / a href）的解析统一在消费端做（html_link 框架的
-        // resolveHtmlLink，base=apiEndpoint）：_TutorialImage 解析 img src、onLinkTap
-        // 解析 href。故此处不再在适配层预转绝对（去掉只覆盖「根相对」的 _absolutizeHtmlUrls，
-        // 单一机制，§11）。
+        // HTML preparation owns resource resolution; SDK credentials stay here.
         body: a.body,
+        resourceBase: await baseFuture,
         updatedAt: _epochToDate(a.updatedAt),
       );
     },

@@ -108,3 +108,22 @@ install(DIRECTORY "${PROJECT_BUILD_DIR}/${FLUTTER_ASSET_DIR_NAME}"
 install(FILES "${AOT_LIBRARY}" DESTINATION "${INSTALL_BUNDLE_DATA_DIR}"
   CONFIGURATIONS Profile;Release
   COMPONENT Runtime)
+
+# Xboard tutorials and Crisp share a single WebView2 loader in the bundle.
+# InAppWebView's NuGet targets copy their older loader during the native build;
+# choose desktop_webview_window's newer loader after all normal install rules.
+# copy_if_different compares content, so a newer destination timestamp cannot
+# leave the older DLL in an incremental build or an installer package.
+if(TARGET Webview2 AND TARGET flutter_inappwebview_windows_plugin)
+  install(CODE "
+    execute_process(
+      COMMAND \"${CMAKE_COMMAND}\" -E copy_if_different
+        \"$<TARGET_FILE:Webview2>\"
+        \"\${CMAKE_INSTALL_PREFIX}/WebView2Loader.dll\"
+      RESULT_VARIABLE xb_webview_loader_copy_result
+    )
+    if(NOT xb_webview_loader_copy_result EQUAL 0)
+      message(FATAL_ERROR \"Failed to install the shared WebView2 loader\")
+    endif()
+  " COMPONENT Runtime)
+endif()

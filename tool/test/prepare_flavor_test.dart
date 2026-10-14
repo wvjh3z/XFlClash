@@ -76,6 +76,41 @@ void main() {
     expect(errors, isEmpty, reason: errors.join('\n'));
   });
 
+  test('教程资源源站独立配置经校验和dart-define保留路径', () {
+    final yaml =
+        '${_validYaml()}tutorialBaseUrl: "https://docs.example.invalid/help/"\n';
+    writeFlavor(yaml);
+    expect(validateFlavor(yamlPath: yamlPath, flavorDir: flavorDir), isEmpty);
+    final defines = jsonDecode(
+      generateFlavorDefinesJson(
+        loadYaml(yaml) as YamlMap,
+        flavorId: 'brand_a',
+        isTest: false,
+      ),
+    );
+    expect(
+      defines['XB_TUTORIAL_BASE_URL'],
+      'https://docs.example.invalid/help/',
+    );
+  });
+
+  test('教程源站拒绝错误类型、本地文件、凭据与query/fragment', () {
+    for (final value in [
+      '42',
+      '"file:///etc/passwd"',
+      '"https://user:password@docs.example.invalid/"',
+      '"https://docs.example.invalid/?key=test"',
+      '"https://docs.example.invalid/#/docs"',
+      '"https://docs.example.invalid:999999999999999999999/"',
+    ]) {
+      writeFlavor('${_validYaml()}tutorialBaseUrl: $value\n');
+      expect(
+        validateFlavor(yamlPath: yamlPath, flavorDir: flavorDir),
+        contains(contains('tutorialBaseUrl')),
+      );
+    }
+  });
+
   test('① schema 完整性：缺 appName → 报缺字段', () {
     writeFlavor(_validYaml(dropAppName: true));
     final errors = validateFlavor(yamlPath: yamlPath, flavorDir: flavorDir);

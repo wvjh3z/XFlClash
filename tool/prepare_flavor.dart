@@ -18,6 +18,7 @@ import 'dart:io';
 import 'package:args/args.dart';
 import 'package:path/path.dart' as p;
 import 'package:yaml/yaml.dart';
+import 'package:fl_clash/xboard/util/tutorial_resource_base.dart';
 
 // 🔴 W0.5 实施期 spec 订正：design §E 校验项写「调 SDK HttpConfig.hasSingleFlclashFlag」，
 // 但 SDK barrel 透传 import package:flutter（http_service.dart），纯 Dart CLI（dart run）
@@ -172,6 +173,7 @@ String generateFlavorDefinesJson(YamlMap doc,
     'XB_SENTRY_DSN': s('sentryDsn'), // NFR-7 Sentry DSN（可选；空→SentryBootstrap no-op）
     'XB_FORM_A': formA ? 'true' : 'false', // 形态 A 外壳开关（flavor.yaml form_a，可选）
     'XB_CRISP_WEBSITE_ID': crispWebsiteId, // D9 在线客服 websiteId（空→入口隐藏）
+    'XB_TUTORIAL_BASE_URL': s('tutorialBaseUrl').trim(),
   };
 
   const encoder = JsonEncoder.withIndent('  ');
@@ -213,6 +215,19 @@ List<String> validateFlavor({
       errors.add('缺必填字段：$key');
     } else if (doc[key] is! String) {
       errors.add('字段 $key 类型须为 string（实为 ${doc[key].runtimeType}）');
+    }
+  }
+
+  // Optional canonical resource base; do not mix it with API mirror URLs.
+  final tutorialBase = doc['tutorialBaseUrl'];
+  if (tutorialBase != null) {
+    final uri = tutorialBase is String ? Uri.tryParse(tutorialBase.trim()) : null;
+    if (tutorialBase is! String ||
+        (tutorialBase.trim().isNotEmpty &&
+            (uri == null || tutorialResourceBase(tutorialBase) == null ||
+                uri.hasQuery || uri.hasFragment ||
+                !(uri.isScheme('https') || uri.isScheme('http'))))) {
+      errors.add('tutorialBaseUrl 须为空或无凭据、查询和片段的 HTTP(S) 地址');
     }
   }
 

@@ -30,6 +30,7 @@ class XboardConfig {
     this.dataController = 'Example Tech Co., Ltd.',
     this.supportEmail = 'support@example.com',
     this.crispWebsiteId = '',
+    this.tutorialBaseUrl = '',
     this.sentryDsn = '',
     this.bootstrapUrls = const <String>[],
     this.bootstrapAesKeyBytes,
@@ -87,6 +88,10 @@ class XboardConfig {
   /// 空串 = 未配置 → 「帮助与客服」入口隐藏（不暴露空会话）。
   final String crispWebsiteId;
 
+  /// Optional tutorial resource origin, independent of the API mirror.
+  /// Empty uses the panel's app_url, then the current API address as fallback.
+  final String tutorialBaseUrl;
+
   /// Sentry DSN（NFR-7；flavor 注入 `XB_SENTRY_DSN`）。
   /// 空串 = 未配置 → `SentryBootstrap` 全 no-op（不上报，secure-by-default）。
   final String sentryDsn;
@@ -135,6 +140,8 @@ class XboardConfig {
         defaultValue: 'support@example.com');
     const crispWebsiteId =
         String.fromEnvironment('XB_CRISP_WEBSITE_ID', defaultValue: '');
+    const tutorialBaseUrl =
+        String.fromEnvironment('XB_TUTORIAL_BASE_URL', defaultValue: '');
     const sentryDsn = String.fromEnvironment('XB_SENTRY_DSN', defaultValue: '');
     const urlsCsv = String.fromEnvironment('XB_BOOTSTRAP_URLS', defaultValue: '');
     const aesKeyB64 = String.fromEnvironment('XB_AES_KEY_B64', defaultValue: '');
@@ -180,6 +187,7 @@ class XboardConfig {
       dataController: dataController,
       supportEmail: supportEmail,
       crispWebsiteId: crispWebsiteId,
+      tutorialBaseUrl: tutorialBaseUrl,
       sentryDsn: sentryDsn,
       bootstrapUrls: urls,
       bootstrapAesKeyBytes: aesBytes,

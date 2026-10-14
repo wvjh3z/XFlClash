@@ -25,6 +25,8 @@
 - 订阅在登录前装入完整地区候选；真实下载按地区限并发竞速、保留中国地址兜底预算，网络失败最多自动重试两次，成功地址记忆与会话取消接线，增加脱敏阶段诊断。保留手动刷新 60 秒冷却。
 
 ### Added
+- 教程正文在 Android、Windows、macOS 使用页面内 WebView，保留原文标题、样式和响应式排版，支持完整值复制、页内跳转及图片放大；外链和下载交系统浏览器。目录仍只读取「官方客户端」分类，并显示后端文章标题。
+- 教程图片等相对资源支持独立源站配置 `tutorialBaseUrl`；Windows 阅读器使用用户可写独立目录，增加运行时检查、加载超时和环境释放兼容适配，与客服统一打包 WebView2 Loader。Linux保留Flutter HTML回退，平台验收范围见当前 STATUS。
 - 我的与节点内容区支持下拉刷新，分别与本页标题刷新按钮共用业务方法、忙碌状态及 60 秒冷却；节点空态与短内容也可下拉。两页冷却独立，24 小时前台刷新规则保持原有机制。
 - W0 基础设施：客户端经 sibling path 依赖 `flutter_xboard_sdk`（接缝点 #3）+ cryptography / sentry_flutter / flutter_secure_storage / qr_flutter / flutter_html 5 包
 - 工程基础设施：`.githooks/`（commit-msg `[xfork]` 强制 + pre-commit 行号锚点校验）/ `tool/prepare_flavor.dart`（flavor 校验器）/ `tool/check-line-anchors.dart`（DD-21 接缝点漂移校验）/ `test/_fixtures/`（共享 fake）/ `flavors/brand_a/`（flavor 模板）
