@@ -23,6 +23,8 @@ import '../../_fixtures/fake_xboard_sdk.dart';
 
 class _Knowledge extends Mock implements sdk.KnowledgeApi {}
 
+class _KnowledgeList extends Mock implements sdk.KnowledgeListApi {}
+
 class _Config extends Mock implements sdk.ConfigApi {}
 
 class _Service extends Mock implements XboardService {}
@@ -44,16 +46,21 @@ Future<ProviderContainer> _pumpList(
   WidgetTester tester,
   XboardService service, {
   bool guest = false,
+  List<TutorialReaderContent>? readerInputs,
 }) async {
   final container = ProviderContainer(
-    // 锁定用户点按的重试边界，不让 Riverpod 默认后台重试提前消耗桩响应。
-    retry: (retryCount, error) => null,
+    // 目录 provider 自己关闭自动重试；保留真实容器默认策略验证错误立即可见。
     overrides: [
       xboardServiceProvider.overrideWithValue(service),
       authStateProvider.overrideWith(
         () =>
             _Auth(guest ? AuthState.unauthenticated : AuthState.authenticated),
       ),
+      if (readerInputs != null)
+        tutorialReaderBuilderProvider.overrideWithValue((context, content) {
+          readerInputs.add(content);
+          return _ReaderPlaceholder(onDispose: () {});
+        }),
     ],
   );
   addTearDown(() async {
@@ -237,9 +244,11 @@ void main() {
 
   testWidgets('目录只展示官方客户端，标题原文和后端顺序均保留', (tester) async {
     final instance = FakeXBoardSDK()..setupFor(XbScenario.loggedIn);
+    final knowledgeList = _KnowledgeList();
     final knowledge = _Knowledge();
+    when(() => instance.knowledgeList).thenReturn(knowledgeList);
     when(() => instance.knowledge).thenReturn(knowledge);
-    when(knowledge.getKnowledgeList).thenAnswer(
+    when(knowledgeList.getKnowledgeList).thenAnswer(
       (_) async => const [
         sdk.KnowledgeItem(
           id: 19,
@@ -279,15 +288,20 @@ void main() {
       tester.getTopLeft(find.text(_listTitle)).dy,
       lessThan(tester.getTopLeft(find.text('Android 使用步骤')).dy),
     );
-    verify(knowledge.getKnowledgeList).called(1);
+    verify(knowledgeList.getKnowledgeList).called(1);
+    verifyNever(knowledge.getKnowledgeList);
+    verifyNever(() => knowledge.getKnowledgeDetail(any()));
+    expect(find.byType(TutorialDetailPage), findsNothing);
     expect(tester.takeException(), isNull);
   });
 
   testWidgets('没有官方客户端文章时显示空态，不回退到其他分类', (tester) async {
     final instance = FakeXBoardSDK()..setupFor(XbScenario.loggedIn);
+    final knowledgeList = _KnowledgeList();
     final knowledge = _Knowledge();
+    when(() => instance.knowledgeList).thenReturn(knowledgeList);
     when(() => instance.knowledge).thenReturn(knowledge);
-    when(knowledge.getKnowledgeList).thenAnswer(
+    when(knowledgeList.getKnowledgeList).thenAnswer(
       (_) async => const [
         sdk.KnowledgeItem(
           id: 19,
@@ -301,7 +315,201 @@ void main() {
 
     expect(find.text('暂无使用教程', findRichText: true), findsOneWidget);
     expect(find.text('其他分类的教程'), findsNothing);
+    verify(knowledgeList.getKnowledgeList).called(1);
+    verifyNever(knowledge.getKnowledgeList);
+    verifyNever(() => knowledge.getKnowledgeDetail(any()));
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('轻量目录为空时显示空态，不拉全文目录或正文', (tester) async {
+    final instance = FakeXBoardSDK()..setupFor(XbScenario.loggedIn);
+    final knowledgeList = _KnowledgeList();
+    final knowledge = _Knowledge();
+    when(() => instance.knowledgeList).thenReturn(knowledgeList);
+    when(() => instance.knowledge).thenReturn(knowledge);
+    when(knowledgeList.getKnowledgeList).thenAnswer((_) async => const []);
+    await _pumpList(tester, XboardServiceImpl(sdk: instance));
+
+    expect(find.text('暂无使用教程', findRichText: true), findsOneWidget);
+    verify(knowledgeList.getKnowledgeList).called(1);
+    verifyNever(knowledge.getKnowledgeList);
+    verifyNever(() => knowledge.getKnowledgeDetail(any()));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('目录只取元数据；点击文章才取该篇正文并创建阅读器', (tester) async {
+    XboardConfig.bind(
+      const XboardConfig(
+        subscribeUserAgent: 'tutorial-test flclash',
+        devApiEndpoint: 'https://api.example.invalid',
+        devSubscriptionEndpoint: 'https://subscription.example.invalid',
+        tutorialBaseUrl: 'https://content.example.invalid/',
+        debug: false,
+        kIsTest: true,
+      ),
+    );
+    addTearDown(XboardConfig.resetForTest);
+    final instance = FakeXBoardSDK()..setupFor(XbScenario.loggedIn);
+    final knowledgeList = _KnowledgeList();
+    final knowledge = _Knowledge();
+    final config = _Config();
+    final inputs = <TutorialReaderContent>[];
+    when(() => instance.knowledgeList).thenReturn(knowledgeList);
+    when(() => instance.knowledge).thenReturn(knowledge);
+    when(() => instance.config).thenReturn(config);
+    when(knowledgeList.getKnowledgeList).thenAnswer(
+      (_) async => const [
+        sdk.KnowledgeItem(
+          id: 21,
+          category: '官方客户端',
+          title: _listTitle,
+          updatedAt: 1791936000,
+        ),
+        sdk.KnowledgeItem(
+          id: 22,
+          category: '官方客户端',
+          title: '尚未点开的文章',
+          updatedAt: 1791936000,
+        ),
+      ],
+    );
+    when(() => knowledge.getKnowledgeDetail(21)).thenAnswer(
+      (_) async => const sdk.KnowledgeArticle(
+        id: 21,
+        category: '官方客户端',
+        title: _listTitle,
+        body: '<h1>教程正文原有标题</h1><p>点选后才取得正文</p>',
+        updatedAt: 1791936000,
+      ),
+    );
+    await _pumpList(
+      tester,
+      XboardServiceImpl(sdk: instance),
+      readerInputs: inputs,
+    );
+
+    expect(inputs, isEmpty);
+    expect(find.byType(TutorialDetailPage), findsNothing);
+    verify(knowledgeList.getKnowledgeList).called(1);
+    verifyNever(knowledge.getKnowledgeList);
+    verifyNever(() => knowledge.getKnowledgeDetail(any()));
+    verifyNever(config.getConfig);
+
+    await tester.tap(find.text(_listTitle));
+    await _finish(tester);
+    expect(find.byType(TutorialDetailPage), findsOneWidget);
+    expect(find.byKey(const Key('native-reader-placeholder')), findsOneWidget);
+    expect(inputs, isNotEmpty);
+    expect(inputs.last.html, contains('教程正文原有标题'));
+    expect(inputs.last.html, contains('点选后才取得正文'));
+    verify(() => knowledge.getKnowledgeDetail(21)).called(1);
+    verifyNever(() => knowledge.getKnowledgeDetail(22));
+    verifyNever(knowledge.getKnowledgeList);
+    verifyNever(config.getConfig);
+    expect(tester.takeException(), isNull);
+  });
+
+  for (final status in [400, 404]) {
+    testWidgets('目录插件返回$status时保留登录且不回退全文，点击重试仍走轻量接口', (tester) async {
+      final instance = FakeXBoardSDK()..setupFor(XbScenario.loggedIn);
+      final knowledgeList = _KnowledgeList();
+      final knowledge = _Knowledge();
+      var calls = 0;
+      var failoverCalls = 0;
+      when(() => instance.knowledgeList).thenReturn(knowledgeList);
+      when(() => instance.knowledge).thenReturn(knowledge);
+      when(knowledgeList.getKnowledgeList).thenAnswer((_) async {
+        calls++;
+        if (calls == 1) throw sdk.ApiException('测试目录插件不可用', status);
+        return const [
+          sdk.KnowledgeItem(
+            id: 21,
+            category: '官方客户端',
+            title: _listTitle,
+            updatedAt: 1791936000,
+          ),
+        ];
+      });
+      final container = await _pumpList(
+        tester,
+        XboardServiceImpl(
+          sdk: instance,
+          apiFailover: () async => failoverCalls++,
+        ),
+      );
+
+      expect(find.text('重试'), findsOneWidget);
+      expect(find.text('测试目录插件不可用', findRichText: true), findsOneWidget);
+      expect(find.text('暂无使用教程', findRichText: true), findsNothing);
+      expect(calls, 1);
+      expect(failoverCalls, 0, reason: '插件不可用属于业务错误，无需切换网络地址');
+      expect(container.read(authStateProvider), AuthState.authenticated);
+      verifyNever(instance.clearToken);
+      verifyNever(() => instance.clearTokenIfSession(any()));
+      verifyNever(knowledge.getKnowledgeList);
+      verifyNever(() => knowledge.getKnowledgeDetail(any()));
+
+      await tester.tap(find.text('重试'));
+      await _finish(tester);
+      expect(calls, 2);
+      expect(find.text(_listTitle), findsOneWidget);
+      expect(find.text('重试'), findsNothing);
+      expect(container.read(authStateProvider), AuthState.authenticated);
+      expect(failoverCalls, 0);
+      verifyNever(knowledge.getKnowledgeList);
+      verifyNever(() => knowledge.getKnowledgeDetail(any()));
+      expect(tester.takeException(), isNull);
+    });
+  }
+
+  testWidgets('游客直接进入目录不请求元数据、全文或正文', (tester) async {
+    final instance = FakeXBoardSDK()..setupFor(XbScenario.loggedOut);
+    final knowledgeList = _KnowledgeList();
+    final knowledge = _Knowledge();
+    when(() => instance.knowledgeList).thenReturn(knowledgeList);
+    when(() => instance.knowledge).thenReturn(knowledge);
+    await _pumpList(tester, XboardServiceImpl(sdk: instance), guest: true);
+
+    expect(find.text('请先登录', findRichText: true), findsOneWidget);
+    verifyNever(knowledgeList.getKnowledgeList);
+    verifyNever(knowledge.getKnowledgeList);
+    verifyNever(() => knowledge.getKnowledgeDetail(any()));
+    expect(tester.takeException(), isNull);
+  });
+
+  test('会话世代变化后晚到的轻量目录响应不能作为成功结果', () async {
+    final instance = FakeXBoardSDK()..setupFor(XbScenario.loggedIn);
+    final knowledgeList = _KnowledgeList();
+    final knowledge = _Knowledge();
+    final pending = Completer<List<sdk.KnowledgeItem>>();
+    when(() => instance.knowledgeList).thenReturn(knowledgeList);
+    when(() => instance.knowledge).thenReturn(knowledge);
+    when(knowledgeList.getKnowledgeList).thenAnswer((_) => pending.future);
+    final result = XboardServiceImpl(sdk: instance).getTutorials();
+
+    when(() => instance.authSession).thenReturn(
+      const sdk.AuthSessionSnapshot(
+        revision: 2,
+        state: sdk.AuthState.authenticated,
+      ),
+    );
+    pending.complete(const [
+      sdk.KnowledgeItem(
+        id: 21,
+        category: '官方客户端',
+        title: '旧账号晚到的目录',
+        updatedAt: 1791936000,
+      ),
+    ]);
+    final response = await result;
+
+    expect(response, isA<XbFailure<List<XbTutorial>>>());
+    final failure = response as XbFailure<List<XbTutorial>>;
+    expect(failure.error, isA<XbNetwork>());
+    expect((failure.error as XbNetwork).kind, XbNetworkKind.cancelled);
+    verify(knowledgeList.getKnowledgeList).called(1);
+    verifyNever(knowledge.getKnowledgeList);
+    verifyNever(() => knowledge.getKnowledgeDetail(any()));
   });
 
   testWidgets('目录请求失败后点击重试会重新请求并显示后台标题', (tester) async {

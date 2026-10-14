@@ -674,9 +674,9 @@ class XboardServiceImpl implements XboardService, XboardSessionLifecycle {
 
   @override
   Future<XbResult<List<XbTutorial>>> getTutorials() async =>
-      // 知识库列表过滤「官方客户端」分类（用户确认的确切分类名）；空分类 → 空列表（成功）。
+      // KnowledgeList 只拉目录；过滤「官方客户端」，不回退到含正文的旧列表。
       _guard('getTutorials', () async {
-        final items = await _sdk.knowledge.getKnowledgeList();
+        final items = await _sdk.knowledgeList.getKnowledgeList();
         return [
           for (final it in items)
             if (it.category == _kTutorialCategory)

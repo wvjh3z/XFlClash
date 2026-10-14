@@ -57,6 +57,11 @@ on:
         description: '发布到草稿 Release（直链原文件，仅协作者可见，可随时删；测试期可开。false=只构建不发布）'
         type: boolean
         default: false
+      sdk_ref:
+        description: 'SDK commit or immutable tag'
+        type: string
+        required: true
+        default: '711e30dbd7a8553631193e4e7e62578f7af037af'
 
 defaults:
   run:
@@ -120,12 +125,16 @@ jobs:
           submodules: recursive
 
       - name: Checkout Xboard_sdk (sibling, private)
+        env:
+          SDK_REF: ${{ inputs.sdk_ref }}
         run: |
           set -euo pipefail
-          git clone --depth 1 \
+          git clone --no-checkout --depth 1 \
             "https://x-access-token:${{ secrets.SIBLING_SDK_TOKEN }}@github.com/wvjh3z/Xboard_sdk.git" \
             "${GITHUB_WORKSPACE}/../Xboard_sdk"
-          echo "✓ Xboard_sdk 已 clone 到 sibling"
+          git -C "${GITHUB_WORKSPACE}/../Xboard_sdk" fetch --depth 1 origin "$SDK_REF"
+          git -C "${GITHUB_WORKSPACE}/../Xboard_sdk" checkout --detach FETCH_HEAD
+          echo "✓ Xboard_sdk 已固定到指定 SDK 提交"
 
       - name: Restore flavor secrets
         env:
