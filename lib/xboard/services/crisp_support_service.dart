@@ -40,6 +40,17 @@ import '../util/app_version.dart' show myClientVersionLabel;
 import '../util/format.dart' show xbDate;
 import 'crisp_chat_driver.dart';
 
+export 'crisp_chat_driver.dart' show CrispChatFailure;
+
+/// A failure category for UI guidance, without platform exception text or user data.
+class CrispOpenResult {
+  const CrispOpenResult.opened() : failure = null;
+  const CrispOpenResult.failed(CrispChatFailure reason) : failure = reason;
+
+  final CrispChatFailure? failure;
+  bool get opened => failure == null;
+}
+
 /// Crisp 在线客服服务（静态门面，串行会话生命周期）。
 class CrispSupportService {
   CrispSupportService._();
@@ -53,6 +64,7 @@ class CrispSupportService {
       : DesktopCrispChatDriver();
   static Future<void> _queue = Future.value();
   static Future<bool>? _opening;
+  static Future<CrispOpenResult>? _resultOpening;
   static int _generation = 0;
   static Completer<void> _cancel = Completer<void>();
   static bool _resetFailed = false;
@@ -64,6 +76,7 @@ class CrispSupportService {
     await _queue;
     _driver = driver;
     _opening = null;
+    _resultOpening = null;
     _resetFailed = false;
     _cancel = Completer<void>();
   }
@@ -79,22 +92,49 @@ class CrispSupportService {
     XbDomainSubscription? sub,
     bool Function()? isCurrent,
   }) {
-    if (!isEnabled) return Future.value(false);
     if (_opening != null) return _opening!;
+    final future = openWithResult(
+      sub: sub,
+      isCurrent: isCurrent,
+    ).then((result) => result.opened);
+    _opening = future;
+    unawaited(
+      future.then((_) {
+        if (identical(_opening, future)) _opening = null;
+      }),
+    );
+    return future;
+  }
+
+  /// The same serialized operation with actionable, privacy-safe failure reasons.
+  static Future<CrispOpenResult> openWithResult({
+    XbDomainSubscription? sub,
+    bool Function()? isCurrent,
+  }) {
+    if (!isEnabled) {
+      return Future.value(
+        const CrispOpenResult.failed(CrispChatFailure.notConfigured),
+      );
+    }
+    if (_resultOpening != null) return _resultOpening!;
     final generation = _generation;
     final cancellation = _cancel.future;
     bool current() => generation == _generation && (isCurrent?.call() ?? true);
+    const cancelled = CrispOpenResult.failed(CrispChatFailure.cancelled);
     final future = _serialized(() async {
-      if (!current()) return false;
+      if (!current()) return cancelled;
       final websiteId = XboardConfig.current.crispWebsiteId.trim();
       StreamSubscription<void>? events;
       var readySignal = Completer<void>();
+      var failure = CrispChatFailure.startupFailed;
       try {
         if (_resetFailed) {
+          failure = CrispChatFailure.resetFailed;
           await _driver.reset(websiteId);
           _resetFailed = false;
         }
-        if (!current()) return false;
+        if (!current()) return cancelled;
+        failure = CrispChatFailure.startupFailed;
         events = _driver.sessionLoaded.listen((_) {
           if (!readySignal.isCompleted) readySignal.complete();
         }, onError: (Object _) {});
@@ -115,14 +155,17 @@ class CrispSupportService {
             enableNotifications: false,
           ),
         );
+        if (!current()) return cancelled;
+        failure = CrispChatFailure.sessionNotReady;
         final deadline = Stopwatch()..start();
         while (current() && deadline.elapsed < const Duration(seconds: 15)) {
           final sid = await _driver.sessionId().timeout(
             const Duration(seconds: 2),
             onTimeout: () => null,
           );
-          if (!current()) return false;
+          if (!current()) return cancelled;
           if (sid != null && sid.isNotEmpty) {
+            failure = CrispChatFailure.sessionDataFailed;
             final values = <String, String>{
               'Source': _sourceLabel,
               if (sub != null) ...{
@@ -133,10 +176,10 @@ class CrispSupportService {
               },
             };
             for (final entry in values.entries) {
-              if (!current()) return false;
+              if (!current()) return cancelled;
               await _driver.setString(entry.key, entry.value);
             }
-            return current();
+            return current() ? const CrispOpenResult.opened() : cancelled;
           }
           await Future.any([
             cancellation,
@@ -146,21 +189,26 @@ class CrispSupportService {
           readySignal = Completer<void>();
         }
         debugPrint('[CrispSupport] session_not_ready_or_cancelled');
-        return false;
+        return current()
+            ? const CrispOpenResult.failed(CrispChatFailure.sessionNotReady)
+            : cancelled;
       } catch (error) {
         // Plugin exceptions may contain user email or session details.
         debugPrint(
           '[CrispSupport] open_or_session_data_failed type=${error.runtimeType}',
         );
-        return false;
+        if (!current()) return cancelled;
+        return CrispOpenResult.failed(
+          error is CrispChatException ? error.failure : failure,
+        );
       } finally {
         await events?.cancel();
       }
     });
-    _opening = future;
+    _resultOpening = future;
     unawaited(
       future.then((_) {
-        if (identical(_opening, future)) _opening = null;
+        if (identical(_resultOpening, future)) _resultOpening = null;
       }),
     );
     return future;
@@ -172,6 +220,7 @@ class CrispSupportService {
     if (!_cancel.isCompleted) _cancel.complete();
     _cancel = Completer<void>();
     _opening = null;
+    _resultOpening = null;
     final websiteId = XboardConfig.current.crispWebsiteId.trim();
     return _serialized(() async {
       try {

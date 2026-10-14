@@ -4,6 +4,9 @@
 /// 服务内部全捕获返 false（验证「永不抛」契约）。会话数据透传的具体值由真机/手测核对。
 library;
 
+import 'dart:async';
+
+import 'package:crisp_chat/crisp_chat.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -11,6 +14,36 @@ import 'package:fl_clash/xboard/config/xboard_config.dart';
 import 'package:fl_clash/xboard/models/xb_domain_subscription.dart';
 import 'package:fl_clash/xboard/services/crisp_support_service.dart';
 import 'package:fl_clash/xboard/services/crisp_chat_driver.dart';
+
+class _ResultDriver implements CrispChatDriver {
+  Object? failure;
+  Completer<void>? starting;
+  bool failWrite = false;
+  int opens = 0;
+  final writes = <String>[];
+
+  @override
+  Stream<void> get sessionLoaded => const Stream.empty();
+
+  @override
+  Future<void> open(CrispConfig config) async {
+    opens++;
+    await starting?.future;
+    if (failure != null) throw failure!;
+  }
+
+  @override
+  Future<String?> sessionId() async => 'ready';
+
+  @override
+  Future<void> setString(String key, String value) async {
+    if (failWrite) throw StateError('synthetic metadata failure');
+    writes.add(key);
+  }
+
+  @override
+  Future<void> reset(String websiteId) async {}
+}
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -160,6 +193,122 @@ void main() {
       expect(await CrispSupportService.open(), isFalse);
     });
   });
+
+  group('actionable open result', () {
+    test(
+      'unconfigured support returns a reason without opening a driver',
+      () async {
+        final driver = _ResultDriver();
+        await CrispSupportService.setDriverForTest(driver);
+        final result = await CrispSupportService.openWithResult();
+        expect(result.opened, isFalse);
+        expect(result.failure, CrispChatFailure.notConfigured);
+        expect(driver.opens, 0);
+      },
+    );
+
+    test(
+      'runtime failure is distinct from network and profile failures',
+      () async {
+        XboardConfig.bind(cfg(crispWebsiteId: 'ws-test'));
+        final driver = _ResultDriver();
+        await CrispSupportService.setDriverForTest(driver);
+        for (final failure in [
+          CrispChatFailure.webView2Unavailable,
+          CrispChatFailure.profileUnavailable,
+          CrispChatFailure.sessionNotReady,
+        ]) {
+          driver.failure = CrispChatException(failure);
+          final result = await CrispSupportService.openWithResult();
+          expect(result.opened, isFalse);
+          expect(result.failure, failure);
+        }
+        driver.failure = null;
+        expect((await CrispSupportService.openWithResult()).opened, isTrue);
+        expect(driver.writes, ['Source']);
+      },
+    );
+
+    test(
+      'boolean and detailed callers share the same in-flight operation',
+      () async {
+        XboardConfig.bind(cfg(crispWebsiteId: 'ws-test'));
+        final driver = _ResultDriver()..starting = Completer<void>();
+        await CrispSupportService.setDriverForTest(driver);
+        final detailed = CrispSupportService.openWithResult();
+        final legacy = CrispSupportService.open();
+        expect(
+          identical(detailed, CrispSupportService.openWithResult()),
+          isTrue,
+        );
+        await Future<void>.delayed(Duration.zero);
+        driver.starting!.complete();
+        expect((await detailed).opened, isTrue);
+        expect(await legacy, isTrue);
+        expect(driver.opens, 1);
+        expect(driver.writes, ['Source']);
+      },
+    );
+
+    test(
+      'account changes during startup cancel instead of showing an error',
+      () async {
+        XboardConfig.bind(cfg(crispWebsiteId: 'ws-test'));
+        final driver = _ResultDriver()..starting = Completer<void>();
+        await CrispSupportService.setDriverForTest(driver);
+        var current = true;
+        final pending = CrispSupportService.openWithResult(
+          isCurrent: () => current,
+        );
+        await Future<void>.delayed(Duration.zero);
+        current = false;
+        driver.starting!.complete();
+        final result = await pending;
+        expect(result.failure, CrispChatFailure.cancelled);
+        expect(driver.writes, isEmpty);
+      },
+    );
+
+    test(
+      'metadata errors have a separate result and subsequent opens recover',
+      () async {
+        XboardConfig.bind(cfg(crispWebsiteId: 'ws-test'));
+        final driver = _ResultDriver()..failWrite = true;
+        await CrispSupportService.setDriverForTest(driver);
+        expect(
+          (await CrispSupportService.openWithResult()).failure,
+          CrispChatFailure.sessionDataFailed,
+        );
+        driver.failWrite = false;
+        expect((await CrispSupportService.openWithResult()).opened, isTrue);
+      },
+    );
+  });
+
+  test(
+    'late startup failures belong to the cancelled account, then recover',
+    () async {
+      XboardConfig.bind(cfg(crispWebsiteId: 'ws-test'));
+      final driver = _ResultDriver()
+        ..starting = Completer<void>()
+        ..failure = const CrispChatException(
+          CrispChatFailure.profileUnavailable,
+        );
+      await CrispSupportService.setDriverForTest(driver);
+      var current = true;
+      final pending = CrispSupportService.openWithResult(
+        isCurrent: () => current,
+      );
+      await Future<void>.delayed(Duration.zero);
+      current = false;
+      driver.starting!.complete();
+      expect((await pending).failure, CrispChatFailure.cancelled);
+      expect(driver.writes, isEmpty);
+      driver.failure = null;
+      expect((await CrispSupportService.openWithResult()).opened, isTrue);
+      expect(driver.writes, ['Source']);
+    },
+  );
 
   test('原生 NO_SESSION 表示尚未就绪，随后就绪仍能打开并写入', () async {
     XboardConfig.bind(cfg(crispWebsiteId: 'ws-abc-123'));

@@ -11,6 +11,7 @@ library;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import 'package:fl_clash/widgets/widgets.dart';
 import 'package:fl_clash/xboard/models/xb_domain_subscription.dart';
@@ -1423,12 +1424,69 @@ class _SupportRowState extends ConsumerState<_SupportRow>
         }
       }
       if (!context.mounted || !current()) return;
-      final ok = await CrispSupportService.open(sub: sub, isCurrent: current);
-      if (!ok && context.mounted && current()) {
-        xbToast(context, '客服暂时无法打开，请检查网络后重试');
+      final result = await CrispSupportService.openWithResult(
+        sub: sub,
+        isCurrent: current,
+      );
+      if (!result.opened && context.mounted && current()) {
+        await _showSupportFailure(context, result.failure, current);
       }
     } catch (_) {
       if (context.mounted && current()) xbToast(context, '客服暂时无法打开，请稍后再试');
+    }
+  }
+
+  Future<void> _showSupportFailure(
+    BuildContext context,
+    CrispChatFailure? failure,
+    bool Function() current,
+  ) async {
+    if (!context.mounted || !current()) return;
+    switch (failure) {
+      case CrispChatFailure.cancelled:
+      case CrispChatFailure.notConfigured:
+      case CrispChatFailure.windowClosed:
+        return;
+      case CrispChatFailure.webView2Unavailable:
+        final download = await xbConfirm(
+          context,
+          title: '需要安装客服运行组件',
+          message:
+              '在线客服需要 Microsoft Edge WebView2 Runtime。'
+              '请前往微软官网下载并安装，然后重新打开客服。',
+          confirmLabel: '前往下载',
+          icon: Icons.download_rounded,
+        );
+        if (!download || !context.mounted || !current()) return;
+        try {
+          final launched = await launchUrl(
+            Uri.parse(
+              'https://developer.microsoft.com/microsoft-edge/webview2/',
+            ),
+            mode: LaunchMode.externalApplication,
+          ).timeout(const Duration(seconds: 10));
+          if (!launched && context.mounted && current()) {
+            xbToast(context, '下载页面无法打开，请使用浏览器访问微软 WebView2 官网');
+          }
+        } catch (_) {
+          if (context.mounted && current()) {
+            xbToast(context, '下载页面无法打开，请使用浏览器访问微软 WebView2 官网');
+          }
+        }
+        return;
+      default:
+        final message = switch (failure) {
+          CrispChatFailure.webViewUnavailable => '当前系统的客服组件不可用，请检查应用安装是否完整',
+          CrispChatFailure.profileUnavailable => '客服数据无法保存，请检查应用的存储权限或可用空间后重试',
+          CrispChatFailure.startupFailed => '客服窗口无法启动，请重新打开应用后再试',
+          CrispChatFailure.startupTimeout => '客服启动时间较长，请稍后重试',
+          CrispChatFailure.sessionNotReady => '客服加载失败，请检查网络后重试',
+          CrispChatFailure.sessionDataFailed => '客服账号资料未能同步，请稍后重新打开客服',
+          CrispChatFailure.resetFailed => '客服会话未能重置，请重新打开应用后再试',
+          CrispChatFailure.closeFailed => '上一次客服窗口未能关闭，请关闭窗口后重试',
+          _ => '客服暂时无法打开，请稍后再试',
+        };
+        xbToast(context, message);
     }
   }
 

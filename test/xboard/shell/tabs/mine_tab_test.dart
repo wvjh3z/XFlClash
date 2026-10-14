@@ -6,7 +6,8 @@ import 'package:crisp_chat/crisp_chat.dart';
 import 'package:fl_clash/xboard/services/crisp_chat_driver.dart';
 import 'package:fl_clash/xboard/services/crisp_support_service.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart' show SystemChannels;
+import 'package:flutter/services.dart'
+    show MethodCall, MethodChannel, PlatformException, SystemChannels;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
@@ -70,6 +71,9 @@ Future<void> pumpMine(
 
 void main() {
   const gb = 1024 * 1024 * 1024;
+  const urlChannel = MethodChannel('plugins.flutter.io/url_launcher');
+
+  setUpAll(() => registerFallbackValue(CrispConfig(websiteID: 'test')));
 
   testWidgets('客服打开期间显示进度并防止重复点击', (tester) async {
     XboardConfig.bind(
@@ -83,7 +87,6 @@ void main() {
       ),
     );
     addTearDown(XboardConfig.resetForTest);
-    registerFallbackValue(CrispConfig(websiteID: 'test'));
     final driver = _MockCrispDriver();
     final opened = Completer<void>();
     when(() => driver.sessionLoaded).thenAnswer((_) => const Stream.empty());
@@ -92,10 +95,10 @@ void main() {
       () => driver.sessionId(),
     ).thenAnswer((_) => Future<String?>.value('ready'));
     when(() => driver.setString(any(), any())).thenAnswer((_) async {});
-    await CrispSupportService.setDriverForTest(driver);
+    await tester.runAsync(() => CrispSupportService.setDriverForTest(driver));
     await pumpMine(tester, auth: AuthState.unauthenticated);
     await tester.ensureVisible(find.text('在线客服'));
-    await tester.tap(find.text('在线客服'));
+    await tester.runAsync(() => tester.tap(find.text('在线客服')));
     await tester.pump();
     expect(find.text('正在打开客服…'), findsOneWidget);
     await tester.tap(find.text('正在打开客服…'));
@@ -106,6 +109,196 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('在线客服'), findsOneWidget);
     verify(() => driver.open(any())).called(1);
+  });
+
+  group('客服失败提示与运行组件下载', () {
+    setUp(() {
+      XboardConfig.bind(
+        const XboardConfig(
+          subscribeUserAgent: 'test',
+          devApiEndpoint: 'https://test.invalid',
+          devSubscriptionEndpoint: 'https://test.invalid',
+          debug: false,
+          kIsTest: true,
+          crispWebsiteId: 'test',
+        ),
+      );
+    });
+    tearDown(XboardConfig.resetForTest);
+
+    Future<void> pumpFailure(
+      WidgetTester tester,
+      CrispChatFailure failure,
+    ) async {
+      final driver = _MockCrispDriver();
+      when(() => driver.sessionLoaded).thenAnswer((_) => const Stream.empty());
+      when(() => driver.open(any())).thenThrow(CrispChatException(failure));
+      await tester.runAsync(() => CrispSupportService.setDriverForTest(driver));
+      await pumpMine(tester, auth: AuthState.unauthenticated);
+      await tester.ensureVisible(find.text('在线客服'));
+      await tester.runAsync(() async {
+        await tester.tap(find.text('在线客服'));
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+      });
+      await tester.pump();
+      // 运行组件确认框等待用户决策时，提交 spinner 仍会转，不能 pumpAndSettle。
+      await tester.pump(const Duration(milliseconds: 300));
+    }
+
+    List<MethodCall> mockBrowser(
+      WidgetTester tester, {
+      bool succeeds = true,
+      bool throws = false,
+      Future<bool>? pending,
+    }) {
+      final calls = <MethodCall>[];
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        urlChannel,
+        (call) async {
+          calls.add(call);
+          if (throws) throw PlatformException(code: 'launch_failed');
+          return pending ?? succeeds;
+        },
+      );
+      addTearDown(
+        () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          urlChannel,
+          null,
+        ),
+      );
+      return calls;
+    }
+
+    Future<void> pumpSupportIdle(WidgetTester tester) async {
+      // Stream cancellation/method-channel completions can cross the real async
+      // zone used by the preceding single-flight test. Give them one bounded
+      // turn, then assert actual submit completion instead of settling every
+      // animation in MineTab (a busy spinner would otherwise wait ten minutes).
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 20)),
+      );
+      for (var frame = 0; frame < 20; frame++) {
+        await tester.pump(const Duration(milliseconds: 100));
+        if (find.text('在线客服').evaluate().isNotEmpty &&
+            find.byType(AlertDialog).evaluate().isEmpty) {
+          break;
+        }
+      }
+      expect(find.byType(AlertDialog), findsNothing);
+      expect(find.text('正在打开客服…'), findsNothing);
+      expect(find.text('在线客服'), findsOneWidget);
+    }
+
+    Future<void> finishToast(WidgetTester tester) async {
+      await pumpSupportIdle(tester);
+      await tester.pump(const Duration(seconds: 3));
+      await tester.pump(const Duration(milliseconds: 300));
+    }
+
+    testWidgets('缺少 WebView2 → 说明组件名称；取消不会打开浏览器', (tester) async {
+      final calls = mockBrowser(tester);
+      await pumpFailure(tester, CrispChatFailure.webView2Unavailable);
+      expect(find.text('需要安装客服运行组件'), findsOneWidget);
+      expect(
+        find.textContaining('Microsoft Edge WebView2 Runtime'),
+        findsOneWidget,
+      );
+      expect(calls, isEmpty);
+      await tester.tap(find.text('取消'));
+      await pumpSupportIdle(tester);
+      expect(find.text('需要安装客服运行组件'), findsNothing);
+      expect(find.text('在线客服'), findsOneWidget);
+      expect(calls, isEmpty);
+    });
+
+    testWidgets('用户点击下载 → 仅用系统浏览器打开微软官方页面', (tester) async {
+      final calls = mockBrowser(tester);
+      await pumpFailure(tester, CrispChatFailure.webView2Unavailable);
+      await tester.tap(find.text('前往下载'));
+      await pumpSupportIdle(tester);
+      expect(calls, hasLength(1));
+      expect(calls.single.method, 'launch');
+      final arguments = calls.single.arguments as Map;
+      expect(
+        arguments['url'],
+        'https://developer.microsoft.com/microsoft-edge/webview2/',
+      );
+      expect(arguments['useWebView'], isFalse);
+      expect(arguments['useSafariVC'], isFalse);
+      expect(find.text('在线客服'), findsOneWidget);
+    });
+
+    for (final throws in [false, true]) {
+      testWidgets('浏览器打开${throws ? '抛异常' : '返回失败'} → 显示可操作提示并恢复入口', (
+        tester,
+      ) async {
+        final calls = mockBrowser(tester, succeeds: false, throws: throws);
+        await pumpFailure(tester, CrispChatFailure.webView2Unavailable);
+        await tester.tap(find.text('前往下载'));
+        await pumpSupportIdle(tester);
+        expect(calls, hasLength(1));
+        expect(find.text('下载页面无法打开，请使用浏览器访问微软 WebView2 官网'), findsOneWidget);
+        expect(find.text('在线客服'), findsOneWidget);
+        await finishToast(tester);
+      });
+    }
+
+    testWidgets('浏览器迟到失败时页面已销毁 → 静默结束', (tester) async {
+      final launched = Completer<bool>();
+      mockBrowser(tester, pending: launched.future);
+      await pumpFailure(tester, CrispChatFailure.webView2Unavailable);
+      await tester.tap(find.text('前往下载'));
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.pumpWidget(const MaterialApp(home: SizedBox()));
+      launched.complete(false);
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 20)),
+      );
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(find.text('下载页面无法打开，请使用浏览器访问微软 WebView2 官网'), findsNothing);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('数据目录失败 → 提示存储权限，与网络加载失败区别', (tester) async {
+      await pumpFailure(tester, CrispChatFailure.profileUnavailable);
+      expect(find.text('客服数据无法保存，请检查应用的存储权限或可用空间后重试'), findsOneWidget);
+      expect(find.text('客服加载失败，请检查网络后重试'), findsNothing);
+      expect(find.text('需要安装客服运行组件'), findsNothing);
+      await finishToast(tester);
+    });
+
+    testWidgets('会话网络未就绪 → 提示检查网络，不引导安装组件', (tester) async {
+      await pumpFailure(tester, CrispChatFailure.sessionNotReady);
+      expect(find.text('客服加载失败，请检查网络后重试'), findsOneWidget);
+      expect(find.text('客服数据无法保存，请检查应用的存储权限或可用空间后重试'), findsNothing);
+      expect(find.text('需要安装客服运行组件'), findsNothing);
+      await finishToast(tester);
+    });
+
+    testWidgets('macOS/Linux 组件不可用 → 不提供 Windows Runtime 下载', (tester) async {
+      final calls = mockBrowser(tester);
+      await pumpFailure(tester, CrispChatFailure.webViewUnavailable);
+      expect(find.text('当前系统的客服组件不可用，请检查应用安装是否完整'), findsOneWidget);
+      expect(find.text('需要安装客服运行组件'), findsNothing);
+      expect(calls, isEmpty);
+      await finishToast(tester);
+    });
+
+    for (final failure in [
+      CrispChatFailure.windowClosed,
+      CrispChatFailure.cancelled,
+      CrispChatFailure.notConfigured,
+    ]) {
+      testWidgets('${failure.name} → 静默结束，保留可点击入口', (tester) async {
+        final calls = mockBrowser(tester);
+        await pumpFailure(tester, failure);
+        await pumpSupportIdle(tester);
+        expect(find.textContaining('客服'), findsOneWidget);
+        expect(find.text('在线客服'), findsOneWidget);
+        expect(find.byType(AlertDialog), findsNothing);
+        expect(calls, isEmpty);
+      });
+    }
   });
 
   testWidgets('游客态 → 登录引导卡（R6.10）', (tester) async {
