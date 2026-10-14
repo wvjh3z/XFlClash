@@ -454,11 +454,10 @@ class XboardModule {
             container.read(subscriptionServiceProvider).recoverPending();
           }
         },
-        // R4.6 step2b-fix：切回前台 → 订阅 + 账号刷新（24h 节流内部判定）。始终存活，
-        // 不依赖任何 UI 页面构建。observer 已在监听 resumed 事件，这里把空回调填上。
-        // 同时触发更新检查（24h 节流，fire-and-forget）。
+        // Android/Windows 全局前台刷新：登录 gate + 24h 节流，不依赖 Tab 构建。
+        onForegroundRefresh: () => SubscriptionTriggers.onResume(container),
+        // 移动端更新检查独立保留，采用更新服务自己的成功后 24h 节流。
         onResumeTimers: () {
-          SubscriptionTriggers.onResume(container);
           // ignore: discarded_futures
           XbUpdateService.autoCheckThrottled(container);
         },

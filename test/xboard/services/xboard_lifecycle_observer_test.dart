@@ -38,6 +38,64 @@ void main() {
     },
   );
 
+  test(
+    'Windows resumed invokes foreground refresh even with unchanged endpoint',
+    () async {
+      var refreshes = 0;
+      var mobileTimers = 0;
+      var recoveries = 0;
+      race.seedEndpoints([const BootstrapEndpoint(url: 'https://a.test')], []);
+      await race.raceApi([const BootstrapEndpoint(url: 'https://a.test')]);
+      final obs = XboardLifecycleObserver(
+        raceController: race,
+        isMobileOverride: false,
+        isWindowsOverride: true,
+        onForegroundRefresh: () => refreshes++,
+        onResumeTimers: () => mobileTimers++,
+        onRecoverPending: () => recoveries++,
+      );
+      obs.didChangeAppLifecycleState(AppLifecycleState.resumed);
+      await Future<void>.delayed(Duration.zero);
+      expect(refreshes, 1);
+      expect(recoveries, 1);
+      expect(mobileTimers, 0);
+      expect(race.currentApiEndpoint, 'https://a.test');
+      obs.didChangeAppLifecycleState(AppLifecycleState.hidden);
+      obs.didChangeAppLifecycleState(AppLifecycleState.inactive);
+      expect(refreshes, 1);
+      obs.dispose();
+    },
+  );
+
+  test(
+    'mobile foreground refresh remains independent of mobile timer callback',
+    () {
+      var refreshes = 0;
+      final obs = XboardLifecycleObserver(
+        raceController: race,
+        isMobileOverride: true,
+        isWindowsOverride: false,
+        onForegroundRefresh: () => refreshes++,
+      );
+      obs.didChangeAppLifecycleState(AppLifecycleState.resumed);
+      expect(refreshes, 1);
+      obs.dispose();
+    },
+  );
+
+  test('macOS/Linux do not enter the newly enabled Windows refresh path', () {
+    var refreshes = 0;
+    final obs = XboardLifecycleObserver(
+      raceController: race,
+      isMobileOverride: false,
+      isWindowsOverride: false,
+      onForegroundRefresh: () => refreshes++,
+    );
+    obs.didChangeAppLifecycleState(AppLifecycleState.resumed);
+    expect(refreshes, 0);
+    obs.dispose();
+  });
+
   test('移动端 paused → 暂停 Timer 回调触发', () {
     var paused = false;
     final obs = XboardLifecycleObserver(

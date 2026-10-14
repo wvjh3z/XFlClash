@@ -5,7 +5,7 @@
 ///
 /// **ζ2 平台分级**（design 跨平台矩阵 § B）：
 /// - `paused`：移动端（Android）暂停心跳/QR/processing Timer（电池）；desktop 保持运行。
-/// - `resumed`：移动端重启 Timer；**4 平台都**触发 `refreshRaceInBackground`（R15.C.20）。
+/// - `resumed`：Android/Windows 检查前台业务刷新；移动端重启 Timer；四平台重选端点。
 ///
 /// **dispose 顺序**（DD-19）：removeObserver → cancel 订阅 → cancel timer → race dispose
 /// （避免 Timer 最后一拍撞 disposed 依赖）。
@@ -22,10 +22,13 @@ class XboardLifecycleObserver with WidgetsBindingObserver {
     required EndpointRaceController raceController,
     this.onPauseTimers,
     this.onResumeTimers,
+    this.onForegroundRefresh,
     this.onRecoverPending,
     bool? isMobileOverride,
+    bool? isWindowsOverride,
   }) : _race = raceController,
-       _isMobile = isMobileOverride ?? (Platform.isAndroid || Platform.isIOS);
+       _isMobile = isMobileOverride ?? (Platform.isAndroid || Platform.isIOS),
+       _isWindows = isWindowsOverride ?? Platform.isWindows;
 
   final EndpointRaceController _race;
 
@@ -34,9 +37,13 @@ class XboardLifecycleObserver with WidgetsBindingObserver {
 
   /// 移动端 resumed 时重启 Timer 的回调。
   final VoidCallback? onResumeTimers;
+
+  /// Android/Windows 回前台的业务刷新，24h 节流和登录门控由触发器负责。
+  final VoidCallback? onForegroundRefresh;
   final VoidCallback? onRecoverPending;
 
   final bool _isMobile;
+  final bool _isWindows;
   bool _attached = false;
 
   /// 挂到 WidgetsBinding（bootstrap step 7）。
@@ -58,6 +65,7 @@ class XboardLifecycleObserver with WidgetsBindingObserver {
         }
       case AppLifecycleState.resumed:
         onRecoverPending?.call();
+        if (_isMobile || _isWindows) onForegroundRefresh?.call();
         if (_isMobile) {
           debugPrint('[XboardLifecycle] resumed (mobile) → 重启 Timer');
           onResumeTimers?.call();

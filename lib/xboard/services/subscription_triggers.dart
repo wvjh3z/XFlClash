@@ -15,6 +15,7 @@
 library;
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter/foundation.dart' show visibleForTesting;
 
 import '../providers/auth_state_provider.dart';
 import '../providers/user_profile_provider.dart';
@@ -26,9 +27,17 @@ const Duration kSubscriptionResumeThrottle = Duration(hours: 24);
 class SubscriptionTriggers {
   SubscriptionTriggers._();
 
-  /// onResume 节流单调时钟（θ-7：距上次成功刷新 ≥24h 才真拉；防改系统时间绕过）。
+  /// onResume 节流单调时钟（θ-7：距上次 resume 触发 ≥24h 才真拉；防改系统时间绕过）。
   /// null = 从未刷新过（首次 onResume 直接放行）。
   static Stopwatch? _resumeThrottle;
+  static Stopwatch Function() _createResumeStopwatch = Stopwatch.new;
+
+  /// 注入单调计时器以覆盖 24h 临界点；生产仍使用真实 Stopwatch。
+  @visibleForTesting
+  static void debugSetResumeStopwatchFactory(Stopwatch Function()? factory) {
+    _resumeThrottle = null;
+    _createResumeStopwatch = factory ?? Stopwatch.new;
+  }
 
   // ───────── 核心实现（参数化 gate 输入 + 两个动作闭包，兼容 WidgetRef 与 ProviderContainer）─────────
   //
@@ -55,7 +64,7 @@ class SubscriptionTriggers {
     if (sw != null && sw.elapsed < kSubscriptionResumeThrottle) {
       return; // 节流窗口内，跳过。
     }
-    _resumeThrottle = Stopwatch()..start();
+    _resumeThrottle = _createResumeStopwatch()..start();
     fireSync();
     refreshAccount();
   }
@@ -77,17 +86,17 @@ class SubscriptionTriggers {
 
   /// T3 订单完成（支付成功 / 终态 completed/discounted）：force 同步订阅 + 刷新账号信息。
   static void onOrderCompleted(WidgetRef ref) => _coreOnAuthenticated(
-        ready: _readyRef(ref),
-        fireSync: () => _fireSyncRef(ref, force: true),
-        refreshAccount: () => ref.invalidate(userProfileProvider),
-      );
+    ready: _readyRef(ref),
+    fireSync: () => _fireSyncRef(ref, force: true),
+    refreshAccount: () => ref.invalidate(userProfileProvider),
+  );
 
   /// T4 用户主动刷新（账号卡刷新按钮 / 下拉）：force 同步订阅 + 刷新账号信息。
   static void onManualRefresh(WidgetRef ref) => _coreOnAuthenticated(
-        ready: _readyRef(ref),
-        fireSync: () => _fireSyncRef(ref, force: true),
-        refreshAccount: () => ref.invalidate(userProfileProvider),
-      );
+    ready: _readyRef(ref),
+    fireSync: () => _fireSyncRef(ref, force: true),
+    refreshAccount: () => ref.invalidate(userProfileProvider),
+  );
 
   // ───────── 始终存活入口（ProviderContainer）：T1 登录 / T2 冷启动 / onResume ─────────
   // 由 xboard_module 接线（listen authState + lifecycle observer），不依赖任何 UI 页面构建。
@@ -106,18 +115,19 @@ class SubscriptionTriggers {
   }
 
   /// T1 登录成功 / T2 已登录冷启动：force 同步订阅 + 刷新账号信息。
-  static void onAuthenticated(ProviderContainer container) => _coreOnAuthenticated(
+  static void onAuthenticated(ProviderContainer container) =>
+      _coreOnAuthenticated(
         ready: _readyContainer(container),
         fireSync: () => _fireSyncContainer(container, force: true),
         refreshAccount: () => container.invalidate(userProfileProvider),
       );
 
-  /// onResume（切前台）：24h 节流——距上次成功刷新 ≥24h 才真拉订阅 + 刷新账号信息。
+  /// onResume（切前台）：24h 节流——距上次 resume 触发 ≥24h 才真拉订阅 + 刷新账号信息。
   static void onResume(ProviderContainer container) => _coreOnResume(
-        ready: _readyContainer(container),
-        fireSync: () => _fireSyncContainer(container, force: false),
-        refreshAccount: () => container.invalidate(userProfileProvider),
-      );
+    ready: _readyContainer(container),
+    fireSync: () => _fireSyncContainer(container, force: false),
+    refreshAccount: () => container.invalidate(userProfileProvider),
+  );
 
   /// 重置 onResume 节流时钟（退出登录调，避免下个账号被上个账号的节流窗口挡住；测试 teardown 同用）。
   static void resetResumeThrottle() => _resumeThrottle = null;

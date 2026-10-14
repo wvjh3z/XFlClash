@@ -6,6 +6,8 @@
 library;
 
 import 'package:flutter/widgets.dart';
+import 'package:fl_clash/xboard/services/endpoint_race_controller.dart';
+import 'package:fl_clash/xboard/services/xboard_lifecycle_observer.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
@@ -19,6 +21,8 @@ import 'package:fl_clash/xboard/sdk/xboard_service.dart';
 import 'package:fl_clash/xboard/services/subscription_triggers.dart';
 
 class _MockService extends Mock implements XboardService {}
+
+class _MockStopwatch extends Mock implements Stopwatch {}
 
 class _ReadyStub extends BootstrapReady {
   _ReadyStub(this._v);
@@ -41,20 +45,33 @@ void main() {
   setUp(() {
     service = _MockService();
     getSubCalls = 0;
-    SubscriptionTriggers.resetResumeThrottle();
+    SubscriptionTriggers.debugSetResumeStopwatchFactory(null);
     when(() => service.getSubscription()).thenAnswer((_) async {
       getSubCalls++;
-      return XbResult.success(const XbDomainSubscription(
-          email: 'a@b.com', uuid: 'x', totalBytes: 1, usedBytes: 0));
+      return XbResult.success(
+        const XbDomainSubscription(
+          email: 'a@b.com',
+          uuid: 'x',
+          totalBytes: 1,
+          usedBytes: 0,
+        ),
+      );
     });
   });
 
-  ProviderContainer makeContainer({required bool ready, required AuthState auth}) {
-    final c = ProviderContainer(overrides: [
-      xboardServiceProvider.overrideWithValue(service),
-      bootstrapReadyProvider.overrideWith(() => _ReadyStub(ready)),
-      authStateProvider.overrideWith(() => _AuthStub(auth)),
-    ]);
+  tearDown(() => SubscriptionTriggers.debugSetResumeStopwatchFactory(null));
+
+  ProviderContainer makeContainer({
+    required bool ready,
+    required AuthState auth,
+  }) {
+    final c = ProviderContainer(
+      overrides: [
+        xboardServiceProvider.overrideWithValue(service),
+        bootstrapReadyProvider.overrideWith(() => _ReadyStub(ready)),
+        authStateProvider.overrideWith(() => _AuthStub(auth)),
+      ],
+    );
     addTearDown(c.dispose);
     return c;
   }
@@ -95,17 +112,23 @@ void main() {
 
   testWidgets('onManualRefresh（WidgetRef）→ 重拉账号信息', (t) async {
     late WidgetRef captured;
-    await t.pumpWidget(ProviderScope(
-      overrides: [
-        xboardServiceProvider.overrideWithValue(service),
-        bootstrapReadyProvider.overrideWith(() => _ReadyStub(true)),
-        authStateProvider.overrideWith(() => _AuthStub(AuthState.authenticated)),
-      ],
-      child: Consumer(builder: (_, ref, __) {
-        captured = ref;
-        return const SizedBox.shrink();
-      }),
-    ));
+    await t.pumpWidget(
+      ProviderScope(
+        overrides: [
+          xboardServiceProvider.overrideWithValue(service),
+          bootstrapReadyProvider.overrideWith(() => _ReadyStub(true)),
+          authStateProvider.overrideWith(
+            () => _AuthStub(AuthState.authenticated),
+          ),
+        ],
+        child: Consumer(
+          builder: (_, ref, _) {
+            captured = ref;
+            return const SizedBox.shrink();
+          },
+        ),
+      ),
+    );
     captured.read(userProfileProvider);
     await t.pump(const Duration(milliseconds: 20));
     final before = getSubCalls;
@@ -128,4 +151,76 @@ void main() {
     await settle(c);
     expect(getSubCalls, afterFirst); // 未再 invalidate（settle 的 read 命中缓存不增计数）
   });
+  test(
+    'Windows foreground: 24h boundary, two-day return and logout reset refresh account without Mine tab',
+    () async {
+      var now = Duration.zero;
+      SubscriptionTriggers.debugSetResumeStopwatchFactory(() {
+        final began = now;
+        final clock = _MockStopwatch();
+        when(() => clock.elapsed).thenAnswer((_) => now - began);
+        return clock;
+      });
+      final c = makeContainer(ready: true, auth: AuthState.authenticated);
+      await settle(c);
+      final race = EndpointRaceController(probe: (_) async => false);
+      addTearDown(race.dispose);
+      final obs = XboardLifecycleObserver(
+        raceController: race,
+        isMobileOverride: false,
+        isWindowsOverride: true,
+        onForegroundRefresh: () => SubscriptionTriggers.onResume(c),
+      );
+      addTearDown(obs.dispose);
+      obs.didChangeAppLifecycleState(AppLifecycleState.resumed);
+      await settle(c);
+      final first = getSubCalls;
+      expect(first, 2);
+      now = const Duration(hours: 24) - const Duration(microseconds: 1);
+      obs.didChangeAppLifecycleState(AppLifecycleState.resumed);
+      await settle(c);
+      expect(getSubCalls, first);
+      now = const Duration(hours: 24);
+      obs.didChangeAppLifecycleState(AppLifecycleState.resumed);
+      await settle(c);
+      expect(getSubCalls, first + 1);
+      now += const Duration(days: 2);
+      obs.didChangeAppLifecycleState(AppLifecycleState.resumed);
+      await settle(c);
+      expect(getSubCalls, first + 2);
+      obs.didChangeAppLifecycleState(AppLifecycleState.resumed);
+      await settle(c);
+      expect(getSubCalls, first + 2);
+      SubscriptionTriggers.resetResumeThrottle();
+      obs.didChangeAppLifecycleState(AppLifecycleState.resumed);
+      await settle(c);
+      expect(getSubCalls, first + 3);
+    },
+  );
+
+  test(
+    'Windows foreground does not refresh unauthenticated or unready accounts',
+    () async {
+      for (final state in [
+        (false, AuthState.authenticated),
+        (true, AuthState.unauthenticated),
+      ]) {
+        final c = makeContainer(ready: state.$1, auth: state.$2);
+        await settle(c);
+        final before = getSubCalls;
+        final race = EndpointRaceController(probe: (_) async => false);
+        addTearDown(race.dispose);
+        final obs = XboardLifecycleObserver(
+          raceController: race,
+          isMobileOverride: false,
+          isWindowsOverride: true,
+          onForegroundRefresh: () => SubscriptionTriggers.onResume(c),
+        );
+        obs.didChangeAppLifecycleState(AppLifecycleState.resumed);
+        await settle(c);
+        expect(getSubCalls, before);
+        obs.dispose();
+      }
+    },
+  );
 }
