@@ -234,6 +234,8 @@ class _XbNodeGroupState extends ConsumerState<XbNodeGroup> {
     final desktop = widget.columns > 1;
     return ListView(
       controller: _scrollCtrl,
+      // 节点很少时仍接受下拉，由 Tab 的 RefreshIndicator 复用按钮刷新流程。
+      physics: const AlwaysScrollableScrollPhysics(),
       // 定位场景：放大缓存范围，确保目标行（可能在视口外）已 build → GlobalKey 可解析居中。
       // ignore: deprecated_member_use
       cacheExtent: widget.scrollToNode != null ? 5000.0 : null,

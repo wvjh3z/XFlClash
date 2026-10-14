@@ -109,6 +109,7 @@ class _NodesTabState extends ConsumerState<NodesTab>
   /// 加密订阅端点的服务端真相（插件 40304/40305/40307/4030x）。据此出文案 + 记 [_lastRefreshOutcome]
   /// 让 build() 渲染对应空态。**不再回查用户信息**——状态完全由订阅接口决定。
   Future<void> _refreshNodes() async {
+    if (ref.read(authStateProvider) != AuthState.authenticated) return;
     if (_refreshing) return;
     if (throttled) {
       xbToast(context, '节点刚刷新过，请稍后再试');
@@ -215,7 +216,18 @@ class _NodesTabState extends ConsumerState<NodesTab>
             padding: EdgeInsets.fromLTRB(16, 4, 16, 0),
             child: XbSyncBanner(text: '正在刷新节点，请稍候…'),
           ),
-        Expanded(child: body),
+        Expanded(
+          child: RefreshIndicator(
+            onRefresh: _refreshNodes,
+            // 空态自身已有滚动容器：只调整其物理规则，不再嵌套另一层滚动。
+            child: ScrollConfiguration(
+              behavior: ScrollConfiguration.of(context).copyWith(
+                physics: const AlwaysScrollableScrollPhysics(),
+              ),
+              child: body,
+            ),
+          ),
+        ),
       ],
     );
   }
@@ -316,12 +328,15 @@ class _NodesTabState extends ConsumerState<NodesTab>
                           ),
                           const SizedBox(width: 20),
                           Expanded(
-                            child: XbNodeGroup(
-                              key: ValueKey(current.name),
-                              group: current,
-                              columns: 2,
-                              scrollToNode: scrollNode,
-                              scrollNonce: _handledNonce,
+                            child: RefreshIndicator(
+                              onRefresh: _refreshNodes,
+                              child: XbNodeGroup(
+                                key: ValueKey(current.name),
+                                group: current,
+                                columns: 2,
+                                scrollToNode: scrollNode,
+                                scrollNonce: _handledNonce,
+                              ),
                             ),
                           ),
                         ],
@@ -345,11 +360,14 @@ class _NodesTabState extends ConsumerState<NodesTab>
               onSelect: (name) => setState(() => _selectedGroup = name),
             ),
             Expanded(
-              child: XbNodeGroup(
-                key: ValueKey(current.name),
-                group: current,
-                scrollToNode: scrollNode,
-                scrollNonce: _handledNonce,
+              child: RefreshIndicator(
+                onRefresh: _refreshNodes,
+                child: XbNodeGroup(
+                  key: ValueKey(current.name),
+                  group: current,
+                  scrollToNode: scrollNode,
+                  scrollNonce: _handledNonce,
+                ),
               ),
             ),
           ],

@@ -17,12 +17,12 @@ on:
         description: 'SDK commit or immutable tag'
         type: string
         required: true
-        default: '755c686725fbaa60b960ce94b1df99aa660bce64'
+        default: '9d8be0ff23413c5c61ffb8d358732714f6b0b274'
       docs_ref:
         description: 'Current documentation commit'
         type: string
         required: true
-        default: '9442b42aa705079cd622b971eb82729070467e45'
+        default: 'efa58b3cbb7ba4e884302b29250f1d1ec5f95c1a'
 
 # 配齐 secrets（SIBLING_SDK_TOKEN / BRAND_A_*）后启用：
 #  push:

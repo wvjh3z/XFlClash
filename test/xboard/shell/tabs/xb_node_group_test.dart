@@ -88,7 +88,10 @@ void main() {
       matching: find.byType(Row),
     );
     expect(
-      find.descendant(of: autoRow.first, matching: find.text('🇯🇵 东京 02')),
+      find.descendant(
+        of: autoRow.first,
+        matching: find.text('🇯🇵 东京 02', findRichText: true),
+      ),
       findsOneWidget,
       reason: '「自动」标签应与命中节点(东京 02)同行，而非固定第一项',
     );

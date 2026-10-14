@@ -64,7 +64,7 @@ Future<ScrollController> _pump(
 /// 选中行中心相对视口顶部的偏移（用于断言是否居中）。
 double _rowCenterInViewport(WidgetTester tester, String nodeName) {
   final rowFinder = find.ancestor(
-    of: find.text(nodeName),
+    of: find.text(nodeName, findRichText: true),
     matching: find.byType(Padding),
   ).first;
   final box = tester.renderObject<RenderBox>(rowFinder);
@@ -80,7 +80,7 @@ void main() {
     // 已发生滚动（不在顶部）。
     expect(ctrl.offset, greaterThan(0));
     // 选中行存在且可见。
-    expect(find.text('🇸🇬 节点 20'), findsOneWidget);
+    expect(find.text('🇸🇬 节点 20', findRichText: true), findsOneWidget);
 
     // 选中行中心应接近视口中央（容差 ±1.5 行高）。
     final screenH = tester.view.physicalSize.height / tester.view.devicePixelRatio;
@@ -95,7 +95,7 @@ void main() {
     // 第 2 个节点无法居中（上方不够），offset 应被 clamp 到接近 0。
     expect(ctrl.offset, lessThan(60),
         reason: '靠顶节点无法居中 → 就近停在顶部，offset≈0');
-    expect(find.text('🇸🇬 节点 01'), findsOneWidget);
+    expect(find.text('🇸🇬 节点 01', findRichText: true), findsOneWidget);
   });
 
   testWidgets('靠底选中节点（不强制居中）→ 停在最大滚动位置', (tester) async {
@@ -104,7 +104,7 @@ void main() {
     // 最后一个节点无法居中 → clamp 到 maxScrollExtent。
     expect(ctrl.offset, closeTo(ctrl.position.maxScrollExtent, 1.0),
         reason: '靠底节点 → 就近停在底部（maxScrollExtent）');
-    expect(find.text('🇸🇬 节点 39'), findsOneWidget);
+    expect(find.text('🇸🇬 节点 39', findRichText: true), findsOneWidget);
   });
 
   testWidgets('无 scrollToNode → 不滚动，停在顶部', (tester) async {
@@ -176,6 +176,6 @@ void main() {
     // didUpdateWidget 应再次触发居中 → 重新发生滚动（不再停在 0）。
     expect(ctrl.offset, greaterThan(0),
         reason: 'scrollNonce 变化应触发 didUpdateWidget 重新居中（同组 State 复用）');
-    expect(find.text('🇸🇬 节点 35'), findsOneWidget);
+    expect(find.text('🇸🇬 节点 35', findRichText: true), findsOneWidget);
   });
 }

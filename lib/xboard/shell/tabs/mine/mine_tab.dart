@@ -69,11 +69,13 @@ class MineTab extends ConsumerStatefulWidget {
 /// 刷新信息节流窗口默认 60s（节流逻辑见 XbRefreshThrottleGuard）。
 
 class _MineTabState extends ConsumerState<MineTab> with XbRefreshThrottleGuard {
-  /// 刷新中（点按钮到反腐层落定）。
+  /// 按钮与下拉共用刷新中状态和 60 秒冷却。
   bool _refreshing = false;
 
   Future<void> _onRefresh() async {
-    if (_refreshing) return;
+    if (ref.read(authStateProvider) != AuthState.authenticated || _refreshing) {
+      return;
+    }
     if (throttled) {
       xbToast(context, '信息刚刷新过，请稍后再试');
       return;
@@ -121,7 +123,7 @@ class _MineTabState extends ConsumerState<MineTab> with XbRefreshThrottleGuard {
     });
     final isGuest = ref.watch(authStateProvider) != AuthState.authenticated;
 
-    return SafeArea(
+    final content = SafeArea(
       child: LayoutBuilder(
         builder: (context, constraints) {
           final header = _MineHeader(
@@ -163,6 +165,7 @@ class _MineTabState extends ConsumerState<MineTab> with XbRefreshThrottleGuard {
                 ),
                 Expanded(
                   child: SingleChildScrollView(
+                    physics: const AlwaysScrollableScrollPhysics(),
                     padding: const EdgeInsets.fromLTRB(28, 24, 28, 28),
                     child: Center(
                       child: ConstrainedBox(
@@ -214,6 +217,7 @@ class _MineTabState extends ConsumerState<MineTab> with XbRefreshThrottleGuard {
 
           // 窄窗口单列（原布局）。
           return ListView(
+            physics: const AlwaysScrollableScrollPhysics(),
             padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
             children: [
               header,
@@ -227,6 +231,9 @@ class _MineTabState extends ConsumerState<MineTab> with XbRefreshThrottleGuard {
         },
       ),
     );
+    return isGuest
+        ? content
+        : RefreshIndicator(onRefresh: _onRefresh, child: content);
   }
 }
 

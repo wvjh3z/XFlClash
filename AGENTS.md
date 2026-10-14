@@ -36,3 +36,7 @@ dart run tool/check-seam-whitelist.dart --baseline upstream/main
 按改动选择必需测试；upstream/main 必须存在并代表真实上游。没有该引用时，可显式传真实上游 commit，或配置 `git config xflclash.seamBaseline <真实上游提交>` 供 pre-commit 使用；不得用当前 HEAD 冒充上游。本次 GitHub 维护的基线与验证结果见 Docs/STATUS。核心工具兼容新 Docs 和旧 `.kiro` 布局，跨布局可显式传 --anchors/--patches。
 
 [UI_FRAMEWORK](.github/UI_FRAMEWORK.md) 与 [golden 环境](test/xboard/golden/README.md) 继续作为专项参考。fork 提交使用现有 `[xfork] type(scope): subject` hook 格式，上游同步使用 `sync(flclash): ...`；保留上游 CHANGELOG，产品变化记 CHANGELOG_XBOARD。
+
+## 任务收尾
+
+分析、排障、修改与验收后必须检查当前 Docs 是否覆盖本轮新事实、文档偏差、有证据的缺口及用户决策变化；有新增则应用 [xflclash-doc-sync](https://github.com/wvjh3z/proxy-suite-docs/blob/main/skills/xflclash-doc-sync/SKILL.md)，按唯一职责维护已有章节。本轮已读的技能直接复用；已覆盖结论无需追加，用户明确只读/不改文件时仅报告待同步项。检查与报告遵循当前 DEVELOPMENT，不扩大提交、构建或部署授权。

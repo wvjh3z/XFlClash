@@ -25,6 +25,7 @@
 - 订阅在登录前装入完整地区候选；真实下载按地区限并发竞速、保留中国地址兜底预算，网络失败最多自动重试两次，成功地址记忆与会话取消接线，增加脱敏阶段诊断。保留手动刷新 60 秒冷却。
 
 ### Added
+- 我的与节点内容区支持下拉刷新，分别与本页标题刷新按钮共用业务方法、忙碌状态及 60 秒冷却；节点空态与短内容也可下拉。两页冷却独立，24 小时前台刷新规则保持原有机制。
 - W0 基础设施：客户端经 sibling path 依赖 `flutter_xboard_sdk`（接缝点 #3）+ cryptography / sentry_flutter / flutter_secure_storage / qr_flutter / flutter_html 5 包
 - 工程基础设施：`.githooks/`（commit-msg `[xfork]` 强制 + pre-commit 行号锚点校验）/ `tool/prepare_flavor.dart`（flavor 校验器）/ `tool/check-line-anchors.dart`（DD-21 接缝点漂移校验）/ `test/_fixtures/`（共享 fake）/ `flavors/brand_a/`（flavor 模板）
 - 账号信息卡：显示完整邮箱（用户自己账号不脱敏）+ 套餐到期/流量重置完整展示 + 「购买套餐」「我的订单」入口磁贴
