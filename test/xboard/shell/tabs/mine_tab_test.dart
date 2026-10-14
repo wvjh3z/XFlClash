@@ -1,6 +1,10 @@
 /// W4.3·W4.4·W4.5 — MineTab 单测（游客卡 / 账号卡用量 / 重置入口阈值 / 设置入口）。
 library;
 
+import 'dart:async';
+import 'package:crisp_chat/crisp_chat.dart';
+import 'package:fl_clash/xboard/services/crisp_chat_driver.dart';
+import 'package:fl_clash/xboard/services/crisp_support_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show SystemChannels;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -19,6 +23,8 @@ import 'package:fl_clash/xboard/shell/tabs/mine/mine_tab.dart';
 import 'package:fl_clash/xboard/widgets/xb_components.dart' show XbSkeletonBar;
 
 class _MockService extends Mock implements XboardService {}
+
+class _MockCrispDriver extends Mock implements CrispChatDriver {}
 
 class _FakeAuth extends AuthStateNotifier {
   _FakeAuth(this._initial);
@@ -47,8 +53,7 @@ Future<void> pumpMine(
     ProviderScope(
       overrides: [
         authStateProvider.overrideWith(() => _FakeAuth(auth)),
-        if (sub != null)
-          userProfileProvider.overrideWith((ref) async => sub),
+        if (sub != null) userProfileProvider.overrideWith((ref) async => sub),
       ],
       child: const MaterialApp(home: Scaffold(body: MineTab())),
     ),
@@ -66,6 +71,43 @@ Future<void> pumpMine(
 void main() {
   const gb = 1024 * 1024 * 1024;
 
+  testWidgets('客服打开期间显示进度并防止重复点击', (tester) async {
+    XboardConfig.bind(
+      const XboardConfig(
+        subscribeUserAgent: 'test',
+        devApiEndpoint: 'https://test.invalid',
+        devSubscriptionEndpoint: 'https://test.invalid',
+        debug: false,
+        kIsTest: true,
+        crispWebsiteId: 'test',
+      ),
+    );
+    addTearDown(XboardConfig.resetForTest);
+    registerFallbackValue(CrispConfig(websiteID: 'test'));
+    final driver = _MockCrispDriver();
+    final opened = Completer<void>();
+    when(() => driver.sessionLoaded).thenAnswer((_) => const Stream.empty());
+    when(() => driver.open(any())).thenAnswer((_) => opened.future);
+    when(
+      () => driver.sessionId(),
+    ).thenAnswer((_) => Future<String?>.value('ready'));
+    when(() => driver.setString(any(), any())).thenAnswer((_) async {});
+    await CrispSupportService.setDriverForTest(driver);
+    await pumpMine(tester, auth: AuthState.unauthenticated);
+    await tester.ensureVisible(find.text('在线客服'));
+    await tester.tap(find.text('在线客服'));
+    await tester.pump();
+    expect(find.text('正在打开客服…'), findsOneWidget);
+    await tester.tap(find.text('正在打开客服…'));
+    await tester.runAsync(() async {
+      opened.complete();
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+    });
+    await tester.pumpAndSettle();
+    expect(find.text('在线客服'), findsOneWidget);
+    verify(() => driver.open(any())).called(1);
+  });
+
   testWidgets('游客态 → 登录引导卡（R6.10）', (tester) async {
     await pumpMine(tester, auth: AuthState.unauthenticated);
     expect(find.text('未登录'), findsOneWidget);
@@ -77,9 +119,11 @@ void main() {
   });
 
   testWidgets('已登录 → 账号卡显示邮箱(掩码)/套餐/用量%', (tester) async {
-    await pumpMine(tester,
-        auth: AuthState.authenticated,
-        sub: _sub(total: 100 * gb, used: 37 * gb));
+    await pumpMine(
+      tester,
+      auth: AuthState.authenticated,
+      sub: _sub(total: 100 * gb, used: 37 * gb),
+    );
     expect(find.text('demo@example.com'), findsOneWidget);
     expect(find.text('专业版', findRichText: true), findsOneWidget);
     // 紧凑卡：用量% 在流量行右侧「已用 N%」（去掉了原「本月已用流量（已使用 N%）」标签行）。
@@ -101,12 +145,18 @@ void main() {
         return null;
       },
     );
-    addTearDown(() => tester.binding.defaultBinaryMessenger
-        .setMockMethodCallHandler(SystemChannels.platform, null));
+    addTearDown(
+      () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        null,
+      ),
+    );
 
-    await pumpMine(tester,
-        auth: AuthState.authenticated,
-        sub: _sub(total: 100 * gb, used: 37 * gb));
+    await pumpMine(
+      tester,
+      auth: AuthState.authenticated,
+      sub: _sub(total: 100 * gb, used: 37 * gb),
+    );
     await tester.tap(find.byIcon(Icons.content_copy));
     await tester.pump();
     expect(copied, 'demo@example.com', reason: '点复制应把邮箱写入剪贴板');
@@ -121,107 +171,133 @@ void main() {
   });
 
   testWidgets('用量 <90% → 不显示流量重置入口（R6.3）', (tester) async {
-    await pumpMine(tester,
-        auth: AuthState.authenticated,
-        sub: _sub(total: 100 * gb, used: 50 * gb));
+    await pumpMine(
+      tester,
+      auth: AuthState.authenticated,
+      sub: _sub(total: 100 * gb, used: 50 * gb),
+    );
     expect(find.text('流量重置'), findsNothing);
   });
 
   testWidgets('用量 ≥90% → 显示流量重置入口（R6.3）', (tester) async {
-    await pumpMine(tester,
-        auth: AuthState.authenticated,
-        sub: _sub(total: 100 * gb, used: 95 * gb));
+    await pumpMine(
+      tester,
+      auth: AuthState.authenticated,
+      sub: _sub(total: 100 * gb, used: 95 * gb),
+    );
     expect(find.text('流量重置'), findsOneWidget);
   });
 
   testWidgets('已订阅 → 续费 + 购买/更改套餐双入口（R6.4-R6.6）', (tester) async {
-    await pumpMine(tester,
-        auth: AuthState.authenticated,
-        sub: _sub(total: 100 * gb, used: 10 * gb));
+    await pumpMine(
+      tester,
+      auth: AuthState.authenticated,
+      sub: _sub(total: 100 * gb, used: 10 * gb),
+    );
     expect(find.text('续费当前套餐'), findsOneWidget);
     expect(find.text('购买 / 更改套餐'), findsOneWidget);
   });
 
-  testWidgets('账号加载失败 → 点重新加载 → 黄横幅出现，重试落定后横幅消失（不卡死）',
-      (tester) async {
-    final svc = _MockService();
-    // 重试调反腐层 getSubscription：延迟后返失败（XbResult 永不抛、必落定）→ 横幅应能正常撤除。
-    when(svc.getSubscription).thenAnswer((_) async {
-      await Future<void>.delayed(const Duration(milliseconds: 100));
-      return XbResult.failure(const XbNetwork(XbNetworkKind.unknown, 'down'));
-    });
+  testWidgets(
+    '账号加载失败 → 点重新加载 → 黄横幅出现，重试落定后横幅消失（不卡死）',
+    (tester) async {
+      final svc = _MockService();
+      // 重试调反腐层 getSubscription：延迟后返失败（XbResult 永不抛、必落定）→ 横幅应能正常撤除。
+      when(svc.getSubscription).thenAnswer((_) async {
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+        return XbResult.failure(const XbNetwork(XbNetworkKind.unknown, 'down'));
+      });
 
-    await tester.pumpWidget(
-      ProviderScope(
-        overrides: [
-          authStateProvider.overrideWith(() => _FakeAuth(AuthState.authenticated)),
-          xboardServiceProvider.overrideWithValue(svc),
-          userProfileProvider.overrideWith((ref) async => throw Exception('down')),
-        ],
-        child: const MaterialApp(home: Scaffold(body: MineTab())),
-      ),
-    );
-    // keepAlive 首次错误经 AsyncLoading(error:)→AsyncError，pumpAndSettle 落定到失败卡。
-    try {
-      await tester.pumpAndSettle(const Duration(milliseconds: 100));
-    } catch (_) {}
-    expect(find.text('账号信息加载失败'), findsOneWidget);
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            authStateProvider.overrideWith(
+              () => _FakeAuth(AuthState.authenticated),
+            ),
+            xboardServiceProvider.overrideWithValue(svc),
+            userProfileProvider.overrideWith(
+              (ref) async => throw Exception('down'),
+            ),
+          ],
+          child: const MaterialApp(home: Scaffold(body: MineTab())),
+        ),
+      );
+      // keepAlive 首次错误经 AsyncLoading(error:)→AsyncError，pumpAndSettle 落定到失败卡。
+      try {
+        await tester.pumpAndSettle(const Duration(milliseconds: 100));
+      } catch (_) {}
+      expect(find.text('账号信息加载失败'), findsOneWidget);
 
-    // 点重新加载 → 同步 setState(_retrying=true) → 黄横幅出现。
-    await tester.tap(find.text('重新加载'));
-    await tester.pump();
-    expect(find.text('正在刷新服务，请稍候…'), findsOneWidget);
-    // 11d：重试态与首次加载同布局——卡片不丢（骨架卡占位 + 禁用按钮行），不只是一条横幅。
-    expect(find.byType(XbSkeletonBar), findsWidgets,
-        reason: '重试态保留骨架卡占位（卡片不丢，原型 11d）');
-    expect(find.text('续费当前套餐'), findsOneWidget,
-        reason: '重试态显示禁用的续费/购买按钮行');
+      // 点重新加载 → 同步 setState(_retrying=true) → 黄横幅出现。
+      await tester.tap(find.text('重新加载'));
+      await tester.pump();
+      expect(find.text('正在刷新服务，请稍候…'), findsOneWidget);
+      // 11d：重试态与首次加载同布局——卡片不丢（骨架卡占位 + 禁用按钮行），不只是一条横幅。
+      expect(
+        find.byType(XbSkeletonBar),
+        findsWidgets,
+        reason: '重试态保留骨架卡占位（卡片不丢，原型 11d）',
+      );
+      expect(find.text('续费当前套餐'), findsOneWidget, reason: '重试态显示禁用的续费/购买按钮行');
 
-    // 等 getSubscription 落定 + invalidate + setState(_retrying=false)。
-    // _retry await 的是反腐层（必返回），故横幅一定撤除（验证不卡死）。
-    try {
-      await tester.pumpAndSettle(const Duration(milliseconds: 100));
-    } catch (_) {}
-    expect(find.text('正在刷新服务，请稍候…'), findsNothing,
-        reason: '重试落定后横幅必须消失（不卡死）');
-    expect(find.text('账号信息加载失败'), findsOneWidget, reason: '重试仍失败 → 回到失败卡');
-  }, timeout: const Timeout(Duration(seconds: 30)));
+      // 等 getSubscription 落定 + invalidate + setState(_retrying=false)。
+      // _retry await 的是反腐层（必返回），故横幅一定撤除（验证不卡死）。
+      try {
+        await tester.pumpAndSettle(const Duration(milliseconds: 100));
+      } catch (_) {}
+      expect(
+        find.text('正在刷新服务，请稍候…'),
+        findsNothing,
+        reason: '重试落定后横幅必须消失（不卡死）',
+      );
+      expect(find.text('账号信息加载失败'), findsOneWidget, reason: '重试仍失败 → 回到失败卡');
+    },
+    timeout: const Timeout(Duration(seconds: 30)),
+  );
 
   group('在线客服入口（D9 Crisp，按 crispWebsiteId 显隐）', () {
     tearDown(XboardConfig.resetForTest);
 
     testWidgets('crispWebsiteId 空（默认）→ 入口隐藏', (tester) async {
       // 占位默认 crispWebsiteId='' → CrispSupportService.isEnabled false。
-      await pumpMine(tester,
-          auth: AuthState.authenticated,
-          sub: _sub(total: 100 * gb, used: 10 * gb));
+      await pumpMine(
+        tester,
+        auth: AuthState.authenticated,
+        sub: _sub(total: 100 * gb, used: 10 * gb),
+      );
       expect(find.text('在线客服'), findsNothing);
     });
 
     testWidgets('crispWebsiteId 有值 → 入口显示（已登录）', (tester) async {
-      XboardConfig.bind(const XboardConfig(
-        subscribeUserAgent: 'x flclash',
-        devApiEndpoint: 'https://x',
-        devSubscriptionEndpoint: 'https://x',
-        debug: false,
-        kIsTest: true,
-        crispWebsiteId: 'ws-abc-123',
-      ));
-      await pumpMine(tester,
-          auth: AuthState.authenticated,
-          sub: _sub(total: 100 * gb, used: 10 * gb));
+      XboardConfig.bind(
+        const XboardConfig(
+          subscribeUserAgent: 'x flclash',
+          devApiEndpoint: 'https://x',
+          devSubscriptionEndpoint: 'https://x',
+          debug: false,
+          kIsTest: true,
+          crispWebsiteId: 'ws-abc-123',
+        ),
+      );
+      await pumpMine(
+        tester,
+        auth: AuthState.authenticated,
+        sub: _sub(total: 100 * gb, used: 10 * gb),
+      );
       expect(find.text('在线客服'), findsOneWidget);
     });
 
     testWidgets('crispWebsiteId 有值 → 游客也显示入口', (tester) async {
-      XboardConfig.bind(const XboardConfig(
-        subscribeUserAgent: 'x flclash',
-        devApiEndpoint: 'https://x',
-        devSubscriptionEndpoint: 'https://x',
-        debug: false,
-        kIsTest: true,
-        crispWebsiteId: 'ws-abc-123',
-      ));
+      XboardConfig.bind(
+        const XboardConfig(
+          subscribeUserAgent: 'x flclash',
+          devApiEndpoint: 'https://x',
+          devSubscriptionEndpoint: 'https://x',
+          debug: false,
+          kIsTest: true,
+          crispWebsiteId: 'ws-abc-123',
+        ),
+      );
       await pumpMine(tester, auth: AuthState.unauthenticated);
       expect(find.text('在线客服'), findsOneWidget);
     });

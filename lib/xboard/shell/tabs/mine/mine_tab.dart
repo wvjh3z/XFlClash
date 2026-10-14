@@ -26,6 +26,7 @@ import 'package:fl_clash/xboard/providers/invite_provider.dart';
 import 'package:fl_clash/xboard/providers/user_profile_provider.dart';
 import 'package:fl_clash/xboard/providers/xboard_providers.dart';
 import 'package:fl_clash/xboard/services/crisp_support_service.dart';
+import 'package:fl_clash/xboard/widgets/xb_submit_guard.dart';
 import 'package:fl_clash/xboard/services/xb_update_service.dart';
 import 'package:fl_clash/xboard/util/app_version.dart';
 import 'package:fl_clash/xboard/util/format.dart';
@@ -1187,16 +1188,6 @@ class _SettingsSection extends ConsumerWidget {
     }
   }
 
-  /// 在线客服（D9 Crisp）：已登录透传账号订阅（邮箱/套餐/到期/流量/来源），游客匿名；
-  /// 永不抛（失败 toast）。
-  Future<void> _openSupport(BuildContext context, WidgetRef ref) async {
-    final sub = isGuest ? null : ref.read(userProfileProvider).asData?.value;
-    final ok = await CrispSupportService.open(sub: sub);
-    if (!ok && context.mounted) {
-      xbToast(context, '客服暂时无法打开，请稍后再试');
-    }
-  }
-
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     return Column(
@@ -1257,12 +1248,7 @@ class _SettingsSection extends ConsumerWidget {
               // 在线客服（D9 Crisp）：不登录也可用（游客匿名会话）。
               // websiteId 未配置（XboardConfig.crispWebsiteId 空）→ 隐藏入口，不暴露空会话。
               if (CrispSupportService.isEnabled)
-                XbListRow(
-                  icon: Icons.support_agent,
-                  label: '在线客服',
-                  large: large,
-                  onTap: () => _openSupport(context, ref),
-                ),
+                _SupportRow(isGuest: isGuest, large: large),
             ],
           ),
         ],
@@ -1401,4 +1387,65 @@ class _AboutRow extends ConsumerWidget {
           xbPush(context, const XbAboutPage(), brandColor: xbBrandColor()),
     );
   }
+}
+
+class _SupportRow extends ConsumerStatefulWidget {
+  const _SupportRow({required this.isGuest, required this.large});
+  final bool isGuest;
+  final bool large;
+  @override
+  ConsumerState<_SupportRow> createState() => _SupportRowState();
+}
+
+class _SupportRowState extends ConsumerState<_SupportRow>
+    with XbSubmitGuard<_SupportRow> {
+  /// 在线客服（D9 Crisp）：已登录透传账号订阅（邮箱/套餐/到期/流量/来源），游客匿名；
+  /// 永不抛（失败 toast）。
+  Future<void> _openSupport(BuildContext context, WidgetRef ref) async {
+    final notifier = ref.read(authStateProvider.notifier);
+    final revision = notifier.sessionRevision;
+    bool current() => context.mounted && notifier.sessionRevision == revision;
+    try {
+      XbDomainSubscription? sub;
+      if (!widget.isGuest) {
+        sub = ref.read(userProfileProvider).asData?.value;
+        if (sub == null) {
+          final result = await ref
+              .read(xboardServiceProvider)
+              .getSubscription()
+              .timeout(const Duration(seconds: 10));
+          if (!context.mounted || !current()) return;
+          sub = result.dataOrNull;
+          if (sub == null) {
+            xbToast(context, '账号资料暂时无法加载，请稍后再打开客服');
+            return;
+          }
+        }
+      }
+      if (!context.mounted || !current()) return;
+      final ok = await CrispSupportService.open(sub: sub, isCurrent: current);
+      if (!ok && context.mounted && current()) {
+        xbToast(context, '客服暂时无法打开，请检查网络后重试');
+      }
+    } catch (_) {
+      if (context.mounted && current()) xbToast(context, '客服暂时无法打开，请稍后再试');
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => XbListRow(
+    icon: Icons.support_agent,
+    label: submitting ? '正在打开客服…' : '在线客服',
+    large: widget.large,
+    trailing: submitting
+        ? const SizedBox(
+            width: 18,
+            height: 18,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          )
+        : null,
+    onTap: submitting
+        ? null
+        : () => runSubmit(() => _openSupport(context, ref)),
+  );
 }
