@@ -50,6 +50,11 @@ void main() {
       expect(runtime.options!.beforeSendFeedback, isNull);
       expect(runtime.options!.beforeBreadcrumb, isNull);
       expect(runtime.options!.sendDefaultPii, isFalse);
+      expect(runtime.options!.tracesSampleRate, 0.0);
+      expect(runtime.options!.enableLogs, isFalse);
+      expect(runtime.options!.replay.sessionSampleRate, isNull);
+      expect(runtime.options!.replay.onErrorSampleRate, isNull);
+      expect(runtime.options!.replay.networkDetailAllowUrls, isEmpty);
       expect(runtime.options!.attachScreenshot, isFalse);
       // ignore: experimental_member_use
       expect(runtime.options!.attachViewHierarchy, isFalse);

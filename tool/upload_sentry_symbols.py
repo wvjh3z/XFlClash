@@ -719,15 +719,26 @@ def main(argv: list[str] | None = None) -> int:
                 upload_arguments = [
                     "debug-files", "upload", "--org", "ka-chiu-lee",
                     "--project", PROJECTS[args.flavor], "--no-sources",
-                    "--no-zips", "--wait-for", "300", "--require-all",
+                    "--no-zips", "--wait-for", "300",
                 ]
+                # CLI 2.58.4 compares --require-all IDs with newly uploaded
+                # files, so already processed files incorrectly fail a retry.
+                # The audits above require every local companion and matching
+                # ID; keep the exact ID filter and propagate every CLI failure.
                 for debug_id in sorted({
                     identifier for item in native_evidence + dart_evidence
                     for identifier in item["debug_ids"]
                 }):
                     upload_arguments.extend(["--id", debug_id])
                 upload_arguments.append(str(stage))
-                run_cli(cli, upload_arguments)
+                output = run_cli(cli, upload_arguments)
+                # A zero exit also covers empty scans and --no-upload. Require
+                # a pinned CLI server completion message, never just Found N
+                # or an upload that is still pending server processing.
+                lines = {line.strip() for line in output.splitlines()}
+                if not lines.intersection({"> Nothing to upload, all files are on the server",
+                                           "> File processing complete:"}):
+                    raise SymbolError("Sentry CLI did not confirm server symbol processing completion")
             evidence["status"] = "uploaded_and_processed"
             print(f"Sentry accepted and processed {len(files)} debug companions")
     except (SymbolError, OSError, subprocess.TimeoutExpired) as error:

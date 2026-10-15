@@ -102,10 +102,13 @@ class SymbolAuditTest(unittest.TestCase):
         self.assertIn("--no-sources", arguments)
         self.assertIn("--no-zips", arguments)
         self.assertIn("--wait-for", arguments)
-        self.assertIn("--require-all", arguments)
+        self.assertEqual(arguments[arguments.index("--wait-for") + 1], "300")
+        self.assertNotIn("--require-all", arguments)
         self.assertIn("--id", arguments)
+        self.assertEqual([arguments[index + 1] for index, value in enumerate(arguments) if value == "--id"],
+                         [DEBUG_ID])
         self.assertNotIn("--include-sources", arguments)
-        return "processed"
+        return "> File processing complete:\n"
 
     def run_main(self, *, token="", platform="windows", audit_only=False):
         evidence = self.build / "evidence.json"
@@ -230,6 +233,66 @@ class SymbolAuditTest(unittest.TestCase):
         result, evidence = self.run_main(token="secret")
         self.assertEqual(result, 1)
         self.assertEqual(evidence["status"], "failed")
+
+    def run_existing_server_response(self, returncode=0, stderr="", stdout=None):
+        """Run the real CLI exit handling with an intercepted upload process."""
+        original, real_run_cli = self.cli, symbols.run_cli
+
+        def cli(executable, arguments):
+            result = original(executable, arguments)
+            if arguments[:2] == ["debug-files", "upload"]:
+                return real_run_cli(executable, arguments)
+            return result
+
+        self.cli = cli
+        if stdout is None:
+            stdout = "> Found 4 debug information files\n> Nothing to upload, all files are on the server\n"
+        response = subprocess.CompletedProcess([], returncode, stdout=stdout, stderr=stderr)
+        with mock.patch.object(symbols.subprocess, "run", return_value=response) as process:
+            result, evidence = self.run_main(token="fixture-token")
+        return result, evidence, process
+
+    def test_already_processed_server_files_complete_idempotently(self):
+        result, evidence, process = self.run_existing_server_response()
+        self.assertEqual(result, 0)
+        self.assertEqual(evidence["status"], "uploaded_and_processed")
+        process.assert_called_once()
+        command = process.call_args.args[0]
+        self.assertNotIn("--require-all", command)
+        self.assertEqual(command[command.index("--wait-for") + 1], "300")
+
+    def test_existing_server_files_do_not_hide_missing_local_companion(self):
+        Path(self.records[1][2]).unlink()
+        result, evidence, process = self.run_existing_server_response()
+        self.assertEqual(result, 1)
+        self.assertEqual(evidence["status"], "failed")
+        process.assert_not_called()
+        self.assertFalse(any(call[:2] == ["debug-files", "upload"] for call in self.calls))
+
+    def test_existing_server_message_does_not_hide_auth_or_processing_failure(self):
+        for stderr in ("authentication failed", "some symbols did not process correctly",
+                       "Some symbols could not be found!"):
+            with self.subTest(stderr=stderr):
+                original_cli = self.cli
+                result, evidence, process = self.run_existing_server_response(1, stderr)
+                self.cli = original_cli
+                self.assertEqual(result, 1)
+                self.assertEqual(evidence["status"], "failed")
+                self.assertIn("exit 1", evidence["error"])
+                process.assert_called_once()
+
+    def test_zero_exit_without_server_completion_still_fails(self):
+        for stdout in ("", "> No debug information files found\n", "> skipping upload.\n",
+                       "> Found 4 debug information files\n", "> Uploaded 4 missing debug information files\n",
+                       "> File upload complete:\n"):
+            with self.subTest(stdout=stdout):
+                original_cli = self.cli
+                result, evidence, process = self.run_existing_server_response(stdout=stdout)
+                self.cli = original_cli
+                self.assertEqual(result, 1)
+                self.assertEqual(evidence["status"], "failed")
+                self.assertIn("did not confirm server", evidence["error"])
+                process.assert_called_once()
 
     def test_same_architecture_wrong_dart_build_id_fails(self):
         dart = self.build / "debug-info/app.windows-x64.symbols"
@@ -364,7 +427,7 @@ class NativeElfSymbolsTest(unittest.TestCase):
             self.assertFalse(any(symbols.inspect_elf(p)["has_executable_text"] for p in staged if p.suffix == ".debug"))
             self.assertNotIn(self.source.name, {p.name for p in staged})
             self.assertNotIn("--include-sources", arguments)
-            return "processed"
+            return "> File processing complete:\n"
         self.fail("Unexpected CLI call")
 
     def audit(self):

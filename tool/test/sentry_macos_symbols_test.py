@@ -136,8 +136,10 @@ class MacosSymbolsTest(unittest.TestCase):
             self.assertEqual(len(files), 4)
             self.assertTrue(all(path.suffix == ".symbols" or inspect_macho(path)["variants"][0]["filetype"] == 10 for path in files))
             self.assertIn("--no-sources", arguments)
-            self.assertIn("--require-all", arguments)
-            return "processed"
+            self.assertNotIn("--require-all", arguments)
+            self.assertEqual(arguments[arguments.index("--wait-for") + 1], "300")
+            self.assertIn("--id", arguments)
+            return "> File processing complete:\n"
         self.fail("Unexpected CLI call")
 
     def audit(self):
