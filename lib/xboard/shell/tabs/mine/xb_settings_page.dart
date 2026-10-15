@@ -233,7 +233,7 @@ class XbSettingsPage extends ConsumerWidget {
     } else if (setting.isSaving) {
       subtitle = '正在保存设置…';
     } else {
-      subtitle = '发送脱敏后的错误与设备信息，帮助排查故障；选择将在重启后保留';
+      subtitle = '发送原始错误与设备诊断信息，帮助排查故障；选择将在重启后保留';
     }
     return XbListRow(
       icon: Icons.privacy_tip_outlined,

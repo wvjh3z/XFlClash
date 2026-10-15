@@ -1,5 +1,7 @@
-/// W8.3 — SentryBootstrap：dsn null no-op + beforeSend 脱敏 + 8 类 tag + opt-out。
+/// SentryBootstrap：dsn null no-op、原始诊断、8 类 tag 与 opt-out。
 library;
+
+import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter/foundation.dart';
@@ -43,13 +45,14 @@ void main() {
       );
       expect(SentryBootstrap.isEnabled, isTrue);
       expect(runtime.initializations, 1);
-      expect(runtime.options!.beforeSend, isNotNull);
-      expect(runtime.options!.beforeBreadcrumb, isNotNull);
+      expect(runtime.options!.beforeSend, isNull);
+      expect(runtime.options!.beforeSendFeedback, isNull);
+      expect(runtime.options!.beforeBreadcrumb, isNull);
       expect(runtime.options!.sendDefaultPii, isFalse);
       expect(runtime.options!.attachScreenshot, isFalse);
       // ignore: experimental_member_use
       expect(runtime.options!.attachViewHierarchy, isFalse);
-      expect(runtime.options!.enableAutoNativeBreadcrumbs, isFalse);
+      expect(runtime.options!.enableAutoNativeBreadcrumbs, isTrue);
       expect(runtime.options!.enableNativeCrashHandling, isTrue);
     });
     test('dsn 非空但 userOptedOut → 不启用（κ-4）', () async {
@@ -63,48 +66,26 @@ void main() {
     });
   });
 
-  group('scrubData beforeSend 脱敏（κ-4 / § C）', () {
-    test('敏感字段值替换 ***', () {
-      final out = SentryBootstrap.scrubData({
-        'token': 'secret',
-        'password': 'pw',
-        'email': 'a@b.com',
-        'uuid': 'xxx',
-        'plan': 'Pro', // 非敏感保留
-      });
-      expect(out['token'], '***');
-      expect(out['password'], '***');
-      expect(out['email'], '***');
-      expect(out['uuid'], '***');
-      expect(out['plan'], 'Pro');
-    });
-    test('嵌套 map 递归脱敏', () {
-      final out = SentryBootstrap.scrubData({
-        'data': {'auth_data': 'Bearer xxx', 'name': 'ok'},
-      });
-      expect((out['data'] as Map)['auth_data'], '***');
-      expect((out['data'] as Map)['name'], 'ok');
-    });
-    test('部分匹配（Authorization 含 authorization）', () {
-      final out = SentryBootstrap.scrubData({'Authorization': 'Bearer x'});
-      expect(out['Authorization'], '***');
-    });
-  });
-
   group('DD-23 8 类 tag', () {
-    test('tag 写入 SDK scope 前已脱敏，原生同步也不带 URL 凭据', () async {
+    test('tag 原值写入快照及 SDK scope，保留完整 URL 和字段', () async {
+      const endpoint =
+          'https://user:pass@example.com/api?custom=secret#details';
+      SentryBootstrap.tagEndpoint(current: endpoint);
+      SentryBootstrap.setTag('api_token', 'synthetic-before-init');
       await SentryBootstrap.installEarly(
         dsn: 'https://x@sentry.invalid/1',
         release: '1',
       );
-      SentryBootstrap.tagEndpoint(
-        current: 'https://example.com/api?custom=secret',
+      expect(runtime.scope.tags[SentryTagKeys.endpointCurrent], endpoint);
+      expect(runtime.scope.tags['api_token'], 'synthetic-before-init');
+      SentryBootstrap.setTag(
+        'api_token',
+        'Bearer synthetic-after-init test@example.com',
       );
-      SentryBootstrap.setTag('api_token', 'secret');
-      final endpoint = runtime.scope.tags[SentryTagKeys.endpointCurrent]!;
-      expect(endpoint, contains('https://example.com/api'));
-      expect(endpoint, isNot(contains('secret')));
-      expect(runtime.scope.tags['api_token'], '***');
+      expect(
+        runtime.scope.tags['api_token'],
+        'Bearer synthetic-after-init test@example.com',
+      );
       expect(
         SentryBootstrap.tagsSnapshot[SentryTagKeys.endpointCurrent],
         endpoint,
@@ -404,17 +385,20 @@ void main() {
         dsn: 'https://x@sentry.invalid/1',
         release: '1',
       );
-      final error = StateError('sdk failed');
+      final error = StateError('sdk failed Bearer synthetic-token');
       final stack = StackTrace.current;
+      const message =
+          'test@example.com uuid=123e4567-e89b-12d3-a456-426614174000 '
+          'https://example.com/api?token=synthetic-token';
       SentryBootstrap.captureFromSdk(
         'error',
-        'failed loading profile',
+        message,
         error: error,
         stackTrace: stack,
       );
       expect(runtime.errors.single.error, same(error));
       expect(runtime.errors.single.stackTrace, same(stack));
-      expect(runtime.errors.single.message, 'failed loading profile');
+      expect(runtime.errors.single.message, message);
       expect(runtime.errors.single.level, SentryLevel.error);
     });
     test('无异常对象时保留消息，debug/info 丢弃，关闭后不捕获', () async {
@@ -432,33 +416,89 @@ void main() {
     });
   });
 
-  group('实际装配的 SDK 回调', () {
-    test('beforeSend 与 beforeBreadcrumb 真正执行脱敏', () async {
+  group('实际 SDK 事件序列化', () {
+    test('未安装过滤器，事件、面包屑、身份字段和调试 ID 原值进入传输', () async {
       await SentryBootstrap.installEarly(
         dsn: 'https://x@sentry.invalid/1',
         release: '1',
       );
-      final event = await runtime.options!.beforeSend!(
-        SentryEvent(message: SentryMessage('Bearer secret')),
-        Hint(),
-      );
-      expect(event!.message!.formatted, 'Bearer ***');
-      final breadcrumb = runtime.options!.beforeBreadcrumb!(
+      const debugId = '123e4567-e89b-12d3-a456-426614174000';
+      const message = 'Bearer synthetic-token email=test@example.com';
+      final transport = RecordingTransport();
+      final options = runtime.options!
+        ..sendClientReports = false
+        ..transport = transport;
+      final client = SentryClient(options);
+      addTearDown(client.close);
+      await runtime.scope.addBreadcrumb(
         Breadcrumb(
           message: 'email=test@example.com',
-          data: {'token': 'secret'},
+          data: {'token': 'synthetic-token', 'uuid': debugId},
         ),
-        Hint(),
       );
-      expect(breadcrumb!.data!['token'], '***');
-      expect(breadcrumb.message, isNot(contains('test@example.com')));
-    });
-    test('序列化失败时丢弃，防止 SDK 默认回退为未过滤原事件', () async {
-      await SentryBootstrap.installEarly(
-        dsn: 'https://x@sentry.invalid/1',
-        release: '1',
-      );
-      expect(await runtime.options!.beforeSend!(BrokenEvent(), Hint()), isNull);
+      final event = SentryEvent.fromJson({
+        'event_id': '12345678901234567890123456789012',
+        'message': {'formatted': message},
+        'user': {'id': debugId, 'email': 'test@example.com'},
+        'request': {
+          'url': 'https://example.com/api?token=synthetic-token',
+          'headers': {'Authorization': 'Bearer synthetic-token'},
+          'data': {'password': 'synthetic-password'},
+        },
+        'extra': {
+          'data': [
+            {'access_token': 'synthetic-token'},
+          ],
+        },
+        'exception': {
+          'values': [
+            {
+              'type': 'StateError',
+              'value': message,
+              'stacktrace': {
+                'frames': [
+                  {
+                    'function': 'mtx_do_lock',
+                    'filename': 'mutex.cpp',
+                    'lineno': 103,
+                    'vars': {'token': 'synthetic-token'},
+                  },
+                ],
+              },
+            },
+          ],
+        },
+        'debug_meta': {
+          'images': [
+            {
+              'type': 'pe',
+              'debug_id': debugId,
+              'code_id': '5f3759df1000',
+              'image_addr': '0x10000000',
+              'debug_file': 'deployment-check.pdb',
+            },
+          ],
+        },
+      });
+      SentryBootstrap.setTag('api_token', 'synthetic-token');
+      await client.captureEvent(event, scope: runtime.scope);
+      final json = transport.events.single;
+      expect(json['message']['formatted'], message);
+      expect(json['user'], {'id': debugId, 'email': 'test@example.com'});
+      expect(json['request'], event.toJson()['request']);
+      expect(json['extra']['data'][0]['access_token'], 'synthetic-token');
+      expect(json['tags']['api_token'], 'synthetic-token');
+      expect(json['breadcrumbs'][0]['message'], 'email=test@example.com');
+      expect(json['breadcrumbs'][0]['data'], {
+        'token': 'synthetic-token',
+        'uuid': debugId,
+      });
+      final exception = json['exception']['values'][0];
+      expect(exception['value'], message);
+      expect(exception['stacktrace']['frames'][0]['vars'], {
+        'token': 'synthetic-token',
+      });
+      expect(json['debug_meta'], event.toJson()['debug_meta']);
     });
   });
 }
@@ -489,6 +529,7 @@ class FakeSentryRuntime implements SentryBootstrapRuntime {
     initializations++;
     options = SentryFlutterOptions();
     configure(options!);
+    scope = Scope(options!);
     if (failInitialize) throw StateError('controlled init failure');
     _previousHandler = FlutterError.onError;
     FlutterError.onError = (_) {};
@@ -536,10 +577,22 @@ class FakeSentryRuntime implements SentryBootstrapRuntime {
   }
 }
 
-class BrokenEvent extends SentryEvent {
+/// Serializes with the real SDK but never opens a transport connection.
+class RecordingTransport implements Transport {
+  final events = <Map<String, dynamic>>[];
+
   @override
-  Map<String, dynamic> toJson() =>
-      throw StateError('controlled serialization failure');
+  Future<SentryId?> send(SentryEnvelope envelope) async {
+    for (final item in envelope.items) {
+      if (item.header.type == 'event') {
+        events.add(
+          jsonDecode(utf8.decode(await item.dataFactory()))
+              as Map<String, dynamic>,
+        );
+      }
+    }
+    return envelope.header.eventId;
+  }
 }
 
 class _RestartPolicyRuntime extends FakeSentryRuntime

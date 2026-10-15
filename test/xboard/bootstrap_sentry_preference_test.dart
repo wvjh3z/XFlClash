@@ -120,7 +120,7 @@ void main() {
       expect(runtime.initializations, 1);
       expect(SentryBootstrap.isEnabled, isTrue);
       expect(runtime.options!.environment, 'brand_a');
-      expect(runtime.options!.beforeSend, isNotNull);
+      expect(runtime.options!.beforeSend, isNull);
       expect(container!.read(bootstrapReadyProvider), isTrue);
     },
   );

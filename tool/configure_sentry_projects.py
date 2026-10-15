@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Audit/apply privacy settings for the two existing Sentry projects.
+"""Audit/apply raw-log retention for the two existing Sentry projects.
 
-Default mode is read-only audit. apply changes only the six documented privacy
+Default mode is read-only audit. apply changes only the five documented logging
 fields; verify sends one synthetic info event per project and reads only that
 new event. No real user event, DSN, token, response body or event payload is
 written to stdout, stderr or the safe report artifact.
@@ -12,12 +12,17 @@ SENTRY_AUTH_TOKEN is reserved for symbol uploads and is never used as a fallback
 The maintenance token needs no organization or release permissions.
 Raw-event JSON is an experimental Sentry endpoint: verification fails explicitly
 if its permissions/schema change; audit/apply remain independent of that endpoint.
-Disabling raw crash storage affects future reports, not previously retained dumps.
+Unlimited raw crash storage applies to future reports, subject to Sentry plan,
+retention, attachment and ingestion limits; it cannot recover previously removed
+data. Organization-wide rules may still scrub events and are never modified.
 
 References:
 https://docs.sentry.io/api/projects/update-a-project/
 https://docs.sentry.io/api/projects/list-a-projects-client-keys/
 https://develop.sentry.dev/sdk/envelopes/
+https://github.com/getsentry/sentry/blob/master/src/sentry/core/endpoints/project_details.py
+https://github.com/getsentry/sentry/blob/master/src/sentry/relay/datascrubbing.py
+https://github.com/getsentry/relay/blob/master/relay-pii/src/convert.rs
 https://github.com/getsentry/sentry/blob/master/src/sentry/issues/endpoints/project_event_details.py
 """
 
@@ -25,7 +30,6 @@ from __future__ import annotations
 
 import argparse
 from datetime import datetime, timezone
-import fnmatch
 import json
 import os
 from pathlib import Path
@@ -44,16 +48,11 @@ MODES = ("audit", "apply", "verify", "apply-and-verify")
 API_HOSTS = frozenset(("sentry.io", "us.sentry.io", "de.sentry.io"))
 API_ROOT = "https://sentry.io"
 PROBE_ENVIRONMENT = "sentry-deployment-check"
-SENSITIVE_FIELDS = (
-    "token", "password", "pwd", "email", "uuid", "authorization", "auth_data",
-    "aesKey", "aes_key", "bootstrapAesKey", "subscriptionAesKey", "api_key",
-    "client_secret", "cookie", "subscription_url", "subscribe_url",
-)
 FIXED_SETTINGS = {
-    "dataScrubber": True,
-    "dataScrubberDefaults": True,
-    "scrubIPAddresses": True,
-    "storeCrashReports": 0,
+    "dataScrubber": False,
+    "dataScrubberDefaults": False,
+    "scrubIPAddresses": False,
+    "storeCrashReports": -1,
 }
 OPTION_KEYS = {
     "dataScrubber": "sentry:scrub_data",
@@ -192,58 +191,44 @@ def setting_value(project: dict, field: str):
     return options.get(OPTION_KEYS[field]) if isinstance(options, dict) else None
 
 
-def string_fields(project: dict, field: str) -> list[str]:
-    value = setting_value(project, field)
-    if not isinstance(value, list) or any(not isinstance(item, str) for item in value):
-        raise SafeError("invalid_project_privacy_fields")
-    return value
+def advanced_rules_disabled(project: dict) -> bool:
+    options = project.get("options", {})
+    if ("relayPiiConfig" not in project
+            and (not isinstance(options, dict)
+                 or OPTION_KEYS["relayPiiConfig"] not in options)):
+        return False
+    value = setting_value(project, "relayPiiConfig")
+    return value is None or (isinstance(value, str) and not value.strip())
 
 
-def sensitive_safe_field(field: str) -> bool:
-    normalized = re.sub(r"[^a-z0-9*?]", "", field.casefold())
-    for sensitive in SENSITIVE_FIELDS:
-        target = re.sub(r"[^a-z0-9]", "", sensitive.casefold())
-        if target in normalized or fnmatch.fnmatchcase(target, normalized):
-            return True
-    return False
+def setting_matches(project: dict, field: str, value) -> bool:
+    actual = setting_value(project, field)
+    return type(actual) is type(value) and actual == value
 
 
 def desired_settings(project: dict) -> dict:
-    sensitive = string_fields(project, "sensitiveFields")[:]
-    existing = {field.casefold() for field in sensitive}
-    for field in SENSITIVE_FIELDS:
-        if field.casefold() not in existing:
-            sensitive.append(field)
-            existing.add(field.casefold())
-    safe = [field for field in string_fields(project, "safeFields")
-            if not sensitive_safe_field(field)]
-    return {**FIXED_SETTINGS, "sensitiveFields": sensitive, "safeFields": safe}
+    payload = {field: value for field, value in FIXED_SETTINGS.items()
+               if not setting_matches(project, field, value)}
+    if not advanced_rules_disabled(project):
+        # null is allowed by the serializer but the writer treats it as no update.
+        # An empty string is accepted and actually removes active project rules.
+        payload["relayPiiConfig"] = ""
+    # Existing sensitive/safe field definitions are inert while dataScrubber is
+    # false. Preserve them and all unrelated project/organization settings.
+    return payload
 
 
 def safe_settings_report(project: dict) -> dict:
-    desired = desired_settings(project)
-    sensitive = string_fields(project, "sensitiveFields")
-    safe = string_fields(project, "safeFields")
-    booleans = {
-        key: type(setting_value(project, key)) is type(value)
-        and setting_value(project, key) == value
-        for key, value in FIXED_SETTINGS.items()
-    }
-    complete = {field.casefold() for field in sensitive} >= {
-        field.casefold() for field in SENSITIVE_FIELDS
-    }
-    conflicts = sum(sensitive_safe_field(field) for field in safe)
+    matched = {field: setting_matches(project, field, value)
+               for field, value in FIXED_SETTINGS.items()}
+    advanced_disabled = advanced_rules_disabled(project)
     return {
-        "privacy_ready": all(booleans.values()) and complete and conflicts == 0,
-        "data_scrubber_enabled": booleans["dataScrubber"],
-        "default_scrubber_enabled": booleans["dataScrubberDefaults"],
-        "ip_scrubbing_enabled": booleans["scrubIPAddresses"],
-        "raw_crash_storage_disabled": booleans["storeCrashReports"],
-        "sensitive_fields_complete": complete,
-        "sensitive_field_count": len(sensitive),
-        "safe_field_count": len(safe),
-        "conflicting_safe_field_count": conflicts,
-        "added_sensitive_field_count": len(desired["sensitiveFields"]) - len(sensitive),
+        "raw_logging_ready": all(matched.values()) and advanced_disabled,
+        "data_scrubber_disabled": matched["dataScrubber"],
+        "default_scrubber_disabled": matched["dataScrubberDefaults"],
+        "ip_scrubbing_disabled": matched["scrubIPAddresses"],
+        "raw_crash_storage_unlimited": matched["storeCrashReports"],
+        "advanced_project_rules_disabled": advanced_disabled,
     }
 
 
@@ -269,10 +254,13 @@ def parse_public_dsn(dsn: str, project_id: str) -> tuple[str, str]:
 
 def make_probe():
     event_id = uuid.uuid4().hex
+    # All marker values are synthetic and reproducible from this generated ID.
+    # A timed-out run can re-read its own event and perform the exact comparison
+    # without sending another event or exporting any real event data.
     markers = (
-        "deployment-only-token-" + uuid.uuid4().hex,
-        "deployment-" + uuid.uuid4().hex + "@example.invalid",
-        str(uuid.uuid4()),
+        "deployment-only-token-" + event_id,
+        "deployment-" + event_id + "@example.invalid",
+        str(uuid.UUID(event_id)),
         "192.0.2.1",
     )
     debug_id = str(uuid.uuid4()) + "-1"
@@ -282,7 +270,7 @@ def make_probe():
         "platform": "native",
         "level": "info",
         "environment": PROBE_ENVIRONMENT,
-        "message": "Sentry deployment privacy verification (synthetic data only)",
+        "message": "Sentry raw-log deployment verification (synthetic data only)",
         "extra": {"token": markers[0], "email": markers[1], "uuid": markers[2]},
         "user": {"ip_address": markers[3]},
         "debug_meta": {"images": [{
@@ -304,20 +292,28 @@ def check_probe(event: dict, event_id: str, markers: tuple, debug_id: str) -> di
     if (not isinstance(event, dict) or event.get("event_id") != event_id
             or event.get("environment") != PROBE_ENVIRONMENT):
         raise SafeError("unexpected_probe_event")
-    serialized = json.dumps(event, sort_keys=True)
-    removed = sum(marker not in serialized for marker in markers)
+    extra = event.get("extra")
+    extra = extra if isinstance(extra, dict) else {}
+    user = event.get("user")
+    user = user if isinstance(user, dict) else {}
+    preserved = {
+        "probe_token_preserved": extra.get("token") == markers[0],
+        "probe_email_preserved": extra.get("email") == markers[1],
+        "probe_uuid_preserved": extra.get("uuid") == markers[2],
+        "probe_ip_preserved": user.get("ip_address") == markers[3],
+    }
     images = event.get("debug_meta", {}).get("images", [])
     debug_preserved = any(isinstance(image, dict)
                           and image.get("debug_id", "").casefold() == debug_id.casefold()
                           for image in images)
     return {"probe_received": True, "probe_marker_count": len(markers),
-            "probe_scrubbed_marker_count": removed,
+            "probe_preserved_marker_count": sum(preserved.values()), **preserved,
             "debug_identifier_preserved": debug_preserved,
-            "probe_verified": removed == len(markers) and debug_preserved}
+            "probe_verified": all(preserved.values()) and debug_preserved}
 
 
 def verify_probe(client: SentryClient, project: str, settings: dict, *,
-                 attempts: int = 12, sleep=time.sleep) -> dict:
+                 attempts: int = 12, sleep=time.sleep, report: dict | None = None) -> dict:
     keys = client.api(project_path(project) + "keys/?status=active")
     if not isinstance(keys, list):
         raise SafeError("invalid_client_keys_response")
@@ -328,7 +324,13 @@ def verify_probe(client: SentryClient, project: str, settings: dict, *,
     public_dsn = candidates[0].get("dsn", {}).get("public", "")
     endpoint, public_key = parse_public_dsn(public_dsn, str(settings.get("id", "")))
     event_id, markers, debug_id, envelope = make_probe()
+    if report is not None:
+        # These identifiers belong only to this generated non-user probe. Keep
+        # them if polling fails so maintainers can re-read it without resending.
+        report.update(probe_event_id=event_id, probe_debug_id=debug_id, probe_sent=False)
     client.send_probe(endpoint, public_key, envelope)
+    if report is not None:
+        report["probe_sent"] = True
     for attempt in range(attempts):
         try:
             event = client.api(project_path(project) + f"events/{event_id}/json/",
@@ -350,23 +352,20 @@ def process_project(client: SentryClient, project: str, mode: str) -> dict:
             raise SafeError("unexpected_project_response")
         initial = safe_settings_report(settings)
         report["settings_changed"] = False
-        if mode in ("apply", "apply-and-verify") and not initial["privacy_ready"]:
+        if mode in ("apply", "apply-and-verify") and not initial["raw_logging_ready"]:
             payload = desired_settings(settings)
-            old_relay = setting_value(settings, "relayPiiConfig")
             client.api(project_path(project), method="PUT", payload=payload,
                        scope="project:write or project:admin")
             report["settings_changed"] = True
             settings = client.api(project_path(project))
-            if (not isinstance(settings, dict) or settings.get("slug") != project
-                    or setting_value(settings, "relayPiiConfig") != old_relay):
-                raise SafeError("project_or_advanced_rules_changed")
+            if not isinstance(settings, dict) or settings.get("slug") != project:
+                raise SafeError("unexpected_project_response")
         report.update(safe_settings_report(settings))
         if mode in ("verify", "apply-and-verify"):
-            # Do not send even synthetic markers to a project with unconfirmed privacy.
-            if not report["privacy_ready"]:
-                raise SafeError("privacy_settings_not_ready")
-            report.update(verify_probe(client, project, settings))
-        report["ok"] = report["privacy_ready"] and report.get("probe_verified", True)
+            if not report["raw_logging_ready"]:
+                raise SafeError("raw_logging_settings_not_ready")
+            report.update(verify_probe(client, project, settings, report=report))
+        report["ok"] = report["raw_logging_ready"] and report.get("probe_verified", True)
     except SafeError as error:
         report["error"] = error.code
         if error.status is not None:

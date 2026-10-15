@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Offline privacy-maintenance tests. No credentials, real events or network."""
+"""Offline raw-log maintenance tests. No credentials, real events or network."""
 
 from __future__ import annotations
 
@@ -27,11 +27,11 @@ DSN = f"https://{KEY}@o123.ingest.us.sentry.io/456"
 def project_settings(project="omofly", *, ready=True):
     return {
         "id": "456", "slug": project,
-        "dataScrubber": ready, "dataScrubberDefaults": ready,
-        "scrubIPAddresses": ready, "storeCrashReports": 0 if ready else 5,
-        "sensitiveFields": list(maintenance.SENSITIVE_FIELDS) if ready else ["customBilling"],
-        "safeFields": ["debug_id", "public_note"] if ready else ["email", "public_note"],
-        "relayPiiConfig": '{"rules":{"custom-rule":{"type":"anything"}}}',
+        "dataScrubber": not ready, "dataScrubberDefaults": not ready,
+        "scrubIPAddresses": not ready, "storeCrashReports": -1 if ready else 0,
+        "sensitiveFields": ["token", "email", "customBilling"],
+        "safeFields": ["email", "public_note"],
+        "relayPiiConfig": None if ready else '{"rules":{"custom-rule":{"type":"anything"}},"applications":{"$string":["custom-rule"]}}',
         "unrelatedSetting": {"retained": True},
     }
 
@@ -76,6 +76,7 @@ class FakeClient:
         self.ignore_updates = False
         self.raw_forbidden = False
         self.raw_not_found_count = 0
+        self.scrub_probe = False
 
     def api(self, path, *, method="GET", payload=None, scope=None):
         self.calls.append((path, method, copy.deepcopy(payload)))
@@ -95,8 +96,9 @@ class FakeClient:
                 self.raw_not_found_count -= 1
                 raise maintenance.SafeError("http_error", status=404)
             event = json.loads(self.probes[-1][2].decode().splitlines()[2])
-            event["extra"] = {"token": "[Filtered]", "email": "[Filtered]", "uuid": "[Filtered]"}
-            event["user"]["ip_address"] = None
+            if self.scrub_probe:
+                event["extra"] = {"token": "[Filtered]", "email": "[Filtered]", "uuid": "[Filtered]"}
+                event["user"]["ip_address"] = None
             return event
         return copy.deepcopy(self.settings[project])
 
@@ -105,53 +107,76 @@ class FakeClient:
 
 
 class SettingsTests(unittest.TestCase):
-    def test_merge_preserves_custom_fields_and_advanced_rules(self):
+    def test_minimal_update_preserves_sensitive_safe_and_unrelated_fields(self):
         original = project_settings(ready=False)
-        original["safeFields"] += ["Authorization", "api_token", "UUID", "*", "debug_id"]
         untouched = copy.deepcopy(original)
         desired = maintenance.desired_settings(original)
         self.assertEqual(original, untouched)
-        self.assertIn("customBilling", desired["sensitiveFields"])
-        self.assertEqual(desired["safeFields"], ["public_note", "debug_id"])
-        self.assertNotIn("relayPiiConfig", desired)
-        self.assertEqual(set(desired), set(maintenance.FIXED_SETTINGS) | {"sensitiveFields", "safeFields"})
+        self.assertEqual(desired, {**maintenance.FIXED_SETTINGS, "relayPiiConfig": ""})
+        self.assertNotIn("sensitiveFields", desired)
+        self.assertNotIn("safeFields", desired)
+        self.assertNotIn("unrelatedSetting", desired)
 
-    def test_case_insensitive_merge_does_not_duplicate_sensitive_field(self):
+    def test_already_matching_fields_are_not_rewritten(self):
         settings = project_settings()
-        settings["sensitiveFields"][0] = "TOKEN"
-        self.assertEqual(maintenance.desired_settings(settings)["sensitiveFields"],
-                         settings["sensitiveFields"])
+        settings["scrubIPAddresses"] = True
+        self.assertEqual(maintenance.desired_settings(settings), {"scrubIPAddresses": False})
 
-    def test_options_mirror_and_zero_are_supported(self):
+    def test_options_mirror_and_minus_one_are_supported(self):
         settings = project_settings()
         for field, option in maintenance.OPTION_KEYS.items():
             settings.setdefault("options", {})[option] = settings.pop(field)
-        self.assertTrue(maintenance.safe_settings_report(settings)["privacy_ready"])
+        self.assertTrue(maintenance.safe_settings_report(settings)["raw_logging_ready"])
 
-    def test_invalid_lists_fail_before_any_update(self):
+    def test_boolean_zero_and_crash_boolean_cannot_falsely_satisfy_settings(self):
         settings = project_settings()
-        settings["safeFields"] = "*"
-        with self.assertRaises(maintenance.SafeError):
-            maintenance.desired_settings(settings)
+        settings["dataScrubber"] = 0
+        settings["storeCrashReports"] = True
+        report = maintenance.safe_settings_report(settings)
+        self.assertFalse(report["raw_logging_ready"])
+        self.assertFalse(report["data_scrubber_disabled"])
+        self.assertFalse(report["raw_crash_storage_unlimited"])
+
+    def test_omitted_advanced_rules_field_is_not_evidence_that_rules_are_disabled(self):
+        settings = project_settings()
+        del settings["relayPiiConfig"]
+        self.assertFalse(maintenance.safe_settings_report(settings)["raw_logging_ready"])
+        self.assertEqual(maintenance.desired_settings(settings), {"relayPiiConfig": ""})
+
+    def test_null_and_blank_advanced_rules_are_disabled_but_json_rules_are_cleared(self):
+        for value in (None, "", "  ", "\n"):
+            with self.subTest(value=value):
+                settings = project_settings()
+                settings["relayPiiConfig"] = value
+                self.assertTrue(maintenance.safe_settings_report(settings)["raw_logging_ready"])
+                self.assertEqual(maintenance.desired_settings(settings), {})
+        for value in ('{"applications":{"$string":["@email:replace"]}}', '{}', {"rules": {}}):
+            with self.subTest(value=value):
+                settings["relayPiiConfig"] = value
+                self.assertFalse(maintenance.safe_settings_report(settings)["raw_logging_ready"])
+                # None is deliberately not used: Sentry's writer treats it as no update.
+                self.assertEqual(maintenance.desired_settings(settings), {"relayPiiConfig": ""})
 
     def test_audit_is_read_only_and_reports_missing_settings_as_failure(self):
         client = FakeClient(ready=False)
         result = maintenance.process_project(client, "omofly", "audit")
         self.assertFalse(result["ok"])
-        self.assertFalse(result["privacy_ready"])
+        self.assertFalse(result["raw_logging_ready"])
         self.assertEqual(len(client.calls), 1)
         self.assertEqual(client.probes, [])
 
-    def test_apply_sends_minimal_payload_then_verifies_fresh_read(self):
+    def test_apply_clears_active_advanced_rules_and_verifies_fresh_read(self):
         client = FakeClient(ready=False)
-        original_relay = client.settings["omofly"]["relayPiiConfig"]
+        original = copy.deepcopy(client.settings["omofly"])
         result = maintenance.process_project(client, "omofly", "apply")
         self.assertTrue(result["ok"])
         self.assertTrue(result["settings_changed"])
         self.assertEqual([call[1] for call in client.calls], ["GET", "PUT", "GET"])
-        self.assertNotIn("relayPiiConfig", client.calls[1][2])
-        self.assertEqual(client.settings["omofly"]["relayPiiConfig"], original_relay)
-        self.assertTrue(client.settings["omofly"]["unrelatedSetting"]["retained"])
+        self.assertEqual(client.calls[1][2], {**maintenance.FIXED_SETTINGS, "relayPiiConfig": ""})
+        self.assertEqual(client.settings["omofly"]["relayPiiConfig"], "")
+        for field in ("sensitiveFields", "safeFields", "unrelatedSetting"):
+            self.assertEqual(client.settings["omofly"][field], original[field])
+        self.assertEqual(client.probes, [])
 
     def test_apply_is_idempotent_and_never_rewrites_ready_project(self):
         client = FakeClient()
@@ -165,7 +190,7 @@ class SettingsTests(unittest.TestCase):
         client.ignore_updates = True
         result = maintenance.process_project(client, "omofly", "apply")
         self.assertFalse(result["ok"])
-        self.assertFalse(result["privacy_ready"])
+        self.assertFalse(result["raw_logging_ready"])
 
     def test_unknown_project_cannot_be_requested(self):
         client = maintenance.SentryClient(TOKEN, opener=FakeOpener([]))
@@ -286,31 +311,41 @@ class TransportTests(unittest.TestCase):
 
 
 class ProbeTests(unittest.TestCase):
-    def test_probe_contains_only_synthetic_markers_and_preserves_debug_identifier(self):
+    def test_probe_contains_only_synthetic_markers_and_preserves_all_four_raw_values(self):
         event_id, markers, debug_id, envelope = maintenance.make_probe()
         event = json.loads(envelope.decode().splitlines()[2])
         self.assertEqual(event["level"], "info")
         self.assertEqual(event["environment"], "sentry-deployment-check")
         self.assertNotIn(TOKEN, envelope.decode())
         self.assertNotEqual(markers[2], debug_id)
-        event["extra"] = {"token": "[Filtered]", "email": "[Filtered]", "uuid": "[Filtered]"}
-        event["user"]["ip_address"] = None
+        self.assertEqual(markers, ("deployment-only-token-" + event_id,
+                                  "deployment-" + event_id + "@example.invalid",
+                                  str(maintenance.uuid.UUID(event_id)), "192.0.2.1"))
         report = maintenance.check_probe(event, event_id, markers, debug_id)
         self.assertTrue(report["probe_verified"])
-        self.assertEqual(report["probe_scrubbed_marker_count"], 4)
+        self.assertEqual(report["probe_preserved_marker_count"], 4)
         for marker in markers:
             self.assertNotIn(marker, json.dumps(report))
         self.assertNotIn(debug_id, json.dumps(report))
 
-    def test_unscrubbed_marker_or_lost_native_debug_id_fails_verification(self):
+    def test_each_scrubbed_or_missing_marker_fails_and_cannot_pass_by_appearing_elsewhere(self):
+        event_id, markers, debug_id, envelope = maintenance.make_probe()
+        original = json.loads(envelope.decode().splitlines()[2])
+        for field, marker in zip(("token", "email", "uuid", "ip_address"), markers):
+            with self.subTest(field=field):
+                event = copy.deepcopy(original)
+                event["user" if field == "ip_address" else "extra"][field] = "[Filtered]"
+                event["extra"]["somewhere_else"] = marker
+                report = maintenance.check_probe(event, event_id, markers, debug_id)
+                self.assertEqual(report["probe_preserved_marker_count"], 3)
+                self.assertFalse(report["probe_verified"])
+
+    def test_lost_native_debug_identifier_fails_even_with_all_raw_markers(self):
         event_id, markers, debug_id, envelope = maintenance.make_probe()
         event = json.loads(envelope.decode().splitlines()[2])
-        self.assertFalse(maintenance.check_probe(event, event_id, markers, debug_id)["probe_verified"])
-        event["extra"] = {}
-        event["user"] = {}
         event["debug_meta"] = {}
         report = maintenance.check_probe(event, event_id, markers, debug_id)
-        self.assertEqual(report["probe_scrubbed_marker_count"], 4)
+        self.assertEqual(report["probe_preserved_marker_count"], 4)
         self.assertFalse(report["debug_identifier_preserved"])
         self.assertFalse(report["probe_verified"])
 
@@ -335,14 +370,14 @@ class ProbeTests(unittest.TestCase):
         self.assertEqual(event_paths, [maintenance.project_path("omofly")
                                        + f"events/{event['event_id']}/json/"] * 3)
 
-    def test_verification_requires_confirmed_privacy_settings_before_any_probe(self):
+    def test_verification_requires_confirmed_raw_settings_before_any_probe(self):
         client = FakeClient(ready=False)
         report = maintenance.process_project(client, "omofly", "verify")
         self.assertFalse(report["ok"])
-        self.assertEqual(report["error"], "privacy_settings_not_ready")
+        self.assertEqual(report["error"], "raw_logging_settings_not_ready")
         self.assertEqual(client.probes, [])
 
-    def test_permission_failure_is_explicit_and_not_retried(self):
+    def test_permission_failure_preserves_generated_probe_ids_without_retry(self):
         client = FakeClient()
         client.raw_forbidden = True
         report = maintenance.process_project(client, "omofly", "verify")
@@ -350,19 +385,37 @@ class ProbeTests(unittest.TestCase):
         self.assertEqual(report["http_status"], 403)
         self.assertIn("event:read", report["required_scope"])
         self.assertEqual(len([call for call in client.calls if "/events/" in call[0]]), 1)
+        self.assertTrue(report["probe_sent"])
+        event = json.loads(client.probes[0][2].decode().splitlines()[2])
+        self.assertEqual(report["probe_event_id"], event["event_id"])
+        self.assertEqual(report["probe_debug_id"], event["debug_meta"]["images"][0]["debug_id"])
 
     def test_probe_timeout_is_bounded_and_never_reports_delivery_as_success(self):
         client = FakeClient()
         client.raw_not_found_count = 20
         sleeps = []
+        report = {}
         with self.assertRaises(maintenance.SafeError) as captured:
             maintenance.verify_probe(client, "omofly", client.settings["omofly"],
-                                     attempts=3, sleep=sleeps.append)
+                                     attempts=3, sleep=sleeps.append, report=report)
         self.assertEqual(captured.exception.code, "probe_not_received_before_timeout")
         self.assertEqual(sleeps, [5, 5])
         self.assertEqual(len(client.probes), 1)
+        self.assertTrue(report["probe_sent"])
+        self.assertRegex(report["probe_event_id"], r"^[0-9a-f]{32}$")
+        self.assertRegex(report["probe_debug_id"], r"^[0-9a-f-]+-1$")
 
-    def test_apply_and_verify_reports_only_safe_flags_and_counts(self):
+    def test_organization_or_propagation_scrubbing_is_an_explicit_probe_failure(self):
+        client = FakeClient()
+        client.scrub_probe = True
+        result = maintenance.process_project(client, "omofly", "verify")
+        self.assertTrue(result["raw_logging_ready"])
+        self.assertEqual(result["probe_preserved_marker_count"], 0)
+        self.assertFalse(result["probe_verified"])
+        self.assertFalse(result["ok"])
+        self.assertEqual(len(client.probes), 1)
+
+    def test_apply_and_verify_reports_only_safe_flags_counts_and_synthetic_identifiers(self):
         client = FakeClient(ready=False)
         result = maintenance.process_project(client, "omofly", "apply-and-verify")
         self.assertTrue(result["ok"])
@@ -371,6 +424,9 @@ class ProbeTests(unittest.TestCase):
         self.assertNotIn(TOKEN, serialized)
         self.assertNotIn("customBilling", serialized)
         self.assertNotIn("custom-rule", serialized)
+        event = json.loads(client.probes[0][2].decode().splitlines()[2])
+        for marker in tuple(event["extra"].values()) + (event["user"]["ip_address"],):
+            self.assertNotIn(marker, serialized)
 
 
 class CommandTests(unittest.TestCase):

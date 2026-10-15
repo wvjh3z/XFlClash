@@ -1,14 +1,14 @@
 # Manual only. No client build, SDK checkout, brand secret restoration or auto-run.
-# apply changes the two existing projects' privacy settings. verify sends one
+# apply disables project scrubbing and retains future raw dumps. verify sends one
 # synthetic info event to each project and checks only those events' stored JSON.
 # Requires SENTRY_MAINTENANCE_TOKEN; SENTRY_AUTH_TOKEN remains for symbol uploads.
-name: Sentry privacy maintenance
+name: Sentry raw-log maintenance
 
 on:
   workflow_dispatch:
     inputs:
       mode:
-        description: 'audit is read-only; apply updates privacy; verify sends synthetic events'
+        description: 'audit is read-only; apply enables raw logs; verify sends synthetic events'
         type: choice
         required: true
         default: audit
@@ -22,7 +22,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: sentry-privacy-maintenance
+  group: sentry-project-maintenance
   cancel-in-progress: false
 
 jobs:
@@ -45,12 +45,12 @@ jobs:
             audit|apply|verify|apply-and-verify) ;;
             *) echo 'Invalid maintenance mode'; exit 1 ;;
           esac
-          python3 tool/configure_sentry_projects.py --mode "$MAINTENANCE_MODE" --report sentry-report/sentry-privacy.json
-      - name: Upload safe flags and counts only
+          python3 tool/configure_sentry_projects.py --mode "$MAINTENANCE_MODE" --report sentry-report/sentry-raw-logging.json
+      - name: Upload safe flags, counts and synthetic probe IDs only
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: sentry-privacy-safe-report
-          path: sentry-report/sentry-privacy.json
+          name: sentry-raw-logging-safe-report
+          path: sentry-report/sentry-raw-logging.json
           if-no-files-found: warn
           retention-days: 7

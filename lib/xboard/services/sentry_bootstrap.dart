@@ -6,8 +6,8 @@
 /// `FlutterError.onError`、会覆盖 SDK 装的 handler，故由 [rechainFlutterError]（attach 完成后调）
 /// 重链：先 Sentry 上报再调 FlClash handler，二者都不丢（修原 base-init 被 attach 覆盖的盲区）。
 ///
-/// **§ C 配置（κ-4 GDPR）**：sendDefaultPii=false + tracesSampleRate=0 + beforeSend 过滤
-/// token/password/email/uuid。`dsn==null`（dev / 用户 opt-out）全 no-op。
+/// **当前配置**：sendDefaultPii=false + tracesSampleRate=0；事件、面包屑和标签
+/// 保留原始诊断内容，不安装自定义脱敏回调。`dsn==null`（dev / 用户 opt-out）全 no-op。
 ///
 /// **DD-23 8 类 tag**：bootstrap.stage / envelope_source / decryption_failure / endpoint.current /
 /// endpoint.race_attempts / auth.state / connectivity.online / flavor.id。
@@ -25,8 +25,6 @@ import 'package:flutter/foundation.dart'
         visibleForTesting;
 import 'package:sentry_flutter/sentry_flutter.dart';
 
-import 'sentry_sanitizer.dart';
-
 /// Sentry tag key（DD-23 8 类）。
 class SentryTagKeys {
   static const bootstrapStage = 'bootstrap.stage';
@@ -38,9 +36,6 @@ class SentryTagKeys {
   static const connectivityOnline = 'connectivity.online';
   static const flavorId = 'flavor.id';
 }
-
-/// 敏感字段（beforeSend 过滤；κ-4 / § C）。
-const List<String> kSensitiveKeys = SentrySanitizer.sensitiveKeys;
 
 /// Narrow SDK boundary, allowing tests to exercise configuration without native
 /// initialization, background sessions or a real network transport.
@@ -241,32 +236,12 @@ class SentryBootstrap {
         options.sendDefaultPii = configuration.sendDefaultPii;
         options.tracesSampleRate = configuration.tracesSampleRate;
         options.attachScreenshot = false;
-        // Keep the supported privacy default explicit with the pinned SDK.
+        // Keep the existing automatic collection scope explicit.
         // ignore: experimental_member_use
         options.attachViewHierarchy = false;
-        // Native crash envelopes bypass Dart callbacks. Avoid automatically
-        // recording native UI/console text; native crash stacks remain enabled.
-        options.enableAutoNativeBreadcrumbs = false;
-        SentryEvent? filterEvent(SentryEvent event, Hint hint) {
-          try {
-            return SentrySanitizer.scrubEvent(event);
-          } catch (_) {
-            // The SDK keeps the original event if a callback throws. Drop it
-            // instead when filtering fails, so privacy does not fail open.
-            return null;
-          }
-        }
-
-        options.beforeSend = filterEvent;
-        options.beforeSendFeedback = filterEvent;
-        options.beforeBreadcrumb = (breadcrumb, hint) {
-          if (breadcrumb == null) return null;
-          try {
-            return SentrySanitizer.scrubBreadcrumb(breadcrumb);
-          } catch (_) {
-            return null;
-          }
-        };
+        // Preserve original diagnostics, including native breadcrumbs. No
+        // application beforeSend/feedback/breadcrumb redaction is installed.
+        options.enableAutoNativeBreadcrumbs = true;
       });
       _sdkHandler = FlutterError.onError;
       _initialized = true;
@@ -349,21 +324,12 @@ class SentryBootstrap {
     );
   }
 
-  /// beforeSend 脱敏：递归把敏感字段值替换为 '***'（κ-4 / § C）。
-  /// 返回脱敏后的 map（纯函数，便于单测）。
-  static Map<String, dynamic> scrubData(Map<String, dynamic> data) =>
-      SentrySanitizer.scrubData(data);
-
   /// 设 tag（DD-23）。dsn null 时仅记内存快照（no-op 不发）；启用后同步推 Sentry scope。
   static void setTag(String key, String value) {
-    // Scope tags can also be synchronized to native SDKs, outside beforeSend.
-    final safeValue = SentrySanitizer.isSensitiveKey(key)
-        ? SentrySanitizer.redacted
-        : SentrySanitizer.scrubText(value);
-    _tags[key] = safeValue;
+    _tags[key] = value;
     if (_enabled) {
       _bestEffort(
-        () => _runtime.configureScope((scope) => scope.setTag(key, safeValue)),
+        () => _runtime.configureScope((scope) => scope.setTag(key, value)),
       );
     }
   }

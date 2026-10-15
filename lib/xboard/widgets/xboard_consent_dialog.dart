@@ -95,7 +95,7 @@ class _ConsentDialogBody extends StatelessWidget {
             const _Section(
               icon: Icons.bug_report_outlined,
               title: '第三方 SDK',
-              body: '我们使用 Sentry 收集崩溃信息以改进稳定性，并过滤常见敏感字段。'
+              body: '我们使用 Sentry 收集崩溃堆栈与故障诊断信息以改进稳定性，并保留原始错误内容。'
                   '可在「设置 → 隐私 → 崩溃信息上报」关闭；修改后请完全退出并重新打开应用，使设置生效。',
             ),
             const SizedBox(height: 8),
