@@ -382,15 +382,40 @@ class CommandTests(unittest.TestCase):
         opener.assert_not_called()
         self.assertEqual(json.loads(output.getvalue())["error"], "missing_or_invalid_auth_token")
 
+    def test_symbol_token_alone_cannot_authorize_maintenance_or_start_network(self):
+        output = io.StringIO()
+        with patch.dict(maintenance.os.environ, {"SENTRY_AUTH_TOKEN": TOKEN}, clear=True), \
+                patch.object(maintenance, "build_opener") as opener, redirect_stdout(output):
+            self.assertEqual(maintenance.main([]), 1)
+        opener.assert_not_called()
+        self.assertEqual(json.loads(output.getvalue())["error"], "missing_or_invalid_auth_token")
+        self.assertNotIn(TOKEN, output.getvalue())
+
+    def test_both_tokens_present_only_maintenance_credential_reaches_client(self):
+        client = FakeClient()
+        output = io.StringIO()
+        symbol_token = "synthetic-symbol-upload-token"
+        with patch.dict(maintenance.os.environ, {
+                "SENTRY_MAINTENANCE_TOKEN": TOKEN,
+                "SENTRY_AUTH_TOKEN": symbol_token,
+        }, clear=True), patch.object(maintenance, "SentryClient", return_value=client) as factory, \
+                redirect_stdout(output):
+            self.assertEqual(maintenance.main([]), 0)
+        factory.assert_called_once_with(TOKEN)
+        self.assertEqual(client.probes, [])
+        self.assertNotIn(TOKEN, output.getvalue())
+        self.assertNotIn(symbol_token, output.getvalue())
+
     def test_default_mode_is_audit_for_both_fixed_projects_and_safe_artifact(self):
         client = FakeClient()
         output = io.StringIO()
         with tempfile.TemporaryDirectory() as directory:
             report = Path(directory) / "report.json"
-            with patch.dict(maintenance.os.environ, {"SENTRY_AUTH_TOKEN": TOKEN}), \
-                    patch.object(maintenance, "SentryClient", return_value=client), \
+            with patch.dict(maintenance.os.environ, {"SENTRY_MAINTENANCE_TOKEN": TOKEN}, clear=True), \
+                    patch.object(maintenance, "SentryClient", return_value=client) as factory, \
                     redirect_stdout(output):
                 self.assertEqual(maintenance.main(["--report", str(report)]), 0)
+            factory.assert_called_once_with(TOKEN)
             self.assertEqual(output.getvalue(), report.read_text(encoding="utf-8"))
         result = json.loads(output.getvalue())
         self.assertEqual(result["mode"], "audit")

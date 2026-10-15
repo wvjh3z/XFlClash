@@ -1,6 +1,7 @@
 # Manual only. No client build, SDK checkout, brand secret restoration or auto-run.
 # apply changes the two existing projects' privacy settings. verify sends one
 # synthetic info event to each project and checks only those events' stored JSON.
+# Requires SENTRY_MAINTENANCE_TOKEN; SENTRY_AUTH_TOKEN remains for symbol uploads.
 name: Sentry privacy maintenance
 
 on:
@@ -37,7 +38,7 @@ jobs:
       - name: Audit, apply or verify fixed Sentry projects
         env:
           MAINTENANCE_MODE: ${{ inputs.mode }}
-          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_MAINTENANCE_TOKEN: ${{ secrets.SENTRY_MAINTENANCE_TOKEN }}
         shell: bash
         run: |
           case "$MAINTENANCE_MODE" in

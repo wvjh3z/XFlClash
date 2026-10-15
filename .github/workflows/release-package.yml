@@ -20,7 +20,8 @@
 #   BRAND_A_FLAVOR_YAML_B64 / BRAND_B_FLAVOR_YAML_B64    flavors/<brand>/flavor.yaml（base64；含内嵌 aesKey+签名）
 #   BRAND_A_FALLBACK_BIN_B64 / BRAND_B_FALLBACK_BIN_B64  flavors/<brand>/assets/fallback.bin（base64）
 #   SIBLING_SDK_TOKEN   只读 private wvjh3z/Xboard_sdk 的 fine-grained PAT
-#   SENTRY_AUTH_TOKEN   Sentry org auth token（org=ka-chiu-lee；Windows 发布必需，其他平台缺失明确跳过）
+#   SENTRY_AUTH_TOKEN   原有符号上传 Token（org=ka-chiu-lee；Windows 必需，其他平台缺失明确跳过）
+#   后台维护独立使用 SENTRY_MAINTENANCE_TOKEN，不在此工作流读取。
 #
 # ✅ Linux crashpad 可执行位：已由 linux/CMakeLists.txt 末尾 install(CODE chmod +x) 在
 #   flutter build 时补回（PATCHES.md RT-CrashpadExec）。bundle/deb/AppImage 三格式本地实测

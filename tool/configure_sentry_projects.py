@@ -6,9 +6,10 @@ fields; verify sends one synthetic info event per project and reads only that
 new event. No real user event, DSN, token, response body or event payload is
 written to stdout, stderr or the safe report artifact.
 
-Requires SENTRY_AUTH_TOKEN in the environment (project:read for audit/key lookup;
+Requires SENTRY_MAINTENANCE_TOKEN in the environment (project:read for audit/key lookup;
 project:write or project:admin for apply; event:read for raw-event verification).
-The token used only to upload release symbols may lack these permissions.
+SENTRY_AUTH_TOKEN is reserved for symbol uploads and is never used as a fallback.
+The maintenance token needs no organization or release permissions.
 Raw-event JSON is an experimental Sentry endpoint: verification fails explicitly
 if its permissions/schema change; audit/apply remain independent of that endpoint.
 Disabling raw crash storage affects future reports, not previously retained dumps.
@@ -384,7 +385,7 @@ def main(argv=None) -> int:
     parser.add_argument("--report", type=Path)
     arguments = parser.parse_args(argv)
     try:
-        client = SentryClient(os.environ.get("SENTRY_AUTH_TOKEN", ""))
+        client = SentryClient(os.environ.get("SENTRY_MAINTENANCE_TOKEN", ""))
         reports = [process_project(client, project, arguments.mode) for project in PROJECTS]
         report = {"mode": arguments.mode,
                   "ok": all(item["ok"] for item in reports), "projects": reports}
