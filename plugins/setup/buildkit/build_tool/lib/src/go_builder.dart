@@ -12,12 +12,15 @@ import 'util.dart';
 
 final _log = Logger('go_builder');
 
-/// ELF builds retain DWARF and a GNU build ID for independent debug companions.
+/// Native builds retain DWARF for independent debug companions.
 /// The last boolean linker flags override historical/custom `-s -w` defaults.
-String goLdflagsFor(Target target, String configured) =>
-    target.goos == 'android' || target.goos == 'linux'
-        ? '$configured -s=false -w=false -B gobuildid'
-        : configured;
+String goLdflagsFor(Target target, String configured) {
+  if (target.goos == 'android' || target.goos == 'linux') {
+    return '$configured -s=false -w=false -B gobuildid';
+  }
+  if (target.goos == 'darwin') return '$configured -s=false -w=false';
+  return configured;
+}
 
 String _resolveCc(Target target) {
   final ndk = Environment.androidNdk;
@@ -87,6 +90,17 @@ class GoBuilder {
 
     await runCommandStream('go', args,
         workingDirectory: _corePath, environment: env);
+
+    if (target.goos == 'darwin') {
+      // Go's internal linker embeds DWARF rather than an Xcode OSO debug map.
+      // Export a debug-only dSYM before stripping the copy shipped in the app.
+      await runCommandStream('python3', [
+        p.join(rootDir, 'tool', 'prepare_sentry_macos_symbols.py'),
+        '--extract-go', outFile, '--output', '$outFile.dSYM',
+      ], workingDirectory: rootDir);
+      await runCommandStream('xcrun', ['strip', '-S', outFile],
+          workingDirectory: rootDir);
+    }
 
     if (target.isLib && target.abi != null) {
       await _adjustAndroidOutput(

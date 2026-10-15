@@ -35,6 +35,22 @@ if(MSVC AND CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
       endif()
     endif()
   endforeach()
+  # Rust is produced by Cargo rather than a CMake link target. Cargokit copies
+  # its local PDB next to the DLL; record both without installing the PDB.
+  if(TARGET rust_api_cargokit)
+    set(xb_rust_symbol_outputs 0)
+    foreach(xb_rust_binary IN LISTS rust_api_bundled_libraries)
+      if(xb_rust_binary MATCHES "[/\\\\]rust_api\\.dll$")
+        string(REGEX REPLACE "\\.dll$" ".pdb" xb_rust_pdb "${xb_rust_binary}")
+        string(APPEND xb_sentry_manifest
+          "rust_api\t${xb_rust_binary}\t${xb_rust_pdb}\n")
+        math(EXPR xb_rust_symbol_outputs "${xb_rust_symbol_outputs} + 1")
+      endif()
+    endforeach()
+    if(NOT xb_rust_symbol_outputs EQUAL 1)
+      message(FATAL_ERROR "Rust FFI requires one matching DLL/PDB symbol output")
+    endif()
+  endif()
   file(GENERATE OUTPUT "${CMAKE_BINARY_DIR}/sentry-symbols/$<CONFIG>/targets.tsv"
     CONTENT "${xb_sentry_manifest}")
 endif()

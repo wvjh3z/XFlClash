@@ -14,6 +14,7 @@ import os
 from pathlib import Path
 import platform
 import shutil
+import struct
 import subprocess
 import sys
 import tempfile
@@ -27,6 +28,27 @@ symbols = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(symbols)
 DEBUG_ID = "12345678-1234-1234-1234-123456789abc-1"
 OTHER_ID = "87654321-1234-1234-1234-123456789abc-1"
+
+
+def elf_fixture(*, architecture="x86_64", debug=True, executable=False, build_id="1234567890abcdef1234567890abcdef12345678"):
+    """Portable section/ID fixture for mocked-CLI tests, never executed."""
+    strings = b"\0.shstrtab\0.note.gnu.build-id\0.debug_info\0.debug_line\0.text\0"
+    note = struct.pack("<III", 4, 20, 3) + b"GNU\0" + bytes.fromhex(build_id)
+    records = [(b".shstrtab", 3, 0, strings), (b".note.gnu.build-id", 7, 0, note)]
+    if debug:
+        records.extend([(b".debug_info", 1, 0, b"i" * 16), (b".debug_line", 1, 0, b"l" * 16)])
+    records.append((b".text", 1 if executable else 8, 6, b"\x90\x90\xc3\0"))
+    payload, headers = bytearray(), [b"\0" * 64]
+    for name, kind, flags, data in records:
+        offset = 64 + len(payload) if kind != 8 else 0
+        headers.append(struct.pack("<IIQQQQIIQQ", strings.index(name + b"\0"), kind, flags, 0,
+                                   offset, len(data), 0, 0, 1, 0))
+        if kind != 8:
+            payload.extend(data)
+    header = struct.pack("<16sHHIQQQIHHHHHH", b"\x7fELF\x02\x01\x01" + b"\0" * 9, 3,
+                         {"x86_64": 62, "aarch64": 183}[architecture], 1, 0, 0, 64 + len(payload),
+                         0, 64, 0, 0, 64, len(headers), 1)
+    return header + payload + b"".join(headers)
 
 
 class SymbolAuditTest(unittest.TestCase):
@@ -52,8 +74,12 @@ class SymbolAuditTest(unittest.TestCase):
         self.write_manifest()
         dart = self.build / "debug-info/app.windows-x64.symbols"
         dart.parent.mkdir()
-        dart.write_text("fixture Dart debug info")
+        dart.write_bytes(elf_fixture())
         self.metadata[str(dart)] = self.info("elf")
+        aot = Path(self.records[0][1]).parent / "data/app.so"
+        aot.parent.mkdir()
+        aot.write_bytes(elf_fixture(debug=False, executable=True))
+        self.metadata[str(aot)] = self.info("elf")
 
     def info(self, kind, debug_id=DEBUG_ID, features="symtab, debug"):
         return {"type": kind, "variants": [{"debug_id": debug_id}],
@@ -114,16 +140,20 @@ class SymbolAuditTest(unittest.TestCase):
         self.assertEqual(result, 1)
         self.assertEqual(evidence["status"], "failed")
 
-    def test_other_platform_missing_token_is_explicit_skip(self):
+    def test_other_platform_missing_token_fails_release(self):
         dart = self.build / "debug-info/app.android-arm64.symbols"
-        dart.write_text("fixture Android debug info")
+        dart.write_bytes(elf_fixture(architecture="aarch64"))
         self.metadata[str(dart)] = self.info("elf")
+        aot = self.build / "sentry-native/android/runtime/0/arm64-v8a/libapp.so"
+        aot.parent.mkdir(parents=True)
+        aot.write_bytes(elf_fixture(architecture="aarch64", debug=False, executable=True))
+        self.metadata[str(aot)] = self.info("elf")
         native_evidence = [{"target": "libcore.so", "architecture": "arm64-v8a", "source": "cmake",
                             "debug_ids": [DEBUG_ID]}]
         with mock.patch.object(symbols, "audit_elf_native", return_value=([], native_evidence, [])):
             result, evidence = self.run_main(platform="android")
-        self.assertEqual(result, 0)
-        self.assertEqual(evidence["status"], "skipped_missing_token")
+        self.assertEqual(result, 1)
+        self.assertEqual(evidence["status"], "failed")
         self.assertEqual(evidence["native_coverage"], "explicit_manifest_audited")
         self.assertEqual(evidence["native"], native_evidence)
 
@@ -144,22 +174,31 @@ class SymbolAuditTest(unittest.TestCase):
         self.metadata[self.records[1][2]]["features"] = "symtab"
         self.assertEqual(self.run_main(token="secret")[0], 1)
 
-    def test_macos_collects_darwin_dart_companions_and_dsym(self):
-        expected = []
-        for architecture in ("x86_64", "arm64"):
-            path = self.build / f"debug-info/app.darwin-{architecture}.symbols"
-            path.write_text("fixture Darwin debug information")
-            self.metadata[str(path)] = self.info("elf")
-            expected.append(path)
-        dwarf = self.build / "macos/Build/Products/Release/App.framework.dSYM/Contents/Resources/DWARF/App"
-        dwarf.parent.mkdir(parents=True)
-        dwarf.write_text("fixture dSYM")
-        self.metadata[str(dwarf)] = self.info("dsym")
-        expected.append(dwarf)
-        with mock.patch.object(symbols, "run_cli", side_effect=self.cli):
-            artifacts, _ = symbols.collect_companions("sentry-cli", self.build, "macos")
-        self.assertCountEqual(artifacts, expected)
-        self.assertFalse(any("windows" in artifact.name for artifact in artifacts))
+    def test_distributed_windows_plugin_cannot_disappear_from_manifest(self):
+        self.records.pop(2)
+        self.write_manifest()
+        result, evidence = self.run_main(token="fixture-token")
+        self.assertEqual(result, 1)
+        self.assertIn("distributed native plugin", evidence["error"])
+
+    def test_distributed_windows_rust_cannot_disappear_from_manifest(self):
+        bundle = Path(self.records[0][1]).parent
+        (bundle / "rust_api.dll").write_text("fixture Rust runtime")
+        result, evidence = self.run_main(token="fixture-token")
+        self.assertEqual(result, 1)
+        self.assertIn("Rust PDB", evidence["error"])
+
+    def test_windows_evidence_names_external_symbols_and_independent_process_limits(self):
+        bundle = Path(self.records[0][1]).parent
+        for name in ("flutter_windows.dll", "WebView2Loader.dll", "FlClashCore.exe", "FlClashHelperService.exe"):
+            (bundle / name).write_text("fixture external module")
+        result, evidence = self.run_main(token="fixture-token")
+        self.assertEqual(result, 0)
+        reasons = {entry["target"]: entry["reason"] for entry in evidence["native_limitations"]}
+        self.assertEqual(reasons["FlClashCore.exe"], "separate_process_no_sentry_sdk")
+        self.assertEqual(reasons["FlClashHelperService.exe"], "separate_process_no_sentry_sdk")
+        self.assertEqual(reasons["flutter_windows.dll"], "external_debug_companion_unavailable")
+        self.assertEqual(reasons["WebView2Loader.dll"], "external_debug_companion_unavailable")
 
     def test_artifact_outside_build_root_fails(self):
         self.records[1][2] = str(self.root / "outside.pdb")
@@ -191,6 +230,27 @@ class SymbolAuditTest(unittest.TestCase):
         result, evidence = self.run_main(token="secret")
         self.assertEqual(result, 1)
         self.assertEqual(evidence["status"], "failed")
+
+    def test_same_architecture_wrong_dart_build_id_fails(self):
+        dart = self.build / "debug-info/app.windows-x64.symbols"
+        dart.write_bytes(elf_fixture(build_id="876543210fedcba9876543210fedcba987654321"))
+        result, evidence = self.run_main(token="fixture-token")
+        self.assertEqual(result, 1)
+        self.assertIn("build identifier mismatch", evidence["error"])
+
+    def test_same_architecture_wrong_dart_debug_id_fails(self):
+        dart = self.build / "debug-info/app.windows-x64.symbols"
+        self.metadata[str(dart)]["variants"][0]["debug_id"] = OTHER_ID
+        result, evidence = self.run_main(token="fixture-token")
+        self.assertEqual(result, 1)
+        self.assertIn("debug identifier mismatch", evidence["error"])
+
+    def test_complete_aot_elf_renamed_as_symbols_cannot_upload(self):
+        dart = self.build / "debug-info/app.windows-x64.symbols"
+        dart.write_bytes(elf_fixture(executable=True))
+        result, evidence = self.run_main(token="fixture-token")
+        self.assertEqual(result, 1)
+        self.assertIn("contains executable code", evidence["error"])
 
 
 class CliMetadataTest(unittest.TestCase):
@@ -267,6 +327,8 @@ class NativeElfSymbolsTest(unittest.TestCase):
         self.rust_binary = self.binary.parent / "lib/librust_api.so"
         self.rust_binary.parent.mkdir()
         shutil.copyfile(self.binary, self.rust_binary)
+        self.dart_aot = self.rust_binary.parent / "libapp.so"
+        shutil.copyfile(self.binary, self.dart_aot)
         self.rust_debug = self.native / "librust_api.so.debug"
         shutil.copyfile(self.debug, self.rust_debug)
         self.manifest["artifacts"].append({
@@ -444,6 +506,45 @@ class NativeElfSymbolsTest(unittest.TestCase):
              self.assertRaisesRegex(symbols.SymbolError, "mandatory owned module"):
             symbols.audit_elf_native("sentry-cli", self.build, "android")
 
+    def test_android_current_core_and_go_inventory_does_not_require_absent_rust(self):
+        from prepare_sentry_native_symbols import Preparer
+        source = self.root / "unstripped.so"
+        shutil.copyfile(self.original, source)
+        abi = "arm64-v8a" if self.architecture == "arm64" else "x86_64"
+        prepare = Preparer(self.build, "android", "objcopy")
+        for target in ("libcore.so", "libclash.so"):
+            binary = prepare.output / "runtime/0" / abi / target
+            binary.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(self.binary, binary)
+            prepare.add(target, abi, binary, [source], "fixture", True)
+        shutil.copyfile(self.binary, binary.parent / "libflutter.so")
+        prepare.finish()
+        with mock.patch.object(symbols, "run_cli", side_effect=self.cli):
+            artifacts, evidence, _ = symbols.audit_elf_native("sentry-cli", self.build, "android")
+        self.assertEqual(len(artifacts), 2)
+        self.assertEqual({entry["target"] for entry in evidence}, {"libcore.so", "libclash.so"})
+
+    def test_android_actually_distributed_rust_cannot_be_omitted_from_manifest(self):
+        from prepare_sentry_native_symbols import Preparer
+        source = self.root / "unstripped.so"
+        shutil.copyfile(self.original, source)
+        abi = "arm64-v8a" if self.architecture == "arm64" else "x86_64"
+        prepare = Preparer(self.build, "android", "objcopy")
+        for target in ("libcore.so", "libclash.so", "librust_api.so"):
+            binary = prepare.output / "runtime/0" / abi / target
+            binary.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(self.binary, binary)
+            prepare.add(target, abi, binary, [source], "fixture", True)
+        shutil.copyfile(self.binary, binary.parent / "libflutter.so")
+        manifest_path = prepare.finish()
+        manifest = json.loads(manifest_path.read_text())
+        for key in ("artifacts", "required"):
+            manifest[key] = [entry for entry in manifest[key] if entry["target"] != "librust_api.so"]
+        manifest_path.write_text(json.dumps(manifest))
+        with mock.patch.object(symbols, "run_cli", side_effect=self.cli), \
+             self.assertRaisesRegex(symbols.SymbolError, "mandatory owned module"):
+            symbols.audit_elf_native("sentry-cli", self.build, "android")
+
     def test_android_entire_abi_cannot_disappear_from_both_manifest_lists(self):
         from prepare_sentry_native_symbols import Preparer
         source = self.root / "unstripped.so"
@@ -514,7 +615,7 @@ class NativeElfSymbolsTest(unittest.TestCase):
     def test_upload_stages_only_companions_and_keeps_safe_native_evidence(self):
         dart = self.build / f"debug-info/app.linux-{self.architecture}.symbols"
         dart.parent.mkdir()
-        dart.write_text("fake split debug info")
+        shutil.copyfile(self.debug, dart)
         evidence_file = self.build / "evidence.json"
         with mock.patch.object(symbols, "run_cli", side_effect=self.cli), \
              mock.patch.object(symbols.shutil, "which", return_value="fake-cli"), \
@@ -532,53 +633,6 @@ class NativeElfSymbolsTest(unittest.TestCase):
 
 @unittest.skipUnless(os.name != "nt" and shutil.which("bash"), "Local shell entrypoint checks use POSIX bash")
 class LocalUploadEntrypointTest(unittest.TestCase):
-    def run_android_block(self, token="", token_file=False, upload_exit=0, mode="release"):
-        script = (SCRIPT.parents[1] / "scripts/build_local.sh").read_text()
-        block = script.split("# === Sentry 符号上传（仅 release；NFR-7）===", 1)[1].split("# === 自动部署", 1)[0]
-        with tempfile.TemporaryDirectory(prefix="xflclash-upload-shell-") as temporary:
-            root = Path(temporary)
-            tools = root / "bin"
-            tools.mkdir()
-            (tools / "git").write_text("#!/usr/bin/env bash\nprintf '123456789abcdef\\n'\n")
-            (tools / "python3").write_text('#!/usr/bin/env bash\nprintf "%s\\n" "$@" > "$SENTRY_TEST_ARGV"\nexit "$SENTRY_TEST_EXIT_CODE"\n')
-            for path in tools.iterdir():
-                path.chmod(0o700)
-            if token_file:
-                (root / "flavors").mkdir()
-                (root / "flavors/sentry-cli.token").write_text("fixture-file-token\n")
-            log = root / "arguments.txt"
-            env = {**os.environ, "PATH": str(tools) + os.pathsep + os.environ["PATH"],
-                   "SENTRY_AUTH_TOKEN": token, "SENTRY_TEST_ARGV": str(log),
-                   "SENTRY_TEST_EXIT_CODE": str(upload_exit)}
-            setup = f'set -euo pipefail\nMODE={mode}\nFLAVOR=brand_a\nVERSION_NAME=0.0.1\nBUILD_NUMBER=14\n'
-            result = subprocess.run(["bash", "-c", setup + block], env=env, cwd=root,
-                                    capture_output=True, text=True, timeout=10)
-            output = result.stdout + result.stderr
-            self.assertNotIn("fixture-file-token", output)
-            if token:
-                self.assertNotIn(token, output)
-            return result.returncode, output, log.read_text() if log.exists() else None
-
-    def test_android_missing_token_is_explicit_skip(self):
-        code, output, arguments = self.run_android_block()
-        self.assertEqual(code, 0)
-        self.assertIn("明确跳过", output)
-        self.assertIsNone(arguments)
-
-    def test_android_token_file_calls_safe_uploader(self):
-        code, _, arguments = self.run_android_block(token_file=True)
-        self.assertEqual(code, 0)
-        self.assertIn("tool/upload_sentry_symbols.py\n--platform\nandroid", arguments)
-        self.assertNotIn("--include-sources", arguments)
-
-    def test_android_upload_failure_blocks_entrypoint(self):
-        self.assertEqual(self.run_android_block(token="fixture-env-token", upload_exit=7)[0], 7)
-
-    def test_debug_does_not_upload(self):
-        code, _, arguments = self.run_android_block(token="fixture-env-token", mode="debug")
-        self.assertEqual(code, 0)
-        self.assertIsNone(arguments)
-
     @unittest.skipUnless(shutil.which("jq"), "jq is required for package config logging")
     def test_config_logging_never_prints_private_values(self):
         for relative in (".github/workflows/release-package.yml", "scripts/package_desktop_local.sh"):

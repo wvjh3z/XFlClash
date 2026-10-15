@@ -39,9 +39,12 @@ class GenerationTests(unittest.TestCase):
         shutil.copyfile(self.elf, self.stripped)
         subprocess.run(["objcopy", "--strip-debug", str(self.stripped)], check=True)
 
-    def android_fixture(self, omit=None):
+    def android_fixture(self, omit=None, include_rust=False):
         package = self.repo / "fixture.apk"
-        names = {"libcore.so", "libclash.so", "librust_api.so", "libflutter.so"} - {omit}
+        names = {"libcore.so", "libclash.so", "libflutter.so"}
+        if include_rust:
+            names.add("librust_api.so")
+        names -= {omit}
         with zipfile.ZipFile(package, "w") as archive:
             for name in names:
                 archive.writestr(f"lib/{self.android_abi}/" + name, self.stripped.read_bytes())
@@ -56,8 +59,8 @@ class GenerationTests(unittest.TestCase):
         prepare = Preparer(self.build, "android", "objcopy")
         prepare.android([package])
         manifest = json.loads(prepare.finish().read_text())
-        self.assertEqual(len(manifest["artifacts"]), 3)
-        self.assertEqual(len(manifest["required"]), 3)
+        self.assertEqual(len(manifest["artifacts"]), 2)
+        self.assertEqual(len(manifest["required"]), 2)
         for item in manifest["artifacts"]:
             debug = self.build / item["debug_file"]
             info = inspect_elf(debug)
@@ -69,8 +72,22 @@ class GenerationTests(unittest.TestCase):
         self.assertEqual(sum(x["reason"] == "separate_process_no_sentry_sdk" for x in manifest["limitations"]), 2)
 
     def test_android_missing_own_module_fails(self):
-        package = self.android_fixture(omit="librust_api.so")
+        package = self.android_fixture(omit="libcore.so")
         with self.assertRaisesRegex(PreparationError, "required_apk_native_module_missing"):
+            Preparer(self.build, "android", "objcopy").android([package])
+
+    def test_android_rust_is_required_only_when_actually_distributed(self):
+        package = self.android_fixture(include_rust=True)
+        prepare = Preparer(self.build, "android", "objcopy")
+        prepare.android([package])
+        manifest = json.loads(prepare.finish().read_text())
+        self.assertEqual({entry["target"] for entry in manifest["required"]},
+                         {"libcore.so", "libclash.so", "librust_api.so"})
+
+    def test_android_distributed_rust_still_requires_matching_dwarf(self):
+        package = self.android_fixture(include_rust=True)
+        (self.build / "core/intermediates/librust_api.so").unlink()
+        with self.assertRaisesRegex(PreparationError, "required_native_dwarf_unavailable"):
             Preparer(self.build, "android", "objcopy").android([package])
 
     def test_android_missing_dwarf_fails_and_old_manifest_is_removed(self):

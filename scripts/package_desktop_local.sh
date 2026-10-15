@@ -16,7 +16,8 @@
 #               | windows-amd64 | macos-amd64 | macos-arm64
 #   选项:
 #     --install-deps : 先装本平台打包依赖（Linux apt / macOS brew+npm；需要 sudo/brew）
-#     --no-sentry    : 显式跳过 Sentry；默认核对并上传符号，Windows 缺 token 失败
+#     --audit-only   : 显式离线诊断：准备和校验符号，不上传
+#     --no-sentry    : 显式诊断：跳过 Sentry；默认各平台缺 token/CLI/符号都失败
 #   例：
 #     bash scripts/package_desktop_local.sh brand_a auto
 #     bash scripts/package_desktop_local.sh brand_b linux-amd64 --install-deps
@@ -43,20 +44,35 @@
 #   versionCode build-number   ← scripts/build_number.txt
 set -euo pipefail
 
+# Sentry upload credential isolation: only the controlled postbuild inherits it.
+XFL_LOCAL_SENTRY_UPLOAD_TOKEN="${SENTRY_AUTH_TOKEN:-}"
+export -n XFL_LOCAL_SENTRY_UPLOAD_TOKEN
+unset SENTRY_AUTH_TOKEN SENTRY_MAINTENANCE_TOKEN
+run_sentry_postbuild() {
+  if [ -n "${XFL_LOCAL_SENTRY_UPLOAD_TOKEN}" ]; then
+    SENTRY_AUTH_TOKEN="${XFL_LOCAL_SENTRY_UPLOAD_TOKEN}" python3 tool/postbuild_sentry_symbols.py "$@"
+  else
+    python3 tool/postbuild_sentry_symbols.py "$@"
+  fi
+}
+
 # ───────── 参数解析 ─────────
 FLAVOR="brand_a"
 TARGET="auto"
 INSTALL_DEPS=0
 NO_SENTRY=0
+AUDIT_ONLY=0
 for arg in "$@"; do
   case "${arg}" in
     brand_a|brand_b)                         FLAVOR="${arg}" ;;
     auto|linux-amd64|linux-arm64|windows-amd64|macos-amd64|macos-arm64) TARGET="${arg}" ;;
     --install-deps)                          INSTALL_DEPS=1 ;;
     --no-sentry)                             NO_SENTRY=1 ;;
+    --audit-only)                            AUDIT_ONLY=1 ;;
     *) echo "✗ 未知参数：${arg}"; exit 2 ;;
   esac
 done
+[ "${NO_SENTRY}" = "0" ] || [ "${AUDIT_ONLY}" = "0" ] || { echo "✗ --no-sentry 与 --audit-only 不能同时使用"; exit 2; }
 
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "${REPO_DIR}"
@@ -101,14 +117,7 @@ need flutter "安装 Flutter SDK"
 need dart    "随 Flutter 附带"
 need git     "版本控制"
 need jq      "合成 env.json（Linux: apt install jq / macOS: brew install jq / Win: choco install jq）"
-if [ "${NO_SENTRY}" = "0" ]; then
-  need python3 "Sentry 符号审计（Python 3.9+）"
-  need sentry-cli "npm install -g @sentry/cli@2.58.4"
-  if [ "${PLATFORM}" = "windows" ] && [ ! -s flavors/sentry-cli.token ] && [ -z "${SENTRY_AUTH_TOKEN:-}" ]; then
-    echo "✗ Windows 正式包必须配置 Sentry token；仅本地诊断可显式 --no-sentry"
-    MISSING=1
-  fi
-fi
+need python3 "Sentry 符号准备、审计和上传（Python 3.10+）"
 [ "${MISSING}" = "1" ] && { echo "→ 补齐上述工具后重试"; exit 1; }
 
 # ───────── 打包依赖（可选 --install-deps；否则仅检查 + 提示）─────────
@@ -173,22 +182,31 @@ echo "=== package: flavor=${FLAVOR} target=${TARGET} ==="
 echo "    产品版本=${VERSION_NAME}  底座(build-name)=${BASE_VERSION}  versionCode=${BUILD_NUMBER}  tag=${TAG}  rpm=${WANT_RPM}"
 
 # ───────── 依赖 + codegen（与 CI 同序：SDK build_runner → client codegen）─────────
-echo "=== flutter pub get ==="
-flutter pub get
+echo "=== flutter clean + strict pub get ==="
+flutter clean
+flutter pub get --enforce-lockfile
 
 if [ -d "../Xboard_sdk" ]; then
   echo "=== SDK build_runner（../Xboard_sdk）==="
-  ( cd ../Xboard_sdk && dart pub get && dart run build_runner build --delete-conflicting-outputs )
+  ( cd ../Xboard_sdk && flutter pub get --enforce-lockfile && dart run build_runner build )
 else
-  echo "⚠ 未找到 sibling ../Xboard_sdk（应与 XFlClash 平级）；若 pub get 已解析到它则忽略，否则会编译失败"
+  echo "✗ 未找到 sibling ../Xboard_sdk；正式打包要求严格解析 SDK 锁文件"
+  exit 1
 fi
 
 echo "=== client codegen ==="
-dart run build_runner build --delete-conflicting-outputs
+dart run build_runner build
 
 # ───────── flavor 注入（桌面：不带 --android-signing）+ 品牌注入 + 图标 ─────────
 echo "=== prepare_flavor（生成 flavor_defines.json，含 aesKey）==="
 dart run tool/prepare_flavor.dart --flavor "${FLAVOR}" --target prod
+
+# 和CI共用同一入口；已配置DSN的正式包在编译前先检查固定CLI和上传凭据。
+SENTRY_ARGS=(--platform "${PLATFORM}" --flavor "${FLAVOR}" --product-version "${VERSION_NAME}"
+  --build-number "${BUILD_NUMBER}" --source-revision "$(git rev-parse HEAD)")
+[ "${NO_SENTRY}" = "0" ] || SENTRY_ARGS+=(--no-sentry)
+[ "${AUDIT_ONLY}" = "0" ] || SENTRY_ARGS+=(--audit-only)
+run_sentry_postbuild "${SENTRY_ARGS[@]}" --preflight
 
 echo "=== inject_desktop_brand（窗口标题 / 打包 display_name / 图标）==="
 dart run tool/inject_desktop_brand.dart --flavor "${FLAVOR}"
@@ -235,7 +253,7 @@ dart pub global activate -s path plugins/flutter_distributor/packages/flutter_di
 COMMON="dart-define-from-file=env.json,build-name=${BASE_VERSION},build-number=${BUILD_NUMBER}"
 case "${PLATFORM}" in
   windows) TARGETS="exe,zip"; BUILD_ARGS="${COMMON},split-debug-info=build/debug-info" ;;
-  macos)   TARGETS="dmg";     BUILD_ARGS="${COMMON}" ;;  # macOS 不支持 split-debug-info（用 sentry-cocoa + dSYM）
+  macos)   TARGETS="dmg";     BUILD_ARGS="${COMMON},split-debug-info=build/debug-info" ;;
   linux)
     if [ "${WANT_RPM}" = "1" ]; then TARGETS="deb,appimage,rpm"; else TARGETS="deb,appimage"; fi
     BUILD_ARGS="${COMMON},split-debug-info=build/debug-info" ;;
@@ -267,22 +285,10 @@ echo "=== normalize dist 命名 → ${PKG}-${VERSION_NAME}-${PLATFORM}-${ARCH}* 
       for f in *.rpm;      do mv -f "${f}" "${PKG}-${VERSION_NAME}-linux-${ARCH}.rpm"; done ;;
   esac )
 
-# ───────── Sentry：PDB/debug ID审计，安全伴随文件上传与明确失败 ─────────
-if [ "${NO_SENTRY}" = "0" ]; then
-  if [ "${PLATFORM}" = "linux" ]; then
-    NATIVE_ARCH="${ARCH}"
-    [ "${NATIVE_ARCH}" != "amd64" ] || NATIVE_ARCH=x64
-    python3 tool/prepare_sentry_native_symbols.py --platform linux --architecture "${NATIVE_ARCH}"
-  fi
-  TOKEN_FILE="flavors/sentry-cli.token"
-  if [ -f "${TOKEN_FILE}" ] && [ -z "${SENTRY_AUTH_TOKEN:-}" ]; then
-    export SENTRY_AUTH_TOKEN="$(tr -d '[:space:]' < "${TOKEN_FILE}")"
-  fi
-  python3 tool/upload_sentry_symbols.py --platform "${PLATFORM}" --flavor "${FLAVOR}" \
-    --product-version "${VERSION_NAME}" --build-number "${BUILD_NUMBER}" --source-revision "$(git rev-parse HEAD)"
-else
-  echo "ℹ Sentry 符号审计/上传已由 --no-sentry 显式跳过"
-fi
+# ───────── Sentry：最终包匹配、伴随符号审计和上传，失败不报告完成 ─────────
+NATIVE_ARCH="${ARCH}"
+[ "${NATIVE_ARCH}" != "amd64" ] || NATIVE_ARCH=x64
+run_sentry_postbuild "${SENTRY_ARGS[@]}" --architecture "${NATIVE_ARCH}"
 
 # ───────── 完成 ─────────
 echo "=== done ==="

@@ -1,5 +1,7 @@
 
 platform :osx, '11.0'
+require 'json'
+require 'fileutils'
 
 # CocoaPods analytics sends network stats synchronously affecting flutter build latency.
 ENV['COCOAPODS_DISABLE_STATS'] = 'true'
@@ -38,10 +40,38 @@ target 'Runner' do
 end
 
 post_install do |installer|
+  xboard_owned_products = []
+  installer.pod_targets.each do |pod_target|
+    next unless pod_target.should_build?
+    # Statically linked Pods contribute to their containing module's dSYM and
+    # do not have a separate runtime image inside the app.
+    next unless pod_target.build_as_dynamic?
+    # Only source-built Pods are owned here; vendor frameworks remain explicit
+    # prebuilt dependencies whose upstream dSYMs may be unavailable.
+    accessors = pod_target.file_accessors
+    next unless accessors.any? { |accessor| !accessor.source_files.empty? }
+    product = pod_target.product_name
+    next unless product.end_with?('.framework', '.dylib')
+    xboard_owned_products << {
+      'target' => pod_target.name,
+      'product' => File.basename(product)
+    }
+  end
   installer.pods_project.targets.each do |target|
     flutter_additional_macos_build_settings(target)
     target.build_configurations.each do |config|
             config.build_settings['MACOSX_DEPLOYMENT_TARGET'] = '11.0'
+            if ['Release', 'Profile'].include?(config.name)
+              config.build_settings['DEBUG_INFORMATION_FORMAT'] = 'dwarf-with-dsym'
+              config.build_settings['GCC_GENERATE_DEBUGGING_SYMBOLS'] = 'YES'
+              config.build_settings['COPY_PHASE_STRIP'] = 'NO'
+            end
     end
   end
+  inventory = File.expand_path('../build/macos/sentry-native-owned.json', __dir__)
+  FileUtils.mkdir_p(File.dirname(inventory))
+  File.write(inventory, JSON.pretty_generate({
+    'schema_version' => 1,
+    'products' => xboard_owned_products.uniq.sort_by { |entry| entry['product'] }
+  }) + "\n")
 end

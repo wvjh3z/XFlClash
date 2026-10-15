@@ -20,6 +20,9 @@ from sentry_elf import ElfError, inspect_elf
 ANDROID_ARCH = {"armeabi-v7a": "arm", "arm64-v8a": "aarch64", "x86_64": "x86_64"}
 LINUX_ARCH = {"x64": "x86_64", "arm64": "aarch64"}
 OWN_ANDROID = {"libcore.so": "cmake", "libclash.so": "go", "librust_api.so": "rust"}
+# rust_api currently declares desktop/iOS platforms only. If an APK ever
+# contains its ELF, treat that distributed module as owned and require symbols.
+REQUIRED_ANDROID = {"libcore.so", "libclash.so"}
 MAX_ELF = 512 * 1024 * 1024
 
 
@@ -184,7 +187,7 @@ class Preparer:
                         for name in modules:
                             self.limitation(name, abi, "prebuilt", "not_a_flutter_runtime_abi")
                         continue
-                    if not OWN_ANDROID.keys() <= modules.keys():
+                    if not REQUIRED_ANDROID <= modules.keys():
                         raise PreparationError("required_apk_native_module_missing")
                     for name, binary in sorted(modules.items()):
                         if name == "libapp.so":

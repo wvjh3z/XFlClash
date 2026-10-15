@@ -15,10 +15,11 @@ import 'util.dart';
 
 final _log = Logger('builder');
 
-// Xboard: retain ELF line info until platform packaging separates it.
-// Keep the established Windows/macOS profile and upload behavior intact.
-Map<String, String> elfDebugEnvironment(String targetTriple) =>
-    targetTriple.contains('-linux-')
+// Xboard: retain native line info until platform packaging separates it.
+// macOS links the static library into rust_api.framework before dSYM creation.
+Map<String, String> nativeDebugEnvironment(String targetTriple) =>
+    targetTriple.contains('-linux-') || targetTriple.endsWith('-apple-darwin') ||
+            targetTriple.endsWith('-windows-msvc')
         ? {
             'CARGO_PROFILE_RELEASE_DEBUG': '2',
             'CARGO_PROFILE_RELEASE_STRIP': 'none',
@@ -188,9 +189,9 @@ class RustBuilder {
   }
 
   Future<Map<String, String>> _buildEnvironment() async {
-    final elfSymbols = elfDebugEnvironment(target.rust);
+    final nativeSymbols = nativeDebugEnvironment(target.rust);
     if (target.android == null) {
-      return elfSymbols;
+      return nativeSymbols;
     } else {
       final sdkPath = environment.androidSdkPath;
       final ndkVersion = environment.androidNdkVersion;
@@ -214,7 +215,7 @@ class RustBuilder {
       if (!env.ndkIsInstalled() && environment.javaHome != null) {
         env.installNdk(javaHome: environment.javaHome!);
       }
-      return {...await env.buildEnvironment(), ...elfSymbols};
+      return {...await env.buildEnvironment(), ...nativeSymbols};
     }
   }
 }

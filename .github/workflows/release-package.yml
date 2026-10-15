@@ -20,7 +20,7 @@
 #   BRAND_A_FLAVOR_YAML_B64 / BRAND_B_FLAVOR_YAML_B64    flavors/<brand>/flavor.yaml（base64；含内嵌 aesKey+签名）
 #   BRAND_A_FALLBACK_BIN_B64 / BRAND_B_FALLBACK_BIN_B64  flavors/<brand>/assets/fallback.bin（base64）
 #   SIBLING_SDK_TOKEN   只读 private wvjh3z/Xboard_sdk 的 fine-grained PAT
-#   SENTRY_AUTH_TOKEN   原有符号上传 Token（org=ka-chiu-lee；Windows 必需，其他平台缺失明确跳过）
+#   SENTRY_AUTH_TOKEN   正式出包所有平台必需的符号上传 Token（org=ka-chiu-lee）
 #   后台维护独立使用 SENTRY_MAINTENANCE_TOKEN，不在此工作流读取。
 #
 # ✅ Linux crashpad 可执行位：已由 linux/CMakeLists.txt 末尾 install(CODE chmod +x) 在
@@ -55,7 +55,7 @@ on:
           - all
         default: android
       upload:
-        description: '发布到草稿 Release（直链原文件，仅协作者可见，可随时删；测试期可开。false=只构建不发布）'
+        description: '发布安装包到草稿 Release；false仍执行Sentry符号校验与上传'
         type: boolean
         default: false
       sdk_ref:
@@ -135,14 +135,18 @@ jobs:
           npm install -g @sentry/cli@2.58.4
           python tool/test/sentry_symbols_test.py
           python tool/test/sentry_native_generation_test.py
+          python tool/test/sentry_macos_generation_test.py
+          python tool/test/sentry_macos_symbols_test.py
+          python tool/test/local_release_automation_test.py
+          python tool/test/sentry_release_workflow_test.py
+          python tool/test/sentry_windows_rust_manifest_test.py
 
-      - name: Check required Windows symbol credentials
-        if: matrix.platform == 'windows'
+      - name: Check required Sentry upload credentials
         env:
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
         run: |
           if [ -z "${SENTRY_AUTH_TOKEN:-}" ]; then
-            echo "::error::Windows release requires SENTRY_AUTH_TOKEN for matching native symbols"
+            echo "::error::Release packaging requires SENTRY_AUTH_TOKEN for matching debug symbols"
             exit 1
           fi
 
@@ -198,14 +202,16 @@ jobs:
         if: matrix.platform == 'windows'
         run: git config --global core.longpaths true
 
-      # 非 arm runner 用 stable 3.41.9（与 release-build.yml 一致）；
+      # macOS 用 stable 3.44.0，其他非 arm runner 保留 3.41.9；
       # arm runner（ubuntu-24.04-arm）按 FlClash 惯例走 master 3.44.0-0.1.pre。
       - name: Setup Flutter (stable)
         if: ${{ !startsWith(matrix.os, 'ubuntu-24.04-arm') }}
         uses: subosito/flutter-action@v2
         with:
           channel: stable
-          flutter-version: 3.41.9
+          # macOS 3.44 emits AOT Mach-O and split symbols with a shared UUID.
+          # 3.41's assembly + clang link produces a different final LC_UUID.
+          flutter-version: ${{ matrix.platform == 'macos' && '3.44.0' || '3.41.9' }}
           cache: true
       - name: Setup Flutter (master, arm runner)
         if: ${{ startsWith(matrix.os, 'ubuntu-24.04-arm') }}
@@ -353,14 +359,14 @@ jobs:
           set -euo pipefail
           # 版本：与 release-build.yml 一致——build-name=底座版本 / build-number=build_number.txt，
           # 否则 flutter_distributor 回退 pubspec 版本号（大日期数），两工作流 versionCode 语义不一致。
-          COMMON="dart-define-from-file=env.json,build-name=$BASE_VERSION,build-number=$BUILD_NUMBER"
+          COMMON="dart-define-from-file=env.json,build-name=$BASE_VERSION,build-number=$BUILD_NUMBER,split-debug-info=build/debug-info"
           case "${{ matrix.platform }}" in
-            android) TARGETS="apk"; BUILD_ARGS="$COMMON,split-debug-info=build/debug-info,split-per-abi,target-platform=android-arm,android-arm64,flavor=$FLAVOR" ;;
-            windows) TARGETS="exe"; BUILD_ARGS="$COMMON,split-debug-info=build/debug-info" ;;
-            macos)   TARGETS="dmg"; BUILD_ARGS="$COMMON" ;;  # macos 不支持 --split-debug-info（用 sentry-cocoa 原生 + dSYM 上传）
+            android) TARGETS="apk"; BUILD_ARGS="$COMMON,split-per-abi,target-platform=android-arm,android-arm64,flavor=$FLAVOR" ;;
+            windows) TARGETS="exe"; BUILD_ARGS="$COMMON" ;;
+            macos)   TARGETS="dmg"; BUILD_ARGS="$COMMON" ;;
             linux)
               if [ "${{ matrix.arch }}" = "amd64" ]; then TARGETS="deb,appimage,rpm"; else TARGETS="deb,appimage"; fi
-              BUILD_ARGS="$COMMON,split-debug-info=build/debug-info" ;;
+              BUILD_ARGS="$COMMON" ;;
           esac
           DESC=""
           [ "${{ matrix.platform }}" != "android" ] && DESC="--description ${{ matrix.arch }}"
@@ -401,31 +407,29 @@ jobs:
           esac
           echo "=== dist 重命名后（AppVersion 约定）==="; ls -la
 
-      # Android 从最终APK提取分发ELF、Linux读取最终bundle；独立debug伴随文件不入dist。
-      - name: Prepare Android and Linux native Sentry companions
-        if: matrix.platform == 'android' || matrix.platform == 'linux'
-        run: |
-          set -euo pipefail
-          if [ "${{ matrix.platform }}" = "android" ]; then
-            shopt -s nullglob
-            PACKAGES=()
-            for package in dist/*.apk; do PACKAGES+=(--package "$package"); done
-            [ "${#PACKAGES[@]}" -gt 0 ] || { echo "::error::No final APK found for native symbol verification"; exit 1; }
-            python tool/prepare_sentry_native_symbols.py --platform android "${PACKAGES[@]}"
-          else
-            NATIVE_ARCH="${{ matrix.arch }}"
-            [ "$NATIVE_ARCH" != "amd64" ] || NATIVE_ARCH=x64
-            python tool/prepare_sentry_native_symbols.py --platform linux --architecture "$NATIVE_ARCH"
-          fi
-
-      # 显式核对同次构建的PDB/ELF BuildID/debug ID，只上传伴随文件，不上传源码/发布二进制。
-      - name: Upload debug symbols to Sentry
+      # 与本机共用：核对生产配置、准备最终分发匹配符号，再上传并等服务器处理。
+      # 所有正式平台均强制凭据；诊断跳过选项不暴露在正式工作流中。
+      - name: Prepare, audit and upload matching Sentry symbols
         env:
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
         run: |
           set -euo pipefail
-          python tool/upload_sentry_symbols.py --platform "${{ matrix.platform }}" --flavor "$FLAVOR" \
-            --product-version "$PRODUCT_VERSION" --build-number "$BUILD_NUMBER" --source-revision "$GITHUB_SHA"
+          SYMBOL_ARGS=(
+            --platform "${{ matrix.platform }}" --flavor "$FLAVOR"
+            --product-version "$PRODUCT_VERSION" --build-number "$BUILD_NUMBER"
+            --source-revision "$GITHUB_SHA"
+          )
+          if [ "${{ matrix.platform }}" = "android" ]; then
+            shopt -s nullglob
+            PACKAGES=(dist/*.apk)
+            [ "${#PACKAGES[@]}" -gt 0 ] || { echo "::error::No final APK found for native symbol verification"; exit 1; }
+            for package in "${PACKAGES[@]}"; do SYMBOL_ARGS+=(--package "$package"); done
+          elif [ "${{ matrix.platform }}" = "linux" ]; then
+            NATIVE_ARCH="${{ matrix.arch }}"
+            [ "$NATIVE_ARCH" != "amd64" ] || NATIVE_ARCH=x64
+            SYMBOL_ARGS+=(--architecture "$NATIVE_ARCH")
+          fi
+          python tool/postbuild_sentry_symbols.py "${SYMBOL_ARGS[@]}"
 
       - name: Preserve safe Sentry symbol evidence
         if: always()

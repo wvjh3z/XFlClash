@@ -12,9 +12,12 @@ void main() {
     }
   });
 
-  test('Windows and macOS linker options remain unchanged', () {
-    for (final target in [Target.windowsAmd64, Target.macosArm64]) {
-      expect(goLdflagsFor(target, '-w -s'), '-w -s');
-    }
+  test('macOS retains DWARF without ELF-specific linker options', () {
+    expect(goLdflagsFor(Target.macosArm64, '-w -s'),
+        '-w -s -s=false -w=false');
+  });
+
+  test('Windows linker options remain unchanged', () {
+    expect(goLdflagsFor(Target.windowsAmd64, '-w -s'), '-w -s');
   });
 }
