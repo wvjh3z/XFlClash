@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Exercise the real Windows bundle install rules without Flutter or NuGet.
+"""Exercise Windows bundle install and plugin compile rules without Flutter/NuGet.
 
 Run from any directory with Python 3, CMake, and a C++ compiler installed:
     python tool/test/windows_loader_install_test.py
@@ -7,6 +7,10 @@ Run from any directory with Python 3, CMake, and a C++ compiler installed:
 XFLCLASH_TEST_CMAKE may point to a specific CMake executable. The fixture copies
 the project's actual windows/CMakeLists.txt and supplies small Flutter/plugin
 stubs; the install rule under test is never reproduced in this script.
+
+On non-Windows hosts, one fixture sets the directory-local MSVC condition to
+exercise the compatibility branch with the host compiler. This checks CMake
+scope and compilation, not behavior with an actual old MSVC runtime.
 """
 
 from __future__ import annotations
@@ -23,6 +27,7 @@ import unittest
 WINDOWS_CMAKE = Path(__file__).resolve().parents[2] / "windows" / "CMakeLists.txt"
 OLD_LOADER = b"OLD_DLL\n"
 NEW_LOADER = b"NEW_DLL\n"
+MUTEX_COMPAT_DEFINITION = "_DISABLE_CONSTEXPR_MUTEX_CONSTRUCTOR"
 
 
 def find_cmake() -> str:
@@ -105,7 +110,9 @@ class WindowsLoaderInstallTest(unittest.TestCase):
         )
         return result.stdout
 
-    def create_fixture(self) -> None:
+    def create_fixture(
+        self, *, msvc: bool | None = None, include_inapp_plugin: bool = True
+    ) -> None:
         source = self.fixture / "source with spaces"
         source.mkdir()
         # This is the production file, including its default-prefix branch,
@@ -126,13 +133,65 @@ file(GENERATE OUTPUT "${CMAKE_BINARY_DIR}/runner-dir-$<CONFIG>.txt"
   CONTENT "$<TARGET_FILE_DIR:${BINARY_NAME}>")
 """,
         )
-        write_file(source / "runner" / "main.cpp", "int main() { return 0; }\n")
+        no_compat_definition = f"""#ifdef {MUTEX_COMPAT_DEFINITION}
+#error Mutex compatibility definition leaked beyond the InAppWebView plugin
+#endif
+"""
+        write_file(
+            source / "runner" / "main.cpp",
+            no_compat_definition + "int main() { return 0; }\n",
+        )
+        # Only override the normal directory variable after project() has
+        # identified the real compiler. The compiler ID/toolchain/cache remain
+        # unchanged, so both branches can be compiled on Linux and Windows.
+        compiler_condition = (
+            "" if msvc is None else f"set(MSVC {'TRUE' if msvc else 'FALSE'})\n"
+        )
+        self.expect_compat_definition = os.name == "nt" if msvc is None else msvc
+        plugin_check = (
+            f"#ifndef {MUTEX_COMPAT_DEFINITION}\n"
+            "#error InAppWebView is missing the old-runtime mutex definition\n"
+            if self.expect_compat_definition
+            else f"#ifdef {MUTEX_COMPAT_DEFINITION}\n"
+            "#error Non-MSVC build received the MSVC mutex definition\n"
+        ) + "#endif\n"
+        for name in ("plugin.cpp", "texture.cpp"):
+            write_file(
+                source / "flutter" / name,
+                plugin_check + f"int fixture_{Path(name).stem}() {{ return 0; }}\n",
+            )
+        write_file(
+            source / "flutter" / "desktop.cpp",
+            no_compat_definition + "int fixture_desktop() { return 0; }\n",
+        )
+        inapp_plugin = (
+            """add_library(flutter_inappwebview_windows_plugin STATIC
+  "${CMAKE_CURRENT_LIST_DIR}/plugin.cpp"
+  "${CMAKE_CURRENT_LIST_DIR}/texture.cpp")
+target_link_libraries(${BINARY_NAME} PRIVATE flutter_inappwebview_windows_plugin)
+file(GENERATE OUTPUT "${CMAKE_BINARY_DIR}/inapp-definitions-$<CONFIG>.txt"
+  CONTENT "$<TARGET_PROPERTY:flutter_inappwebview_windows_plugin,COMPILE_DEFINITIONS>")
+file(GENERATE OUTPUT "${CMAKE_BINARY_DIR}/inapp-interface-definitions-$<CONFIG>.txt"
+  CONTENT "$<TARGET_PROPERTY:flutter_inappwebview_windows_plugin,INTERFACE_COMPILE_DEFINITIONS>")
+"""
+            if include_inapp_plugin
+            else ""
+        )
         write_file(
             source / "flutter" / "generated_plugins.cmake",
-            """add_library(Webview2 SHARED IMPORTED GLOBAL)
+            compiler_condition
+            + """add_library(Webview2 SHARED IMPORTED GLOBAL)
 set_target_properties(Webview2 PROPERTIES
   IMPORTED_LOCATION "${CMAKE_CURRENT_LIST_DIR}/new/WebView2Loader.dll")
-add_custom_target(flutter_inappwebview_windows_plugin)
+add_library(desktop_webview_window_plugin STATIC "${CMAKE_CURRENT_LIST_DIR}/desktop.cpp")
+target_link_libraries(${BINARY_NAME} PRIVATE desktop_webview_window_plugin)
+file(GENERATE OUTPUT "${CMAKE_BINARY_DIR}/runner-definitions-$<CONFIG>.txt"
+  CONTENT "$<TARGET_PROPERTY:${BINARY_NAME},COMPILE_DEFINITIONS>")
+file(GENERATE OUTPUT "${CMAKE_BINARY_DIR}/desktop-definitions-$<CONFIG>.txt"
+  CONTENT "$<TARGET_PROPERTY:desktop_webview_window_plugin,COMPILE_DEFINITIONS>")
+"""
+            + inapp_plugin
+            + """
 # A regular install rule supplies the older plugin loader before the shared
 # loader override, just as the real bundle may already contain an older DLL.
 set(PLUGIN_BUNDLED_LIBRARIES
@@ -156,23 +215,53 @@ set(PLUGIN_BUNDLED_LIBRARIES
         self.source = source
         self.build = self.fixture / "build with spaces"
 
+    def configure_and_build(
+        self, configuration: str, *, explicit_prefix: bool = False
+    ) -> Path:
+        configure = [
+            "-S",
+            str(self.source),
+            "-B",
+            str(self.build),
+            *self.generator,
+            f"-DCMAKE_BUILD_TYPE={configuration}",
+        ]
+        custom_prefix = self.fixture / "explicit install with spaces"
+        if explicit_prefix:
+            configure.append(f"-DCMAKE_INSTALL_PREFIX={custom_prefix}")
+        self.run_cmake(*configure)
+        self.run_cmake("--build", str(self.build), "--config", configuration)
+        return custom_prefix
+
+    def check_compile_definitions(
+        self, configuration: str, *, include_inapp_plugin: bool = True
+    ) -> None:
+        def definitions(target: str) -> list[str]:
+            return (
+                (self.build / f"{target}-definitions-{configuration}.txt")
+                .read_text(encoding="utf-8")
+                .split(";")
+            )
+
+        self.assertNotIn(MUTEX_COMPAT_DEFINITION, definitions("runner"))
+        self.assertNotIn(MUTEX_COMPAT_DEFINITION, definitions("desktop"))
+        if include_inapp_plugin:
+            self.assertEqual(
+                MUTEX_COMPAT_DEFINITION in definitions("inapp"),
+                self.expect_compat_definition,
+            )
+            self.assertNotIn(
+                MUTEX_COMPAT_DEFINITION, definitions("inapp-interface")
+            )
+
     def check_install(self, configuration: str, explicit_prefix: bool) -> None:
         with tempfile.TemporaryDirectory(prefix="xflclash-loader-install-") as tmp:
             self.fixture = Path(tmp)
             self.create_fixture()
-            configure = [
-                "-S",
-                str(self.source),
-                "-B",
-                str(self.build),
-                *self.generator,
-                f"-DCMAKE_BUILD_TYPE={configuration}",
-            ]
-            custom_prefix = self.fixture / "explicit install with spaces"
-            if explicit_prefix:
-                configure.append(f"-DCMAKE_INSTALL_PREFIX={custom_prefix}")
-            self.run_cmake(*configure)
-            self.run_cmake("--build", str(self.build), "--config", configuration)
+            custom_prefix = self.configure_and_build(
+                configuration, explicit_prefix=explicit_prefix
+            )
+            self.check_compile_definitions(configuration)
 
             target_dir = Path(
                 (self.build / f"runner-dir-{configuration}.txt")
@@ -238,6 +327,26 @@ set(PLUGIN_BUNDLED_LIBRARIES
 
     def test_explicit_prefix_release(self) -> None:
         self.check_install("Release", explicit_prefix=True)
+
+    def check_compatibility_branch(
+        self, *, msvc: bool, include_inapp_plugin: bool = True
+    ) -> None:
+        with tempfile.TemporaryDirectory(prefix="xflclash-mutex-compile-") as tmp:
+            self.fixture = Path(tmp)
+            self.create_fixture(msvc=msvc, include_inapp_plugin=include_inapp_plugin)
+            self.configure_and_build("Release")
+            self.check_compile_definitions(
+                "Release", include_inapp_plugin=include_inapp_plugin
+            )
+
+    def test_msvc_mutex_definition_is_private(self) -> None:
+        self.check_compatibility_branch(msvc=True)
+
+    def test_non_msvc_does_not_define_mutex_compatibility(self) -> None:
+        self.check_compatibility_branch(msvc=False)
+
+    def test_missing_inapp_plugin_is_supported(self) -> None:
+        self.check_compatibility_branch(msvc=True, include_inapp_plugin=False)
 
 
 if __name__ == "__main__":

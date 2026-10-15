@@ -124,7 +124,7 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Check Windows loader install paths
+      - name: Check Windows WebView build rules
         if: matrix.platform == 'windows'
         run: python tool/test/windows_loader_install_test.py
 

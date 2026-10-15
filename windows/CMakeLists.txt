@@ -57,6 +57,14 @@ add_subdirectory("runner")
 # them to the application.
 include(flutter/generated_plugins.cmake)
 
+# Xboard tutorials lock std::mutex in the embedded WebView texture bridge.
+# Restore MSVC's older mutex initialization for machines with older VC runtimes.
+# Apply consistently to this plugin's sources without exporting it to consumers.
+if(MSVC AND TARGET flutter_inappwebview_windows_plugin)
+  target_compile_definitions(flutter_inappwebview_windows_plugin PRIVATE
+    _DISABLE_CONSTEXPR_MUTEX_CONSTRUCTOR)
+endif()
+
 # === Installation ===
 # Support files are copied into place next to the executable, so that it can
 # run in place. This is done instead of making a separate bundle (as on Linux)
