@@ -7,6 +7,7 @@
 /// 分组（对齐原型 settings()）：
 ///   设置：语言 / 主题 / 备份与恢复 / 访问控制(仅 Android) / 基础配置 / 高级配置 / 应用设置
 ///   数据与诊断：请求 / 连接 / 资源（复用 FlClash 工具页 RequestsView/ConnectionsView/ResourcesView）
+///   隐私：崩溃信息上报（设备级持久化选择，移动与桌面共用）
 ///   其他：免责声明 / 关于
 library;
 
@@ -17,6 +18,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:fl_clash/xboard/widgets/xb_components.dart';
 import 'package:fl_clash/xboard/widgets/xb_ui_kit.dart' show XbBrandScaffold;
 
+import '../../../providers/sentry_reporting_preference_provider.dart';
 import '../../../services/sentry_bootstrap.dart';
 import '../../adapters/xb_native_page_adapter.dart';
 import '../../widgets/xb_content_header.dart';
@@ -52,10 +54,7 @@ class XbSettingsPage extends ConsumerWidget {
       );
     }
     // 设置页经 Navigator push（挂根 Navigator），XbBrandScaffold 自套品牌主题避免逃逸。
-    return XbBrandScaffold(
-      title: '设置',
-      body: _buildBody(context, ref),
-    );
+    return XbBrandScaffold(title: '设置', body: _buildBody(context, ref));
   }
 
   Widget _buildBody(BuildContext context, WidgetRef ref) {
@@ -156,6 +155,8 @@ class XbSettingsPage extends ConsumerWidget {
                 ),
               ],
             ),
+            const XbGroupLabel('隐私'),
+            XbListCard(rows: [_buildCrashReportingRow(context, ref, large)]),
             // ── 其他组（用户 2026-06-29：全平台隐藏；置 _kShowOtherGroup=true 恢复）──
             if (_kShowOtherGroup) ...[
               const XbGroupLabel('其他'),
@@ -186,14 +187,15 @@ class XbSettingsPage extends ConsumerWidget {
                     label: '触发测试异常',
                     subtitle: SentryBootstrap.isEnabled
                         ? '抛出未捕获异常，验证 Sentry 上报（DSN 已启用）'
-                        : '⚠ Sentry 未启用（DSN 空，本次不会上报）',
+                        : 'Sentry 上报已关闭，本次不会上报',
                     large: large,
                     showChevron: false,
                     onTap: () {
                       // 抛未捕获异常：经 FlutterError.onError → rechain → Sentry，
                       // 验证完整崩溃上报链路（含 attach 后的重链补回）。
                       throw StateError(
-                          'Sentry verify: 测试异常 @ ${DateTime.now().toIso8601String()}');
+                        'Sentry verify: 测试异常 @ ${DateTime.now().toIso8601String()}',
+                      );
                     },
                   ),
                 ],
@@ -203,5 +205,97 @@ class XbSettingsPage extends ConsumerWidget {
         ),
       ),
     );
+  }
+
+  Widget _buildCrashReportingRow(
+    BuildContext context,
+    WidgetRef ref,
+    bool large,
+  ) {
+    final preference = ref.watch(sentryReportingPreferenceProvider);
+    final setting = preference.asData?.value;
+    final enabled = setting?.configured == true && setting!.enabled;
+    final canChange =
+        setting?.configured == true &&
+        !setting!.isSaving &&
+        !setting.restartRequired;
+    final String subtitle;
+    if (preference.hasError) {
+      subtitle = '读取设置失败，点击重试';
+    } else if (setting == null) {
+      subtitle = '正在读取设置…';
+    } else if (!setting.configured) {
+      subtitle = '当前版本未配置崩溃信息上报';
+    } else if (setting.restartRequired) {
+      subtitle = '偏好已保存，重启应用后生效；请完全退出后重新打开应用';
+    } else if (setting.runtimeFailed) {
+      subtitle = '偏好已保存，当前状态同步失败；点击重试或重启应用';
+    } else if (setting.isSaving) {
+      subtitle = '正在保存设置…';
+    } else {
+      subtitle = '发送脱敏后的错误与设备信息，帮助排查故障；选择将在重启后保留';
+    }
+    return XbListRow(
+      icon: Icons.privacy_tip_outlined,
+      label: '崩溃信息上报',
+      subtitle: subtitle,
+      large: large,
+      showChevron: false,
+      trailing: Switch(
+        key: const ValueKey('sentry-reporting-switch'),
+        value: enabled,
+        onChanged: canChange
+            ? (value) => _changeCrashReporting(context, ref, value)
+            : null,
+      ),
+      onTap: preference.hasError
+          ? () => _retryCrashReporting(context, ref)
+          : canChange
+          ? () => _changeCrashReporting(
+              context,
+              ref,
+              setting.runtimeFailed ? setting.enabled : !enabled,
+            )
+          : null,
+    );
+  }
+
+  Future<void> _changeCrashReporting(
+    BuildContext context,
+    WidgetRef ref,
+    bool enabled, {
+    bool force = false,
+  }) async {
+    final result = await ref
+        .read(sentryReportingPreferenceProvider.notifier)
+        .setEnabled(enabled, force: force);
+    if (!context.mounted) return;
+    final message = switch (result) {
+      SentryReportingChangeResult.success =>
+        enabled ? '已开启崩溃信息上报' : '已关闭崩溃信息上报',
+      SentryReportingChangeResult.persistenceFailed => '设置保存失败，请重试',
+      SentryReportingChangeResult.runtimeFailed => '偏好已保存，当前状态同步失败，请重试或重启应用',
+      SentryReportingChangeResult.restartRequired => '偏好已保存，重启应用后生效',
+      SentryReportingChangeResult.busy ||
+      SentryReportingChangeResult.unavailable => null,
+    };
+    if (message != null) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(message)));
+    }
+  }
+
+  Future<void> _retryCrashReporting(BuildContext context, WidgetRef ref) async {
+    ref.invalidate(sentryReportingPreferenceProvider);
+    try {
+      final setting = await ref.read(sentryReportingPreferenceProvider.future);
+      if (!context.mounted || !setting.configured) return;
+      // Startup skips Sentry when the saved preference cannot be read. Retrying
+      // must apply it even when the newly read saved choice is already `true`.
+      await _changeCrashReporting(context, ref, setting.enabled, force: true);
+    } catch (_) {
+      // The visible read-error state remains retryable without a raw error toast.
+    }
   }
 }

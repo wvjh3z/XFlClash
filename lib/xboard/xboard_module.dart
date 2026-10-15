@@ -27,6 +27,7 @@ import 'config/xboard_config.dart';
 import 'l10n/content_language.dart';
 import 'models/bootstrap_payload.dart';
 import 'providers/auth_state_provider.dart';
+import 'providers/sentry_reporting_preference_provider.dart';
 import 'providers/xboard_providers.dart';
 import 'sdk/secure_storage_token_storage.dart';
 import 'services/bootstrap_decryptor.dart';
@@ -294,9 +295,21 @@ class XboardModule {
     SentryBootstrap.tagFlavor(activeConfig.flavorId);
     SentryBootstrap.tagBootstrap(stage: 'sync_start');
 
-    // step 2：SentryBootstrap.installEarly —— 真实 Sentry.init（dsn 非空时，基础 init 不接管）
-    //   + 链式 wrap FlutterError/PlatformDispatcher.onError（DD-14）+ 灌入已累积 tag。
-    //   dsn 空（未配置 / dev）→ 全 no-op。独立 try/catch：失败绝不阻塞后续 SDK initialize。
+    // Read the device's saved reporting choice before any Sentry/native init.
+    // If persistence is unavailable, keep reporting disabled for this startup.
+    var reportingEnabled = false;
+    try {
+      reportingEnabled = (await container.read(
+        sentryReportingPreferenceProvider.future,
+      )).enabled;
+    } catch (_) {
+      debugPrint(
+        '[XboardModule] reporting preference unavailable; reporting disabled',
+      );
+    }
+
+    // step 2: native + Dart capture, respecting the saved device preference.
+    // A reporting failure must not prevent SDK/client startup.
     try {
       const productVersion = String.fromEnvironment(
         'XB_PRODUCT_VERSION',
@@ -310,8 +323,12 @@ class XboardModule {
         dsn: activeConfig.sentryDsn.isEmpty ? null : activeConfig.sentryDsn,
         release: '${activeConfig.flavorId}@$productVersion+$buildNumber',
         environment: activeConfig.flavorId,
+        userOptedOut: !reportingEnabled,
       );
     } catch (e, s) {
+      if (SentryBootstrap.restartRequired) {
+        container.invalidate(sentryReportingPreferenceProvider);
+      }
       _reportSwallowed('Sentry installEarly failed', e, s);
     }
 
@@ -360,7 +377,12 @@ class XboardModule {
     //   永不抛：钩子内异常 SDK 侧已兜底（SdkLogger._emit try/catch）。
     try {
       SdkLogger.onLog = (level, message, [error, stackTrace]) {
-        SentryBootstrap.captureFromSdk(level.name, message);
+        SentryBootstrap.captureFromSdk(
+          level.name,
+          message,
+          error: error,
+          stackTrace: stackTrace,
+        );
       };
     } catch (e, s) {
       _reportSwallowed('SdkLogger.onLog wire failed', e, s);

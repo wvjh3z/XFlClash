@@ -114,23 +114,18 @@ echo "  apk      : $OUT"
 ls -la "$OUT" 2>/dev/null || echo "  (产物未找到，检查上面构建日志)"
 
 # === Sentry 符号上传（仅 release；NFR-7）===
-# token 取 flavors/sentry-cli.token（gitignored 机密包，org 级 a/b 共用）。缺 token 或本机
-# 未装 sentry-cli → 跳过（非阻断；崩溃栈在后台不可读，但构建/部署不受影响）。
-# project 按 flavor 选（brand_a→omofly / brand_b→daishu），org=ka-chiu-lee。
-# debug-files 按二进制 debug-id 匹配，无需绑定 release。Dart 符号来自 --split-debug-info。
+# token 取环境变量或 flavors/sentry-cli.token（Git忽略）。无token明确跳过；
+# 有token时使用统一审计上传入口，缺CLI/上传失败均阻断，不上传源码或程序二进制。
 if [ "$MODE" = "release" ]; then
   TOKEN_FILE="flavors/sentry-cli.token"
-  if [ -f "$TOKEN_FILE" ] && command -v sentry-cli >/dev/null 2>&1; then
-    case "$FLAVOR" in brand_b) SENTRY_PROJECT=daishu ;; *) SENTRY_PROJECT=omofly ;; esac
+  if [ -f "$TOKEN_FILE" ] && [ -z "${SENTRY_AUTH_TOKEN:-}" ]; then
     export SENTRY_AUTH_TOKEN="$(tr -d '[:space:]' < "$TOKEN_FILE")"
-    export SENTRY_ORG=ka-chiu-lee
-    echo "=== Sentry 符号上传（project=$SENTRY_PROJECT）==="
-    sentry-cli debug-files upload --include-sources --project "$SENTRY_PROJECT" build/debug-info \
-      || echo "⚠ Dart 符号上传失败（非阻断）"
-    # 原生 NDK .so（best-effort；release 多为 stripped，sentry-cli 自动跳过不可识别项）。
-    sentry-cli debug-files upload --project "$SENTRY_PROJECT" build/app/intermediates/merged_native_libs 2>/dev/null || true
+  fi
+  if [ -n "${SENTRY_AUTH_TOKEN:-}" ]; then
+    python3 tool/upload_sentry_symbols.py --platform android --flavor "$FLAVOR" \
+      --product-version "$VERSION_NAME" --build-number "$BUILD_NUMBER" --source-revision "$(git rev-parse HEAD)"
   else
-    echo "ℹ 跳过 Sentry 符号上传（无 $TOKEN_FILE 或本机未装 sentry-cli）"
+    echo "ℹ Sentry 符号上传明确跳过：未配置 SENTRY_AUTH_TOKEN"
   fi
 fi
 

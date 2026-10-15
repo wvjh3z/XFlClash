@@ -20,7 +20,7 @@
 #   BRAND_A_FLAVOR_YAML_B64 / BRAND_B_FLAVOR_YAML_B64    flavors/<brand>/flavor.yaml（base64；含内嵌 aesKey+签名）
 #   BRAND_A_FALLBACK_BIN_B64 / BRAND_B_FALLBACK_BIN_B64  flavors/<brand>/assets/fallback.bin（base64）
 #   SIBLING_SDK_TOKEN   只读 private wvjh3z/Xboard_sdk 的 fine-grained PAT
-#   SENTRY_AUTH_TOKEN   Sentry org auth token（sntrys_…，org=ka-chiu-lee；上传崩溃符号，缺失则跳过不阻断）
+#   SENTRY_AUTH_TOKEN   Sentry org auth token（org=ka-chiu-lee；Windows 发布必需，其他平台缺失明确跳过）
 #
 # ✅ Linux crashpad 可执行位：已由 linux/CMakeLists.txt 末尾 install(CODE chmod +x) 在
 #   flutter build 时补回（PATCHES.md RT-CrashpadExec）。bundle/deb/AppImage 三格式本地实测
@@ -128,6 +128,22 @@ jobs:
         if: matrix.platform == 'windows'
         run: python tool/test/windows_loader_install_test.py
 
+      - name: Setup Sentry CLI and verify symbol tooling
+        run: |
+          set -euo pipefail
+          npm install -g @sentry/cli@2.58.4
+          python tool/test/sentry_symbols_test.py
+
+      - name: Check required Windows symbol credentials
+        if: matrix.platform == 'windows'
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+        run: |
+          if [ -z "${SENTRY_AUTH_TOKEN:-}" ]; then
+            echo "::error::Windows release requires SENTRY_AUTH_TOKEN for matching native symbols"
+            exit 1
+          fi
+
       - name: Checkout Xboard_sdk (sibling, private)
         env:
           SDK_REF: ${{ inputs.sdk_ref }}
@@ -155,7 +171,7 @@ jobs:
           printf '%s' "$YAML" | tr -d '[:space:]' | base64 -d > "flavors/${FLAVOR}/flavor.yaml" || { echo "✗ flavor.yaml base64 解码失败"; exit 1; }
           printf '%s' "$BIN"  | tr -d '[:space:]' | base64 -d > "flavors/${FLAVOR}/assets/fallback.bin" || { echo "✗ fallback.bin base64 解码失败"; exit 1; }
           echo "解码后大小: flavor.yaml=$(wc -c < "flavors/${FLAVOR}/flavor.yaml") fallback.bin=$(wc -c < "flavors/${FLAVOR}/assets/fallback.bin")"
-          grep -q 'appName' "flavors/${FLAVOR}/flavor.yaml" || { echo "✗ flavor.yaml 还原失败（缺 appName；BRAND_*_FLAVOR_YAML_B64 可能被截断，需重新完整粘贴）"; head -c 200 "flavors/${FLAVOR}/flavor.yaml"; exit 1; }
+          grep -q 'appName' "flavors/${FLAVOR}/flavor.yaml" || { echo "✗ flavor.yaml 还原失败（缺 appName；请核对BRAND_*_FLAVOR_YAML_B64）"; exit 1; }
           echo "✓ flavor.yaml / fallback.bin 已还原（flavor=${FLAVOR}）"
 
       - name: Setup Go
@@ -283,7 +299,8 @@ jobs:
             --arg env "$APP_ENV" --arg sha "$SHA" --arg tag "$TAG" --arg pv "$PV" --arg bn "$BN" \
             '$flavor + {APP_ENV:$env, CORE_SHA256:$sha, XB_FORM_A:"true", XB_BUILD_TAG:$tag, XB_PRODUCT_VERSION:$pv, XB_BUILD_NUMBER:$bn}' \
             > env.json
-          echo "=== env.json (脱敏 XB_AES_KEY_B64) ==="; jq 'del(.XB_AES_KEY_B64)' env.json
+          echo "=== env.json 已准备（仅列字段名，不输出品牌配置值）==="
+          jq -r 'keys | join(", ")' env.json
           echo "PRODUCT_VERSION=$PV" >> "$GITHUB_ENV"
           echo "BUILD_NUMBER=$BN" >> "$GITHUB_ENV"
           echo "BASE_VERSION=$(grep -m1 -E '^version:' pubspec.yaml | sed -E 's/^version:[[:space:]]*([0-9.]+).*/\1/' | xargs)" >> "$GITHUB_ENV"
@@ -382,23 +399,23 @@ jobs:
           esac
           echo "=== dist 重命名后（AppVersion 约定）==="; ls -la
 
-      # Sentry 符号上传（缺 SENTRY_AUTH_TOKEN → 跳过不阻断）。
+      # 显式核对同次构建的PDB/debug ID，只上传调试伴随文件，不上传源码/发布二进制。
       - name: Upload debug symbols to Sentry
         env:
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
         run: |
-          set -uo pipefail
-          if [ -z "${SENTRY_AUTH_TOKEN:-}" ]; then echo "⚠ 无 SENTRY_AUTH_TOKEN → 跳过符号上传"; exit 0; fi
-          if [ "$FLAVOR" = "brand_b" ]; then PROJECT=daishu; else PROJECT=omofly; fi
-          npm install -g @sentry/cli >/dev/null 2>&1 || npm install -g @sentry/cli
-          sentry-cli debug-files upload --include-sources --project "$PROJECT" build/debug-info || echo "⚠ Dart 符号上传失败（非阻断）"
-          case "${{ matrix.platform }}" in
-            android) sentry-cli debug-files upload --project "$PROJECT" build/app/intermediates/merged_native_libs 2>/dev/null || true ;;
-            linux)   sentry-cli debug-files upload --project "$PROJECT" build/linux 2>/dev/null || true ;;
-            windows) sentry-cli debug-files upload --project "$PROJECT" build/windows 2>/dev/null || true ;;
-            macos)   sentry-cli debug-files upload --project "$PROJECT" build/macos/Build/Products/Release 2>/dev/null || true ;;
-          esac
-          echo "✓ 符号上传步骤完成"
+          set -euo pipefail
+          python tool/upload_sentry_symbols.py --platform "${{ matrix.platform }}" --flavor "$FLAVOR" \
+            --product-version "$PRODUCT_VERSION" --build-number "$BUILD_NUMBER" --source-revision "$GITHUB_SHA"
+
+      - name: Preserve safe Sentry symbol evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sentry-symbol-evidence-${{ env.FLAVOR }}-${{ matrix.platform }}-${{ matrix.arch || 'default' }}
+          path: build/sentry-symbols-evidence.json
+          if-no-files-found: ignore
+          retention-days: 30
 
       # 列出产物清单（始终执行，便于核对构建/打包/命名是否正常，但不上传）。
       - name: List built artifacts (no upload)

@@ -16,7 +16,7 @@
 #               | windows-amd64 | macos-amd64 | macos-arm64
 #   选项:
 #     --install-deps : 先装本平台打包依赖（Linux apt / macOS brew+npm；需要 sudo/brew）
-#     --no-sentry    : 跳过 Sentry 符号上传（默认：有 flavors/sentry-cli.token + sentry-cli 才传）
+#     --no-sentry    : 显式跳过 Sentry；默认核对并上传符号，Windows 缺 token 失败
 #   例：
 #     bash scripts/package_desktop_local.sh brand_a auto
 #     bash scripts/package_desktop_local.sh brand_b linux-amd64 --install-deps
@@ -101,6 +101,14 @@ need flutter "安装 Flutter SDK"
 need dart    "随 Flutter 附带"
 need git     "版本控制"
 need jq      "合成 env.json（Linux: apt install jq / macOS: brew install jq / Win: choco install jq）"
+if [ "${NO_SENTRY}" = "0" ]; then
+  need python3 "Sentry 符号审计（Python 3.9+）"
+  need sentry-cli "npm install -g @sentry/cli@2.58.4"
+  if [ "${PLATFORM}" = "windows" ] && [ ! -s flavors/sentry-cli.token ] && [ -z "${SENTRY_AUTH_TOKEN:-}" ]; then
+    echo "✗ Windows 正式包必须配置 Sentry token；仅本地诊断可显式 --no-sentry"
+    MISSING=1
+  fi
+fi
 [ "${MISSING}" = "1" ] && { echo "→ 补齐上述工具后重试"; exit 1; }
 
 # ───────── 打包依赖（可选 --install-deps；否则仅检查 + 提示）─────────
@@ -216,7 +224,8 @@ jq -n \
   --arg env "stable" --arg sha "${SHA}" --arg tag "${TAG}" --arg pv "${VERSION_NAME}" --arg bn "${BUILD_NUMBER}" \
   '$flavor + {APP_ENV:$env, CORE_SHA256:$sha, XB_FORM_A:"true", XB_BUILD_TAG:$tag, XB_PRODUCT_VERSION:$pv, XB_BUILD_NUMBER:$bn}' \
   > env.json
-echo "  env.json（脱敏 XB_AES_KEY_B64）："; jq 'del(.XB_AES_KEY_B64)' env.json
+echo "  env.json 已准备（仅列字段名，不输出品牌配置值）："
+jq -r 'keys | join(", ")' env.json
 
 # ───────── 激活 vendored flutter_distributor（经验 #4：不靠 PATH）─────────
 echo "=== activate flutter_distributor ==="
@@ -258,26 +267,16 @@ echo "=== normalize dist 命名 → ${PKG}-${VERSION_NAME}-${PLATFORM}-${ARCH}* 
       for f in *.rpm;      do mv -f "${f}" "${PKG}-${VERSION_NAME}-linux-${ARCH}.rpm"; done ;;
   esac )
 
-# ───────── Sentry 符号上传（与 build_local.sh 同源：flavors/sentry-cli.token；缺则跳过）─────────
+# ───────── Sentry：PDB/debug ID审计，安全伴随文件上传与明确失败 ─────────
 if [ "${NO_SENTRY}" = "0" ]; then
   TOKEN_FILE="flavors/sentry-cli.token"
-  if [ -f "${TOKEN_FILE}" ] && command -v sentry-cli >/dev/null 2>&1; then
-    case "${FLAVOR}" in brand_b) SENTRY_PROJECT="daishu" ;; *) SENTRY_PROJECT="omofly" ;; esac
+  if [ -f "${TOKEN_FILE}" ] && [ -z "${SENTRY_AUTH_TOKEN:-}" ]; then
     export SENTRY_AUTH_TOKEN="$(tr -d '[:space:]' < "${TOKEN_FILE}")"
-    export SENTRY_ORG="ka-chiu-lee"
-    echo "=== Sentry 符号上传（project=${SENTRY_PROJECT}）==="
-    if [ "${PLATFORM}" != "macos" ]; then
-      sentry-cli debug-files upload --include-sources --project "${SENTRY_PROJECT}" build/debug-info \
-        || echo "⚠ Dart 符号上传失败（非阻断）"
-    fi
-    case "${PLATFORM}" in
-      linux)   sentry-cli debug-files upload --project "${SENTRY_PROJECT}" build/linux 2>/dev/null || true ;;
-      windows) sentry-cli debug-files upload --project "${SENTRY_PROJECT}" build/windows 2>/dev/null || true ;;
-      macos)   sentry-cli debug-files upload --project "${SENTRY_PROJECT}" build/macos/Build/Products/Release 2>/dev/null || true ;;
-    esac
-  else
-    echo "ℹ 跳过 Sentry 符号上传（无 ${TOKEN_FILE} 或本机未装 sentry-cli）"
   fi
+  python3 tool/upload_sentry_symbols.py --platform "${PLATFORM}" --flavor "${FLAVOR}" \
+    --product-version "${VERSION_NAME}" --build-number "${BUILD_NUMBER}" --source-revision "$(git rev-parse HEAD)"
+else
+  echo "ℹ Sentry 符号审计/上传已由 --no-sentry 显式跳过"
 fi
 
 # ───────── 完成 ─────────

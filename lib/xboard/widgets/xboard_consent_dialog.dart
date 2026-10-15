@@ -6,7 +6,7 @@
 /// **三段文案**：
 ///   1. 数据收集范围：邮箱 / uuid / 订阅记录 / 订单记录 / 出口 IP（IpAuth 后端）
 ///   2. 跨境传输：服务器位置（flavor `dataResidency`）+ 数据控制方（`dataController`）
-///   3. 第三方 SDK：Sentry（crash 跟踪，可在设置中关闭）
+///   3. 第三方 SDK：Sentry（crash 跟踪，设置变更后须完全退出重开）
 ///
 /// **链接**：用户协议（flavor `termsUrl`）+ 隐私政策（`privacyUrl`），用 url_launcher 打开。
 ///
@@ -95,8 +95,8 @@ class _ConsentDialogBody extends StatelessWidget {
             const _Section(
               icon: Icons.bug_report_outlined,
               title: '第三方 SDK',
-              body: '我们使用 Sentry 收集崩溃信息以改进稳定性（默认不含个人身份信息），'
-                  '可在设置中关闭。',
+              body: '我们使用 Sentry 收集崩溃信息以改进稳定性，并过滤常见敏感字段。'
+                  '可在「设置 → 隐私 → 崩溃信息上报」关闭；修改后请完全退出并重新打开应用，使设置生效。',
             ),
             const SizedBox(height: 8),
             Wrap(

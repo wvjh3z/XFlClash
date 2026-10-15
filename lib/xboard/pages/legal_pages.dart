@@ -282,8 +282,8 @@ class PrivacyPage extends StatelessWidget {
         _p(context, '4. 设备与崩溃信息', bold: true),
         _bullets(context, const [
           '设备型号、操作系统版本（兼容性排查）',
-          '应用崩溃堆栈（已脱敏，不含 token / 密码 / 邮箱等）',
-          '可在「设置 → 关闭崩溃分析」关闭此项收集',
+          '应用崩溃堆栈（上报时过滤 token、密码、邮箱等常见敏感字段）',
+          '可在「设置 → 隐私 → 崩溃信息上报」关闭；修改后请完全退出并重新打开应用，使设置生效',
         ]),
         _h(context, '二、我们如何使用信息'),
         _bullets(context, const [
@@ -300,7 +300,7 @@ class PrivacyPage extends StatelessWidget {
         _h(context, '四、第三方服务'),
         _p(context, '我们使用以下第三方服务，仅传递必要信息：'),
         _bullets(context, const [
-          'Sentry：崩溃信息上报，默认开启 PII 脱敏；可在设置中关闭',
+          'Sentry：崩溃信息上报，过滤常见敏感字段；可在设置中关闭，修改后需完全退出并重新打开应用',
           '支付服务商（支付宝 / 微信等）：仅获取订单状态，不接触您的支付凭证',
         ]),
         _h(context, '五、数据保留'),

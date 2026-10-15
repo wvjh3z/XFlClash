@@ -65,6 +65,9 @@ if(MSVC AND TARGET flutter_inappwebview_windows_plugin)
     _DISABLE_CONSTEXPR_MUTEX_CONSTRUCTOR)
 endif()
 
+# Keep matching native symbols for Sentry outside the distributable bundle.
+include("xboard_sentry_symbols.cmake")
+
 # === Installation ===
 # Support files are copied into place next to the executable, so that it can
 # run in place. This is done instead of making a separate bundle (as on Linux)

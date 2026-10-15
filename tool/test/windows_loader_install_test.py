@@ -118,6 +118,10 @@ class WindowsLoaderInstallTest(unittest.TestCase):
         # This is the production file, including its default-prefix branch,
         # all regular install rules, the target guards, and final loader copy.
         shutil.copyfile(WINDOWS_CMAKE, source / "CMakeLists.txt")
+        shutil.copyfile(
+            WINDOWS_CMAKE.with_name("xboard_sentry_symbols.cmake"),
+            source / "xboard_sentry_symbols.cmake",
+        )
         write_file(
             source / "flutter" / "CMakeLists.txt",
             """set(FLUTTER_ICU_DATA_FILE "${CMAKE_CURRENT_LIST_DIR}/icudtl.dat" PARENT_SCOPE)

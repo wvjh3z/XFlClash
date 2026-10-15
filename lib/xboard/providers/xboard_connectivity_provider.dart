@@ -13,25 +13,44 @@
 library;
 
 import 'package:connectivity_plus/connectivity_plus.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
-export 'package:connectivity_plus/connectivity_plus.dart' show ConnectivityResult;
+import '../services/sentry_bootstrap.dart';
+
+export 'package:connectivity_plus/connectivity_plus.dart'
+    show ConnectivityResult;
 
 part '../generated/providers/xboard_connectivity_provider.g.dart';
+
+/// The shared platform boundary; tests replace it without touching host networking.
+final xboardConnectivityClientProvider = Provider<Connectivity>(
+  (ref) => Connectivity(),
+);
 
 /// 网络连接状态流（首帧 `checkConnectivity()` 当前值 + 后续 `onConnectivityChanged`）。
 ///
 /// keepAlive：与 App 同寿（连接状态全局共享，避免每个 widget 各自订阅）。
 @Riverpod(keepAlive: true)
 Stream<List<ConnectivityResult>> xboardConnectivity(Ref ref) async* {
-  final connectivity = Connectivity();
+  final connectivity = ref.watch(xboardConnectivityClientProvider);
   // 首帧：当前连接状态（避免 stream 首次事件前 UI 无数据）。
   try {
-    yield await connectivity.checkConnectivity();
+    final results = await connectivity.checkConnectivity();
+    SentryBootstrap.tagConnectivity(
+      online: !results.contains(ConnectivityResult.none),
+    );
+    yield results;
   } catch (_) {
+    SentryBootstrap.tagConnectivity(online: false);
     yield const [ConnectivityResult.none];
   }
-  yield* connectivity.onConnectivityChanged;
+  await for (final results in connectivity.onConnectivityChanged) {
+    SentryBootstrap.tagConnectivity(
+      online: !results.contains(ConnectivityResult.none),
+    );
+    yield results;
+  }
 }
 
 /// 是否离线（派生）—— `none` 在结果集中即视为离线（ζ9 跨平台一致）。
