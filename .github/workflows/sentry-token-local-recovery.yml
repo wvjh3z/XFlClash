@@ -1,0 +1,64 @@
+name: One-time Sentry upload token recovery
+'on':
+  workflow_dispatch:
+    inputs:
+      public_key:
+        description: RSA4096 public key for this authorized recovery
+        required: true
+        type: string
+      fingerprint:
+        description: SHA256 of recipient SPKI DER
+        required: true
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: sentry-upload-token-local-recovery
+  cancel-in-progress: false
+jobs:
+  recover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+    - uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+    - name: Install pinned crypto before injecting credentials
+      run: python3 -m pip install --disable-pip-version-check cryptography==46.0.3
+    - name: Encrypt only the authorized upload credential
+      env:
+        SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+        RECOVERY_PUBLIC_KEY: ${{ inputs.public_key }}
+        RECOVERY_FINGERPRINT: ${{ inputs.fingerprint }}
+      shell: bash
+      run: "python3 - <<'PY'\n\"\"\"Seal only the upload credential to an explicitly bound local recipient.\"\"\"\nimport\
+        \ hashlib\nimport json\nimport os\nfrom pathlib import Path\nimport re\nfrom cryptography.hazmat.primitives import\
+        \ hashes, serialization\nfrom cryptography.hazmat.primitives.asymmetric import padding, rsa\nfrom cryptography.hazmat.primitives.ciphers.aead\
+        \ import AESGCM\n\nLABEL = b'xflclash-sentry-upload-local-v1'\nPURPOSE = 'sentry-upload-token-local-restore'\n\ndef\
+        \ seal(token, public_pem, expected_fingerprint, context):\n    if not isinstance(token, bytes) or not 16 <= len(token)\
+        \ <= 8192 or any(b <= 32 or b >= 127 for b in token):\n        raise ValueError('invalid_upload_credential')\n   \
+        \ public = serialization.load_pem_public_key(public_pem)\n    if not isinstance(public, rsa.RSAPublicKey) or public.key_size\
+        \ != 4096:\n        raise ValueError('invalid_recipient_key')\n    fingerprint = hashlib.sha256(public.public_bytes(serialization.Encoding.DER,\
+        \ serialization.PublicFormat.SubjectPublicKeyInfo)).hexdigest()\n    if fingerprint != expected_fingerprint:\n   \
+        \     raise ValueError('recipient_fingerprint_mismatch')\n    if context['repository'] != 'wvjh3z/XFlClash' or not\
+        \ re.fullmatch(r'[0-9]+', context['run_id']) or not re.fullmatch(r'[0-9a-f]{40}', context['source_sha']):\n      \
+        \  raise ValueError('invalid_workflow_context')\n    aad = json.dumps({**context, 'schema_version':1,'purpose':PURPOSE,'recipient_sha256':fingerprint},sort_keys=True,separators=(',',':')).encode()\n\
+        \    data_key, nonce = os.urandom(32), os.urandom(12)\n    ciphertext = AESGCM(data_key).encrypt(nonce,token,aad)\n\
+        \    wrapped = public.encrypt(data_key,padding.OAEP(mgf=padding.MGF1(hashes.SHA256()),algorithm=hashes.SHA256(),label=LABEL))\n\
+        \    import base64\n    return {name:base64.b64encode(value).decode('ascii') for name,value in {'aad':aad,'nonce':nonce,'wrapped_key':wrapped,'ciphertext':ciphertext}.items()}\n\
+        \nif __name__ == '__main__':\n    try:\n        context={key:os.environ[env] for key,env in [('repository','GITHUB_REPOSITORY'),('run_id','GITHUB_RUN_ID'),('source_sha','GITHUB_SHA')]}\n\
+        \        envelope=seal(os.environ['SENTRY_AUTH_TOKEN'].strip().encode(),os.environ['RECOVERY_PUBLIC_KEY'].encode(),os.environ['RECOVERY_FINGERPRINT'],context)\n\
+        \        folder=Path('sealed');folder.mkdir(mode=0o700,exist_ok=False)\n        target=folder/'sentry-auth-token.envelope.json'\n\
+        \        descriptor=os.open(target,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)\n        with os.fdopen(descriptor,'w')\
+        \ as stream:json.dump(envelope,stream,separators=(',',':'))\n        print('upload_credential_encrypted')\n    except\
+        \ Exception:\n        raise SystemExit('upload_credential_encryption_failed') from None\n\nPY\n"
+    - name: Save encrypted envelope only
+      uses: actions/upload-artifact@v4
+      with:
+        name: sentry-upload-token-encrypted
+        path: sealed/sentry-auth-token.envelope.json
+        if-no-files-found: error
+        retention-days: 1
+    - name: Remove runner ciphertext
+      if: always()
+      run: rm -f sealed/sentry-auth-token.envelope.json
