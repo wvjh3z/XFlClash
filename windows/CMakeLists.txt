@@ -114,12 +114,14 @@ install(FILES "${AOT_LIBRARY}" DESTINATION "${INSTALL_BUNDLE_DATA_DIR}"
 # choose desktop_webview_window's newer loader after all normal install rules.
 # copy_if_different compares content, so a newer destination timestamp cannot
 # leave the older DLL in an incremental build or an installer package.
+# Expand the bundle prefix while generating the install code: Flutter's default
+# prefix contains $<TARGET_FILE_DIR:...>, which is not evaluated at install time.
 if(TARGET Webview2 AND TARGET flutter_inappwebview_windows_plugin)
   install(CODE "
     execute_process(
       COMMAND \"${CMAKE_COMMAND}\" -E copy_if_different
         \"$<TARGET_FILE:Webview2>\"
-        \"\${CMAKE_INSTALL_PREFIX}/WebView2Loader.dll\"
+        \"${INSTALL_BUNDLE_LIB_DIR}/WebView2Loader.dll\"
       RESULT_VARIABLE xb_webview_loader_copy_result
     )
     if(NOT xb_webview_loader_copy_result EQUAL 0)
