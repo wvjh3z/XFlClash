@@ -135,6 +135,7 @@ jobs:
           npm install -g @sentry/cli@2.58.4
           python tool/test/sentry_symbols_test.py
           python tool/test/sentry_native_generation_test.py
+          python tool/test/sentry_android_prefab_test.py
           python tool/test/sentry_macos_generation_test.py
           python tool/test/sentry_macos_symbols_test.py
           python tool/test/local_release_automation_test.py

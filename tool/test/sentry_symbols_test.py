@@ -587,6 +587,93 @@ class NativeElfSymbolsTest(unittest.TestCase):
         self.assertEqual(len(artifacts), 2)
         self.assertEqual({entry["target"] for entry in evidence}, {"libcore.so", "libclash.so"})
 
+    def android_sentry_inventory(self):
+        from prepare_sentry_native_symbols import Preparer
+        source = self.root / "unstripped.so"
+        shutil.copyfile(self.original, source)
+        abi = "arm64-v8a" if self.architecture == "arm64" else "x86_64"
+        prepare = Preparer(self.build, "android", "objcopy")
+        for target in ("libcore.so", "libclash.so", "libsentry.so", "libsentry-android.so"):
+            binary = prepare.output / "runtime/0" / abi / target
+            binary.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(self.binary, binary)
+            prepare.add(target, abi, binary, [source],
+                        "sentry_prefab" if target.startswith("libsentry") else "fixture", True)
+        shutil.copyfile(self.binary, binary.parent / "libflutter.so")
+        return prepare.finish(), binary.parent
+
+    def test_android_actual_sentry_prefab_companions_pass_debug_only_audit(self):
+        self.android_sentry_inventory()
+        with mock.patch.object(symbols, "run_cli", side_effect=self.cli):
+            artifacts, evidence, limitations = symbols.audit_elf_native("sentry-cli", self.build, "android")
+        self.assertEqual(len(artifacts), 4)
+        self.assertEqual({entry["target"] for entry in evidence},
+                         {"libcore.so", "libclash.so", "libsentry.so", "libsentry-android.so"})
+        self.assertTrue(all(path.suffix == ".debug" and not symbols.inspect_elf(path)["has_executable_text"]
+                            for path in artifacts))
+        self.assertFalse(limitations)
+
+    def test_android_upload_stages_sentry_prefab_debug_files_with_other_companions(self):
+        _, runtime = self.android_sentry_inventory()
+        shutil.copyfile(self.binary, runtime / "libapp.so")
+        dart = self.build / f"debug-info/app.android-{self.architecture}.symbols"
+        dart.parent.mkdir()
+        shutil.copyfile(self.debug, dart)
+        evidence_file = self.build / "android-evidence.json"
+
+        def cli(executable, arguments):
+            if arguments[:2] != ["debug-files", "upload"]:
+                return self.cli(executable, arguments)
+            staged = [path for path in Path(arguments[-1]).rglob("*") if path.is_file()]
+            self.assertEqual({path.name for path in staged},
+                             {"libcore.so.debug", "libclash.so.debug", "libsentry.so.debug",
+                              "libsentry-android.so.debug", dart.name})
+            self.assertTrue(all(not symbols.inspect_elf(path)["has_executable_text"] for path in staged))
+            self.assertIn("--no-sources", arguments)
+            self.assertIn("--no-zips", arguments)
+            self.assertIn("--wait-for", arguments)
+            return "> File processing complete:\n"
+
+        with mock.patch.object(symbols, "run_cli", side_effect=cli), \
+             mock.patch.object(symbols.shutil, "which", return_value="fake-cli"), \
+             mock.patch.dict(os.environ, {"SENTRY_AUTH_TOKEN": "fixture-secret"}):
+            result = symbols.main(["--platform", "android", "--flavor", "brand_a",
+                                   "--build-root", str(self.build), "--evidence", str(evidence_file)])
+        self.assertEqual(result, 0)
+        self.assertEqual(json.loads(evidence_file.read_text())["status"], "uploaded_and_processed")
+        self.assertNotIn("fixture-secret", evidence_file.read_text())
+
+    def test_android_sentry_cannot_disappear_from_both_manifest_lists(self):
+        path, _ = self.android_sentry_inventory()
+        original = json.loads(path.read_text())
+        for omitted in ({"libsentry.so"}, {"libsentry-android.so"}, {"libsentry.so", "libsentry-android.so"}):
+            manifest = json.loads(json.dumps(original))
+            for key in ("artifacts", "required"):
+                manifest[key] = [entry for entry in manifest[key] if entry["target"] not in omitted]
+            path.write_text(json.dumps(manifest))
+            with self.subTest(omitted=omitted), mock.patch.object(symbols, "run_cli", side_effect=self.cli), \
+                 self.assertRaisesRegex(symbols.SymbolError, "mandatory owned module"):
+                symbols.audit_elf_native("sentry-cli", self.build, "android")
+
+    def test_android_required_sentry_cannot_also_be_reported_as_missing(self):
+        path, runtime = self.android_sentry_inventory()
+        manifest = json.loads(path.read_text())
+        manifest["limitations"].append({"target": "libsentry.so", "architecture": runtime.name,
+                                       "source": "gradle", "reason": "prebuilt_debug_companion_unavailable"})
+        path.write_text(json.dumps(manifest))
+        with mock.patch.object(symbols, "run_cli", side_effect=self.cli), \
+             self.assertRaisesRegex(symbols.SymbolError, "cannot also be a limitation"):
+            symbols.audit_elf_native("sentry-cli", self.build, "android")
+
+    def test_android_sentry_modules_must_agree_between_final_apks(self):
+        _, runtime = self.android_sentry_inventory()
+        other = runtime.parent.parent / "1" / runtime.name
+        shutil.copytree(runtime, other)
+        shutil.copyfile(self.original, other / "libsentry.so")
+        with mock.patch.object(symbols, "run_cli", side_effect=self.cli), \
+             self.assertRaisesRegex(symbols.SymbolError, "conflicting owned native modules"):
+            symbols.audit_elf_native("sentry-cli", self.build, "android")
+
     def test_android_actually_distributed_rust_cannot_be_omitted_from_manifest(self):
         from prepare_sentry_native_symbols import Preparer
         source = self.root / "unstripped.so"

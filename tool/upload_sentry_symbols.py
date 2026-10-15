@@ -21,6 +21,7 @@ import sys
 import tempfile
 
 from sentry_elf import ElfError, inspect_elf
+from sentry_android_prefab import SENTRY_ANDROID_TARGETS
 from sentry_macho import MachoError, inspect_macho, is_macho
 
 CLI_VERSION = "2.58.4"
@@ -184,8 +185,9 @@ def _audit_native_inventory(build_root: Path, platform: str, entries: list[dict]
                 expected.add((target, abi))
             # rust_api is not an Android Flutter plugin in this project. It is
             # mandatory only when a future/package-specific build ships it.
-            if (directory / "librust_api.so").is_file():
-                expected.add(("librust_api.so", abi))
+            for target in {"librust_api.so"} | SENTRY_ANDROID_TARGETS:
+                if (directory / target).is_file():
+                    expected.add((target, abi))
             for binary in directory.glob("*.so"):
                 checked = _native_path(build_root, binary.relative_to(build_root).as_posix())
                 modules.setdefault((binary.name, abi), []).append(checked)
@@ -342,6 +344,9 @@ def audit_elf_native(cli: str, build_root: Path, platform: str) -> tuple[list[Pa
             raise SymbolError("Invalid native coverage limitation")
         safe_limitations.append({key: _safe_label(entry.get(key), key)
                                  for key in ("target", "architecture", "source", "reason")})
+        if (platform == "android" and entry["target"] in SENTRY_ANDROID_TARGETS
+                and (entry["target"], entry["architecture"]) in required):
+            raise SymbolError("Required Sentry prefab coverage cannot also be a limitation")
     return artifacts, evidence, safe_limitations
 
 

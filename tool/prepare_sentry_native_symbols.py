@@ -16,6 +16,7 @@ import tempfile
 import zipfile
 
 from sentry_elf import ElfError, inspect_elf
+from sentry_android_prefab import PrefabError, SENTRY_ANDROID_TARGETS, prefab_candidates
 
 ANDROID_ARCH = {"armeabi-v7a": "arm", "arm64-v8a": "aarch64", "x86_64": "x86_64"}
 LINUX_ARCH = {"x64": "x86_64", "arm64": "aarch64"}
@@ -192,6 +193,18 @@ class Preparer:
                     for name, binary in sorted(modules.items()):
                         if name == "libapp.so":
                             self.limitation(name, abi, "dart", "split_debug_info_managed_separately")
+                            continue
+                        if name in SENTRY_ANDROID_TARGETS:
+                            # Maven prefab libraries retain the upstream DWARF
+                            # stripped from their packaged JNI counterparts.
+                            # Keep full prefab ELFs local and short-lived; only
+                            # the existing debug-only path may enter the manifest.
+                            with tempfile.TemporaryDirectory(prefix="sentry-prefab-", dir=self.output) as temporary:
+                                try:
+                                    sources = prefab_candidates(binary, abi, name, Path(temporary))
+                                except PrefabError as error:
+                                    raise PreparationError(str(error)) from error
+                                self.add(name, abi, binary, sources, "sentry_prefab", True)
                             continue
                         if name not in candidates:
                             roots = [self.root / "core", self.root / "rust_api",

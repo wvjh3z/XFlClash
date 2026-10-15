@@ -1,11 +1,12 @@
 """Read the ELF facts needed for companion matching without executing binaries.
 
-This parser deliberately exposes only identifiers, architecture and section
-presence. It never emits source paths, symbols, process environment or data.
+This parser exposes identifiers, architecture, section presence and code hashes.
+It never emits source paths, symbols, process environment or section contents.
 """
 
 from __future__ import annotations
 
+import hashlib
 import mmap
 from pathlib import Path
 import struct
@@ -48,8 +49,9 @@ def inspect_elf(path: Path) -> dict:
                 raise ElfError("Invalid ELF section name table")
             names = data[strings[4]:strings[4] + strings[5]]
             present, build_ids, executable_text = set(), set(), False
+            code_sections, code_names = {}, set()
             for entry in sections:
-                name_offset, kind, flags, _, start, size = entry[:6]
+                name_offset, kind, flags, address, start, size = entry[:6]
                 if name_offset >= len(names):
                     raise ElfError("Invalid ELF section name")
                 end = names.find(b"\0", name_offset)
@@ -58,6 +60,16 @@ def inspect_elf(path: Path) -> dict:
                 name = names[name_offset:end]
                 if kind != 8 and start + size > len(data):  # SHT_NOBITS has no file content.
                     raise ElfError("Truncated ELF section")
+                if name in {b".text", b".rodata"}:
+                    if name in code_names:
+                        raise ElfError("Duplicate ELF code section")
+                    code_names.add(name)
+                    if kind == 1:  # Only SHT_PROGBITS carries comparable bytes.
+                        code_sections[name.decode("ascii")] = {
+                            "sha256": hashlib.sha256(data[start:start + size]).hexdigest(),
+                            "size": size,
+                            "address": address,
+                        }
                 if kind != 8 and size:
                     present.add(name)
                 if kind == 1 and flags & 4 and size:  # executable SHT_PROGBITS
@@ -83,6 +95,7 @@ def inspect_elf(path: Path) -> dict:
             return {
                 "build_id": next(iter(build_ids), ""),
                 "architecture": architecture,
+                "code_sections": code_sections,
                 "has_debug_info": bool({b".debug_info", b".zdebug_info"} & present),
                 "has_debug_line": bool({b".debug_line", b".zdebug_line"} & present),
                 "has_executable_text": executable_text,

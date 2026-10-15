@@ -9,6 +9,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 import zipfile
 
 TOOL = Path(__file__).resolve().parents[1]
@@ -27,7 +28,8 @@ class GenerationTests(unittest.TestCase):
         self.build = self.repo / "build"
         self.build.mkdir()
         code = self.repo / "fixture.c"
-        code.write_text("int fixture(int x) { return x + 42; }\nint main(void) { return fixture(1); }\n")
+        code.write_text('const char* fixture_name(void) { return "sentry-prefab"; }\n'
+                        'int fixture(int x) { return x + 42; }\nint main(void) { return fixture(1); }\n')
         self.elf = self.repo / "fixture.so"
         subprocess.run(["cc", "-g", "-shared", "-Wl,--build-id=sha1", str(code), "-o", str(self.elf)], check=True)
         arch = inspect_elf(self.elf)["architecture"]
@@ -39,20 +41,68 @@ class GenerationTests(unittest.TestCase):
         shutil.copyfile(self.elf, self.stripped)
         subprocess.run(["objcopy", "--strip-debug", str(self.stripped)], check=True)
 
-    def android_fixture(self, omit=None, include_rust=False):
+    def android_fixture(self, omit=None, include_rust=False, include_sentry=False):
         package = self.repo / "fixture.apk"
         names = {"libcore.so", "libclash.so", "libflutter.so"}
         if include_rust:
             names.add("librust_api.so")
+        if include_sentry:
+            names.update({"libsentry.so", "libsentry-android.so"})
         names -= {omit}
         with zipfile.ZipFile(package, "w") as archive:
             for name in names:
                 archive.writestr(f"lib/{self.android_abi}/" + name, self.stripped.read_bytes())
-                if name != "libflutter.so":
+                if name not in {"libflutter.so", "libsentry.so", "libsentry-android.so"}:
                     source = self.build / "core" / "intermediates" / name
                     source.parent.mkdir(parents=True, exist_ok=True)
                     shutil.copyfile(self.elf, source)
         return package
+
+    def sentry_cache(self, omit=None):
+        home = self.repo / "gradle-home"
+        aar = home / "caches/modules-2/files-2.1/io.sentry/sentry-native-ndk/0.16.6/hash/sentry-native-ndk-0.16.6.aar"
+        aar.parent.mkdir(parents=True)
+        with zipfile.ZipFile(aar, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+            for module, name in [("sentry", "libsentry.so"), ("sentry-android", "libsentry-android.so")]:
+                if name != omit:
+                    archive.writestr(f"prefab/modules/{module}/libs/android.{self.android_abi}/{name}",
+                                     self.elf.read_bytes())
+        return home
+
+    def test_android_sentry_prefab_is_required_and_only_debug_companions_survive(self):
+        package = self.android_fixture(include_sentry=True)
+        with mock.patch.dict(os.environ, {"GRADLE_USER_HOME": str(self.sentry_cache())}):
+            prepare = Preparer(self.build, "android", "objcopy")
+            prepare.android([package])
+            manifest = json.loads(prepare.finish().read_text())
+        self.assertEqual({entry["target"] for entry in manifest["required"]},
+                         {"libcore.so", "libclash.so", "libsentry.so", "libsentry-android.so"})
+        sentry = [entry for entry in manifest["artifacts"] if entry["source"] == "sentry_prefab"]
+        self.assertEqual({entry["target"] for entry in sentry}, {"libsentry.so", "libsentry-android.so"})
+        for entry in sentry:
+            debug = inspect_elf(self.build / entry["debug_file"])
+            self.assertTrue(debug["has_debug_info"] and debug["has_debug_line"])
+            self.assertFalse(debug["has_executable_text"])
+        self.assertFalse(list(prepare.output.glob("sentry-prefab-*")))
+        self.assertFalse(any(entry["target"].startswith("libsentry") for entry in manifest["limitations"]))
+
+    def test_android_sentry_with_missing_prefab_cannot_be_downgraded_to_a_limitation(self):
+        package = self.android_fixture(include_sentry=True)
+        with mock.patch.dict(os.environ, {"GRADLE_USER_HOME": str(self.sentry_cache(omit="libsentry-android.so"))}):
+            prepare = Preparer(self.build, "android", "objcopy")
+            with self.assertRaisesRegex(PreparationError, "required_native_dwarf_unavailable"):
+                prepare.android([package])
+        self.assertFalse((prepare.output / "manifest.json").exists())
+        self.assertFalse(list(prepare.output.glob("sentry-prefab-*")))
+
+    def test_android_requires_only_the_sentry_module_present_in_the_apk(self):
+        package = self.android_fixture(include_sentry=True, omit="libsentry-android.so")
+        with mock.patch.dict(os.environ, {"GRADLE_USER_HOME": str(self.sentry_cache())}):
+            prepare = Preparer(self.build, "android", "objcopy")
+            prepare.android([package])
+            manifest = json.loads(prepare.finish().read_text())
+        self.assertEqual({entry["target"] for entry in manifest["required"]},
+                         {"libcore.so", "libclash.so", "libsentry.so"})
 
     def test_android_extracts_matching_debug_only_and_records_actual_apk_bytes(self):
         package = self.android_fixture()
