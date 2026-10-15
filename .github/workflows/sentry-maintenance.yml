@@ -1,0 +1,55 @@
+# Manual only. No client build, SDK checkout, brand secret restoration or auto-run.
+# apply changes the two existing projects' privacy settings. verify sends one
+# synthetic info event to each project and checks only those events' stored JSON.
+name: Sentry privacy maintenance
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'audit is read-only; apply updates privacy; verify sends synthetic events'
+        type: choice
+        required: true
+        default: audit
+        options:
+          - audit
+          - apply
+          - verify
+          - apply-and-verify
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sentry-privacy-maintenance
+  cancel-in-progress: false
+
+jobs:
+  maintain:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Check maintenance tool without credentials or network
+        run: python3 tool/test/sentry_projects_test.py
+      - name: Audit, apply or verify fixed Sentry projects
+        env:
+          MAINTENANCE_MODE: ${{ inputs.mode }}
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+        shell: bash
+        run: |
+          case "$MAINTENANCE_MODE" in
+            audit|apply|verify|apply-and-verify) ;;
+            *) echo 'Invalid maintenance mode'; exit 1 ;;
+          esac
+          python3 tool/configure_sentry_projects.py --mode "$MAINTENANCE_MODE" --report sentry-report/sentry-privacy.json
+      - name: Upload safe flags and counts only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sentry-privacy-safe-report
+          path: sentry-report/sentry-privacy.json
+          if-no-files-found: warn
+          retention-days: 7
