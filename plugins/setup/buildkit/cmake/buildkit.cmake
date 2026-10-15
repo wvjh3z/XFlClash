@@ -33,11 +33,28 @@ function(apply_buildkit)
     "PROJECT_DIR=${PROJECT_ROOT}"
   )
 
+  # An existing core must be rebuilt when its builder/linker policy or Go input
+  # changes, including local --skip-clean packaging. CONFIGURE_DEPENDS also
+  # notices a newly added optional build_config.yaml or Go source file.
+  file(GLOB_RECURSE _buildkit_inputs CONFIGURE_DEPENDS
+    "${BUILDKIT_DIR}/build_tool/lib/*.dart"
+    "${PROJECT_ROOT}/core/*.go"
+    "${PROJECT_ROOT}/core/go.mod"
+    "${PROJECT_ROOT}/core/go.sum"
+  )
+  file(GLOB _buildkit_config CONFIGURE_DEPENDS
+    "${PROJECT_ROOT}/build_config.yaml"
+    "${BUILDKIT_DIR}/build_tool/pubspec.yaml"
+    "${BUILDKIT_DIR}/build_tool/pubspec.lock"
+  )
+
   add_custom_command(
     OUTPUT ${_output}
     COMMAND ${CMAKE_COMMAND} -E env ${BUILDKIT_ENV}
     "${_launcher}" ${_platform_args}
     WORKING_DIRECTORY "${PROJECT_ROOT}"
+    DEPENDS ${_buildkit_inputs} ${_buildkit_config}
+      "${_launcher}" "${BUILDKIT_DIR}/cmake/buildkit.cmake"
     COMMENT "Building Go core via buildkit..."
     VERBATIM
   )

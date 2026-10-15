@@ -12,6 +12,13 @@ import 'util.dart';
 
 final _log = Logger('go_builder');
 
+/// ELF builds retain DWARF and a GNU build ID for independent debug companions.
+/// The last boolean linker flags override historical/custom `-s -w` defaults.
+String goLdflagsFor(Target target, String configured) =>
+    target.goos == 'android' || target.goos == 'linux'
+        ? '$configured -s=false -w=false -B gobuildid'
+        : configured;
+
 String _resolveCc(Target target) {
   final ndk = Environment.androidNdk;
   final prebuiltDir = Directory(
@@ -58,13 +65,15 @@ class GoBuilder {
       env['CGO_ENABLED'] = '1';
       env['CC'] = _resolveCc(target);
       env['CFLAGS'] = '-O3 -Werror';
+      // Go uses CGO_CFLAGS for generated C bridges (CFLAGS alone is ignored).
+      env['CGO_CFLAGS'] = '${Platform.environment['CGO_CFLAGS'] ?? '-O2'} -g';
     } else {
       env['CGO_ENABLED'] = '0';
     }
 
     final args = [
       'build',
-      '-ldflags=${config.goLdflags}',
+      '-ldflags=${goLdflagsFor(target, config.goLdflags)}',
       '-tags=${config.tags}',
       if (target.isLib) '-buildmode=c-shared',
       '-o',

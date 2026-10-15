@@ -15,6 +15,16 @@ import 'util.dart';
 
 final _log = Logger('builder');
 
+// Xboard: retain ELF line info until platform packaging separates it.
+// Keep the established Windows/macOS profile and upload behavior intact.
+Map<String, String> elfDebugEnvironment(String targetTriple) =>
+    targetTriple.contains('-linux-')
+        ? {
+            'CARGO_PROFILE_RELEASE_DEBUG': '2',
+            'CARGO_PROFILE_RELEASE_STRIP': 'none',
+          }
+        : {};
+
 enum BuildConfiguration {
   debug,
   release,
@@ -178,8 +188,9 @@ class RustBuilder {
   }
 
   Future<Map<String, String>> _buildEnvironment() async {
+    final elfSymbols = elfDebugEnvironment(target.rust);
     if (target.android == null) {
-      return {};
+      return elfSymbols;
     } else {
       final sdkPath = environment.androidSdkPath;
       final ndkVersion = environment.androidNdkVersion;
@@ -203,7 +214,7 @@ class RustBuilder {
       if (!env.ndkIsInstalled() && environment.javaHome != null) {
         env.installNdk(javaHome: environment.javaHome!);
       }
-      return env.buildEnvironment();
+      return {...await env.buildEnvironment(), ...elfSymbols};
     }
   }
 }

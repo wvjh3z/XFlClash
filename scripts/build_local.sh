@@ -107,6 +107,11 @@ else
   OUT="build/app/outputs/flutter-apk/app-${FLAVOR}-debug.apk"
 fi
 
+# Release原生符号必须与最终APK的ELF相匹配；准备阶段完全离线，不需要管理Token。
+if [ "$MODE" = "release" ]; then
+  python3 tool/prepare_sentry_native_symbols.py --platform android --package "$OUT"
+fi
+
 echo "=== done ==="
 echo "  MyClient 产品版本 v$VERSION_NAME (build $BUILD_NUMBER) · 底座 $BASE_VERSION"
 echo "  buildTag : $TAG"

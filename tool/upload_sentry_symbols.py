@@ -19,6 +19,8 @@ import subprocess
 import sys
 import tempfile
 
+from sentry_elf import ElfError, inspect_elf
+
 CLI_VERSION = "2.58.4"
 PROJECTS = {"brand_a": "omofly", "brand_b": "daishu"}
 REQUIRED_WINDOWS_TARGETS = {"FlClash", "flutter_inappwebview_windows_plugin"}
@@ -47,7 +49,8 @@ def run_cli(cli: str, arguments: list[str]) -> str:
     return result.stdout
 
 
-def check_symbol(cli: str, path: Path, expected_type: str | None = None) -> dict:
+def check_symbol(cli: str, path: Path, expected_type: str | None = None,
+                 *, require_usable: bool = True) -> dict:
     if not path.is_file():
         raise SymbolError(f"Missing debug artifact: {path.name}")
     try:
@@ -57,7 +60,7 @@ def check_symbol(cli: str, path: Path, expected_type: str | None = None) -> dict
     ids = {v["debug_id"].lower() for v in info.get("variants", [])
            if re.fullmatch(r"[a-fA-F0-9-]+", v.get("debug_id", ""))
            and v["debug_id"].replace("-", "").strip("0")}
-    if not ids or (expected_type != "pe" and not info.get("is_usable")):
+    if not ids or (require_usable and expected_type != "pe" and not info.get("is_usable")):
         raise SymbolError(f"Unusable debug information: {path.name}")
     if expected_type and info.get("type") != expected_type:
         raise SymbolError(f"Unexpected symbol format: {path.name}")
@@ -112,6 +115,198 @@ def audit_windows(cli: str, build_root: Path) -> tuple[list[Path], list[dict]]:
             if not installed.is_file() or fingerprint(installed)["sha256"] != fingerprint(binary)["sha256"]:
                 raise SymbolError(f"Bundle does not contain the matching native binary: {target}")
     return artifacts, evidence
+
+
+def _safe_label(value: object, field: str) -> str:
+    if not isinstance(value, str) or not re.fullmatch(r"[A-Za-z0-9_.+-]{1,100}", value):
+        raise SymbolError(f"Invalid native manifest {field}")
+    return value
+
+
+def _native_path(root: Path, value: object) -> Path:
+    if not isinstance(value, str) or not value or Path(value).is_absolute():
+        raise SymbolError("Native manifest paths must be relative to the build root")
+    path = root / value
+    if not path.resolve().is_relative_to(root.resolve()):
+        raise SymbolError("Native artifact escaped its build root")
+    if not path.is_file():
+        raise SymbolError("Native manifest references a missing artifact")
+    return path
+
+
+def _audit_native_inventory(build_root: Path, platform: str, entries: list[dict],
+                            required: set[tuple[str, str]]) -> None:
+    """Check distributed inputs independently of the upload manifest's lists."""
+    if platform == "android":
+        runtime = build_root / "sentry-native/android/runtime"
+        modules, expected = {}, set()
+        for directory in sorted(runtime.glob("*/*")):
+            abi = directory.name
+            if abi not in {"armeabi-v7a", "arm64-v8a", "x86_64"} or not directory.is_dir():
+                continue
+            if not any((directory / marker).is_file() for marker in ("libapp.so", "libflutter.so")):
+                continue
+            for target in ("libcore.so", "libclash.so", "librust_api.so"):
+                if not (directory / target).is_file():
+                    raise SymbolError("APK runtime inventory is missing a mandatory owned module")
+                expected.add((target, abi))
+            for binary in directory.glob("*.so"):
+                checked = _native_path(build_root, binary.relative_to(build_root).as_posix())
+                modules.setdefault((binary.name, abi), []).append(checked)
+        if not expected:
+            raise SymbolError("Android native audit requires final APK runtime inventory")
+        if not expected <= required:
+            raise SymbolError("Native manifest omitted a distributed Android ABI or mandatory owned module")
+        for identity in expected:
+            if len({fingerprint(path)["sha256"] for path in modules[identity]}) != 1:
+                raise SymbolError("Final APKs contain conflicting owned native modules")
+        for entry in entries:
+            identity = (entry["target"], entry["architecture"])
+            binary = _native_path(build_root, entry["binary"])
+            if binary.resolve() not in {path.resolve() for path in modules.get(identity, [])}:
+                raise SymbolError("Native artifact does not reference the final APK runtime inventory")
+        return
+
+    for runner in (entry for entry in entries if entry["target"] == "FlClash"):
+        architecture = runner["architecture"]
+        binary = _native_path(build_root, runner["binary"])
+        native, bundle = binary.parent.parent, binary.parent
+        if (bundle.name != "bundle" or native.name not in {"release", "profile"}
+                or native.parent != build_root / "linux" / architecture):
+            raise SymbolError("Linux native audit requires the final configured bundle")
+        source_map = native / f"sentry-native-{native.name.capitalize()}.tsv"
+        source_map = _native_path(build_root, source_map.relative_to(build_root).as_posix())
+        try:
+            rows = source_map.read_text(encoding="utf-8").splitlines()
+        except OSError as error:
+            raise SymbolError("Linux native audit requires its independent CMake source map") from error
+        expected = {("FlClash", architecture): binary,
+                    ("librust_api.so", architecture): bundle / "lib/librust_api.so"}
+        for row in rows:
+            fields = row.split("\t")
+            if len(fields) != 2:
+                raise SymbolError("Invalid independent CMake source map")
+            _safe_label(fields[0], "CMake target")
+            source = Path(fields[1])
+            if not source.resolve().is_relative_to(native.resolve()):
+                raise SymbolError("Independent CMake source escaped its native build root")
+            for installed in (bundle / source.name, bundle / "lib" / source.name):
+                if installed.is_file():
+                    expected[(installed.name, architecture)] = installed
+        # A truncated TSV must not turn a locally compiled, matching plugin into
+        # an accepted prebuilt gap. Match its actual build intermediate too.
+        for installed in (bundle / "lib").glob("*.so"):
+            try:
+                runtime_info = inspect_elf(installed)
+                for source in (native / "plugins").rglob(installed.name):
+                    if source.is_symlink() or not source.resolve().is_relative_to(native.resolve()) or not source.is_file():
+                        continue
+                    info = inspect_elf(source)
+                    if (runtime_info["build_id"] and info["build_id"] == runtime_info["build_id"]
+                            and info["has_debug_info"] and info["has_debug_line"]):
+                        expected[(installed.name, architecture)] = installed
+                        break
+            except (OSError, ElfError) as error:
+                raise SymbolError("Invalid Linux native inventory ELF") from error
+        core = bundle / "FlClashCore"
+        if core.exists():
+            if (core.name, architecture) not in required:
+                raise SymbolError("Native manifest omitted the distributed Go core companion")
+            expected[(core.name, architecture)] = core
+        if not expected.keys() <= required:
+            raise SymbolError("Native manifest omitted a distributed CMake or owned native module")
+        indexed = {(entry["target"], entry["architecture"]): entry for entry in entries}
+        for identity, installed in expected.items():
+            declared = _native_path(build_root, indexed[identity]["binary"])
+            if declared.resolve() != installed.resolve():
+                raise SymbolError("Native artifact does not reference the final Linux bundle")
+
+
+def audit_elf_native(cli: str, build_root: Path, platform: str) -> tuple[list[Path], list[dict], list[dict]]:
+    """Match explicit debug-only ELF companions to the distributed modules.
+
+    The preparation tool supplies final APK entries or installed Linux modules.
+    Neither the binaries nor any source/map files are added to the upload list.
+    """
+    manifest_path = build_root / "sentry-native" / platform / "manifest.json"
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as error:
+        raise SymbolError("Missing or invalid Android/Linux native symbol manifest") from error
+    if not isinstance(manifest, dict) or manifest.get("schema_version") != 1 or manifest.get("platform") != platform:
+        raise SymbolError("Unexpected native manifest schema or platform")
+    entries, limitations = manifest.get("artifacts"), manifest.get("limitations", [])
+    required_entries = manifest.get("required")
+    if not isinstance(entries, list) or not entries or not isinstance(limitations, list):
+        raise SymbolError("Native manifest must enumerate its debug companions and limitations")
+    if not isinstance(required_entries, list) or not required_entries:
+        raise SymbolError("Native manifest must enumerate required module coverage")
+    architectures = ({"armeabi-v7a": "arm", "arm64-v8a": "aarch64", "x86_64": "x86_64"}
+                     if platform == "android" else {"x64": "x86_64", "arm64": "aarch64"})
+    artifacts, evidence, seen = [], [], set()
+    for entry in entries:
+        if not isinstance(entry, dict):
+            raise SymbolError("Invalid native artifact record")
+        target = _safe_label(entry.get("target"), "target")
+        architecture = _safe_label(entry.get("architecture"), "architecture")
+        source = _safe_label(entry.get("source"), "source")
+        identity = (target, architecture)
+        if identity in seen or architecture not in architectures:
+            raise SymbolError("Duplicate or unsupported native artifact architecture")
+        seen.add(identity)
+        binary = _native_path(build_root, entry.get("binary"))
+        debug_file = _native_path(build_root, entry.get("debug_file"))
+        if binary.name != target:
+            raise SymbolError("Native target does not match its distributed binary name")
+        if debug_file.suffix != ".debug" or binary.resolve() == debug_file.resolve():
+            raise SymbolError("Native uploads require a separate .debug companion")
+        try:
+            binary_elf, debug_elf = inspect_elf(binary), inspect_elf(debug_file)
+        except (OSError, ElfError) as error:
+            raise SymbolError("Invalid native ELF binary or companion") from error
+        if not binary_elf["build_id"] or binary_elf["build_id"] != debug_elf["build_id"]:
+            raise SymbolError(f"ELF build identifier mismatch: {target}")
+        if any(item["architecture"] != architectures[architecture] for item in (binary_elf, debug_elf)):
+            raise SymbolError(f"ELF architecture mismatch: {target}")
+        if debug_elf["has_executable_text"]:
+            raise SymbolError(f"Native debug companion still contains executable code: {target}")
+        if not debug_elf["has_debug_info"] or not debug_elf["has_debug_line"]:
+            raise SymbolError(f"Native debug companion lacks DWARF line information: {target}")
+        binary_info = check_symbol(cli, binary, "elf", require_usable=False)
+        debug_info = check_symbol(cli, debug_file, "elf")
+        if binary_info["debug_ids"] != debug_info["debug_ids"]:
+            raise SymbolError(f"Binary/ELF debug identifier mismatch: {target}")
+        if "debug" not in debug_info["features"].split(", "):
+            raise SymbolError(f"ELF companion is missing line debug information: {target}")
+        if "unwind" in binary_info["features"].split(", ") and "unwind" not in debug_info["features"].split(", "):
+            raise SymbolError(f"ELF companion is missing the binary's unwind information: {target}")
+        artifacts.append(debug_file)
+        evidence.append({"target": target, "architecture": architecture, "source": source,
+                         "build_id": binary_elf["build_id"], "binary": fingerprint(binary),
+                         "symbols": fingerprint(debug_file), **debug_info})
+    required = set()
+    for entry in required_entries:
+        if not isinstance(entry, dict):
+            raise SymbolError("Invalid required native module record")
+        identity = (_safe_label(entry.get("target"), "target"),
+                    _safe_label(entry.get("architecture"), "architecture"))
+        if identity in required or identity[1] not in architectures:
+            raise SymbolError("Duplicate or unsupported required native module")
+        required.add(identity)
+    if not required <= seen:
+        raise SymbolError("Native manifest omitted a required debug companion")
+    static_targets = {"libcore.so", "libclash.so", "librust_api.so"} if platform == "android" else {"FlClash", "librust_api.so"}
+    for architecture in {architecture for _, architecture in seen}:
+        if not {(target, architecture) for target in static_targets} <= required:
+            raise SymbolError("Native manifest omitted mandatory owned module coverage")
+    _audit_native_inventory(build_root, platform, entries, required)
+    safe_limitations = []
+    for entry in limitations:
+        if not isinstance(entry, dict):
+            raise SymbolError("Invalid native coverage limitation")
+        safe_limitations.append({key: _safe_label(entry.get(key), key)
+                                 for key in ("target", "architecture", "source", "reason")})
+    return artifacts, evidence, safe_limitations
 
 
 def collect_companions(cli: str, root: Path, platform: str) -> tuple[list[Path], list[dict]]:
@@ -170,6 +365,10 @@ def main(argv: list[str] | None = None) -> int:
             raise SymbolError(f"Expected sentry-cli {CLI_VERSION}")
         if args.platform == "windows":
             native, native_evidence = audit_windows(cli, args.build_root / "windows")
+        elif args.platform in ("android", "linux"):
+            native, native_evidence, limitations = audit_elf_native(cli, args.build_root, args.platform)
+            evidence["native_coverage"] = "explicit_manifest_audited"
+            evidence["native_limitations"] = limitations
         else:
             native, native_evidence = [], []
         dart, dart_evidence = collect_companions(cli, args.build_root, args.platform)
@@ -177,8 +376,6 @@ def main(argv: list[str] | None = None) -> int:
         if not files:
             raise SymbolError("No uploadable debug companions found")
         evidence.update(status="audited", native=native_evidence, companions=dart_evidence)
-        if args.platform in ("android", "linux"):
-            evidence["native_coverage"] = "pending_separate_debug_companions"
         if args.audit_only:
             print(f"Sentry offline audit passed: {len(files)} debug companions")
         elif not os.environ.get("SENTRY_AUTH_TOKEN", "").strip():

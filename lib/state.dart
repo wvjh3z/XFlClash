@@ -21,6 +21,7 @@ import 'l10n/l10n.dart';
 import 'models/models.dart';
 import 'providers/providers.dart';
 import 'xboard/config/xboard_config.dart';
+import 'xboard/services/sentry_bootstrap.dart';
 import 'xboard/widgets/xb_welcome_dialog.dart';
 
 class GlobalState {
@@ -309,6 +310,9 @@ class GlobalState {
         logLevel: LogLevel.warning,
       );
     };
+    // Rechain synchronously before tray/profile/core work can report a Flutter
+    // error; waiting for initProvider leaves the entire attach phase uncovered.
+    SentryBootstrap.rechainFlutterError();
     container.read(systemActionProvider.notifier).updateTray();
     container.read(profilesActionProvider.notifier).autoUpdateProfiles();
     // [xfork seam #12] formA 屏蔽上游 GitHub 更新检查（MyClient 用自己的 XbUpdateService）。

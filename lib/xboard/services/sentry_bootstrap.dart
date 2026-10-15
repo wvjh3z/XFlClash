@@ -1,10 +1,11 @@
 /// Sentry crash 上报装配（NFR-7 / DD-14 链式 / DD-23 8 类 tag / κ-4 GDPR opt-out / 决策 #5）。
 ///
 /// **改用 `SentryFlutter.init`**（2026-06-29 修订；原决策 #5 用基础 `Sentry.init` 不接管）：
-/// 装**原生崩溃处理器**（Android NDK / ANR + Go 核心 `libclash.so` SIGSEGV —— VPN 客户端
-/// 此前的最大监控盲区）。FlClash 的 `commonPrint` handler 在 `attach()`（runApp **后**）才硬设
-/// `FlutterError.onError`、会覆盖 SDK 装的 handler，故由 [rechainFlutterError]（attach 完成后调）
-/// 重链：先 Sentry 上报再调 FlClash handler，二者都不丢（修原 base-init 被 attach 覆盖的盲区）。
+/// 在主 Flutter 进程安装原生崩溃处理器；Android `:remote` 服务和 Linux 独立 Go 内核进程
+/// 不由此初始化，不能据此声称其崩溃已自动捕获。main 在读取持久化选择后、Rust/globalState
+/// 初始化之前装配；Flutter binding、偏好读取和 Sentry 自身初始化之前仍没有此层覆盖。
+/// FlClash 的 `attach()` 会重设 `FlutterError.onError`，故设置完底座 handler 后同步调用
+/// [rechainFlutterError]，先上报再调底座处理器；initProvider 监听仍作幂等兜底。
 ///
 /// **当前配置**：sendDefaultPii=false + tracesSampleRate=0；事件、面包屑和标签
 /// 保留原始诊断内容，不安装自定义脱敏回调。`dsn==null`（dev / 用户 opt-out）全 no-op。
@@ -152,6 +153,23 @@ class _SentryConfiguration {
   final double tracesSampleRate;
 }
 
+class _StartupPreferenceRead {
+  const _StartupPreferenceRead.enabled(this.enabled)
+    : error = null,
+      stackTrace = null;
+  const _StartupPreferenceRead.failed(this.error, this.stackTrace)
+    : enabled = null;
+
+  final bool? enabled;
+  final Object? error;
+  final StackTrace? stackTrace;
+
+  bool resolve() {
+    if (error != null) Error.throwWithStackTrace(error!, stackTrace!);
+    return enabled!;
+  }
+}
+
 /// Sentry 装配（纯逻辑 + 装配；dsn null 全 no-op）。
 class SentryBootstrap {
   SentryBootstrap._();
@@ -163,6 +181,8 @@ class SentryBootstrap {
   static _SentryConfiguration? _configuration;
   static SentryBootstrapRuntime _runtime = const _SdkRuntime();
   static Future<void> _pending = Future.value();
+  static Future<void>? _applicationStartup;
+  static _StartupPreferenceRead? _initialPreferenceRead;
   static FlutterExceptionHandler? _wrapper;
   static FlutterExceptionHandler? _chainedHandler;
   static FlutterExceptionHandler? _sdkHandler;
@@ -184,12 +204,64 @@ class SentryBootstrap {
   /// 当前 tag 快照（测试 / 调试用）。
   static Map<String, String> get tagsSnapshot => Map.unmodifiable(_tags);
 
-  /// 早期装配（bootstrap step 2）。dsn==null → no-op（dev / opt-out，§ C）。
+  /// Install once for the application process, before native/core initialization.
+  /// The saved choice must be read before Sentry can process native caches or
+  /// install handlers. A read failure disables reporting for this startup.
+  ///
+  /// Main has no ProviderContainer yet. Its initial read is handed to the first
+  /// settings provider build so both paths observe the same decision/error.
+  /// An independent module entry can read that provider directly instead.
+  static Future<void> installForApplicationStartup({
+    required String? dsn,
+    required String release,
+    required Future<bool> Function() readEnabled,
+    String? environment,
+    bool sharePreferenceWithSettings = false,
+  }) => _applicationStartup ??= _installForApplicationStartup(
+    dsn: dsn,
+    release: release,
+    environment: environment,
+    readEnabled: readEnabled,
+    sharePreferenceWithSettings: sharePreferenceWithSettings,
+  );
+
+  static Future<void> _installForApplicationStartup({
+    required String? dsn,
+    required String release,
+    required String? environment,
+    required Future<bool> Function() readEnabled,
+    required bool sharePreferenceWithSettings,
+  }) async {
+    late _StartupPreferenceRead preference;
+    try {
+      preference = _StartupPreferenceRead.enabled(await readEnabled());
+    } catch (error, stackTrace) {
+      preference = _StartupPreferenceRead.failed(error, stackTrace);
+    }
+    if (sharePreferenceWithSettings) _initialPreferenceRead = preference;
+    await installEarly(
+      dsn: dsn,
+      release: release,
+      environment: environment,
+      userOptedOut: preference.enabled != true,
+    );
+  }
+
+  /// Consume the pre-container read once. An explicit provider reload after
+  /// this point reads storage again, preserving the settings retry behavior.
+  static bool? takeInitialPreferenceRead() {
+    final preference = _initialPreferenceRead;
+    _initialPreferenceRead = null;
+    return preference?.resolve();
+  }
+
+  /// SDK 装配原语。应用启动使用 [installForApplicationStartup] 保证只装一次。
+  /// dsn==null → no-op（dev / opt-out，§ C）。
   ///
   /// `SentryFlutter.init`（仅 dsn 非空时）装原生崩溃 + Dart 错误集成（FlutterError /
   /// PlatformDispatcher.onError 由 SDK 自动装，链式调 init 前旧 handler）。把同步阶段已累积的
-  /// tag 灌进 scope。⚠️ FlClash `attach()`（runApp 后）会覆盖 FlutterError.onError，需
-  /// [rechainFlutterError] 在 attach 完成后补回（见类注释）。
+  /// tag 灌进 scope。FlClash `attach()`（runApp 后）重设 FlutterError.onError 时立即
+  /// [rechainFlutterError]，不等待 attach 初始化完成。
   static Future<void> installEarly({
     required String? dsn,
     required String release,
@@ -286,11 +358,11 @@ class SentryBootstrap {
     }
   }
 
-  /// attach() 后重链 `FlutterError.onError`（修 SDK 集成被 FlClash `_initApp` 硬覆盖的盲区）。
+  /// 底座设置自己的 handler 后立即重链 `FlutterError.onError`。
   ///
   /// FlClash 在 `globalState.attach()`（runApp 后、晚于 [installEarly]）里硬设
-  /// `FlutterError.onError = commonPrint`，覆盖 SentryFlutter 集成装的 handler。本方法在 attach
-  /// 完成后（xboard_module 监听 initProvider==true）调用：取当前（FlClash 的）handler 包一层 ——
+  /// `FlutterError.onError = commonPrint`，覆盖 SentryFlutter 集成装的 handler。本方法在这一
+  /// 赋值后同步调用，initProvider==true 时再作幂等兜底：取当前底座 handler 包一层 ——
   /// 先 `Sentry.captureException` 再调 FlClash handler，二者都不丢。dsn 空 → no-op；幂等可重复调。
   static void rechainFlutterError() {
     if (!_enabled) return;
@@ -455,6 +527,8 @@ class SentryBootstrap {
     _userOptedOut = false;
     _runtime = const _SdkRuntime();
     _pending = Future.value();
+    _applicationStartup = null;
+    _initialPreferenceRead = null;
     _wrapper = null;
     _chainedHandler = null;
     _sdkHandler = null;

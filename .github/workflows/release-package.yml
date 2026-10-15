@@ -134,6 +134,7 @@ jobs:
           set -euo pipefail
           npm install -g @sentry/cli@2.58.4
           python tool/test/sentry_symbols_test.py
+          python tool/test/sentry_native_generation_test.py
 
       - name: Check required Windows symbol credentials
         if: matrix.platform == 'windows'
@@ -400,7 +401,24 @@ jobs:
           esac
           echo "=== dist 重命名后（AppVersion 约定）==="; ls -la
 
-      # 显式核对同次构建的PDB/debug ID，只上传调试伴随文件，不上传源码/发布二进制。
+      # Android 从最终APK提取分发ELF、Linux读取最终bundle；独立debug伴随文件不入dist。
+      - name: Prepare Android and Linux native Sentry companions
+        if: matrix.platform == 'android' || matrix.platform == 'linux'
+        run: |
+          set -euo pipefail
+          if [ "${{ matrix.platform }}" = "android" ]; then
+            shopt -s nullglob
+            PACKAGES=()
+            for package in dist/*.apk; do PACKAGES+=(--package "$package"); done
+            [ "${#PACKAGES[@]}" -gt 0 ] || { echo "::error::No final APK found for native symbol verification"; exit 1; }
+            python tool/prepare_sentry_native_symbols.py --platform android "${PACKAGES[@]}"
+          else
+            NATIVE_ARCH="${{ matrix.arch }}"
+            [ "$NATIVE_ARCH" != "amd64" ] || NATIVE_ARCH=x64
+            python tool/prepare_sentry_native_symbols.py --platform linux --architecture "$NATIVE_ARCH"
+          fi
+
+      # 显式核对同次构建的PDB/ELF BuildID/debug ID，只上传伴随文件，不上传源码/发布二进制。
       - name: Upload debug symbols to Sentry
         env:
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}

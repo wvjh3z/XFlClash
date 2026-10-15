@@ -1,6 +1,7 @@
 /// SentryBootstrap：dsn null no-op、原始诊断、8 类 tag 与 opt-out。
 library;
 
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -64,6 +65,60 @@ void main() {
       expect(SentryBootstrap.isEnabled, isFalse);
       expect(runtime.initializations, 0);
     });
+  });
+
+  group('application startup once before core initialization', () {
+    test(
+      'pending saved choice blocks initialization and concurrent duplicate calls',
+      () async {
+        final choice = Completer<bool>();
+        var reads = 0;
+        Future<bool> readEnabled() {
+          reads++;
+          return choice.future;
+        }
+
+        final early = SentryBootstrap.installForApplicationStartup(
+          dsn: 'https://public@sentry.invalid/1',
+          release: '1',
+          readEnabled: readEnabled,
+        );
+        final duplicate = SentryBootstrap.installForApplicationStartup(
+          dsn: 'https://public@sentry.invalid/1',
+          release: '1',
+          readEnabled: readEnabled,
+        );
+        await pumpEventQueue();
+        expect(reads, 1);
+        expect(runtime.initializations, 0);
+        choice.complete(true);
+        await Future.wait([early, duplicate]);
+        expect(runtime.initializations, 1);
+        expect(runtime.closes, 0);
+      },
+    );
+    test(
+      'a repeated startup entry cannot undo a native restart requirement',
+      () async {
+        final nativeRuntime = _RestartPolicyRuntime();
+        SentryBootstrap.setRuntimeForTest(nativeRuntime);
+        Future<void> install() => SentryBootstrap.installForApplicationStartup(
+          dsn: 'https://public@sentry.invalid/1',
+          release: '1',
+          readEnabled: () async => true,
+        );
+        await install();
+        await expectLater(
+          SentryBootstrap.setUserOptOut(true),
+          throwsA(isA<SentryRestartRequiredException>()),
+        );
+        await install();
+        expect(nativeRuntime.initializations, 1);
+        expect(nativeRuntime.closes, 1);
+        expect(SentryBootstrap.restartRequired, isTrue);
+        expect(SentryBootstrap.isEnabled, isFalse);
+      },
+    );
   });
 
   group('DD-23 8 类 tag', () {

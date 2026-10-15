@@ -74,6 +74,10 @@ set_target_properties(${BINARY_NAME}
 # them to the application.
 include(flutter/generated_plugins.cmake)
 
+# Retain line information in local ELF intermediates for later companions;
+# the install step below strips only the distributed runtime copies.
+include("xboard_sentry_symbols.cmake")
+
 
 # === Installation ===
 # By default, "installing" just makes a relocatable bundle in the build
@@ -130,7 +134,8 @@ endif()
 # === Xboard 加而不改（接缝点：linux crashpad 可执行位；PATCHES.md RT-CrashpadExec）===
 # sentry_flutter 的 crashpad_handler 经上面 foreach(bundled_library) 的 install(FILES) 复制时
 # 丢失可执行位（-rw-r--r--），导致打包产物（bundle/deb/AppImage）里它不可执行 → sentry_init
-# 原生层 posix_spawn EACCES(13) → Linux 原生崩溃捕获（Go 核心 SIGSEGV 等）静默失效（Dart 层正常）。
+# 原生层 posix_spawn EACCES(13) → Flutter 进程原生崩溃捕获静默失效（Dart 层正常）。
+# 独立 Go 核心进程没有初始化 Sentry，不受 Flutter 进程的 crashpad 自动覆盖。
 # 在所有 install 规则之后补回 +x，本地 / release-build / release-package(flutter_distributor) 通吃。
 install(CODE "
   set(_xb_crashpad \"${INSTALL_BUNDLE_LIB_DIR}/crashpad_handler\")
@@ -139,3 +144,43 @@ install(CODE "
     message(STATUS \"[xboard] chmod +x crashpad_handler\")
   endif()
   " COMPONENT Runtime)
+
+# Keep DWARF in build intermediates, not in the distributed ELF copies. This
+# runs before flutter_distributor creates deb/rpm/AppImage files from the bundle.
+if(CMAKE_BUILD_TYPE MATCHES "^(Release|Profile)$")
+install(CODE "
+  file(STRINGS \"${CMAKE_BINARY_DIR}/sentry-native-${CMAKE_BUILD_TYPE}.tsv\" _xb_elf_rows)
+  foreach(_xb_row IN LISTS _xb_elf_rows)
+    string(REPLACE \"\\t\" \";\" _xb_columns \"\${_xb_row}\")
+    list(GET _xb_columns 1 _xb_source)
+    get_filename_component(_xb_name \"\${_xb_source}\" NAME)
+    set(_xb_installed \"${CMAKE_INSTALL_PREFIX}/\${_xb_name}\")
+    if(NOT EXISTS \"\${_xb_installed}\")
+      set(_xb_installed \"${INSTALL_BUNDLE_LIB_DIR}/\${_xb_name}\")
+    endif()
+    if(EXISTS \"\${_xb_installed}\")
+      execute_process(COMMAND \"${CMAKE_STRIP}\" --strip-debug \"\${_xb_installed}\"
+                      RESULT_VARIABLE _xb_strip_result)
+      if(NOT _xb_strip_result EQUAL 0)
+        message(FATAL_ERROR \"Unable to separate native runtime debug information\")
+      endif()
+    endif()
+  endforeach()
+  set(_xb_rust \"${INSTALL_BUNDLE_LIB_DIR}/librust_api.so\")
+  if(EXISTS \"\${_xb_rust}\")
+    execute_process(COMMAND \"${CMAKE_STRIP}\" --strip-debug \"\${_xb_rust}\"
+                    RESULT_VARIABLE _xb_strip_result)
+    if(NOT _xb_strip_result EQUAL 0)
+      message(FATAL_ERROR \"Unable to separate Rust runtime debug information\")
+    endif()
+  endif()
+  set(_xb_core \"${CMAKE_INSTALL_PREFIX}/FlClashCore\")
+  if(EXISTS \"\${_xb_core}\")
+    execute_process(COMMAND \"${CMAKE_STRIP}\" --strip-debug \"\${_xb_core}\"
+                    RESULT_VARIABLE _xb_strip_result)
+    if(NOT _xb_strip_result EQUAL 0)
+      message(FATAL_ERROR \"Unable to separate Go runtime debug information\")
+    endif()
+  endif()
+  " COMPONENT Runtime)
+endif()

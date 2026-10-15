@@ -1,11 +1,12 @@
 /// Xboard 模块入口（conventions §1.1 / §1.4 / design「lib/xboard/ 目录结构」）。
 ///
-/// **唯一被 FlClash 既有代码引用的入口**（接缝点 #1：`main.dart` 在 HttpOverrides 后 /
-/// runApp 前调 `XboardModule.bootstrap(container)`，外层包 try/catch 隔离故障 DD-2.bis）。
+/// **启动入口**：main 在 Rust/globalState 之前调 initializeMonitoringEarly，读取偏好并
+/// 初始化主进程监测；HttpOverrides 后、runApp 前调 bootstrap(container)，隔离故障 DD-2.bis。
 ///
 /// **职责**：
-/// - `bootstrap(container)`：同步阶段（DD-17 render-first，零网络）—— 加载 flavor /
-///   早期 Sentry hook / 本地 fallback 解密 / SDK initialize / 写基础设施 provider；
+/// - `initializeMonitoringEarly(config)`：先读取设备上报选择，再安装一次主进程 Sentry。
+/// - `bootstrap(container)`：同步阶段（DD-17 render-first，本地业务配置）—— 加载 flavor /
+///   复用早期 Sentry / 本地 fallback 解密 / SDK initialize / 写基础设施 provider；
 ///   异步阶段（runApp 后）—— 远端 Bootstrap 拉取 + endpoint 竞速（W5）。
 /// - `dispose()`：释放长生命周期资源（observer / timer / 订阅 / race controller，DD-19）。
 ///
@@ -35,6 +36,7 @@ import 'services/bootstrap_fetcher.dart';
 import 'services/bootstrap_local_loader.dart';
 import 'services/endpoint_race_controller.dart';
 import 'services/sentry_bootstrap.dart';
+import 'services/sentry_reporting_preference.dart';
 import 'services/crisp_support_service.dart';
 import 'services/subscription_triggers.dart';
 import 'services/xb_geo_update_service.dart';
@@ -48,6 +50,59 @@ const String kXbIpv6DefaultAppliedKey = 'xb_ipv6_default_applied_v1';
 
 class XboardModule {
   XboardModule._();
+
+  /// Runs after the desktop WebView title-bar subprocess short circuit, before
+  /// Rust/core or global state initialization. No ProviderContainer is needed.
+  static Future<void> initializeMonitoringEarly({
+    required XboardConfig config,
+  }) async {
+    XboardConfig.bind(config);
+    await _initializeMonitoring(
+      config,
+      readEnabled: SentryReportingPreferenceStore().readEnabled,
+      sharePreferenceWithSettings: true,
+    );
+  }
+
+  static Future<void> _initializeMonitoring(
+    XboardConfig config, {
+    required Future<bool> Function() readEnabled,
+    bool sharePreferenceWithSettings = false,
+  }) async {
+    SentryBootstrap.tagFlavor(config.flavorId);
+    SentryBootstrap.tagBootstrap(stage: 'early_startup');
+    try {
+      const productVersion = String.fromEnvironment(
+        'XB_PRODUCT_VERSION',
+        defaultValue: '0.0.0',
+      );
+      const buildNumber = String.fromEnvironment(
+        'XB_BUILD_NUMBER',
+        defaultValue: '0',
+      );
+      await SentryBootstrap.installForApplicationStartup(
+        dsn: config.sentryDsn.isEmpty ? null : config.sentryDsn,
+        release: '${config.flavorId}@$productVersion+$buildNumber',
+        environment: config.flavorId,
+        readEnabled: readEnabled,
+        sharePreferenceWithSettings: sharePreferenceWithSettings,
+      );
+    } catch (error, stackTrace) {
+      // Monitoring itself is optional; keep the existing application startup.
+      _reportSwallowed('Sentry early startup failed', error, stackTrace);
+    }
+  }
+
+  /// Report an outer startup catch while retaining the existing fallback UI.
+  static void captureStartupFailure(
+    String where,
+    Object error,
+    StackTrace stackTrace,
+  ) => SentryBootstrap.captureException(
+    error,
+    stackTrace: stackTrace,
+    where: where,
+  );
 
   /// 自起 lifecycle observer（DD-19，dispose 时摘除）。
   static XboardLifecycleObserver? _lifecycleObserver;
@@ -266,6 +321,26 @@ class XboardModule {
     }
     final activeConfig = XboardConfig.current;
 
+    // Main normally completed this before Rust/globalState. The single-flight
+    // path also supports independent module entry without reinitializing an
+    // already running native SDK or clearing a pending restart requirement.
+    await _initializeMonitoring(
+      activeConfig,
+      readEnabled: () async => (await container.read(
+        sentryReportingPreferenceProvider.future,
+      )).enabled,
+    );
+    if (SentryBootstrap.restartRequired) {
+      container.invalidate(sentryReportingPreferenceProvider);
+    }
+    try {
+      await container.read(sentryReportingPreferenceProvider.future);
+    } catch (_) {
+      debugPrint(
+        '[XboardModule] reporting preference unavailable; reporting disabled',
+      );
+    }
+
     // R4.6 step2a：解析 TokenStorage。
     // - 显式注入（测试 fake / 调用方传）→ 用注入的。
     // - 测试环境（kIsTest）→ null（step4 走 useMemoryStorage，SDK 自带）。
@@ -294,43 +369,6 @@ class XboardModule {
     // DD-23：flavor.id + bootstrap 起始阶段 tag（W5.7 / λ-4）。
     SentryBootstrap.tagFlavor(activeConfig.flavorId);
     SentryBootstrap.tagBootstrap(stage: 'sync_start');
-
-    // Read the device's saved reporting choice before any Sentry/native init.
-    // If persistence is unavailable, keep reporting disabled for this startup.
-    var reportingEnabled = false;
-    try {
-      reportingEnabled = (await container.read(
-        sentryReportingPreferenceProvider.future,
-      )).enabled;
-    } catch (_) {
-      debugPrint(
-        '[XboardModule] reporting preference unavailable; reporting disabled',
-      );
-    }
-
-    // step 2: native + Dart capture, respecting the saved device preference.
-    // A reporting failure must not prevent SDK/client startup.
-    try {
-      const productVersion = String.fromEnvironment(
-        'XB_PRODUCT_VERSION',
-        defaultValue: '0.0.0',
-      );
-      const buildNumber = String.fromEnvironment(
-        'XB_BUILD_NUMBER',
-        defaultValue: '0',
-      );
-      await SentryBootstrap.installEarly(
-        dsn: activeConfig.sentryDsn.isEmpty ? null : activeConfig.sentryDsn,
-        release: '${activeConfig.flavorId}@$productVersion+$buildNumber',
-        environment: activeConfig.flavorId,
-        userOptedOut: !reportingEnabled,
-      );
-    } catch (e, s) {
-      if (SentryBootstrap.restartRequired) {
-        container.invalidate(sentryReportingPreferenceProvider);
-      }
-      _reportSwallowed('Sentry installEarly failed', e, s);
-    }
 
     // step 3：BootstrapLocalLoader.loadLocal()（W5.6 真实 AES-256-GCM 解密，零网络）。
     //   优先级：本地缓存密文 → 出厂 fallback 资产 → null（双双损坏走 config 出厂 endpoint 兜底）。
@@ -643,11 +681,10 @@ class XboardModule {
     }
   }
 
-  /// #1（监测）：attach 完成后（initProvider==true）重链 `FlutterError.onError` 到 Sentry。
+  /// #1（监测）：initProvider==true 时幂等兜底检查 `FlutterError.onError` 链。
   ///
   /// FlClash `globalState.attach()` → `_initApp` 在 runApp **后**硬设 `FlutterError.onError`，
-  /// 晚于 [installEarly]，会覆盖 SentryFlutter 集成装的 handler。本方法在 attach 完成后调
-  /// `SentryBootstrap.rechainFlutterError()`（取当前 FlClash handler 包一层 Sentry 捕获，二者都不丢）。
+  /// state 在赋值后立即重链，覆盖初始化完成前的窗口；本监听在 attach 完成后再作幂等兜底。
   /// 一次性（首次 initProvider==true 后关监听）；dsn 空时 rechain 内部 no-op。
   static void _wireSentryRechain(ProviderContainer container) {
     if (container.read(initProvider)) {

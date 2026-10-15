@@ -125,6 +125,100 @@ void main() {
     },
   );
 
+  test('early main entry and module share one native initialization', () async {
+    await XboardModule.initializeMonitoringEarly(config: _config);
+    expect(runtime.initializations, 1);
+    expect(SentryBootstrap.isEnabled, isTrue);
+    await bootstrap();
+    expect(runtime.initializations, 1);
+    expect(runtime.closes, 0);
+    expect(container!.read(bootstrapReadyProvider), isTrue);
+    expect(
+      (await container!.read(sentryReportingPreferenceProvider.future)).enabled,
+      isTrue,
+    );
+  });
+
+  test(
+    'pre-container opt-out snapshot is shared, then retry reads storage',
+    () async {
+      SharedPreferences.setMockInitialValues({
+        kSentryReportingEnabledKey: false,
+      });
+      await XboardModule.initializeMonitoringEarly(config: _config);
+      expect(runtime.initializations, 0);
+      // Simulate the store changing between the early read and module setup.
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(kSentryReportingEnabledKey, true);
+      await bootstrap();
+      expect(runtime.initializations, 0);
+      expect(
+        (await container!.read(
+          sentryReportingPreferenceProvider.future,
+        )).enabled,
+        isFalse,
+      );
+      container!.invalidate(sentryReportingPreferenceProvider);
+      expect(
+        (await container!.read(
+          sentryReportingPreferenceProvider.future,
+        )).enabled,
+        isTrue,
+      );
+      expect(
+        runtime.initializations,
+        0,
+        reason: 'a settings read never starts SDK',
+      );
+    },
+  );
+
+  test(
+    'early preference read failure stays disabled and reaches settings once',
+    () async {
+      await SentryBootstrap.installForApplicationStartup(
+        dsn: _config.sentryDsn,
+        release: 'controlled@1+1',
+        readEnabled: () async => throw StateError('early storage unavailable'),
+        sharePreferenceWithSettings: true,
+      );
+      await bootstrap();
+      expect(runtime.initializations, 0);
+      expect(
+        container!.read(sentryReportingPreferenceProvider).hasError,
+        isTrue,
+      );
+      expect(container!.read(bootstrapReadyProvider), isTrue);
+      container!.invalidate(sentryReportingPreferenceProvider);
+      expect(
+        (await container!.read(
+          sentryReportingPreferenceProvider.future,
+        )).enabled,
+        isTrue,
+      );
+      expect(runtime.initializations, 0);
+    },
+  );
+
+  test(
+    'early native initialization failure cannot be retried by module',
+    () async {
+      runtime = _FailingNativeRuntime(beforeFailure: () {});
+      SentryBootstrap.setRuntimeForTest(runtime);
+      await XboardModule.initializeMonitoringEarly(config: _config);
+      expect(SentryBootstrap.restartRequired, isTrue);
+      await bootstrap();
+      expect(runtime.initializations, 1);
+      expect(runtime.closes, 1);
+      final preference = await container!.read(
+        sentryReportingPreferenceProvider.future,
+      );
+      expect(preference.restartRequired, isTrue);
+      expect(preference.enabled, isTrue);
+      expect(container!.read(bootstrapReadyProvider), isTrue);
+    },
+  );
+
   test('pending preference read cannot start Sentry early', () async {
     final decision = Completer<bool>();
     final boot = bootstrap(store: _DeferredStore(decision.future));
@@ -207,6 +301,7 @@ class _FailingStore extends SentryReportingPreferenceStore {
 /// Never constructs a native SDK, transport, session or network client.
 class _RecordingRuntime implements SentryBootstrapRuntime {
   int initializations = 0;
+  int closes = 0;
   SentryFlutterOptions? options;
   final scope = Scope(SentryOptions());
   final errors =
@@ -227,7 +322,9 @@ class _RecordingRuntime implements SentryBootstrapRuntime {
   }
 
   @override
-  Future<void> close() async {}
+  Future<void> close() async {
+    closes++;
+  }
 
   @override
   Future<void> configureScope(void Function(Scope) configure) async =>

@@ -269,6 +269,11 @@ echo "=== normalize dist 命名 → ${PKG}-${VERSION_NAME}-${PLATFORM}-${ARCH}* 
 
 # ───────── Sentry：PDB/debug ID审计，安全伴随文件上传与明确失败 ─────────
 if [ "${NO_SENTRY}" = "0" ]; then
+  if [ "${PLATFORM}" = "linux" ]; then
+    NATIVE_ARCH="${ARCH}"
+    [ "${NATIVE_ARCH}" != "amd64" ] || NATIVE_ARCH=x64
+    python3 tool/prepare_sentry_native_symbols.py --platform linux --architecture "${NATIVE_ARCH}"
+  fi
   TOKEN_FILE="flavors/sentry-cli.token"
   if [ -f "${TOKEN_FILE}" ] && [ -z "${SENTRY_AUTH_TOKEN:-}" ]; then
     export SENTRY_AUTH_TOKEN="$(tr -d '[:space:]' < "${TOKEN_FILE}")"

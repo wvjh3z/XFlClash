@@ -66,7 +66,9 @@ class SentryReportingPreferenceNotifier
     final store = ref.watch(sentryReportingPreferenceStoreProvider);
     final configured = ref.watch(sentryReportingConfiguredProvider);
     final needsRestart = ref.watch(sentryReportingRestartRequiredProvider);
-    final enabled = await store.readEnabled();
+    final enabled =
+        SentryBootstrap.takeInitialPreferenceRead() ??
+        await store.readEnabled();
     return SentryReportingPreference(
       enabled: enabled,
       configured: configured,

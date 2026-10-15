@@ -1,0 +1,30 @@
+# Include after generated_plugins.cmake so locally built plugin targets exist.
+# Imported/prebuilt libraries are deliberately excluded: -g cannot recover them.
+function(_xboard_collect_elf_targets directory output)
+  get_property(_targets DIRECTORY "${directory}" PROPERTY BUILDSYSTEM_TARGETS)
+  get_property(_children DIRECTORY "${directory}" PROPERTY SUBDIRECTORIES)
+  foreach(_child IN LISTS _children)
+    _xboard_collect_elf_targets("${_child}" _child_targets)
+    list(APPEND _targets ${_child_targets})
+  endforeach()
+  set(${output} "${_targets}" PARENT_SCOPE)
+endfunction()
+
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND
+   CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+  _xboard_collect_elf_targets("${CMAKE_SOURCE_DIR}" _xb_targets)
+  set(_xb_manifest "")
+  foreach(_target IN LISTS _xb_targets)
+    get_target_property(_type "${_target}" TYPE)
+    get_target_property(_imported "${_target}" IMPORTED)
+    if(NOT _imported AND _type MATCHES "^(EXECUTABLE|SHARED_LIBRARY|MODULE_LIBRARY|STATIC_LIBRARY|OBJECT_LIBRARY)$")
+      target_compile_options("${_target}" PRIVATE "$<$<OR:$<CONFIG:Release>,$<CONFIG:Profile>>:-g>")
+      if(_type MATCHES "^(EXECUTABLE|SHARED_LIBRARY|MODULE_LIBRARY)$")
+        target_link_options("${_target}" PRIVATE "$<$<OR:$<CONFIG:Release>,$<CONFIG:Profile>>:-Wl,--build-id=sha1>")
+        string(APPEND _xb_manifest "${_target}\t$<TARGET_FILE:${_target}>\n")
+      endif()
+    endif()
+  endforeach()
+  file(GENERATE OUTPUT "${CMAKE_BINARY_DIR}/sentry-native-$<CONFIG>.tsv"
+       CONTENT "${_xb_manifest}")
+endif()

@@ -26,6 +26,11 @@ Future<void> main(List<String> args) async {
       return;
     }
 
+    // Read the saved opt-out before native capture, then install Sentry before
+    // Rust/globalState initialization can fail. Monitoring failure is isolated.
+    final xboardConfig = XboardConfig.fromEnvironment();
+    await XboardModule.initializeMonitoringEarly(config: xboardConfig);
+
     if (system.isDesktop) {
       await RustLib.init();
     }
@@ -39,15 +44,13 @@ Future<void> main(List<String> args) async {
     // config: dart-define 编译期值（W8.5，prepare_flavor 生成 flavor_defines.json 注入；
     // 无注入则用占位默认）。
     try {
-      // 先显式 bind flavor 配置（含 XB_FORM_A），保证即便 bootstrap 同步阶段抛异常被吞，
-      // `XboardConfig.current.formA` 在首帧渲染时也已正确。
-      XboardConfig.bind(XboardConfig.fromEnvironment());
-      await XboardModule.bootstrap(
-        container,
-        config: XboardConfig.fromEnvironment(),
+      await XboardModule.bootstrap(container, config: xboardConfig);
+    } catch (error, stackTrace) {
+      XboardModule.captureStartupFailure(
+        'main Xboard bootstrap',
+        error,
+        stackTrace,
       );
-    } catch (_) {
-      // swallow（W8.3 SentryBootstrap 完成后尽力上报）
     }
 
     runApp(
@@ -61,6 +64,7 @@ Future<void> main(List<String> args) async {
     // 远端 Bootstrap 拉取 + endpoint 竞速 + baseUrl 热替换；绝不 await（不阻塞首屏）+ 永不抛（DD-2）。
     unawaited(XboardModule.bootstrapAsync(container));
   } catch (e, s) {
+    XboardModule.captureStartupFailure('main initialization', e, s);
     return runApp(
       MaterialApp(
         home: InitErrorScreen(error: e, stack: s),

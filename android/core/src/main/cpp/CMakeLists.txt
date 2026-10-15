@@ -9,8 +9,10 @@ message("CMAKE_BUILD_TYPE ${CMAKE_BUILD_TYPE}")
 
 if (NOT "${CMAKE_BUILD_TYPE}" STREQUAL "Debug")
     set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
-    add_compile_options(-O3 -flto -g0 -fno-exceptions -fno-rtti)
-    add_link_options(-flto -Wl,--gc-sections,--strip-all)
+    # Keep DWARF in the build intermediate. AGP strips the distributed copy;
+    # prepare_sentry_native_symbols.py extracts the matching debug companion.
+    add_compile_options(-O3 -flto -g -fno-exceptions -fno-rtti)
+    add_link_options(-flto -Wl,--gc-sections -Wl,--build-id=sha1)
 endif ()
 
 set(LIB_CLASH_PATH "${CMAKE_SOURCE_DIR}/../jniLibs/${ANDROID_ABI}/libclash.so")
