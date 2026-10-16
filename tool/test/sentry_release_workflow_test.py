@@ -14,8 +14,11 @@ WORKFLOW = Path(__file__).resolve().parents[2] / ".github/workflows/release-pack
 
 
 def step_script(name):
+    return script_after_marker("      - name: " + name)
+
+
+def script_after_marker(marker):
     lines = WORKFLOW.read_text().splitlines()
-    marker = "      - name: " + name
     begin = lines.index(marker) + 1
     end = next((index for index in range(begin, len(lines))
                 if lines[index].startswith("      - ")), len(lines))
@@ -29,7 +32,7 @@ def step_script(name):
                     break
                 body.append(line[width:] if line.strip() else "")
             return "\n".join(body)
-    raise AssertionError("Missing executable workflow step: " + name)
+    raise AssertionError("Missing executable workflow step: " + marker)
 
 
 @unittest.skipUnless(os.name == "posix" and shutil.which("bash"), "POSIX shell fixture required")
@@ -67,6 +70,33 @@ class ReleaseWorkflowTests(unittest.TestCase):
                 present = self.execute("Check required Sentry upload credentials", platform, token=token)
                 self.assertEqual(present.returncode, 0)
                 self.assertNotIn(token, present.stdout + present.stderr)
+
+    def test_combined_desktop_matrix_excludes_locally_validated_targets(self):
+        script = script_after_marker("      - id: r")
+        output = self.root / "matrix-output"
+        expected = {("windows", "amd64"), ("linux", "arm64"),
+                    ("macos", "amd64"), ("macos", "arm64")}
+        for target, wanted in (("desktop-except-linux-amd64", expected),
+                               ("desktop", expected | {("linux", "amd64")}),
+                               ("all", expected | {("linux", "amd64"), ("android", "")})):
+            with self.subTest(target=target):
+                output.unlink(missing_ok=True)
+                result = subprocess.run(["bash", "-c", script], cwd=self.root,
+                                        capture_output=True, text=True,
+                                        env={**self.env, "TARGET": target, "GITHUB_OUTPUT": str(output)})
+                self.assertEqual(result.returncode, 0, result.stderr)
+                matrix = json.loads(output.read_text().removeprefix("include=").strip())
+                self.assertEqual({(item["platform"], item.get("arch", "")) for item in matrix}, wanted)
+                self.assertEqual(len(matrix), len(wanted))
+                linux_x64 = [item for item in matrix if item["platform"] == "linux" and item.get("arch") == "amd64"]
+                if linux_x64:
+                    self.assertEqual(linux_x64[0]["os"], "ubuntu-22.04")
+
+        output.unlink(missing_ok=True)
+        invalid = subprocess.run(["bash", "-c", script], cwd=self.root, capture_output=True, text=True,
+                                 env={**self.env, "TARGET": "unsupported", "GITHUB_OUTPUT": str(output)})
+        self.assertNotEqual(invalid.returncode, 0)
+        self.assertFalse(output.exists())
 
     def test_every_packaging_target_receives_dart_split_debug_information(self):
         self.stub("dart")

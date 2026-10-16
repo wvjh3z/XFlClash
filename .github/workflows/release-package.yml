@@ -43,7 +43,7 @@ on:
           - brand_b
         default: brand_a
       target:
-        description: '构建目标平台（一次一个；all=全部并行）'
+        description: '构建目标（desktop=全部桌面；desktop-except-linux-amd64=跳过Linux x64；all=含Android）'
         type: choice
         options:
           - android
@@ -52,6 +52,8 @@ on:
           - linux-arm64
           - macos-amd64
           - macos-arm64
+          - desktop
+          - desktop-except-linux-amd64
           - all
         default: android
       upload:
@@ -109,6 +111,8 @@ jobs:
             linux-arm64)   INC="[$LR]" ;;
             macos-amd64)   INC="[$MA]" ;;
             macos-arm64)   INC="[$MR]" ;;
+            desktop)       INC="[$WA,$LA,$LR,$MA,$MR]" ;;
+            desktop-except-linux-amd64) INC="[$WA,$LR,$MA,$MR]" ;;
             all)           INC="[$A,$WA,$LA,$LR,$MA,$MR]" ;;
             *)             echo "未知 target: $TARGET"; exit 1 ;;
           esac
