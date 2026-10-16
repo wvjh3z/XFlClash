@@ -31,7 +31,7 @@
 #   会导致 rpm 打包失败（本地 Debian13/rpm4.20 已复现）。**勿把 amd64 升到 ubuntu-latest/24.04**。
 
 name: Release Package (multi-platform, flutter_distributor)
-run-name: "${{ inputs.flavor }} · ${{ inputs.target }} · build ${{ inputs.build_number || '自动读取' }}"
+run-name: "${{ inputs.build_number == '' && '准备编号 · ' || '' }}${{ inputs.flavor }} · ${{ inputs.target }}${{ inputs.build_number != '' && format(' · build {0}', inputs.build_number) || '' }}"
 
 on:
   workflow_dispatch:
@@ -75,6 +75,11 @@ on:
         type: string
         required: true
         default: '711e30dbd7a8553631193e4e7e62578f7af037af'
+      prepared_from:
+        description: '准备阶段关联信息（系统自动填写，通常留空）'
+        type: string
+        required: false
+        default: ''
 
 defaults:
   run:
@@ -96,6 +101,9 @@ jobs:
   setup:
     name: Resolve targets and build number
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: write # 自动模式仅在本 job 分派同一 workflow 的带号正式运行。
     outputs:
       include: ${{ steps.r.outputs.include }}
       build_number: ${{ steps.number.outputs.build_number }}
@@ -104,7 +112,9 @@ jobs:
         with:
           persist-credentials: false
       - name: Check build-number rules offline
-        run: python3 tool/test/release_build_number_test.py
+        run: |
+          python3 tool/test/release_build_number_test.py
+          python3 tool/test/release_build_dispatch_test.py
       - id: r
         env:
           TARGET: ${{ github.event.inputs.target || 'android' }}
@@ -134,10 +144,24 @@ jobs:
         id: number
         env:
           REQUESTED_BUILD_NUMBER: ${{ inputs.build_number }}
+          PREPARED_FROM: ${{ inputs.prepared_from }}
         run: python3 tool/release_build_number.py resolve --flavor "$FLAVOR"
+      - name: Start numbered build
+        if: inputs.build_number == ''
+        env:
+          BUILD_DISPATCH_TOKEN: ${{ github.token }}
+          RESOLVED_BUILD_NUMBER: ${{ steps.number.outputs.build_number }}
+          REQUESTED_BUILD_NUMBER: ${{ inputs.build_number }}
+          PREPARED_FROM: ${{ inputs.prepared_from }}
+          BUILD_TARGET: ${{ inputs.target }}
+          UPLOAD_PACKAGES: ${{ inputs.upload }}
+          VERIFY_SYMBOLICATION: ${{ inputs.verify_symbolication }}
+          SDK_REF: ${{ inputs.sdk_ref }}
+        run: python3 tool/release_build_number.py dispatch --flavor "$FLAVOR"
 
   package:
     needs: setup
+    if: inputs.build_number != ''
     name: ${{ matrix.platform }}${{ matrix.arch && format('-{0}', matrix.arch) }} (${{ github.event.inputs.flavor || 'brand_a' }}, build ${{ needs.setup.outputs.build_number }})
     runs-on: ${{ matrix.os }}
     env:
@@ -550,7 +574,7 @@ jobs:
   # a/b 各自独立计数：scripts/build_number.<flavor>.txt，互不影响。
   bump:
     needs: [setup, package]
-    if: github.event.inputs.upload == 'true'
+    if: inputs.build_number != '' && github.event.inputs.upload == 'true'
     name: Bump versionCode (next release)
     runs-on: ubuntu-latest
     steps:
