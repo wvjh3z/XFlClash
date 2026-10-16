@@ -17,7 +17,7 @@ class RustManifestTests(unittest.TestCase):
     def configure(self, mode="Release", rust=True, outputs=1):
         temporary = tempfile.TemporaryDirectory(prefix="sentry-rust-pdb-")
         self.addCleanup(temporary.cleanup)
-        root = Path(temporary.name)
+        root = Path(temporary.name).resolve()
         (root / "fixture.cpp").write_text("int main() { return 0; }\n")
         # Exercise the real generator expressions and manifest construction on
         # Linux too. This is a configuration test, not an MSVC compilation claim.
@@ -25,6 +25,10 @@ class RustManifestTests(unittest.TestCase):
                    "if(CMAKE_CONFIGURATION_TYPES)",
                    'set(CMAKE_CONFIGURATION_TYPES "Release;Profile" CACHE STRING "" FORCE)',
                    "endif()",
+                   'set(CMAKE_EXE_LINKER_FLAGS_PROFILE "${CMAKE_EXE_LINKER_FLAGS_RELEASE}")',
+                   'set(CMAKE_SHARED_LINKER_FLAGS_PROFILE "${CMAKE_SHARED_LINKER_FLAGS_RELEASE}")',
+                   'set(CMAKE_C_FLAGS_PROFILE "${CMAKE_C_FLAGS_RELEASE}")',
+                   'set(CMAKE_CXX_FLAGS_PROFILE "${CMAKE_CXX_FLAGS_RELEASE}")',
                    f"set(CMAKE_BUILD_TYPE {mode})", "set(MSVC TRUE)",
                    "set(CMAKE_CXX_COMPILER_ID MSVC)", "set(CMAKE_CXX_LINKER_SUPPORTS_PDB TRUE)",
                    "add_executable(FlClash fixture.cpp)",

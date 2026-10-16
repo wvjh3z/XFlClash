@@ -22,7 +22,13 @@ import tempfile
 
 from sentry_elf import ElfError, inspect_elf
 from sentry_android_prefab import SENTRY_ANDROID_TARGETS
-from sentry_macho import MachoError, inspect_macho, is_macho
+from sentry_linux_inventory import LinuxInventoryError, collect_linux_inventory
+from sentry_macho import MachoError, inspect_macho, is_macho, static_archive_architectures
+from sentry_macos_inventory import (
+    InventoryError, LINKER_ONLY_LIMITATION, SOURCE_LINE_LIMITATION, load_inventory,
+    required_source_targets, source_line_limitations,
+)
+from prepare_sentry_macos_symbols import contains_rust_debug, resolve_apple_tool
 
 CLI_VERSION = "2.58.4"
 PROJECTS = {"brand_a": "omofly", "brand_b": "daishu"}
@@ -83,6 +89,7 @@ def fingerprint(path: Path) -> dict:
 
 
 def audit_windows(cli: str, build_root: Path) -> tuple[list[Path], list[dict]]:
+    build_root = build_root.resolve()
     manifests = list(build_root.glob("**/sentry-symbols/Release/targets.tsv"))
     if len(manifests) != 1:
         raise SymbolError("Expected one fresh Windows Release target manifest")
@@ -95,7 +102,7 @@ def audit_windows(cli: str, build_root: Path) -> tuple[list[Path], list[dict]]:
         if target in targets:
             raise SymbolError("Duplicate Windows symbol target")
         targets.add(target)
-        binary, pdb = Path(binary_name), Path(pdb_name)
+        binary, pdb = Path(binary_name).resolve(), Path(pdb_name).resolve()
         binaries[target] = binary
         for artifact in (binary, pdb):
             if not artifact.resolve().is_relative_to(build_root.resolve()):
@@ -128,9 +135,10 @@ def audit_windows(cli: str, build_root: Path) -> tuple[list[Path], list[dict]]:
 
 
 def _windows_native_limits(build_root: Path, evidence: list[dict]) -> list[dict]:
+    build_root = build_root.resolve()
     manifest = next(build_root.glob("**/sentry-symbols/Release/targets.tsv"))
     rows = [row.split("\t") for row in manifest.read_text(encoding="utf-8").splitlines()]
-    bundle = Path(next(row[1] for row in rows if row[0] == "FlClash")).parent
+    bundle = Path(next(row[1] for row in rows if row[0] == "FlClash")).resolve().parent
     architectures = next(item.get("architectures", []) for item in evidence if item["target"] == "FlClash") or ["unknown"]
     owned = {item["binary"]["name"] for item in evidence}
     limitations = []
@@ -159,17 +167,32 @@ def _safe_label(value: object, field: str) -> str:
 def _native_path(root: Path, value: object) -> Path:
     if not isinstance(value, str) or not value or Path(value).is_absolute():
         raise SymbolError("Native manifest paths must be relative to the build root")
+    root = root.resolve()
     path = root / value
-    if not path.resolve().is_relative_to(root.resolve()):
+    if not path.resolve().is_relative_to(root):
         raise SymbolError("Native artifact escaped its build root")
     if not path.is_file():
         raise SymbolError("Native manifest references a missing artifact")
     return path
 
 
+def _native_relative_path(root: Path, path: Path) -> str:
+    """Compare real paths before converting macOS aliases/Windows short names.
+
+    Resolving only the root leaves manifest absolute paths under /var (or a
+    Windows 8.3 directory) lexically outside its /private/var/long-name spelling.
+    Resolving both sides also keeps symlinks that escape the build root rejected.
+    """
+    root, path = root.resolve(), path.resolve()
+    if not path.is_relative_to(root):
+        raise SymbolError("Native artifact escaped its build root")
+    return path.relative_to(root).as_posix()
+
+
 def _audit_native_inventory(build_root: Path, platform: str, entries: list[dict],
                             required: set[tuple[str, str]]) -> None:
     """Check distributed inputs independently of the upload manifest's lists."""
+    build_root = build_root.resolve()
     if platform == "android":
         runtime = build_root / "sentry-native/android/runtime"
         modules, expected = {}, set()
@@ -189,7 +212,7 @@ def _audit_native_inventory(build_root: Path, platform: str, entries: list[dict]
                 if (directory / target).is_file():
                     expected.add((target, abi))
             for binary in directory.glob("*.so"):
-                checked = _native_path(build_root, binary.relative_to(build_root).as_posix())
+                checked = _native_path(build_root, _native_relative_path(build_root, binary))
                 modules.setdefault((binary.name, abi), []).append(checked)
         if not expected:
             raise SymbolError("Android native audit requires final APK runtime inventory")
@@ -212,52 +235,29 @@ def _audit_native_inventory(build_root: Path, platform: str, entries: list[dict]
         if (bundle.name != "bundle" or native.name not in {"release", "profile"}
                 or native.parent != build_root / "linux" / architecture):
             raise SymbolError("Linux native audit requires the final configured bundle")
-        source_map = native / f"sentry-native-{native.name.capitalize()}.tsv"
-        source_map = _native_path(build_root, source_map.relative_to(build_root).as_posix())
         try:
-            rows = source_map.read_text(encoding="utf-8").splitlines()
-        except OSError as error:
-            raise SymbolError("Linux native audit requires its independent CMake source map") from error
-        expected = {("FlClash", architecture): binary,
-                    ("librust_api.so", architecture): bundle / "lib/librust_api.so"}
-        for row in rows:
-            fields = row.split("\t")
-            if len(fields) != 2:
-                raise SymbolError("Invalid independent CMake source map")
-            _safe_label(fields[0], "CMake target")
-            source = Path(fields[1])
-            if not source.resolve().is_relative_to(native.resolve()):
-                raise SymbolError("Independent CMake source escaped its native build root")
-            for installed in (bundle / source.name, bundle / "lib" / source.name):
-                if installed.is_file():
-                    expected[(installed.name, architecture)] = installed
-        # A truncated TSV must not turn a locally compiled, matching plugin into
-        # an accepted prebuilt gap. Match its actual build intermediate too.
-        for installed in (bundle / "lib").glob("*.so"):
-            try:
-                runtime_info = inspect_elf(installed)
-                for source in (native / "plugins").rglob(installed.name):
-                    if source.is_symlink() or not source.resolve().is_relative_to(native.resolve()) or not source.is_file():
-                        continue
-                    info = inspect_elf(source)
-                    if (runtime_info["build_id"] and info["build_id"] == runtime_info["build_id"]
-                            and info["has_debug_info"] and info["has_debug_line"]):
-                        expected[(installed.name, architecture)] = installed
-                        break
-            except (OSError, ElfError) as error:
-                raise SymbolError("Invalid Linux native inventory ELF") from error
-        core = bundle / "FlClashCore"
-        if core.exists():
-            if (core.name, architecture) not in required:
-                raise SymbolError("Native manifest omitted the distributed Go core companion")
-            expected[(core.name, architecture)] = core
+            inventory = collect_linux_inventory(build_root, architecture, native.name)
+        except LinuxInventoryError as error:
+            if str(error) == "local_plugin_source_manifest_missing":
+                raise SymbolError("Native manifest omitted a distributed CMake or owned native module") from error
+            raise SymbolError("Invalid Linux native inventory: " + str(error)) from error
+        expected = {(name, architecture): inventory["modules"][name] for name in inventory["required"]}
+        if "FlClashCore" in inventory["modules"] and ("FlClashCore", architecture) not in required:
+            raise SymbolError("Native manifest omitted the distributed Go core companion")
         if not expected.keys() <= required:
             raise SymbolError("Native manifest omitted a distributed CMake or owned native module")
-        indexed = {(entry["target"], entry["architecture"]): entry for entry in entries}
-        for identity, installed in expected.items():
-            declared = _native_path(build_root, indexed[identity]["binary"])
-            if declared.resolve() != installed.resolve():
+        for entry in (item for item in entries if item["architecture"] == architecture):
+            copies = inventory["modules"].get(entry["target"], [])
+            actual_paths = {path.resolve() for path in copies}
+            declared = _native_path(build_root, entry["binary"])
+            if declared.resolve() not in actual_paths:
                 raise SymbolError("Native artifact does not reference the final Linux bundle")
+            declared_copies = entry.get("binary_copies", [entry["binary"]])
+            if not isinstance(declared_copies, list) or not declared_copies:
+                raise SymbolError("Linux native artifact must enumerate its runtime copies")
+            copied_paths = [_native_path(build_root, value).resolve() for value in declared_copies]
+            if len(copied_paths) != len(set(copied_paths)) or set(copied_paths) != actual_paths:
+                raise SymbolError("Linux native artifact omitted or changed a runtime copy")
 
 
 def audit_elf_native(cli: str, build_root: Path, platform: str) -> tuple[list[Path], list[dict], list[dict]]:
@@ -266,6 +266,7 @@ def audit_elf_native(cli: str, build_root: Path, platform: str) -> tuple[list[Pa
     The preparation tool supplies final APK entries or installed Linux modules.
     Neither the binaries nor any source/map files are added to the upload list.
     """
+    build_root = build_root.resolve()
     manifest_path = build_root / "sentry-native" / platform / "manifest.json"
     try:
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -322,6 +323,11 @@ def audit_elf_native(cli: str, build_root: Path, platform: str) -> tuple[list[Pa
         evidence.append({"target": target, "architecture": architecture, "source": source,
                          "build_id": binary_elf["build_id"], "binary": fingerprint(binary),
                          "symbols": fingerprint(debug_file), **debug_info})
+        if platform == "linux" and "binary_copies" in entry:
+            copies = entry["binary_copies"]
+            if not isinstance(copies, list) or not copies:
+                raise SymbolError("Linux native artifact must enumerate its runtime copies")
+            evidence[-1]["binary_copies"] = [fingerprint(_native_path(build_root, value)) for value in copies]
     required = set()
     for entry in required_entries:
         if not isinstance(entry, dict):
@@ -362,14 +368,13 @@ def _macho_variants(path: Path) -> dict[str, dict]:
 
 def audit_macos(cli: str, build_root: Path) -> tuple[list[Path], list[dict], list[dict]]:
     """Audit every owned final .app module against a separate DWARF dSYM."""
+    build_root = build_root.resolve()
     try:
         manifest = json.loads((build_root / "sentry-native/macos/manifest.json").read_text(encoding="utf-8"))
-        owned = json.loads((build_root / "macos/sentry-native-owned.json").read_text(encoding="utf-8"))
     except (OSError, ValueError) as error:
-        raise SymbolError("macOS release requires native and CocoaPods ownership manifests") from error
-    if (not isinstance(manifest, dict) or manifest.get("schema_version") != 1 or manifest.get("platform") != "macos"
-            or not isinstance(owned, dict) or owned.get("schema_version") != 1 or not isinstance(owned.get("products"), list)):
-        raise SymbolError("Invalid macOS symbol or ownership manifest")
+        raise SymbolError("macOS release requires its native symbol manifest") from error
+    if not isinstance(manifest, dict) or manifest.get("schema_version") != 1 or manifest.get("platform") != "macos":
+        raise SymbolError("Invalid macOS symbol manifest")
     app_value = manifest.get("app")
     if not isinstance(app_value, str) or Path(app_value).is_absolute():
         raise SymbolError("macOS app path must be relative to the build root")
@@ -381,12 +386,12 @@ def audit_macos(cli: str, build_root: Path) -> tuple[list[Path], list[dict], lis
     candidates = [path.resolve() for path in products.glob("*.app") if path.is_dir()]
     if candidates != [app.resolve()]:
         raise SymbolError("macOS symbol audit requires one unambiguous Release app")
-    owned_products = set()
-    for item in owned["products"]:
-        if not isinstance(item, dict):
-            raise SymbolError("Invalid CocoaPods ownership record")
-        _safe_label(item.get("target"), "CocoaPods target")
-        owned_products.add(_safe_label(item.get("product"), "CocoaPods product"))
+    try:
+        owned = load_inventory(build_root, app)
+    except InventoryError as error:
+        raise SymbolError("macOS dependency inventory/build receipt is missing or does not match the final app") from error
+    owned_products = {item["product"] for item in owned["products"]}
+    owned_sources = {item["product"]: item["source"] for item in owned["products"]}
     try:
         with (app / "Contents/Info.plist").open("rb") as stream:
             app_metadata = plistlib.load(stream)
@@ -409,6 +414,10 @@ def audit_macos(cli: str, build_root: Path) -> tuple[list[Path], list[dict], lis
         physical_paths.add(actual)
         target = "runner" if actual == runner else _safe_label(path.name, "Mach-O target")
         product_names = {parent.name for parent in path.parents if parent.suffix == ".framework"}
+        product_names.add(path.name)
+        expected_source = ("runner" if target == "runner" else "rust" if target == "rust_api"
+                           else "go" if target == "FlClashCore" else next(
+                               (owned_sources[name] for name in product_names if name in owned_sources), "prebuilt"))
         for architecture, info in _macho_variants(path).items():
             identity = (target, architecture)
             if identity in inventory or info["filetype"] not in (2, 6, 8):
@@ -416,6 +425,7 @@ def audit_macos(cli: str, build_root: Path) -> tuple[list[Path], list[dict], lis
             inventory[identity] = {"binary": actual, "info": info,
                                    "owned": bool(product_names & owned_products)
                                             or target in {"runner", "rust_api", "FlClashCore"},
+                                   "source": expected_source,
                                    "dart": "App.framework" in product_names}
     if not any(target == "runner" for target, _ in inventory):
         raise SymbolError("macOS app executable is missing from its native inventory")
@@ -425,6 +435,7 @@ def audit_macos(cli: str, build_root: Path) -> tuple[list[Path], list[dict], lis
     if not isinstance(entries, list) or not entries or not isinstance(required_entries, list) or not required_entries or not isinstance(limitations, list):
         raise SymbolError("macOS manifest must enumerate companions, requirements and limitations")
     artifacts, evidence, seen = [], [], set()
+    rust_dwarfdump = None
     for entry in entries:
         if not isinstance(entry, dict):
             raise SymbolError("Invalid macOS companion record")
@@ -435,6 +446,8 @@ def audit_macos(cli: str, build_root: Path) -> tuple[list[Path], list[dict], lis
         if identity in seen or identity not in inventory:
             raise SymbolError("Duplicate or undistributed macOS companion record")
         seen.add(identity)
+        if source != inventory[identity]["source"]:
+            raise SymbolError("macOS companion source does not match the dependency inventory")
         binary, debug = (_native_path(build_root, entry.get(key)) for key in ("binary", "debug_file"))
         if binary.resolve() != inventory[identity]["binary"]:
             raise SymbolError("macOS companion does not reference the final app module")
@@ -452,6 +465,19 @@ def audit_macos(cli: str, build_root: Path) -> tuple[list[Path], list[dict], lis
             raise SymbolError("dSYM companion contains a runtime Mach-O or executable code")
         if not info["has_debug_info"] or not info["has_debug_line"]:
             raise SymbolError("dSYM is missing DWARF line information")
+        if source == "rust":
+            # An independent/reused audit must prove Rust language CUs in
+            # every distributed slice, even when the companion is universal.
+            # UUID and generic C/Swift line tables alone are insufficient.
+            try:
+                rust_dwarfdump = rust_dwarfdump or resolve_apple_tool("dwarfdump")
+                has_rust = contains_rust_debug(rust_dwarfdump, debug, architecture=architecture)
+            except Exception:
+                # Native tools can include private paths or source text in
+                # exceptions. The bounded scanner owns its process cleanup.
+                raise SymbolError("macos_rust_debug_verification_failed") from None
+            if not has_rust:
+                raise SymbolError("macos_rust_slice_missing_rust_compilation_units")
         binary_info = check_symbol(cli, binary, "dsym", require_usable=False)
         debug_info = check_symbol(cli, debug, "dsym")
         if info["uuid"] not in binary_info["debug_ids"] or info["uuid"] not in debug_info["debug_ids"] or "debug" not in debug_info["features"].split(", "):
@@ -470,8 +496,11 @@ def audit_macos(cli: str, build_root: Path) -> tuple[list[Path], list[dict], lis
         required.add(identity)
     if not required <= seen:
         raise SymbolError("macOS manifest omitted a required dSYM companion")
-    # Independently use local link maps and usable build-product dSYMs so
-    # removing both a required record and its artifact cannot hide a module.
+    if any(not set(item["hosts"]) <= {target for target, _ in required}
+           for item in required_source_targets(owned["source_targets"])):
+        raise SymbolError("macOS source package omitted its static host dSYM")
+    # Independently use final-UUID-matched local runtime link maps so removing
+    # both a required record and its artifact cannot hide a source module.
     for identity, runtime in inventory.items():
         if runtime["dart"]:
             continue
@@ -481,23 +510,90 @@ def audit_macos(cli: str, build_root: Path) -> tuple[list[Path], list[dict], lis
                 if (not candidate.is_file() or candidate.resolve().is_relative_to(app.resolve())
                         or not is_macho(candidate)):
                     continue
+                try:
+                    if static_archive_architectures(candidate) is not None:
+                        continue
+                except MachoError as error:
+                    raise SymbolError("Invalid Mach-O build candidate") from error
                 info = _macho_variants(candidate).get(architecture)
                 if (info and info["uuid"] == runtime["info"]["uuid"]
-                        and (info["has_oso_symbols"] or (info["has_debug_info"] and info["has_debug_line"]))):
+                        and info["filetype"] in {2, 6, 8} and info["has_oso_symbols"]):
                     runtime["owned"] = True
                     break
         if runtime["owned"] and identity not in required:
             raise SymbolError("macOS manifest omitted a locally compiled or required app module")
     safe_limitations = []
     limited = set()
+    host_architectures = {}
+    for target, architecture in inventory:
+        host_architectures.setdefault(target, set()).add(architecture)
+    try:
+        expected_source_limits = {
+            (item["package"], item["target"], item["host"], item["architecture"]): item["reason"]
+            for item in source_line_limitations(owned["source_targets"], host_architectures)
+        }
+    except InventoryError:
+        raise SymbolError("macOS source package host architecture is unavailable") from None
+    source_limits = set()
+    expected_static_vendor_limits = {
+        (item["target"], architecture)
+        for item in owned["binary_targets"] for host in set(item["hosts"]) - set(item["dynamic_hosts"])
+        for architecture in host_architectures[host]
+    }
+    static_vendor_limits = set()
     for item in limitations:
         if not isinstance(item, dict):
             raise SymbolError("Invalid macOS coverage limitation")
         safe = {key: _safe_label(item.get(key), key) for key in ("target", "architecture", "source", "reason")}
-        limited.add((safe["target"], safe["architecture"]))
+        if safe["reason"] in {SOURCE_LINE_LIMITATION, LINKER_ONLY_LIMITATION}:
+            safe.update({key: _safe_label(item.get(key), key) for key in ("package", "host")})
+            identity = (safe["package"], safe["target"], safe["host"], safe["architecture"])
+            if (safe["source"] != "spm" or expected_source_limits.get(identity) != safe["reason"]
+                    or identity in source_limits):
+                raise SymbolError("Invalid or duplicate macOS source target coverage limitation")
+            source_limits.add(identity)
+            # A target-to-host evidence limit can never replace a runtime
+            # module's required dSYM or its explicit prebuilt-module limit.
+        elif safe["reason"] == "static_binary_package_debug_coverage_unverified":
+            identity = (safe["target"], safe["architecture"])
+            if safe["source"] != "prebuilt" or identity not in expected_static_vendor_limits:
+                raise SymbolError("Invalid macOS static binary coverage limitation")
+            # The vendor target and runtime host can have the same name.
+            # This scope never substitutes for a missing runtime companion.
+            static_vendor_limits.add(identity)
+        else:
+            identity = (safe["target"], safe["architecture"])
+            runtime = inventory.get(identity)
+            if runtime is None:
+                raise SymbolError("Invalid macOS runtime coverage limitation")
+            if safe["reason"] in {"prebuilt_debug_companion_unavailable", "external_debug_companion_unavailable"}:
+                valid = (safe["source"] == runtime["source"] == "prebuilt"
+                         and not runtime["owned"] and identity not in seen and not runtime["dart"])
+            elif safe["reason"] == "split_debug_info_managed_separately":
+                valid = safe["source"] == "dart" and runtime["dart"]
+            elif safe["reason"] == "separate_process_no_sentry_sdk":
+                valid = safe["source"] == runtime["source"] == "go" and safe["target"] == "FlClashCore"
+            else:
+                valid = False
+            if not valid:
+                raise SymbolError("Invalid macOS runtime coverage limitation")
+            limited.add(identity)
         safe_limitations.append(safe)
+    if source_limits != set(expected_source_limits):
+        raise SymbolError("macOS source package omitted its target line coverage limitation")
     if not inventory.keys() <= seen | limited:
         raise SymbolError("macOS manifest omitted a distributed module or its explicit limitation")
+    if any(inventory.get((item["target"], item["architecture"]), {}).get("owned")
+           and item["source"] == "prebuilt"
+           and not (item["reason"] == "static_binary_package_debug_coverage_unverified"
+                    and (item["target"], item["architecture"]) in expected_static_vendor_limits)
+           for item in safe_limitations):
+        raise SymbolError("Required macOS source coverage cannot also be a limitation")
+    for item in owned["binary_targets"]:
+        for host in set(item["hosts"]) - set(item["dynamic_hosts"]):
+            if any((item["target"], architecture) not in static_vendor_limits
+                   for target, architecture in inventory if target == host):
+                raise SymbolError("macOS static binary package omitted its explicit coverage limitation")
     return list(dict.fromkeys(artifacts)), evidence, safe_limitations
 
 
@@ -509,7 +605,7 @@ def _dart_runtime_modules(root: Path, platform: str) -> dict[str, list[Path]]:
         for directory in sorted((root / "sentry-native/android/runtime").glob("*/*")):
             if directory.name not in names or not any((directory / name).is_file() for name in ("libapp.so", "libflutter.so")):
                 continue
-            path = _native_path(root, (directory / "libapp.so").relative_to(root).as_posix())
+            path = _native_path(root, _native_relative_path(root, directory / "libapp.so"))
             result.setdefault(names[directory.name], []).append(path)
     elif platform == "windows":
         manifests = list((root / "windows").glob("**/sentry-symbols/Release/targets.tsv"))
@@ -520,7 +616,7 @@ def _dart_runtime_modules(root: Path, platform: str) -> dict[str, list[Path]]:
         if len(runners) != 1:
             raise SymbolError("Dart audit requires one final Windows runner")
         runtime = runners[0].parent / "data/app.so"
-        runtime = _native_path(root, runtime.relative_to(root).as_posix())
+        runtime = _native_path(root, _native_relative_path(root, runtime))
         try:
             architecture = {"x86_64": "x64", "aarch64": "arm64"}[inspect_elf(runtime)["architecture"]]
         except (ElfError, KeyError, OSError) as error:
@@ -533,14 +629,14 @@ def _dart_runtime_modules(root: Path, platform: str) -> dict[str, list[Path]]:
                 for entry in manifest["artifacts"]:
                     if entry["target"] == "FlClash":
                         binary = _native_path(root, entry["binary"]).parent / "lib/libapp.so"
-                        path = _native_path(root, binary.relative_to(root).as_posix())
+                        path = _native_path(root, _native_relative_path(root, binary))
                         result.setdefault(entry["architecture"], []).append(path)
             else:
                 app = root / manifest["app"]
                 candidates = {path.resolve() for path in (app / "Contents/Frameworks/App.framework").rglob("App") if path.is_file()}
                 if len(candidates) != 1:
                     raise SymbolError("Dart audit requires one final macOS App.framework AOT module")
-                binary = _native_path(root, candidates.pop().relative_to(root.resolve()).as_posix())
+                binary = _native_path(root, _native_relative_path(root, candidates.pop()))
                 for architecture in _macho_variants(binary):
                     result[architecture] = [binary]
         except (OSError, ValueError, KeyError, TypeError) as error:
@@ -559,7 +655,7 @@ def _dart_companion_shape(path: Path, platform: str, suffix: str) -> tuple[str, 
             elf = stream.read(4) == b"\x7fELF"
         if elf:
             if platform == "macos":
-                raise SymbolError("macOS Dart split symbols require the pinned Flutter 3.44.0 Mach-O snapshot build")
+                raise SymbolError("macOS Dart split symbols require the pinned macOS Flutter Mach-O snapshot build")
             info = inspect_elf(path)
             if info["has_executable_text"]:
                 raise SymbolError("Dart split companion contains executable code")
@@ -586,18 +682,19 @@ def _dart_companion_shape(path: Path, platform: str, suffix: str) -> tuple[str, 
 
 def collect_companions(cli: str, root: Path, platform: str,
                        expected_architectures: set[str] | None = None) -> tuple[list[Path], list[dict]]:
+    root = root.resolve()
     artifacts, evidence = [], []
     # Flutter's TargetPlatform.darwin differs from our workflow's macos label.
     # getNameForTargetPlatform supplies darwin-{x86_64,arm64}, not macos-*.
     dart_platform = "darwin" if platform == "macos" else platform
     runtimes = _dart_runtime_modules(root, platform)
     for path in sorted((root / "debug-info").glob(f"app.{dart_platform}-*.symbols")):
-        path = _native_path(root, path.relative_to(root).as_posix())
+        path = _native_path(root, _native_relative_path(root, path))
         try:
             info = check_symbol(cli, path)
         except SymbolError as error:
             if platform == "macos":
-                raise SymbolError("macOS Dart split symbols have no usable identifier; use the pinned Flutter 3.44.0 Mach-O snapshot build") from error
+                raise SymbolError("macOS Dart split symbols have no usable identifier; use the pinned macOS Flutter Mach-O snapshot build") from error
             raise
         if info["format"] not in ("elf", "dsym"):
             raise SymbolError("Unexpected Dart debug companion format")

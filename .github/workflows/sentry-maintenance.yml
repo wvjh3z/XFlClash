@@ -17,6 +17,11 @@ on:
           - apply
           - verify
           - apply-and-verify
+          - verify-symbolication
+      symbolication_report:
+        description: 'verify-symbolication only: safe report JSON from a locally sent controlled event'
+        type: string
+        default: ''
 
 permissions:
   contents: read
@@ -38,10 +43,15 @@ jobs:
       - name: Audit, apply or verify fixed Sentry projects
         env:
           MAINTENANCE_MODE: ${{ inputs.mode }}
+          SYMBOLICATION_REPORT: ${{ inputs.symbolication_report }}
           SENTRY_MAINTENANCE_TOKEN: ${{ secrets.SENTRY_MAINTENANCE_TOKEN }}
         shell: bash
         run: |
           case "$MAINTENANCE_MODE" in
+            verify-symbolication)
+              python3 -c 'import os,pathlib; p=pathlib.Path(os.environ["RUNNER_TEMP"])/"symbolication-input.json"; p.write_text(os.environ["SYMBOLICATION_REPORT"], encoding="utf-8")'
+              python3 tool/sentry_desktop_symbolication_probe.py verify --report "$RUNNER_TEMP/symbolication-input.json" --output sentry-report/sentry-symbolication-probe.json
+              exit 0 ;;
             audit|apply|verify|apply-and-verify) ;;
             *) echo 'Invalid maintenance mode'; exit 1 ;;
           esac
@@ -51,6 +61,8 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: sentry-raw-logging-safe-report
-          path: sentry-report/sentry-raw-logging.json
+          path: |
+            sentry-report/sentry-raw-logging.json
+            sentry-report/sentry-symbolication-probe.json
           if-no-files-found: warn
           retention-days: 7

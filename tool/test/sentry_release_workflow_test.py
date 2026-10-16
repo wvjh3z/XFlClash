@@ -37,7 +37,7 @@ class ReleaseWorkflowTests(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
-        self.root = Path(self.temporary.name)
+        self.root = Path(self.temporary.name).resolve()
         self.bin = self.root / "bin"
         self.bin.mkdir()
         self.env = {"PATH": str(self.bin) + os.pathsep + os.environ["PATH"],
@@ -115,6 +115,28 @@ class ReleaseWorkflowTests(unittest.TestCase):
         result = self.execute("Prepare, audit and upload matching Sentry symbols", "android", "")
         self.assertNotEqual(result.returncode, 0)
         self.assertFalse((self.root / "arguments.json").exists())
+
+    def test_mac_probe_selects_the_matrix_slice_before_sending(self):
+        path = self.bin / "python"
+        path.write_text("#!/usr/bin/env python3\nimport json,os,sys\n"
+                        "with open(os.environ['RECORDED_ARGS'],'a') as stream: "
+                        "stream.write(json.dumps(sys.argv[1:])+'\\n')\n")
+        path.chmod(0o755)
+        output = self.root / "arguments.json"
+        for architecture, expected in (("amd64", "x86_64"), ("arm64", "arm64")):
+            with self.subTest(architecture=architecture):
+                output.unlink(missing_ok=True)
+                result = self.execute("Send controlled desktop symbolication probe", "macos", architecture)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                calls = [json.loads(line) for line in output.read_text().splitlines()]
+                self.assertEqual(len(calls), 2)
+                self.assertEqual(calls[0][0], "tool/pick_sentry_symbolication_probe.py")
+                self.assertEqual(calls[0][calls[0].index("--architecture") + 1], expected)
+                self.assertEqual(calls[1][:2], ["tool/sentry_desktop_symbolication_probe.py", "emit"])
+        output.unlink(missing_ok=True)
+        unknown = self.execute("Send controlled desktop symbolication probe", "macos", "unknown")
+        self.assertNotEqual(unknown.returncode, 0)
+        self.assertFalse(output.exists())
 
 
 if __name__ == "__main__":

@@ -264,6 +264,7 @@
 				3399D490228B24CF009A79C7 /* ShellScript */,
 				DD2258A65B871C474676AD18 /* [CP] Embed Pods Frameworks */,
 				F51BB7C92EF0265000E05D67 /* Copy Core */,
+				C518E4B72026101600000001 /* Record Sentry Native Inventory */,
 			);
 			buildRules = (
 			);
@@ -350,6 +351,19 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXShellScriptBuildPhase section */
+		C518E4B72026101600000001 /* Record Sentry Native Inventory */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = ();
+			inputPaths = ();
+			name = "Record Sentry Native Inventory";
+			outputPaths = ();
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "python3 \"$PROJECT_DIR/../tool/sentry_macos_inventory.py\" --xcode-build\n";
+			showEnvVarsInLog = 0;
+		};
 		3399D490228B24CF009A79C7 /* ShellScript */ = {
 			isa = PBXShellScriptBuildPhase;
 			alwaysOutOfDate = 1;

@@ -423,7 +423,7 @@ def main(argv: list[str] | None = None) -> int:
             symbol.append("--audit-only")
         if args.no_sentry:
             symbol.append("--no-sentry")
-        gradle_home = Path(environment.get("GRADLE_USER_HOME", str(Path.home() / ".gradle")))
+        gradle_home = Path(environment.get("GRADLE_USER_HOME") or str(Path.home() / ".gradle"))
         with temporary_android_configuration(root, gradle_home):
             builder.run(["flutter", "pub", "get", "--enforce-lockfile"], "sdk-pub-get", sdk)
             builder.run(["flutter", "clean"], "clean")

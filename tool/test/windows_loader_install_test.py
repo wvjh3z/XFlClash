@@ -260,7 +260,7 @@ set(PLUGIN_BUNDLED_LIBRARIES
 
     def check_install(self, configuration: str, explicit_prefix: bool) -> None:
         with tempfile.TemporaryDirectory(prefix="xflclash-loader-install-") as tmp:
-            self.fixture = Path(tmp)
+            self.fixture = Path(tmp).resolve()
             self.create_fixture()
             custom_prefix = self.configure_and_build(
                 configuration, explicit_prefix=explicit_prefix
@@ -336,7 +336,7 @@ set(PLUGIN_BUNDLED_LIBRARIES
         self, *, msvc: bool, include_inapp_plugin: bool = True
     ) -> None:
         with tempfile.TemporaryDirectory(prefix="xflclash-mutex-compile-") as tmp:
-            self.fixture = Path(tmp)
+            self.fixture = Path(tmp).resolve()
             self.create_fixture(msvc=msvc, include_inapp_plugin=include_inapp_plugin)
             self.configure_and_build("Release")
             self.check_compile_definitions(

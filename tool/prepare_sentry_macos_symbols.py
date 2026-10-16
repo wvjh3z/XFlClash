@@ -4,25 +4,73 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
+import os
 from pathlib import Path
 import plistlib
 import re
+import selectors
 import shutil
 import struct
 import subprocess
+import signal
 import sys
+import tempfile
+import time
 import uuid
 import zlib
 
-from sentry_macho import MachoError, inspect_macho, is_macho, read_slices
+from sentry_macho import MachoError, inspect_macho, is_macho, read_slices, static_archive_architectures
+from sentry_macos_inventory import (
+    InventoryError, load_inventory, required_source_targets, source_line_limitations,
+)
 
 MAX_DEBUG_SECTION = 512 * 1024 * 1024
 MAX_DEBUG_PAYLOAD = 1024 * 1024 * 1024
+DSYMUTIL_TIMEOUT = 300
+RUST_DWARFDUMP_TIMEOUT = 60
+MAX_RUST_DEBUG_OUTPUT = 32 * 1024 * 1024
+MAX_DWARF_ATTRIBUTE_LINE = 65536
+PREPARATION_TIMEOUT = 600
+MAX_PREPARATION_MODULES = 128
+MAX_COMPANION_INPUTS = 4096
+MAX_SOURCE_CANDIDATES = 4096
+MAX_GENERATED_DSYMS = 64
+MAX_MODULE_GENERATIONS = 4
+RUST_LANGUAGE_ATTRIBUTE = re.compile(
+    rb"\s*(?:0x[0-9a-fA-F]+:\s*)?DW_AT_language"
+    rb"(?:\s+\[DW_FORM_[A-Za-z0-9_]+\])?\s*"
+    rb"\(\s*DW_LANG_Rust\s*\)\s*"
+)
 
 
 class PreparationError(RuntimeError):
     pass
+
+
+SAFE_PREPARATION_CODES = frozenset({
+    "app_macho_escaped_bundle", "apple_debug_tool_lookup_timeout", "apple_debug_tool_unavailable",
+    "duplicate_macos_module_target", "final_macos_app_outside_products", "go_dsym_output_required",
+    "go_dsym_requires_executable_macho", "go_dsym_validation_failed", "go_macho_dwarf_unavailable",
+    "go_macho_text_base_unavailable", "invalid_compressed_go_dwarf", "invalid_go_dsym_destination",
+    "invalid_macos_symbol_input", "invalid_macos_symbol_label", "macos_debug_process_termination_timeout",
+    "macos_dsymutil_timeout", "macos_owned_or_bundle_metadata_missing", "macos_runner_macho_missing",
+    "macos_rust_dwarfdump_failed", "macos_rust_dwarfdump_incomplete", "macos_rust_dwarfdump_output_limit",
+    "macos_rust_dwarfdump_timeout", "missing_macos_uuid_or_architecture", "one_final_macos_app_required",
+    "oversize_compressed_go_dwarf", "oversize_go_debug_payload", "required_macos_matching_dsym_unavailable",
+    "required_macos_native_product_missing", "rust_framework_missing_rust_compilation_units",
+    "source_macos_package_host_architecture_missing", "static_macos_package_host_dsym_missing",
+    "truncated_go_macho_dwarf", "unsafe_macos_symbol_output", "unsupported_go_macho_slice",
+    "unsupported_rust_debug_architecture", "macos_symbol_preparation_limit_exceeded",
+    "macos_symbol_preparation_timeout", "unsafe_macos_symbol_preparation_report",
+    "macos_source_image_escaped_products", "invalid_macos_source_image", "truncated_macos_debug_slice",
+    "macos_symbol_preparation_failed", "macos_symbol_preparation_report_failed",
+})
+
+
+def preparation_code(error):
+    return str(error) if isinstance(error, PreparationError) and str(error) in SAFE_PREPARATION_CODES else "macos_symbol_preparation_failed"
 
 
 def safe_label(value):
@@ -159,35 +207,125 @@ def macho_inventory(app: Path):
 
 
 def dwarf_files(root: Path):
-    return [path for bundle in root.rglob("*.dSYM") if bundle.is_dir()
-            for path in (bundle / "Contents/Resources/DWARF").glob("*") if path.is_file()]
+    for bundle in root.rglob("*.dSYM"):
+        if bundle.is_dir():
+            for path in (bundle / "Contents/Resources/DWARF").glob("*"):
+                if path.is_file():
+                    yield path
 
 
-def contains_rust_debug(dwarfdump: str, path: Path) -> bool:
-    # Read only until a Rust compilation unit is proved, never emit source paths.
-    process = subprocess.Popen([dwarfdump, "--debug-info", str(path)], stdout=subprocess.PIPE,
-                               stderr=subprocess.DEVNULL)
-    total, found = 0, False
-    try:
-        for line in process.stdout:
-            total += len(line)
-            if b"DW_AT_language" in line and b"DW_LANG_Rust" in line:
-                found = True
-                break
-            if total > 32 * 1024 * 1024:
-                break
-    finally:
-        if process.poll() is None:
+def stop_debug_process(process) -> None:
+    if os.name == "posix":
+        # The leader may exit while an inherited pipe is still held by a
+        # descendant. The process owns a private session, so clean its group.
+        for sig in (signal.SIGTERM, signal.SIGKILL):
+            try:
+                os.killpg(process.pid, sig)
+            except ProcessLookupError:
+                pass
+            if sig == signal.SIGTERM:
+                try:
+                    process.wait(timeout=1)
+                except subprocess.TimeoutExpired:
+                    pass
+        try:
+            process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            raise PreparationError("macos_debug_process_termination_timeout") from None
+    elif process.poll() is None:
+        try:
             process.terminate()
-        process.wait()
+            process.wait(timeout=1)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                raise PreparationError("macos_debug_process_termination_timeout") from None
+
+
+def run_dsymutil(tool: str, binary: Path, destination: Path, *, timeout=DSYMUTIL_TIMEOUT):
+    try:
+        return subprocess.run([tool, str(binary), "-o", str(destination)],
+                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        raise PreparationError("macos_dsymutil_timeout") from None
+
+
+def is_rust_language_attribute(line: bytes) -> bool:
+    # Match the property itself, never a source/producer/name string that
+    # happens to contain its spelling. This is LLVM/Apple dwarfdump syntax.
+    return RUST_LANGUAGE_ATTRIBUTE.fullmatch(line) is not None
+
+
+def contains_rust_debug(dwarfdump: str, path: Path, *, architecture=None, timeout=RUST_DWARFDUMP_TIMEOUT) -> bool:
+    # Read only until a Rust compilation unit is proved, never emit source paths.
+    if architecture is not None and architecture not in {"arm64", "x86_64"}:
+        raise PreparationError("unsupported_rust_debug_architecture")
+    command = [dwarfdump, "--debug-info"] + (["--arch=" + architecture] if architecture else []) + [str(path)]
+    process = subprocess.Popen(command, stdout=subprocess.PIPE,
+                               stderr=subprocess.DEVNULL, start_new_session=os.name == "posix")
+    total, found, pending, dropping_line = 0, False, b"", False
+    deadline = time.monotonic() + timeout
+    try:
+        with selectors.DefaultSelector() as selector:
+            selector.register(process.stdout, selectors.EVENT_READ)
+            while selector.get_map() or process.poll() is None:
+                if time.monotonic() >= deadline:
+                    raise PreparationError("macos_rust_dwarfdump_timeout")
+                for key, _ in selector.select(min(0.1, max(0, deadline - time.monotonic()))):
+                    chunk = os.read(key.fileobj.fileno(), min(65536, MAX_RUST_DEBUG_OUTPUT - total + 1))
+                    if not chunk:
+                        selector.unregister(key.fileobj)
+                        continue
+                    remaining = MAX_RUST_DEBUG_OUTPUT - total
+                    total += len(chunk)
+                    captured = chunk[:remaining]
+                    if dropping_line:
+                        _, separator, captured = captured.partition(b"\n")
+                        if not separator:
+                            if total > MAX_RUST_DEBUG_OUTPUT:
+                                raise PreparationError("macos_rust_dwarfdump_output_limit")
+                            continue
+                        dropping_line = False
+                    pending += captured
+                    while b"\n" in pending:
+                        line, pending = pending.split(b"\n", 1)
+                        if len(line) <= MAX_DWARF_ATTRIBUTE_LINE and is_rust_language_attribute(line):
+                            found = True
+                            break
+                    if found:
+                        break
+                    if total > MAX_RUST_DEBUG_OUTPUT:
+                        raise PreparationError("macos_rust_dwarfdump_output_limit")
+                    if len(pending) > MAX_DWARF_ATTRIBUTE_LINE:
+                        pending = b""
+                        dropping_line = True
+                if found:
+                    break
+            if (not found and process.poll() == 0 and not dropping_line
+                    and is_rust_language_attribute(pending)):
+                found = True
+            if not found and process.poll() != 0:
+                raise PreparationError("macos_rust_dwarfdump_incomplete")
+    except (OSError, ValueError):
+        raise PreparationError("macos_rust_dwarfdump_failed") from None
+    finally:
+        try:
+            stop_debug_process(process)
+        finally:
+            process.stdout.close()
     return found
 
 
-def resolve_apple_tool(name: str) -> str:
+def resolve_apple_tool(name: str, *, timeout=30) -> str:
     explicit = shutil.which(name)
     if explicit:
         return explicit
-    result = subprocess.run(["xcrun", "--find", name], capture_output=True, text=True)
+    try:
+        result = subprocess.run(["xcrun", "--find", name], capture_output=True, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        raise PreparationError("apple_debug_tool_lookup_timeout") from None
     if result.returncode or not Path(result.stdout.strip()).is_file():
         raise PreparationError("apple_debug_tool_unavailable")
     return result.stdout.strip()
@@ -213,95 +351,361 @@ class Preparer:
             shutil.rmtree(self.output)
         self.output.mkdir(parents=True)
         self.dsymutil, self.dwarfdump = dsymutil, dwarfdump
+        self.configuration = configuration
         self.artifacts, self.limitations, self.required = [], [], []
 
     def limitation(self, target, architecture, source, reason):
         self.limitations.append(dict(target=target, architecture=architecture, source=source, reason=reason))
 
-    def prepare(self):
+    def _budget(self):
+        if time.monotonic() >= self.deadline:
+            raise PreparationError("macos_symbol_preparation_timeout")
+
+    def _problem(self, error):
+        code = preparation_code(error)
+        if code not in self.failures:
+            self.failures.append(code)
+        return code
+
+    def _tool(self, name):
+        self._budget()
+        if name not in self.tools:
+            self.tools[name] = resolve_apple_tool(name, timeout=min(30, max(.001, self.deadline - time.monotonic())))
+        self._budget()
+        return self.tools[name]
+
+    def _register_companion(self, path, origin):
+        actual = path.resolve()
+        if actual not in self.companions:
+            if len(self.companions) >= MAX_COMPANION_INPUTS:
+                raise PreparationError("macos_symbol_preparation_limit_exceeded")
+            self.companions[actual] = (variants(actual), origin)
+        return actual
+
+    def _usable(self, item):
+        return (item["filetype"] == 10 and item["has_debug_info"] and item["has_debug_line"]
+                and not item["has_executable_text"])
+
+    def _matches(self, architecture, identifier):
+        return [(path, item, origin) for path, (items, origin) in self.companions.items()
+                for item in items if item["architecture"] == architecture and item["uuid"] == identifier]
+
+    def _code_signature(self, path, item):
+        key = (path.resolve(), item["architecture"])
+        if key not in self.code_signatures:
+            result = []
+            with path.open("rb") as stream:
+                for section in item["sections"]:
+                    if not section["has_contents"] or not (section["name"] == "__text" or section["flags"] & 0x80000400):
+                        continue
+                    if section["size"] > MAX_DEBUG_PAYLOAD:
+                        raise PreparationError("macos_symbol_preparation_limit_exceeded")
+                    digest, remaining = hashlib.sha256(), section["size"]
+                    stream.seek(section["offset"])
+                    while remaining:
+                        self._budget()
+                        chunk = stream.read(min(1024 * 1024, remaining))
+                        if not chunk:
+                            raise PreparationError("invalid_macos_source_image")
+                        digest.update(chunk)
+                        remaining -= len(chunk)
+                    result.append((section["segment"], section["name"], section["addr"], section["size"], digest.digest()))
+            self.code_signatures[key] = tuple(result)
+        return self.code_signatures[key]
+
+    def _products_sources(self, binary, slices):
+        sources = {item["architecture"]: [] for item in slices}
+        counts = {item["architecture"]: [0, 0] for item in slices}
+        seen = set()
+        for candidate in self.products.rglob(binary.name):
+            self._budget()
+            if not candidate.is_file():
+                continue
+            actual = candidate.resolve()
+            if actual.is_relative_to(self.app) or actual in seen:
+                continue
+            if not actual.is_relative_to(self.products.resolve()):
+                raise PreparationError("macos_source_image_escaped_products")
+            seen.add(actual)
+            if self.source_candidates >= MAX_SOURCE_CANDIDATES:
+                raise PreparationError("macos_symbol_preparation_limit_exceeded")
+            self.source_candidates += 1
+            try:
+                if static_archive_architectures(actual) is not None or not is_macho(actual):
+                    continue
+                items = variants(actual)
+            except (MachoError, OSError):
+                raise PreparationError("invalid_macos_source_image") from None
+            for runtime in slices:
+                item = next((entry for entry in items if entry["architecture"] == runtime["architecture"]
+                             and entry["uuid"] == runtime["uuid"] and entry["filetype"] in {2, 6, 8}
+                             and entry["has_oso_symbols"]), None)
+                if item is None:
+                    continue
+                counts[item["architecture"]][0] += 1
+                signature = self._code_signature(actual, item)
+                if signature and signature == self._code_signature(binary, runtime):
+                    sources[item["architecture"]].append(actual)
+                else:
+                    counts[item["architecture"]][1] += 1
+        return sources, counts
+
+    def _generate(self, binary, target, origin, row):
+        self._budget()
+        actual = binary.resolve()
+        if actual in self.generated:
+            return
+        if (len(self.generated) >= MAX_GENERATED_DSYMS
+                or self.module_generations.get(target, 0) >= MAX_MODULE_GENERATIONS):
+            raise PreparationError("macos_symbol_preparation_limit_exceeded")
+        self.generated.add(actual)
+        self.module_generations[target] = self.module_generations.get(target, 0) + 1
+        destination = self.output / "generated" / (str(len(self.generated)) + ".dSYM")
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        row["dsymutil_attempts"] += 1
         try:
-            metadata = json.loads((self.root / "macos/sentry-native-owned.json").read_text())
-            records = metadata["products"]
-            if metadata.get("schema_version") != 1 or not isinstance(records, list):
-                raise ValueError()
-            owned = {safe_label(item["product"]): safe_label(item["target"]) for item in records}
+            tool = self.dsymutil or self._tool("dsymutil")
+            self._budget()
+            self.dsymutil_runs += 1
+            completed = run_dsymutil(tool, actual, destination,
+                                    timeout=min(DSYMUTIL_TIMEOUT, max(.001, self.deadline - time.monotonic())))
+        except PreparationError as error:
+            row["dsymutil_timeouts"] += str(error) == "macos_dsymutil_timeout"
+            row["generation_failure"] = preparation_code(error)
+            return
+        row["dsymutil_exit_codes"].append(completed.returncode)
+        files = list((destination / "Contents/Resources/DWARF").glob("*"))
+        if completed.returncode == 0 and len(files) == 1:
+            self._register_companion(files[0], origin)
+
+    def _normalize(self, source, item, target, slice_count):
+        suffix = "-" + item["architecture"] if slice_count > 1 else ""
+        destination = self.output / (target + suffix + ".dSYM/Contents/Resources/DWARF") / target
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        # Copy the exact MH_DSYM slice, with offsets inside its load commands
+        # unchanged. Never merge line-less siblings or copy runtime text.
+        with source.open("rb") as incoming, destination.open("wb") as output:
+            incoming.seek(item["offset"])
+            remaining = item["size"]
+            while remaining:
+                self._budget()
+                chunk = incoming.read(min(1024 * 1024, remaining))
+                if not chunk:
+                    raise PreparationError("truncated_macos_debug_slice")
+                output.write(chunk)
+                remaining -= len(chunk)
+        checked = variants(destination)
+        if (len(checked) != 1 or checked[0]["architecture"] != item["architecture"]
+                or checked[0]["uuid"] != item["uuid"] or not self._usable(checked[0])):
+            raise PreparationError("invalid_macos_symbol_input")
+        return destination
+
+    def _write_report(self):
+        destination = self.root / "macos/sentry-symbol-preparation.json"
+        if destination.is_symlink() or not destination.resolve().is_relative_to(self.root):
+            raise PreparationError("unsafe_macos_symbol_preparation_report")
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        required = [row for row in self.rows if row["required"]]
+        value = dict(schema_version=1, platform="macos", status="failed" if self.failures else "complete",
+                     elapsed_seconds=round(time.monotonic() - self.started, 2),
+                     timeout_seconds=PREPARATION_TIMEOUT, generation_limit=MAX_GENERATED_DSYMS,
+                     module_generation_limit=MAX_MODULE_GENERATIONS, failures=self.failures,
+                     counts=dict(modules=self.module_count, slices=len(self.rows), required_slices=len(required),
+                                 ready_slices=sum(row["ready"] for row in self.rows),
+                                 failed_required_slices=sum(not row["ready"] for row in required),
+                                 companion_inputs=len(self.companions), products_candidates=self.source_candidates,
+                                 generation_inputs_attempted=len(self.generated), dsymutil_runs=self.dsymutil_runs), modules=self.rows)
+        temporary = None
+        try:
+            with tempfile.NamedTemporaryFile("w", dir=destination.parent, prefix=".sentry-symbol-preparation-", delete=False) as stream:
+                temporary = Path(stream.name)
+                json.dump(value, stream, indent=2, sort_keys=True)
+                stream.write("\n")
+            temporary.replace(destination)
+        finally:
+            if temporary is not None:
+                temporary.unlink(missing_ok=True)
+
+    def prepare(self):
+        self.started = time.monotonic()
+        self.deadline = self.started + PREPARATION_TIMEOUT
+        self.rows, self.failures, self.companions, self.generated = [], [], {}, set()
+        self.code_signatures, self.module_generations = {}, {}
+        self.tools = {}
+        self.source_candidates, self.module_count = 0, 0
+        self.dsymutil_runs = 0
+        self.artifacts, self.limitations, self.required = [], [], []
+        try:
+            if self.output.is_symlink() or not self.output.resolve().is_relative_to(self.root):
+                raise PreparationError("unsafe_macos_symbol_output")
+            if self.output.exists():
+                shutil.rmtree(self.output)
+            self.output.mkdir(parents=True)
+            previous_report = self.root / "macos/sentry-symbol-preparation.json"
+            if previous_report.is_symlink() or not previous_report.resolve().is_relative_to(self.root):
+                raise PreparationError("unsafe_macos_symbol_preparation_report")
+            previous_report.unlink(missing_ok=True)
+            return self._prepare_all()
+        except Exception as error:
+            self._problem(error)
+            raise PreparationError(preparation_code(error)) from None
+        finally:
+            if self.failures:
+                self._remove_manifest()
+            try:
+                self._write_report()
+            except Exception:
+                self._remove_manifest()
+                raise PreparationError("macos_symbol_preparation_report_failed") from None
+
+    def _remove_manifest(self):
+        # Retry safety checks can fail before an output directory is trusted.
+        # Never follow a replaced output symlink merely to clean a stale file.
+        if not self.output.is_symlink() and self.output.resolve().is_relative_to(self.root):
+            (self.output / "manifest.json").unlink(missing_ok=True)
+
+    def _prepare_all(self):
+        try:
+            metadata = load_inventory(self.root, self.app, self.configuration)
+            owned = {item["product"]: item for item in metadata["products"]}
             with (self.app / "Contents/Info.plist").open("rb") as stream:
                 executable = plistlib.load(stream)["CFBundleExecutable"]
-        except (OSError, KeyError, ValueError, TypeError) as error:
-            raise PreparationError("macos_owned_or_bundle_metadata_missing") from error
+        except (OSError, KeyError, ValueError, TypeError, InventoryError):
+            raise PreparationError("macos_owned_or_bundle_metadata_missing") from None
         runner = (self.app / "Contents/MacOS" / executable).resolve()
         inventory = macho_inventory(self.app)
+        self.module_count = len(inventory)
         if runner not in inventory:
             raise PreparationError("macos_runner_macho_missing")
-        candidates = dwarf_files(self.products)
-        candidates += dwarf_files(self.root.parent / "libclash/macos")
-        candidate_variants = {path: variants(path) for path in candidates}
-        present_products, targets, has_rust, has_core, has_dart = set(), set(), False, False, False
+        if len(inventory) > MAX_PREPARATION_MODULES:
+            raise PreparationError("macos_symbol_preparation_limit_exceeded")
+        plans, present_products, targets = [], set(), set()
+        has_rust = has_core = has_dart = False
         for binary in inventory:
             framework = next((part for part in binary.relative_to(self.app).parts if part.endswith(".framework")), None)
-            source = "runner" if binary == runner else "prebuilt"
             target = "runner" if binary == runner else safe_label(binary.name)
-            if framework:
-                present_products.add(framework)
-                if framework in owned:
-                    source = "pods"
+            product = framework or binary.name
+            present_products.add(product)
+            source = "runner" if binary == runner else owned.get(product, {}).get("source", "prebuilt")
             if binary.name == "rust_api" and framework == "rust_api.framework":
                 source, has_rust = "rust", True
             elif binary.name == "FlClashCore":
                 source, has_core = "go", True
-            slices = variants(binary)
-            if framework == "App.framework" and binary.name == "App":
-                has_dart = True
-                for item in slices:
-                    self.limitation(target, item["architecture"], "dart", "split_debug_info_managed_separately")
-                continue
+            dart = framework == "App.framework" and binary.name == "App"
+            has_dart |= dart
             if target in targets:
                 raise PreparationError("duplicate_macos_module_target")
             targets.add(target)
-            required = source != "prebuilt"
-            pairs = {(item["architecture"], item["uuid"]) for item in slices}
-            matching = [path for path, items in candidate_variants.items()
-                        if pairs <= {(item["architecture"], item["uuid"]) for item in items}
-                        and all(item["filetype"] == 10 and item["has_debug_info"]
-                                and item["has_debug_line"] and not item["has_executable_text"]
-                                for item in items)]
-            if not matching and required and source != "go":
-                # Native Xcode binaries retain an OSO map to the source objects.
-                tool = self.dsymutil or resolve_apple_tool("dsymutil")
-                destination = self.output / (target + ".dSYM")
-                completed = subprocess.run([tool, str(binary), "-o", str(destination)],
-                                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                generated = list((destination / "Contents/Resources/DWARF").glob("*"))
-                if not completed.returncode and len(generated) == 1:
-                    items = variants(generated[0])
-                    if pairs <= {(item["architecture"], item["uuid"]) for item in items} and all(
-                            item["filetype"] == 10 and item["has_debug_info"]
-                            and item["has_debug_line"] and not item["has_executable_text"] for item in items):
-                        matching = generated
-            if not matching:
-                if required:
-                    raise PreparationError("required_macos_matching_dsym_unavailable")
-                for item in slices:
-                    self.limitation(target, item["architecture"], source, "prebuilt_debug_companion_unavailable")
-                continue
-            original = matching[0]
-            destination = self.output / (target + ".dSYM/Contents/Resources/DWARF") / target
-            destination.parent.mkdir(parents=True, exist_ok=True)
-            if original.resolve() != destination.resolve():
-                shutil.copyfile(original, destination)
-            if source == "rust" and not contains_rust_debug(self.dwarfdump or resolve_apple_tool("dwarfdump"), destination):
-                raise PreparationError("rust_framework_missing_rust_compilation_units")
+            slices = variants(binary)
+            rows = []
             for item in slices:
-                entry = dict(target=target, architecture=item["architecture"], source=source,
-                             binary=binary.relative_to(self.root).as_posix(),
-                             debug_file=destination.relative_to(self.root).as_posix())
-                self.artifacts.append(entry)
-                if required:
-                    self.required.append(dict(target=target, architecture=item["architecture"]))
-                if source == "go":
-                    self.limitation(target, item["architecture"], source, "separate_process_no_sentry_sdk")
+                row = dict(target=target, source="dart" if dart else source, architecture=item["architecture"],
+                           debug_id=item["uuid"], required=not dart and source != "prebuilt", ready=False,
+                           runtime_has_oso=item["has_oso_symbols"], existing_uuid_matches=0, existing_usable_matches=0,
+                           existing_debug_info_matches=0, existing_debug_line_matches=0, existing_debug_only_matches=0,
+                           products_oso_matches=0, products_code_mismatches=0, origin="none", has_debug_info=False,
+                           products_promoted_module=False,
+                           has_debug_line=False, no_executable_text=False, rust_cu_checked=False,
+                           dsymutil_attempts=0, dsymutil_timeouts=0, dsymutil_exit_codes=[], failure="none")
+                rows.append(row)
+                self.rows.append(row)
+            plans.append((binary, target, source, dart, slices, rows))
+        for root, origin in ((self.products, "existing_products"), (self.root.parent / "libclash/macos", "existing_core"),
+                             (self.root / "macos/sentry-prebuilt-dsyms", "existing_vendor")):
+            for path in dwarf_files(root):
+                try:
+                    self._budget()
+                    if not path.resolve().is_relative_to(root.resolve()):
+                        raise PreparationError("invalid_macos_symbol_input")
+                    self._register_companion(path, origin)
+                except Exception as error:
+                    self._problem(error)
+                    if preparation_code(error) in {"macos_symbol_preparation_limit_exceeded", "macos_symbol_preparation_timeout"}:
+                        break
+        for binary, target, source, dart, slices, rows in plans:
+            if dart:
+                for row in rows:
+                    row["origin"] = "dart_managed_separately"
+                    self.limitation(target, row["architecture"], "dart", "split_debug_info_managed_separately")
+                continue
+            try:
+                products_sources, source_counts = self._products_sources(binary, slices)
+                # Match audit's independent Products/OSO ownership discovery,
+                # including native-assets modules absent from Pods/SPM metadata.
+                promoted = any(count[0] for count in source_counts.values())
+                for row in rows:
+                    row["required"] |= bool(promoted)
+                    row["products_promoted_module"] = bool(promoted)
+                    row["products_oso_matches"], row["products_code_mismatches"] = source_counts[row["architecture"]]
+            except Exception as error:
+                code = self._problem(error)
+                for row in rows:
+                    row["failure"] = code
+                continue
+            for item, row in zip(slices, rows):
+                try:
+                    self._budget()
+                    matches = self._matches(item["architecture"], item["uuid"])
+                    existing = [entry for entry in matches if entry[2].startswith("existing_")]
+                    row["existing_uuid_matches"] = len(existing)
+                    row["existing_debug_info_matches"] = sum(entry[1]["has_debug_info"] for entry in existing)
+                    row["existing_debug_line_matches"] = sum(entry[1]["has_debug_line"] for entry in existing)
+                    row["existing_debug_only_matches"] = sum(entry[1]["filetype"] == 10 and not entry[1]["has_executable_text"] for entry in existing)
+                    usable = [entry for entry in matches if self._usable(entry[1])]
+                    row["existing_usable_matches"] = sum(self._usable(entry[1]) for entry in existing)
+                    if not usable and row["required"] and source != "go":
+                        inputs = [(path, "generated_products_oso") for path in products_sources[item["architecture"]]]
+                        if item["has_oso_symbols"]:
+                            inputs.append((binary, "generated_final_oso"))
+                        for candidate, origin in inputs:
+                            self._generate(candidate, target, origin, row)
+                            usable = [entry for entry in self._matches(item["architecture"], item["uuid"]) if self._usable(entry[1])]
+                            if usable:
+                                break
+                    if not usable:
+                        if row["required"]:
+                            raise PreparationError("required_macos_matching_dsym_unavailable")
+                        row["origin"] = "explicit_prebuilt_limitation"
+                        self.limitation(target, item["architecture"], source, "prebuilt_debug_companion_unavailable")
+                        continue
+                    original, debug, origin = usable[0]
+                    destination = self._normalize(original, debug, target, len(slices))
+                    row.update(origin=origin, has_debug_info=True, has_debug_line=True, no_executable_text=True)
+                    if source == "rust":
+                        self._budget()
+                        row["rust_cu_checked"] = True
+                        if not contains_rust_debug(self.dwarfdump or self._tool("dwarfdump"), destination,
+                                architecture=item["architecture"], timeout=min(RUST_DWARFDUMP_TIMEOUT, max(.001, self.deadline - time.monotonic()))):
+                            raise PreparationError("rust_framework_missing_rust_compilation_units")
+                    row["ready"] = True
+                    self.artifacts.append(dict(target=target, architecture=item["architecture"], source=source,
+                        binary=binary.relative_to(self.root).as_posix(), debug_file=destination.relative_to(self.root).as_posix()))
+                    if row["required"]:
+                        self.required.append(dict(target=target, architecture=item["architecture"]))
+                    if source == "go":
+                        self.limitation(target, item["architecture"], source, "separate_process_no_sentry_sdk")
+                except Exception as error:
+                    row["failure"] = self._problem(error)
         if not has_rust or not has_core or not has_dart or not owned.keys() <= present_products:
-            raise PreparationError("required_macos_native_product_missing")
+            self._problem(PreparationError("required_macos_native_product_missing"))
+        required_targets = {item["target"] for item in self.required}
+        if any(not set(item["hosts"]) <= required_targets
+               for item in required_source_targets(metadata["source_targets"])):
+            self._problem(PreparationError("static_macos_package_host_dsym_missing"))
+        if self.failures:
+            raise PreparationError(self.failures[0])
+        host_architectures = {}
+        for _, target, _, _, slices, _ in plans:
+            host_architectures[target] = {item["architecture"] for item in slices}
+        try:
+            self.limitations.extend(source_line_limitations(metadata["source_targets"], host_architectures))
+        except InventoryError:
+            raise PreparationError("source_macos_package_host_architecture_missing") from None
+        for item in metadata["binary_targets"]:
+            for host in set(item["hosts"]) - set(item["dynamic_hosts"]):
+                for architecture in sorted(host_architectures[host]):
+                    self.limitation(item["target"], architecture, "prebuilt",
+                                    "static_binary_package_debug_coverage_unverified")
         result = dict(schema_version=1, platform="macos", app=self.app.relative_to(self.root).as_posix(),
                       artifacts=self.artifacts, required=self.required, limitations=self.limitations)
         manifest = self.output / "manifest.json"
@@ -329,8 +733,7 @@ def main(argv=None):
         print("macos_debug_companions_prepared")
         return 0
     except PreparationError as error:
-        code = str(error)
-        print(code if re.fullmatch(r"[a-z_]+", code) else "macos_symbol_preparation_failed", file=sys.stderr)
+        print(preparation_code(error), file=sys.stderr)
         return 1
     except (OSError, ValueError, MachoError):
         print("macos_symbol_preparation_failed", file=sys.stderr)

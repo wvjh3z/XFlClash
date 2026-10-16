@@ -30,7 +30,7 @@ class PostbuildTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
-        self.root = Path(self.temp.name)
+        self.root = Path(self.temp.name).resolve()
         (self.root / "flavors").mkdir()
         (self.root / "flavors/sentry-cli.token").write_text("fake-upload-token\n")
         self.defines = self.root / "flavor_defines.json"
@@ -158,7 +158,7 @@ class AndroidLocalTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
-        self.base = Path(self.temp.name)
+        self.base = Path(self.temp.name).resolve()
         self.root = self.base / "client"
         self.sdk = self.base / "Xboard_sdk"
         for directory in (self.root / "android/app", self.root / "flavors/brand_a/assets", self.root / "scripts", self.root / "lib", self.root / "core/Clash.Meta", self.sdk / "lib"):
@@ -239,6 +239,14 @@ class AndroidLocalTests(unittest.TestCase):
         build = next(command for name, command, _ in self.calls if name == "flutter-apk")
         self.assertIn("--dart-define=XB_ANDROID_ABI=arm64-v8a", build)
         self.assertIn("--split-debug-info=build/debug-info", build)
+
+    def test_custom_gradle_home_completes_release_without_home_directory(self):
+        with mock.patch.object(android.Path, "home", side_effect=RuntimeError("home directory unavailable")) as home:
+            self.assertEqual(self.run_fake(), 0)
+        home.assert_not_called()
+        self.assertEqual(self.counter.read_text(), "18\n")
+        self.assertTrue((self.root / "dist/test-0.0.1-android-arm64-v8a.apk").is_file())
+        self.assert_restored()
 
     def test_each_failure_keeps_success_counter_and_restores_temporary_state(self):
         for step in ("sdk-pub-get", "clean", "pub-get", "prepare-flavor", "sentry-preflight", "go-core-build", "flutter-apk", "sentry-symbols"):
@@ -321,7 +329,8 @@ class AndroidLocalTests(unittest.TestCase):
         self.assertEqual(saved.read_bytes(), b"fake-apk")
         self.assertEqual(metadata["sha256"], hashlib.sha256(saved.read_bytes()).hexdigest())
         self.assertEqual(metadata["stage"], "apk_verified_before_symbols")
-        self.assertEqual(saved.stat().st_mode & 0o777, 0o600)
+        if os.name == "posix":
+            self.assertEqual(saved.stat().st_mode & 0o777, 0o600)
         self.assertFalse((self.batch / "verification.json").exists())
         shutil.rmtree(self.root / "build")
         self.assertTrue(saved.is_file())
@@ -494,7 +503,7 @@ class DesktopCredentialTests(unittest.TestCase):
         end = source.index("# ───────── 参数解析", begin)
         actual_block = source[begin:end]
         with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
+            root = Path(temporary).resolve()
             binary_dir = root / "bin"
             binary_dir.mkdir()
             observer = binary_dir / "observe"

@@ -20,6 +20,7 @@ TOOL = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(TOOL))
 import upload_sentry_symbols as symbols
 from sentry_macho import MachoError, inspect_macho
+from sentry_macos_inventory import write_inventory
 
 
 def macho(identifier, architecture="x86_64", *, debug=False, text=True, filetype=None, oso=False):
@@ -74,7 +75,7 @@ class MacosSymbolsTest(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory(prefix="sentry-macos-audit-")
         self.addCleanup(self.temporary.cleanup)
-        self.root = Path(self.temporary.name) / "build"
+        self.root = (Path(self.temporary.name).resolve() / "build").resolve()
         self.products = self.root / "macos/Build/Products/Release"
         self.app = self.products / "Fixture.app"
         (self.app / "Contents/MacOS").mkdir(parents=True)
@@ -99,6 +100,15 @@ class MacosSymbolsTest(unittest.TestCase):
         self.dart.write_bytes(macho(self.app_uuid, debug=True, text=False))
         self.save()
         self.calls = []
+        # These synthetic C/Mach-O bytes test UUID/layout rules; they are not
+        # actual language DWARF. Dedicated tests below replace this explicit
+        # language-evidence mock to exercise the independent Rust audit gate.
+        language = mock.patch.object(symbols, "contains_rust_debug", return_value=True)
+        tools = mock.patch.object(symbols, "resolve_apple_tool", return_value="fixture-dwarfdump")
+        self.rust_language = language.start()
+        self.rust_tool = tools.start()
+        self.addCleanup(language.stop)
+        self.addCleanup(tools.stop)
 
     def add_module(self, target, binary, source, architecture="x86_64", identifier=None):
         identifier = identifier or str(uuid.uuid5(uuid.NAMESPACE_URL, "fixture-" + target + architecture))
@@ -115,7 +125,8 @@ class MacosSymbolsTest(unittest.TestCase):
 
     def save(self):
         (self.output / "manifest.json").write_text(json.dumps(self.manifest))
-        (self.root / "macos/sentry-native-owned.json").write_text(json.dumps(self.owned))
+        write_inventory(self.root, self.app, "Release", ["pods"], [
+            {**item, "source": "pods"} for item in self.owned["products"]])
 
     def cli(self, executable, arguments):
         self.calls.append(arguments)
@@ -146,6 +157,18 @@ class MacosSymbolsTest(unittest.TestCase):
         with mock.patch.object(symbols, "run_cli", side_effect=self.cli):
             return symbols.audit_macos("sentry-cli", self.root)
 
+    def make_universal_rust(self):
+        entry = next(item for item in self.manifest["artifacts"] if item["target"] == "rust_api")
+        binary, debug = self.paths["rust_api"]
+        identifier = str(uuid.uuid5(uuid.NAMESPACE_URL, "fixture-rust-arm64"))
+        binary.write_bytes(universal([("x86_64", binary.read_bytes()),
+                                      ("arm64", macho(identifier, "arm64", filetype=6))]))
+        debug.write_bytes(universal([("x86_64", debug.read_bytes()),
+                                     ("arm64", macho(identifier, "arm64", debug=True, text=False))]))
+        self.manifest["artifacts"].append({**entry, "architecture": "arm64"})
+        self.manifest["required"].append({"target": "rust_api", "architecture": "arm64"})
+        self.save()
+
     def run_main(self, token="fixture-token", audit_only=False):
         evidence = self.root / "evidence.json"
         args = ["--platform", "macos", "--flavor", "brand_a", "--build-root", str(self.root), "--evidence", str(evidence)]
@@ -165,6 +188,56 @@ class MacosSymbolsTest(unittest.TestCase):
         self.assertEqual({item["target"] for item in evidence}, {"runner", "rust_api", "example"})
         self.assertEqual(len(limitations), 1)
         self.assertEqual(limitations[0]["source"], "dart")
+
+    def test_independent_audit_requires_rust_cu_in_each_actual_universal_slice(self):
+        self.make_universal_rust()
+        self.rust_language.side_effect = lambda tool, path, *, architecture: architecture == "x86_64"
+        with self.assertRaisesRegex(symbols.SymbolError, "^macos_rust_slice_missing_rust_compilation_units$"):
+            self.audit()
+        self.assertEqual([call.kwargs["architecture"] for call in self.rust_language.call_args_list], ["x86_64", "arm64"])
+        self.assertTrue(all(call.args[1] == self.paths["rust_api"][1] for call in self.rust_language.call_args_list))
+
+    def test_independent_audit_checks_both_rust_slices_when_they_have_cus(self):
+        self.make_universal_rust()
+        artifacts, evidence, _ = self.audit()
+        self.assertEqual({item["architecture"] for item in evidence if item["source"] == "rust"}, {"x86_64", "arm64"})
+        self.assertEqual({call.kwargs["architecture"] for call in self.rust_language.call_args_list}, {"x86_64", "arm64"})
+        self.assertEqual(self.rust_tool.call_count, 1)
+
+    def test_independent_audit_fails_closed_when_rust_tool_is_unavailable(self):
+        self.rust_tool.side_effect = OSError("private-token /private/tool")
+        with self.assertRaisesRegex(symbols.SymbolError, "^macos_rust_debug_verification_failed$") as failure:
+            self.audit()
+        self.rust_language.assert_not_called()
+        self.assertNotIn("private", str(failure.exception))
+
+    def test_independent_audit_rust_timeout_does_not_leak_tool_output(self):
+        self.rust_language.side_effect = subprocess.TimeoutExpired(["private-tool"], 60,
+            output="private-token /private/source", stderr="private-stderr")
+        with self.assertRaisesRegex(symbols.SymbolError, "^macos_rust_debug_verification_failed$") as failure:
+            self.audit()
+        self.assertNotIn("private", str(failure.exception))
+
+    def test_upload_entry_rechecks_reused_rust_companion_before_upload(self):
+        # uploader consumes an already prepared manifest, independently of the
+        # preparation process that created it or any prior language claim.
+        self.rust_language.return_value = False
+        result, evidence = self.run_main(audit_only=True)
+        self.assertEqual(result, 1)
+        self.assertEqual(evidence["error"], "macos_rust_slice_missing_rust_compilation_units")
+        self.assertFalse(any(arguments[:2] == ["debug-files", "upload"] for arguments in self.calls))
+
+    @unittest.skipIf(os.name == "nt", "Directory symlink alias fixture is POSIX-only")
+    def test_build_root_alias_matches_canonical_app_and_dart_inventory(self):
+        alias = self.root.parent / "build-alias"
+        alias.symlink_to(self.root, target_is_directory=True)
+        with mock.patch.object(symbols, "run_cli", side_effect=self.cli):
+            artifacts, native, _ = symbols.audit_macos("sentry-cli", alias)
+            companions, dart = symbols.collect_companions("sentry-cli", alias, "macos")
+        self.assertEqual(len(artifacts), 3)
+        self.assertEqual(len(native), 3)
+        self.assertEqual(companions, [self.dart])
+        self.assertEqual(dart[0]["binaries"][0], symbols.fingerprint(self.app_binary))
 
     def test_unicode_brand_executable_is_supported_without_becoming_a_target_label(self):
         binary, _ = self.paths["runner"]
@@ -225,11 +298,28 @@ class MacosSymbolsTest(unittest.TestCase):
         path = self.app / "Contents/Frameworks/FlutterMacOS.framework/FlutterMacOS"
         path.parent.mkdir(parents=True)
         path.write_bytes(macho(str(uuid.uuid4()), filetype=6))
+        self.save()
         with self.assertRaisesRegex(symbols.SymbolError, "explicit limitation"):
             self.audit()
         self.manifest["limitations"].append({"target": "FlutterMacOS", "architecture": "x86_64", "source": "prebuilt", "reason": "external_debug_companion_unavailable"})
         self.save()
         self.assertEqual(len(self.audit()[2]), 2)
+
+    def test_unrelated_scopes_cannot_hide_a_missing_prebuilt_runtime_companion(self):
+        path = self.app / "Contents/Frameworks/FlutterMacOS.framework/FlutterMacOS"
+        path.parent.mkdir(parents=True)
+        path.write_bytes(macho(str(uuid.uuid4()), filetype=6))
+        original = list(self.manifest["limitations"])
+        for source, reason in (("go", "separate_process_no_sentry_sdk"),
+                               ("dart", "split_debug_info_managed_separately"),
+                               ("prebuilt", "static_binary_package_debug_coverage_unverified"),
+                               ("prebuilt", "unverified")):
+            with self.subTest(reason=reason):
+                self.manifest["limitations"] = original + [dict(target="FlutterMacOS", architecture="x86_64",
+                                                               source=source, reason=reason)]
+                self.save()
+                with self.assertRaisesRegex(symbols.SymbolError, "Invalid macOS .* coverage limitation"):
+                    self.audit()
 
     def test_missing_dart_split_information_fails_even_with_native_dsyms(self):
         self.dart.unlink()
@@ -278,7 +368,7 @@ class MacosSymbolsTest(unittest.TestCase):
         self.cli = legacy_metadata
         result, evidence = self.run_main()
         self.assertEqual(result, 1)
-        self.assertIn("Flutter 3.44.0 Mach-O snapshot", evidence["error"])
+        self.assertIn("pinned macOS Flutter Mach-O snapshot", evidence["error"])
 
     def test_missing_token_fails_release_on_macos(self):
         result, evidence = self.run_main(token="")
@@ -347,7 +437,7 @@ class RealMachOFixtureTest(unittest.TestCase):
         if not all((clang, lld, dsym, cli)):
             self.skipTest("Offline Mach-O fixture tools were not supplied")
         with tempfile.TemporaryDirectory(prefix="sentry-real-macho-") as temporary:
-            root = Path(temporary)
+            root = Path(temporary).resolve()
             source = root / "fixture.c"
             source.write_text("int sum(int n) { return n+11; } int main(void) { return sum(5); }\n")
             commands = [[clang, "--target=x86_64-apple-macos11", "-g", "-O2", "-c", str(source), "-o", str(root / "fixture.o")],

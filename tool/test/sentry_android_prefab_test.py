@@ -30,7 +30,7 @@ class PrefabTests(unittest.TestCase):
     def setUpClass(cls):
         cls.fixtures = tempfile.TemporaryDirectory(prefix="sentry-prefab-elf-")
         cls.addClassCleanup(cls.fixtures.cleanup)
-        cls.fixture_root = Path(cls.fixtures.name)
+        cls.fixture_root = Path(cls.fixtures.name).resolve()
         source = cls.fixture_root / "fixture.c"
         source.write_text('const char message[] = "fixture constant";\n'
                           'int fixture(int x) { return x + message[0] + 42; }\n')
@@ -45,7 +45,7 @@ class PrefabTests(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory(prefix="sentry-prefab-test-")
         self.addCleanup(self.temporary.cleanup)
-        self.root = Path(self.temporary.name)
+        self.root = Path(self.temporary.name).resolve()
         self.gradle = self.root / "gradle"
         self.coordinate = self.gradle / "caches/modules-2/files-2.1/io.sentry/sentry-native-ndk"
         self.output = self.root / "output"
@@ -102,6 +102,18 @@ class PrefabTests(unittest.TestCase):
             self.assertTrue(inspect_elf(result[0])["has_debug_info"])
         self.assertEqual(sorted(path.name for path in self.output.rglob("*") if path.is_file()),
                          sorted(prefab.SENTRY_ANDROID_TARGETS))
+
+    def test_custom_gradle_cache_does_not_require_home_directory(self):
+        self.aar()
+        for explicit in (False, True):
+            with self.subTest(explicit=explicit), \
+                 mock.patch.dict(os.environ, {"GRADLE_USER_HOME": str(self.gradle)}, clear=True), \
+                 mock.patch.object(prefab.Path, "home", side_effect=RuntimeError("home directory unavailable")) as home:
+                result = prefab.prefab_candidates(self.runtime, self.abi, "libsentry.so", self.output,
+                    gradle_user_home=self.gradle if explicit else None)
+                self.assertEqual(len(result), 1)
+                self.assertEqual(result[0].read_bytes(), self.elf.read_bytes())
+                home.assert_not_called()
 
     def test_mixed_versions_and_abis_select_by_content_not_newest(self):
         wrong = self.changed_section(".text")

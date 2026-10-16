@@ -21,7 +21,7 @@
 #   BRAND_A_FALLBACK_BIN_B64 / BRAND_B_FALLBACK_BIN_B64  flavors/<brand>/assets/fallback.bin（base64）
 #   SIBLING_SDK_TOKEN   只读 private wvjh3z/Xboard_sdk 的 fine-grained PAT
 #   SENTRY_AUTH_TOKEN   正式出包所有平台必需的符号上传 Token（org=ka-chiu-lee）
-#   后台维护独立使用 SENTRY_MAINTENANCE_TOKEN，不在此工作流读取。
+#   后台配置独立使用 SENTRY_MAINTENANCE_TOKEN；本工作流仅显式验证时在独立验证 step 读取。
 #
 # ✅ Linux crashpad 可执行位：已由 linux/CMakeLists.txt 末尾 install(CODE chmod +x) 在
 #   flutter build 时补回（PATCHES.md RT-CrashpadExec）。bundle/deb/AppImage 三格式本地实测
@@ -56,6 +56,10 @@ on:
         default: android
       upload:
         description: '发布安装包到草稿 Release；false仍执行Sentry符号校验与上传'
+        type: boolean
+        default: false
+      verify_symbolication:
+        description: '桌面受控地址探针：验证服务端函数与源码行解析（非真实崩溃）'
         type: boolean
         default: false
       sdk_ref:
@@ -124,6 +128,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           submodules: recursive
+          persist-credentials: false
 
       - name: Check Windows WebView build rules
         if: matrix.platform == 'windows'
@@ -135,12 +140,17 @@ jobs:
           npm install -g @sentry/cli@2.58.4
           python tool/test/sentry_symbols_test.py
           python tool/test/sentry_native_generation_test.py
+          python tool/test/sentry_linux_inventory_test.py
           python tool/test/sentry_android_prefab_test.py
           python tool/test/sentry_macos_generation_test.py
+          python tool/test/sentry_macos_spm_inventory_test.py
           python tool/test/sentry_macos_symbols_test.py
           python tool/test/local_release_automation_test.py
           python tool/test/sentry_release_workflow_test.py
           python tool/test/sentry_windows_rust_manifest_test.py
+          python tool/test/sentry_symbolication_picker_test.py
+          python tool/test/sentry_desktop_symbolication_probe_test.py
+          python tool/test/sibling_sdk_checkout_test.py
 
       - name: Check required Sentry upload credentials
         env:
@@ -154,14 +164,10 @@ jobs:
       - name: Checkout Xboard_sdk (sibling, private)
         env:
           SDK_REF: ${{ inputs.sdk_ref }}
+          SDK_READ_TOKEN: ${{ secrets.SIBLING_SDK_TOKEN }}
         run: |
           set -euo pipefail
-          git clone --no-checkout --depth 1 \
-            "https://x-access-token:${{ secrets.SIBLING_SDK_TOKEN }}@github.com/wvjh3z/Xboard_sdk.git" \
-            "${GITHUB_WORKSPACE}/../Xboard_sdk"
-          git -C "${GITHUB_WORKSPACE}/../Xboard_sdk" fetch --depth 1 origin "$SDK_REF"
-          git -C "${GITHUB_WORKSPACE}/../Xboard_sdk" checkout --detach FETCH_HEAD
-          echo "✓ Xboard_sdk 已固定到指定 SDK 提交"
+          python tool/checkout_sibling_sdk.py --destination "${GITHUB_WORKSPACE}/../Xboard_sdk" --ref "$SDK_REF"
 
       - name: Restore flavor secrets
         env:
@@ -203,7 +209,7 @@ jobs:
         if: matrix.platform == 'windows'
         run: git config --global core.longpaths true
 
-      # macOS 用 stable 3.44.0，其他非 arm runner 保留 3.41.9；
+      # macOS 用 stable 3.44.2，其他非 arm runner 保留 3.41.9；
       # arm runner（ubuntu-24.04-arm）按 FlClash 惯例走 master 3.44.0-0.1.pre。
       - name: Setup Flutter (stable)
         if: ${{ !startsWith(matrix.os, 'ubuntu-24.04-arm') }}
@@ -212,7 +218,8 @@ jobs:
           channel: stable
           # macOS 3.44 emits AOT Mach-O and split symbols with a shared UUID.
           # 3.41's assembly + clang link produces a different final LC_UUID.
-          flutter-version: ${{ matrix.platform == 'macos' && '3.44.0' || '3.41.9' }}
+          # 3.44.2 also removes pub get's unbounded background SwiftPM prefetch.
+          flutter-version: ${{ matrix.platform == 'macos' && '3.44.2' || '3.41.9' }}
           cache: true
       - name: Setup Flutter (master, arm runner)
         if: ${{ startsWith(matrix.os, 'ubuntu-24.04-arm') }}
@@ -313,6 +320,15 @@ jobs:
           echo "PRODUCT_VERSION=$PV" >> "$GITHUB_ENV"
           echo "BUILD_NUMBER=$BN" >> "$GITHUB_ENV"
           echo "BASE_VERSION=$(grep -m1 -E '^version:' pubspec.yaml | sed -E 's/^version:[[:space:]]*([0-9.]+).*/\1/' | xargs)" >> "$GITHUB_ENV"
+
+      # 所有 Mac 出包先在前台解析 Swift 包，保留超时和安全诊断。
+      - name: Resolve macOS packages with bounded diagnostics
+        if: matrix.platform == 'macos'
+        run: |
+          set -euo pipefail
+          flutter precache --macos
+          python tool/test/macos_package_resolution_test.py
+          python tool/resolve_macos_packages.py --project-root . --report build/sentry-package-resolution.json --cleanup-stale-prefetch --resolve-timeout 600 --scm-provider system --sample-on-timeout
 
       # macOS 打包依赖：appdmg（dmg 制作）。
       - name: Install macOS package deps
@@ -432,12 +448,40 @@ jobs:
           fi
           python tool/postbuild_sentry_symbols.py "${SYMBOL_ARGS[@]}"
 
+      - name: Send controlled desktop symbolication probe
+        if: inputs.verify_symbolication && matrix.platform != 'android'
+        run: |
+          set -euo pipefail
+          PICK_ARGS=(--build-root build --evidence build/sentry-symbols-evidence.json --output build/sentry-symbolication-selection.json)
+          if [ "${{ matrix.platform }}" = macos ]; then
+            case "${{ matrix.arch }}" in
+              amd64) PICK_ARGS+=(--architecture x86_64) ;;
+              arm64) PICK_ARGS+=(--architecture arm64) ;;
+              *) echo 'Unsupported Mac symbolication architecture'; exit 1 ;;
+            esac
+          fi
+          python tool/pick_sentry_symbolication_probe.py "${PICK_ARGS[@]}"
+          python tool/sentry_desktop_symbolication_probe.py emit --evidence build/sentry-symbols-evidence.json --defines flavor_defines.json --selection build/sentry-symbolication-selection.json --report build/sentry-symbolication-probe.json
+
+      - name: Verify only the newly sent symbolication event
+        if: inputs.verify_symbolication && matrix.platform != 'android'
+        env:
+          SENTRY_MAINTENANCE_TOKEN: ${{ secrets.SENTRY_MAINTENANCE_TOKEN }}
+        run: python tool/sentry_desktop_symbolication_probe.py verify --report build/sentry-symbolication-probe.json
+
       - name: Preserve safe Sentry symbol evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: sentry-symbol-evidence-${{ env.FLAVOR }}-${{ matrix.platform }}-${{ matrix.arch || 'default' }}
-          path: build/sentry-symbols-evidence.json
+          path: |
+            build/sentry-symbols-evidence.json
+            build/sentry-symbolication-probe.json
+            build/sentry-package-resolution.json
+            build/macos/sentry-native-inventory.json
+            build/macos/sentry-native-build.json
+            build/macos/sentry-manifest-diagnostics.json
+            build/macos/sentry-symbol-preparation.json
           if-no-files-found: ignore
           retention-days: 30
 

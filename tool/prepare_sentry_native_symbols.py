@@ -17,6 +17,7 @@ import zipfile
 
 from sentry_elf import ElfError, inspect_elf
 from sentry_android_prefab import PrefabError, SENTRY_ANDROID_TARGETS, prefab_candidates
+from sentry_linux_inventory import LinuxInventoryError, collect_linux_inventory
 
 ANDROID_ARCH = {"armeabi-v7a": "arm", "arm64-v8a": "aarch64", "x86_64": "x86_64"}
 LINUX_ARCH = {"x64": "x86_64", "arm64": "aarch64"}
@@ -115,6 +116,11 @@ class Preparer:
             if not candidate.is_file() or candidate.is_symlink():
                 continue
             info = self._info(candidate)
+            if self.platform == "linux" and (
+                    ".text" not in actual["code_sections"]
+                    or info["code_sections"] != actual["code_sections"]
+                    or not set(actual["unwind_sections"]) <= set(info["unwind_sections"])):
+                continue
             if (info["build_id"] == actual["build_id"]
                     and info["architecture"] == expected_arch
                     and info["has_debug_info"] and info["has_debug_line"]):
@@ -218,53 +224,33 @@ class Preparer:
                             self.limitation(name, abi, source, "separate_process_no_sentry_sdk")
 
     def linux(self, architecture: str, configuration: str):
-        native = self.root / "linux" / architecture / configuration
-        bundle = native / "bundle"
-        manifest = native / f"sentry-native-{configuration.capitalize()}.tsv"
-        if not manifest.is_file():
-            raise PreparationError("cmake_source_manifest_missing")
-        sources = {}
-        for row in manifest.read_text().splitlines():
-            columns = row.split("\t")
-            if len(columns) != 2 or not re.fullmatch(r"[A-Za-z0-9_.+-]+", columns[0]):
-                raise PreparationError("invalid_cmake_source_manifest")
-            original = Path(columns[1]).resolve()
-            if not original.is_relative_to(native.resolve()):
-                raise PreparationError("unsafe_cmake_source_path")
-            sources[original.name] = original
-        runner = bundle / "FlClash"
-        rust = bundle / "lib" / "librust_api.so"
-        if not runner.is_file() or not rust.is_file():
-            raise PreparationError("required_bundle_native_module_missing")
-        if runner.name not in sources:
-            raise PreparationError("runner_source_manifest_missing")
-        for binary in [runner, *sorted((bundle / "lib").glob("*.so"))]:
-            name = binary.name
+        try:
+            inventory = collect_linux_inventory(self.root, architecture, configuration)
+        except LinuxInventoryError as error:
+            raise PreparationError(str(error)) from error
+        native = inventory["native"]
+        if "FlClashCore" not in inventory["modules"]:
+            raise PreparationError("required_bundle_go_core_missing")
+        for name, copies in sorted(inventory["modules"].items()):
+            binary = copies[0]
             if name == "libapp.so":
                 self.limitation(name, architecture, "dart", "split_debug_info_managed_separately")
                 continue
-            if name == "librust_api.so":
+            if name == "FlClashCore":
+                candidates = [self.repo / "libclash/linux/FlClashCore"]
+                source = "go"
+            elif name == "librust_api.so":
                 candidates = list((native / "plugins" / "rust_api").rglob(name))
-                source, required = "rust", True
+                source = "rust"
             else:
-                if name not in sources:
-                    # Do not let a truncated TSV silently reclassify a locally
-                    # built plugin as an unavailable prebuilt dependency.
-                    local = list((native / "plugins").rglob(name))
-                    for candidate in local:
-                        info = self._info(candidate)
-                        if (info["build_id"] == self._info(binary)["build_id"]
-                                and info["has_debug_info"] and info["has_debug_line"]):
-                            raise PreparationError("local_plugin_source_manifest_missing")
-                candidates = [sources[name]] if name in sources else []
-                source, required = ("cmake", True) if candidates else ("prebuilt", False)
-            self.add(name, architecture, binary, candidates, source, required)
-        core = bundle / "FlClashCore"
-        if not core.is_file():
-            raise PreparationError("required_bundle_go_core_missing")
-        self.add(core.name, architecture, core,
-                 [self.repo / "libclash" / "linux" / "FlClashCore"], "go", True)
-        self.limitation(core.name, architecture, "go", "separate_process_no_sentry_sdk")
+                candidates = inventory["sources"].get(name, [])
+                source = "cmake" if candidates else "prebuilt"
+            previous = len(self.artifacts)
+            self.add(name, architecture, binary, candidates, source, name in inventory["required"])
+            if len(self.artifacts) > previous:
+                self.artifacts[-1]["binary_copies"] = [path.relative_to(self.root).as_posix() for path in copies]
+            if name == "FlClashCore":
+                self.limitation(name, architecture, source, "separate_process_no_sentry_sdk")
 
     def finish(self):
         if not self.artifacts:

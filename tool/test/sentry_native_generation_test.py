@@ -24,7 +24,7 @@ class GenerationTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
-        self.repo = Path(self.temp.name)
+        self.repo = Path(self.temp.name).resolve()
         self.build = self.repo / "build"
         self.build.mkdir()
         code = self.repo / "fixture.c"
@@ -186,6 +186,84 @@ class GenerationTests(unittest.TestCase):
         self.assertEqual(len(manifest["required"]), 4)
         self.assertEqual(before, {p: p.read_bytes() for p in before})
 
+    def linux_handler_fixture(self):
+        native = self.linux_fixture()
+        source = native / "_deps/sentry-native-build/crashpad/handler/crashpad_handler"
+        source.parent.mkdir(parents=True)
+        shutil.copyfile(self.elf, source)
+        runtime = native / "bundle/lib/crashpad_handler"
+        shutil.copyfile(self.stripped, runtime)
+        # Deliberately retain DWARF in a second runtime copy: equal code/IDs,
+        # rather than whole-file hashes, determine shared companion coverage.
+        copy = native / "bundle/bin/crashpad_handler"
+        copy.parent.mkdir()
+        shutil.copyfile(self.elf, copy)
+        manifest = native / "sentry-native-Release.tsv"
+        manifest.write_text(manifest.read_text() + f"handler_target\t{source}\n")
+        return native, source, runtime, copy
+
+    def test_linux_extensionless_handler_covers_all_actual_runtime_copies(self):
+        native, _, runtime, copy = self.linux_handler_fixture()
+        original = {path: path.read_bytes() for path in (native / "bundle").rglob("*") if path.is_file()}
+        prepare = Preparer(self.build, "linux", "objcopy")
+        prepare.linux(self.linux_arch, "release")
+        manifest = json.loads(prepare.finish().read_text())
+        handler = next(entry for entry in manifest["artifacts"] if entry["target"] == "crashpad_handler")
+        self.assertEqual(handler["source"], "cmake")
+        self.assertEqual(set(handler["binary_copies"]),
+                         {path.relative_to(self.build).as_posix() for path in (runtime, copy)})
+        self.assertIn({"target": "crashpad_handler", "architecture": self.linux_arch}, manifest["required"])
+        debug = inspect_elf(self.build / handler["debug_file"])
+        self.assertTrue(debug["has_debug_info"] and debug["has_debug_line"])
+        self.assertFalse(debug["has_executable_text"])
+        self.assertEqual(original, {path: path.read_bytes() for path in original})
+
+    def test_linux_handler_missing_cmake_record_fails_instead_of_becoming_prebuilt(self):
+        native, *_ = self.linux_handler_fixture()
+        source_map = native / "sentry-native-Release.tsv"
+        source_map.write_text("\n".join(line for line in source_map.read_text().splitlines()
+                                         if not line.startswith("handler_target\t")) + "\n")
+        with self.assertRaisesRegex(PreparationError, "crashpad_source_manifest_missing"):
+            Preparer(self.build, "linux", "objcopy").linux(self.linux_arch, "release")
+
+    def test_linux_handler_without_matching_dwarf_fails_and_removes_stale_manifest(self):
+        _, source, *_ = self.linux_handler_fixture()
+        shutil.copyfile(self.stripped, source)
+        old = self.build / "sentry-native/linux/manifest.json"
+        old.parent.mkdir(parents=True)
+        old.write_text("old")
+        with self.assertRaisesRegex(PreparationError, "required_native_dwarf_unavailable"):
+            Preparer(self.build, "linux", "objcopy").linux(self.linux_arch, "release")
+        self.assertFalse(old.exists())
+
+    def test_linux_handler_source_with_same_build_id_but_different_code_is_rejected(self):
+        _, source, runtime, _ = self.linux_handler_fixture()
+        code = self.repo / "changed_handler.c"
+        code.write_text('const char* fixture_name(void) { return "sentry-prefab"; }\n'
+                        'int fixture(int x) { return x + 43; }\nint main(void) { return fixture(1); }\n')
+        build_id = inspect_elf(runtime)["build_id"]
+        subprocess.run(["cc", "-g", "-shared", "-Wl,--build-id=0x" + build_id,
+                        str(code), "-o", str(source)], check=True)
+        self.assertEqual(inspect_elf(source)["build_id"], build_id)
+        with self.assertRaisesRegex(PreparationError, "required_native_dwarf_unavailable"):
+            Preparer(self.build, "linux", "objcopy").linux(self.linux_arch, "release")
+
+    def test_linux_handler_selects_complete_unwind_source_from_same_name_candidates(self):
+        native, first, *_ = self.linux_handler_fixture()
+        subprocess.run(["objcopy", "--remove-section", ".eh_frame", "--remove-section", ".eh_frame_hdr",
+                        str(first)], check=True, capture_output=True)
+        second = native / "_deps/complete-handler/crashpad_handler"
+        second.parent.mkdir(parents=True)
+        shutil.copyfile(self.elf, second)
+        source_map = native / "sentry-native-Release.tsv"
+        source_map.write_text(source_map.read_text() + f"other_handler_target\t{second}\n")
+        prepare = Preparer(self.build, "linux", "objcopy")
+        prepare.linux(self.linux_arch, "release")
+        manifest = json.loads(prepare.finish().read_text())
+        handler = next(entry for entry in manifest["artifacts"] if entry["target"] == "crashpad_handler")
+        self.assertEqual(inspect_elf(self.build / handler["debug_file"])["unwind_sections"],
+                         inspect_elf(self.elf)["unwind_sections"])
+
     def test_linux_missing_runner_mapping_fails(self):
         native = self.linux_fixture()
         (native / "sentry-native-Release.tsv").write_text("")
@@ -258,17 +336,22 @@ apply_buildkit()
         source.mkdir()
         (source / "main.cpp").write_text("int main() { return 42; }\n")
         (source / "plugin.cpp").write_text("int fixture() { return 42; }\n")
+        (source / "handler.cpp").write_text("int main() { return 7; }\n")
         production = (TOOL.parent / "linux/CMakeLists.txt").read_text()
         install_block = production[production.index("# Keep DWARF in build intermediates"):]
         (source / "CMakeLists.txt").write_text(f'''cmake_minimum_required(VERSION 3.13)
 project(fixture LANGUAGES CXX)
 add_executable(FlClash main.cpp)
 add_library(test_plugin SHARED plugin.cpp)
+add_executable(handler_target handler.cpp)
+set_target_properties(handler_target PROPERTIES OUTPUT_NAME crashpad_handler)
 include("{TOOL.parent / 'linux/xboard_sentry_symbols.cmake'}")
 set(CMAKE_INSTALL_PREFIX "${{CMAKE_BINARY_DIR}}/bundle")
 set(INSTALL_BUNDLE_LIB_DIR "${{CMAKE_INSTALL_PREFIX}}/lib")
 install(TARGETS FlClash RUNTIME DESTINATION "${{CMAKE_INSTALL_PREFIX}}")
 install(TARGETS test_plugin LIBRARY DESTINATION "${{INSTALL_BUNDLE_LIB_DIR}}")
+install(TARGETS handler_target RUNTIME DESTINATION "${{INSTALL_BUNDLE_LIB_DIR}}")
+install(TARGETS handler_target RUNTIME DESTINATION "${{CMAKE_INSTALL_PREFIX}}/bin")
 {install_block}
 ''')
         native = self.build / "cmake"
@@ -277,11 +360,27 @@ install(TARGETS test_plugin LIBRARY DESTINATION "${{INSTALL_BUNDLE_LIB_DIR}}")
             result = subprocess.run(command, capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, result.stderr)
         for original, runtime in [(native / "FlClash", native / "bundle/FlClash"),
-                                  (native / "libtest_plugin.so", native / "bundle/lib/libtest_plugin.so")]:
+                                  (native / "libtest_plugin.so", native / "bundle/lib/libtest_plugin.so"),
+                                  (native / "crashpad_handler", native / "bundle/lib/crashpad_handler"),
+                                  (native / "crashpad_handler", native / "bundle/bin/crashpad_handler")]:
             full, small = inspect_elf(original), inspect_elf(runtime)
             self.assertTrue(full["has_debug_info"] and full["has_debug_line"])
             self.assertFalse(small["has_debug_info"])
             self.assertEqual(full["build_id"], small["build_id"])
+        # Rust/Go copies must use the same real-path guard as CMake targets,
+        # rather than stripping an outside intermediate through an alias.
+        for relative in ("FlClashCore", "lib/librust_api.so"):
+            original = native / (Path(relative).name + "-unstripped-source")
+            shutil.copyfile(native / "FlClash", original)
+            before = original.read_bytes()
+            installed = native / "bundle" / relative
+            installed.symlink_to(original)
+            result = subprocess.run(["cmake", "--install", str(native)], capture_output=True, text=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("escaped its install bundle", result.stderr)
+            self.assertEqual(original.read_bytes(), before)
+            self.assertTrue(inspect_elf(original)["has_debug_info"])
+            installed.unlink()
 
     @unittest.skipUnless(shutil.which("go"), "Go fixture tool unavailable")
     def test_real_go_override_flags_preserve_elf_build_id_and_dwarf(self):

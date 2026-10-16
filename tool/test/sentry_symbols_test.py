@@ -55,7 +55,7 @@ class SymbolAuditTest(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory(prefix="xflclash-symbol-audit-")
         self.addCleanup(self.temporary.cleanup)
-        self.root = Path(self.temporary.name)
+        self.root = Path(self.temporary.name).resolve()
         self.build = self.root / "build"
         self.native = self.build / "windows/x64"
         self.manifest = self.native / "sentry-symbols/Release/targets.tsv"
@@ -93,7 +93,8 @@ class SymbolAuditTest(unittest.TestCase):
         if arguments == ["--version"]:
             return "sentry-cli 2.58.4\n"
         if arguments[:2] == ["debug-files", "check"]:
-            return json.dumps(self.metadata[arguments[-1]])
+            actual = Path(arguments[-1]).resolve()
+            return json.dumps(next(value for path, value in self.metadata.items() if Path(path).resolve() == actual))
         self.assertEqual(arguments[:2], ["debug-files", "upload"])
         stage = Path(arguments[-1])
         staged = [path for path in stage.rglob("*") if path.is_file()]
@@ -128,6 +129,18 @@ class SymbolAuditTest(unittest.TestCase):
 
     def test_matching_all_native_targets_and_dart_upload(self):
         result, evidence = self.run_main(token="secret-sentry-token")
+        self.assertEqual(result, 0)
+        self.assertEqual(evidence["status"], "uploaded_and_processed")
+
+    @unittest.skipIf(os.name == "nt", "Directory symlink alias fixture is POSIX-only")
+    def test_absolute_windows_manifest_paths_under_root_alias_are_canonicalized(self):
+        alias = self.root / "build-alias"
+        alias.symlink_to(self.build, target_is_directory=True)
+        self.records = [[target, str(alias / Path(binary).relative_to(self.build)),
+                         str(alias / Path(pdb).relative_to(self.build))]
+                        for target, binary, pdb in self.records]
+        self.write_manifest()
+        result, evidence = self.run_main(token="fixture-token")
         self.assertEqual(result, 0)
         self.assertEqual(evidence["status"], "uploaded_and_processed")
         self.assertEqual(len(evidence["native"]), 3)
@@ -321,7 +334,7 @@ class CliMetadataTest(unittest.TestCase):
         metadata = {"type": "pe", "variants": [{"debug_id": DEBUG_ID}],
                     "features": "none", "is_usable": False}
         with tempfile.TemporaryDirectory() as temporary:
-            binary = Path(temporary) / "fixture.exe"
+            binary = Path(temporary).resolve() / "fixture.exe"
             binary.write_bytes(b"fixture")
             response = subprocess.CompletedProcess([], 1, stdout=json.dumps(metadata), stderr="")
             with mock.patch.object(symbols.subprocess, "run", return_value=response):
@@ -332,7 +345,7 @@ class CliMetadataTest(unittest.TestCase):
         metadata = {"type": "pdb", "variants": [{"debug_id": DEBUG_ID}],
                     "features": "none", "is_usable": False}
         with tempfile.TemporaryDirectory() as temporary:
-            pdb = Path(temporary) / "fixture.pdb"
+            pdb = Path(temporary).resolve() / "fixture.pdb"
             pdb.write_bytes(b"fixture")
             response = subprocess.CompletedProcess([], 1, stdout=json.dumps(metadata), stderr="")
             with mock.patch.object(symbols.subprocess, "run", return_value=response), \
@@ -356,7 +369,7 @@ class NativeElfSymbolsTest(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory(prefix="xflclash-native-elf-")
         self.addCleanup(self.temporary.cleanup)
-        self.root = Path(self.temporary.name)
+        self.root = Path(self.temporary.name).resolve()
         self.build = self.root / "build"
         self.native = self.build / "sentry-native/linux"
         self.native.mkdir(parents=True)
@@ -446,6 +459,31 @@ class NativeElfSymbolsTest(unittest.TestCase):
         self.assertEqual(artifacts, [self.debug, self.rust_debug])
         self.assertEqual(evidence[0]["build_id"], original["build_id"])
         self.assertEqual(limitations[0]["reason"], "separate_process_no_sentry_sdk")
+
+    def test_symlink_build_root_alias_keeps_real_native_and_dart_matching(self):
+        alias = self.root / "build-alias"
+        alias.symlink_to(self.build, target_is_directory=True)
+        dart = self.build / f"debug-info/app.linux-{self.architecture}.symbols"
+        dart.parent.mkdir()
+        shutil.copyfile(self.debug, dart)
+        with mock.patch.object(symbols, "run_cli", side_effect=self.cli):
+            artifacts, native, _ = symbols.audit_elf_native("sentry-cli", alias, "linux")
+            companions, companion_evidence = symbols.collect_companions("sentry-cli", alias, "linux")
+        self.assertEqual(artifacts, [self.debug, self.rust_debug])
+        self.assertEqual(companions, [dart])
+        self.assertEqual(native[0]["build_id"], symbols.inspect_elf(self.binary)["build_id"])
+        self.assertEqual(companion_evidence[0]["binaries"][0], symbols.fingerprint(self.dart_aot))
+
+    def test_symlink_root_alias_still_rejects_dart_companion_escape(self):
+        alias = self.root / "build-alias"
+        alias.symlink_to(self.build, target_is_directory=True)
+        outside = self.root / "outside.symbols"
+        shutil.copyfile(self.debug, outside)
+        dart = self.build / f"debug-info/app.linux-{self.architecture}.symbols"
+        dart.parent.mkdir()
+        dart.symlink_to(outside)
+        with self.assertRaisesRegex(symbols.SymbolError, "escaped its build root"):
+            symbols.collect_companions("sentry-cli", alias, "linux")
 
     def test_real_cli_accepts_matching_elf_and_debug_companion(self):
         cli = shutil.which("sentry-cli")
@@ -751,6 +789,60 @@ class NativeElfSymbolsTest(unittest.TestCase):
         with self.assertRaisesRegex(symbols.SymbolError, "distributed Go core"):
             self.audit()
 
+    def linux_handler_inventory(self):
+        native = self.binary.parent.parent
+        source = native / "_deps/sentry-native-build/handler/crashpad_handler"
+        source.parent.mkdir(parents=True)
+        shutil.copyfile(self.original, source)
+        runtime = self.binary.parent / "lib/crashpad_handler"
+        shutil.copyfile(self.binary, runtime)
+        copy = self.binary.parent / "bin/crashpad_handler"
+        copy.parent.mkdir()
+        shutil.copyfile(self.original, copy)
+        debug = self.native / "crashpad_handler.debug"
+        shutil.copyfile(self.debug, debug)
+        self.cmake_map.write_text(self.cmake_map.read_text() + f"handler_target\t{source}\n")
+        entry = {"target": "crashpad_handler", "architecture": self.architecture, "source": "cmake",
+                 "binary": runtime.relative_to(self.build).as_posix(),
+                 "binary_copies": [path.relative_to(self.build).as_posix() for path in (runtime, copy)],
+                 "debug_file": debug.relative_to(self.build).as_posix()}
+        self.manifest["artifacts"].append(entry)
+        self.manifest["required"].append({"target": "crashpad_handler", "architecture": self.architecture})
+        self.write_manifest()
+        return entry, runtime, copy
+
+    def test_linux_handler_audits_every_runtime_copy_and_records_fingerprints(self):
+        _, runtime, copy = self.linux_handler_inventory()
+        _, evidence, _ = self.audit()
+        handler = next(entry for entry in evidence if entry["target"] == "crashpad_handler")
+        self.assertEqual(len(handler["binary_copies"]), 2)
+        self.assertEqual({item["sha256"] for item in handler["binary_copies"]},
+                         {symbols.fingerprint(path)["sha256"] for path in (runtime, copy)})
+
+    def test_linux_handler_cannot_be_removed_from_both_manifest_lists(self):
+        self.linux_handler_inventory()
+        for field in ("artifacts", "required"):
+            self.manifest[field] = [entry for entry in self.manifest[field] if entry["target"] != "crashpad_handler"]
+        self.write_manifest()
+        with self.assertRaisesRegex(symbols.SymbolError, "distributed CMake"):
+            self.audit()
+
+    def test_linux_handler_cannot_disappear_by_also_truncating_the_cmake_map(self):
+        self.linux_handler_inventory()
+        self.cmake_map.write_text(self.cmake_map.read_text().split("handler_target\t", 1)[0])
+        for field in ("artifacts", "required"):
+            self.manifest[field] = [entry for entry in self.manifest[field] if entry["target"] != "crashpad_handler"]
+        self.write_manifest()
+        with self.assertRaisesRegex(symbols.SymbolError, "crashpad_source_manifest_missing"):
+            self.audit()
+
+    def test_linux_handler_upload_record_cannot_omit_one_installed_copy(self):
+        entry, *_ = self.linux_handler_inventory()
+        entry["binary_copies"].pop()
+        self.write_manifest()
+        with self.assertRaisesRegex(symbols.SymbolError, "runtime copy"):
+            self.audit()
+
     def test_build_id_missing_fails(self):
         subprocess.run(["objcopy", "--remove-section=.note.gnu.build-id", str(self.binary)], check=True, capture_output=True)
         with self.assertRaisesRegex(symbols.SymbolError, "build identifier mismatch"):
@@ -790,7 +882,7 @@ class LocalUploadEntrypointTest(unittest.TestCase):
             line = next(line.strip() for line in text.splitlines()
                         if line.strip().startswith("jq -r 'keys | join"))
             with tempfile.TemporaryDirectory() as temporary:
-                root = Path(temporary)
+                root = Path(temporary).resolve()
                 (root / "env.json").write_text(json.dumps({"XB_AES_KEY_B64": "fixture-private-aes",
                     "XB_SENTRY_DSN": "fixture-private-dsn", "NEW_PRIVATE_DEFINE": "fixture-other-private"}))
                 result = subprocess.run(["bash", "-c", line], cwd=root, capture_output=True,
@@ -798,6 +890,54 @@ class LocalUploadEntrypointTest(unittest.TestCase):
                 self.assertIn("XB_SENTRY_DSN", result.stdout)
                 self.assertNotIn("fixture-private", result.stdout)
                 self.assertNotIn("fixture-other-private", result.stdout)
+
+
+def write_windows_symbol_fixture(source):
+    """Use the production root language setup and a child C-only DLL target."""
+    source.mkdir()
+    windows = SCRIPT.parents[1] / "windows"
+    project = next(line for line in (windows / "CMakeLists.txt").read_text().splitlines()
+                   if line.startswith("project("))
+    (source / "CMakeLists.txt").write_text('''cmake_minimum_required(VERSION 3.14)
+''' + project + '''
+file(WRITE "${CMAKE_BINARY_DIR}/root-c-compiler.txt" "${CMAKE_C_COMPILER_LOADED}")
+add_library(wrapper STATIC wrapper.cpp)
+add_executable(FlClash main.cpp)
+target_link_libraries(FlClash PRIVATE wrapper)
+add_library(flutter_inappwebview_windows_plugin SHARED plugin.cpp)
+add_library(desktop_webview_window_plugin SHARED plugin.cpp)
+add_subdirectory(sqlite)
+include("''' + (windows / "xboard_sentry_symbols.cmake").as_posix() + '''")
+''')
+    (source / "wrapper.cpp").write_text("int fixture_wrapper() { return 7; }\n")
+    (source / "main.cpp").write_text("int fixture_wrapper(); int main() { return fixture_wrapper(); }\n")
+    export = '__declspec(dllexport) ' if os.name == "nt" else ''
+    (source / "plugin.cpp").write_text(export + "int fixture_plugin() { return 9; }\n")
+    child = source / "sqlite"
+    child.mkdir()
+    (child / "CMakeLists.txt").write_text('''project(sqlite_fixture LANGUAGES C)
+add_library(sqlite3 SHARED sqlite3.c)
+set_target_properties(sqlite3 PROPERTIES
+  RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/$<CONFIG>")
+''')
+    (child / "sqlite3.c").write_text(export + "int fixture_sqlite(void) { return 42; }\n")
+
+
+@unittest.skipUnless(shutil.which("cmake") and (os.name == "nt" or shutil.which("c++")),
+                     "Native C/C++ CMake fixture tools unavailable")
+class WindowsRootLanguagesTest(unittest.TestCase):
+    def test_production_root_initializes_c_before_child_c_only_library(self):
+        from windows_loader_install_test import find_cmake
+        with tempfile.TemporaryDirectory(prefix="xflclash-root-c-") as temporary:
+            root = Path(temporary).resolve()
+            source, build = root / "source", root / "build"
+            write_windows_symbol_fixture(source)
+            for args in (["-S", str(source), "-B", str(build)],
+                         ["--build", str(build), "--config", "Release"]):
+                subprocess.run([find_cmake(), *args], check=True, capture_output=True, timeout=180)
+            # Captured before the child enables C: a child-only compiler setup
+            # cannot initialize the parent's PDB generator-expression context.
+            self.assertEqual((build / "root-c-compiler.txt").read_text(), "1")
 
 
 @unittest.skipUnless(os.name == "nt", "Actual MSVC/PDB generation requires Windows")
@@ -808,32 +948,19 @@ class NativeWindowsSymbolsTest(unittest.TestCase):
         cli = shutil.which("sentry-cli")
         self.assertIsNotNone(cli, "CI must install sentry-cli before this test")
         with tempfile.TemporaryDirectory(prefix="xflclash-msvc-symbols-") as temporary:
-            root = Path(temporary)
+            root = Path(temporary).resolve()
             source, build = root / "source with spaces", root / "build with spaces"
-            source.mkdir()
-            rules = SCRIPT.parents[1] / "windows/xboard_sentry_symbols.cmake"
-            (source / "CMakeLists.txt").write_text('''cmake_minimum_required(VERSION 3.14)
-project(symbol_fixture LANGUAGES CXX)
-add_library(wrapper STATIC wrapper.cpp)
-add_executable(FlClash main.cpp)
-target_link_libraries(FlClash PRIVATE wrapper)
-add_library(flutter_inappwebview_windows_plugin SHARED plugin.cpp)
-add_library(desktop_webview_window_plugin SHARED plugin.cpp)
-include("''' + rules.as_posix() + '''")
-''')
-            (source / "wrapper.cpp").write_text("int fixture_wrapper() { return 7; }\n")
-            (source / "main.cpp").write_text("int fixture_wrapper(); int main() { return fixture_wrapper(); }\n")
-            (source / "plugin.cpp").write_text('__declspec(dllexport) int fixture_plugin() { return 9; }\n')
+            write_windows_symbol_fixture(source)
             for args in (["-S", str(source), "-B", str(build)],
                          ["--build", str(build), "--config", "Release"]):
                 subprocess.run([find_cmake(), *args], check=True, capture_output=True, timeout=180)
             files, evidence = symbols.audit_windows(cli, build)
-            self.assertEqual(len(files), 3)
+            self.assertEqual(len(files), 4)
             self.assertEqual({item["target"] for item in evidence},
-                             {"FlClash", "flutter_inappwebview_windows_plugin", "desktop_webview_window_plugin"})
+                             {"FlClash", "flutter_inappwebview_windows_plugin", "desktop_webview_window_plugin", "sqlite3"})
             self.assertTrue(all("debug" in item["features"] for item in evidence))
-            self.assertTrue(all(path.parent == build / "sentry-symbols/Release" for path in files))
-            self.assertFalse(any(path.parent == build / "Release" for path in files))
+            self.assertTrue(all(path.parent.resolve() == (build / "sentry-symbols/Release").resolve() for path in files))
+            self.assertFalse(any(path.parent.resolve() == (build / "Release").resolve() for path in files))
 
 
 if __name__ == "__main__":
