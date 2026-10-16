@@ -28,16 +28,16 @@ XFlclash 当前维护形态 A 商业客户端，FlClash 底座仍为 **v0.8.93**
 | --- | --- |
 | 产品版本 | 私密 `flavors/<brand>/flavor.yaml` 的 `versionName`，构建时注入 `XB_PRODUCT_VERSION`，用于产品关于页和文件命名 |
 | 底座版本 | `pubspec.yaml` 的 FlClash 版本，通过 `--build-name` 进入 PackageInfo / Android 原生 versionName |
-| 品牌构建号 | `scripts/build_number.<brand>.txt` 和该批次固定输入；注入 `XB_BUILD_NUMBER` 供应用内更新比较 |
+| 品牌构建号 | GitHub 用 `scripts/build_number.<brand>.txt`；本机 Android 用 Git 忽略的 `.local-build/build_number.<brand>.txt`。批次固定后注入 `XB_BUILD_NUMBER` 供应用内更新比较 |
 | Android versionCode | `--build-number` 与 ABI 打包策略共同决定；本机单 ABI 包核对为批次构建号，split-per-abi 可能产生 ABI 偏移 |
 | buildTag | 批次时间标识 `YYYYMMDDHHMM`，注入 `XB_BUILD_TAG`，用于产品关于页辨认构建 |
 | ABI | Flutter target、Gradle 原生库筛选和 `XB_ANDROID_ABI` 一起核对；`XB_TARGET_ABI` 是 Gradle 输入，不是同一个 Dart 键 |
 
 `prepare_flavor` 当前不会把 pubspec 改为 `<产品版本>+flclash<底座版本>`。应用内更新比较 `XB_BUILD_NUMBER`，Android 安装另检查原生 versionCode、包名和签名；两层都要验证。
 
-本地 release 批次读取计数后只分配一次新构建号。失败重试使用同一批次输入，成功并完成产物核验后才更新计数。CI 的计数更新时序按其 workflow 和构建记录核对，仓库中的数字不自动等于某个旧下载包的编号。最新实际 APK 和验证状态见 [STATUS](https://github.com/wvjh3z/proxy-suite-docs/blob/main/STATUS.md)。
+本机 Android 首次使用时，将仓库品牌计数只读复制为本机起点；以后只读写 `.local-build/`，不修改 GitHub 计数。该目录位于 Flutter build 输出之外，普通 clean 不会清除。新 release 默认本机计数+1；失败重试沿用同一批次冻结编号，已有更高本机成功号时拒绝过期批次，不能回退覆盖。成功并完成产物核验后才推进本机计数，debug/诊断不推进；首次复制起点不表示执行过构建。CI 的计数更新时序按其 workflow 和构建记录核对，仓库中的数字不自动等于某个旧下载包的编号。最新实际 APK 和验证状态见 [STATUS](https://github.com/wvjh3z/proxy-suite-docs/blob/main/STATUS.md)。
 
-GitHub 的 `build_number` 可留空，使用本次触发源码中的品牌计数；也可填写不小于该计数的整数（1–65535）。准备步骤摘要和各平台任务名显示实际编号，所有平台、安装包和 Sentry 使用同一解析值。`upload=true` 且全部目标成功后，下一计数取最新 main 值与实际编号+1的最大值；`upload=false` 不推进。手动输入会显示在运行标题，自动值在准备步骤执行后显示，表单不提供实时灰色数字预填。本机开发脚本保持原逻辑，GitHub 编号按用户决策人工维护；并发 run 或旧源码重跑仍需核对，未实现跨端原子取号。
+GitHub 的 `build_number` 可留空，使用本次触发源码中的品牌计数；也可填写不小于该计数的整数（1–65535）。准备步骤摘要和各平台任务名显示实际编号，所有平台、安装包和 Sentry 使用同一解析值。`upload=true` 且全部目标成功后，下一计数取最新 main 值与实际编号+1的最大值；`upload=false` 不推进。手动输入会显示在运行标题，自动值在准备步骤执行后显示，表单不提供实时灰色数字预填。GitHub 编号按用户决策维护，本机开发计数独立；并发 GitHub run 或旧源码重跑仍需核对，未实现全局唯一取号。开发包编号较高的测试设备不会把较低编号的正式包识别为更新，文件隔离不改变更新比较或签名规则。
 
 ## 品牌配置与签名
 

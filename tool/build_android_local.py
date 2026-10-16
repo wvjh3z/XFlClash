@@ -77,6 +77,61 @@ def write_json(path: Path, value: dict) -> None:
     path.chmod(0o600)
 
 
+def local_counter_path(root: Path, flavor: str) -> Path:
+    if flavor not in ("brand_a", "brand_b"):
+        raise ReleaseError("Unsupported local counter flavor")
+    path = root / ".local-build" / f"build_number.{flavor}.txt"
+    if path.parent.is_symlink() or path.is_symlink():
+        raise ReleaseError("Local build counter must not use symbolic links")
+    return path
+
+
+def validate_local_number(number: int) -> int:
+    if type(number) is not int or not 1 <= number <= 2_100_000_000:
+        raise ReleaseError("Local Android build number must be an integer from 1 to 2100000000")
+    return number
+
+
+def write_local_build_number(root: Path, flavor: str, number: int) -> None:
+    """Atomically replace only the ignored counter; caller holds the build lock."""
+    validate_local_number(number)
+    path = local_counter_path(root, flavor)
+    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=path.parent,
+                                         prefix=".counter-", delete=False) as stream:
+            temporary = Path(stream.name)
+            stream.write(str(number) + "\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        temporary.replace(path)
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
+
+
+def read_local_build_number(root: Path, flavor: str) -> int:
+    """Seed once from the old tracked counter, then never read it again.
+
+    Seeding copies a conservative starting value, not a claim that a build ran.
+    A malformed existing local counter must fail rather than silently reset.
+    """
+    path = local_counter_path(root, flavor)
+    missing = not path.exists()
+    source = root / "scripts" / f"build_number.{flavor}.txt" if missing else path
+    try:
+        text = source.read_text(encoding="utf-8").strip()
+        if not re.fullmatch(r"[1-9][0-9]{0,9}", text):
+            raise ValueError()
+        number = validate_local_number(int(text))
+    except (OSError, ValueError, UnicodeError):
+        raise ReleaseError("Local counter or its one-time migration seed is missing or invalid") from None
+    if missing:
+        write_local_build_number(root, flavor, number)
+    return number
+
+
 def capture_sources(root: Path, sdk: Path, flavor: str) -> dict:
     """Bind actual compilation inputs, including uncommitted source contents.
 
@@ -373,36 +428,41 @@ def main(argv: list[str] | None = None) -> int:
         if not environment.get("ANDROID_NDK"):
             raise ReleaseError("Source the Android environment: ANDROID_NDK is missing")
         tools = android_tools(environment)
-        flavor_yaml, counter = root / f"flavors/{args.flavor}/flavor.yaml", root / f"scripts/build_number.{args.flavor}.txt"
-        current = int(counter.read_text().strip()) if counter.exists() else 1
-        number = args.build_number if args.build_number is not None else current + (args.mode == "release")
-        if number < current or (args.mode == "release" and number <= current):
-            raise ReleaseError("A new release build number must exceed the current successful brand counter")
+        # Serialize before reading/migrating the counter or writing batch inputs.
+        descriptor = os.open(lock, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        os.close(descriptor)
+        lock_owned = True
+        flavor_yaml = root / f"flavors/{args.flavor}/flavor.yaml"
+        current = read_local_build_number(root, args.flavor)
         revision = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip()
         tag = args.build_tag or datetime.datetime.now().strftime("%Y%m%d%H%M")
         base, prefix = scalar(root / "pubspec.yaml", "version").split("+", 1)[0], scalar(flavor_yaml, "updatePackageName")
         if not re.fullmatch(r"[A-Za-z0-9_.-]+", prefix) or not re.fullmatch(r"[0-9]{12}", tag):
             raise ReleaseError("Unsafe package prefix or build tag")
+        batch = batch.resolve() if batch else root / "dist/local-release" / f"{args.flavor}-{tag}-{args.arch}"
+        batch.mkdir(parents=True, exist_ok=True, mode=0o700)
+        batch.chmod(0o700)
+        previous_inputs = batch / "build-inputs.json"
+        previous = json.loads(previous_inputs.read_text()) if previous_inputs.exists() else None
+        if previous is not None and not isinstance(previous, dict):
+            raise ReleaseError("The existing batch inputs are invalid")
+        number = (args.build_number if args.build_number is not None else previous.get("buildNumber")
+                  if previous is not None else current + (args.mode == "release"))
+        validate_local_number(number)
+        if number < current or (args.mode == "release" and number <= current):
+            raise ReleaseError("A new release build number must exceed the current successful local counter")
         inputs = {"flavor": args.flavor, "arch": args.arch, "abi": ARCHES[args.arch][0], "buildMode": args.mode,
                   "buildNumber": number, "buildTag": tag, "baseVersion": base,
                   "productVersion": scalar(flavor_yaml, "versionName"), "packageName": scalar(flavor_yaml, "appId"),
                   "displayName": scalar(flavor_yaml, "appName"), "updatePackageName": prefix,
                   "sourceRevision": revision, "diagnosticMode": "no_sentry" if args.no_sentry else "audit_only" if args.audit_only else None}
-        batch = batch.resolve() if batch else root / "dist/local-release" / f"{args.flavor}-{tag}-{args.arch}"
-        batch.mkdir(parents=True, exist_ok=True, mode=0o700)
-        batch.chmod(0o700)
-        previous_inputs = batch / "build-inputs.json"
-        if previous_inputs.exists():
-            previous = json.loads(previous_inputs.read_text())
+        if previous is not None:
             if args.build_tag is None:
                 inputs["buildTag"] = previous.get("buildTag")
             if previous != inputs:
                 raise ReleaseError("The existing batch has different fixed inputs; use a new batch directory")
         else:
             write_json(previous_inputs, inputs)
-        descriptor = os.open(lock, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-        os.close(descriptor)
-        lock_owned = True
         sdk = (root / "../Xboard_sdk").resolve()
         lock_paths = [root / "pubspec.lock", sdk / "pubspec.lock"]
         if not all(path.is_file() for path in lock_paths):
@@ -498,7 +558,7 @@ def main(argv: list[str] | None = None) -> int:
                       deviceInstallationTested=False, deviceSentryCaptureTested=False)
         write_json(batch / "verification.json", report)
         if args.mode == "release" and not inputs["diagnosticMode"]:
-            counter.write_text(str(number) + "\n")
+            write_local_build_number(root, args.flavor, number)
         print("Completed local APK: " + str(destination), flush=True)
         print("Verification: " + str(batch / "verification.json"), flush=True)
         return 0

@@ -100,3 +100,7 @@ flavors/sentry-cli.token
 
 # 本地构建/调试临时目录（日志、临时脚本，不入库）
 /.tmp/
+
+# 本机 Android 开发构建计数；GitHub 继续使用 scripts/build_number.<brand>.txt。
+# 放在 build/ 外，避免 flutter clean 清除；不要 git add -f。
+/.local-build/

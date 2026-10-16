@@ -6,6 +6,8 @@
 # verified APK/AOT and automatically prepared/audited/uploaded Sentry symbols.
 # Only explicit --audit-only / --no-sentry create diagnostic output; diagnostic
 # runs leave the successful release counter unchanged.
+# Local counters live in ignored .local-build/; tracked scripts/build_number.*
+# files are read only once for initial migration and are never written here.
 set -euo pipefail
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 exec python3 "${REPO_DIR}/tool/build_android_local.py" "$@"

@@ -26,6 +26,79 @@ import build_android_local as android
 import postbuild_sentry_symbols as postbuild
 
 
+class LocalCounterTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name).resolve()
+        (self.root / "scripts").mkdir()
+        self.ci = self.root / "scripts/build_number.brand_a.txt"
+        self.ci.write_text("21\n")
+
+    def test_migration_is_once_and_other_brands_are_independent(self):
+        self.assertEqual(android.read_local_build_number(self.root, "brand_a"), 21)
+        android.write_local_build_number(self.root, "brand_a", 50)
+        self.ci.write_text("22\n")
+        self.assertEqual(android.read_local_build_number(self.root, "brand_a"), 50)
+        self.ci.unlink()
+        self.assertEqual(android.read_local_build_number(self.root, "brand_a"), 50)
+        (self.root / "scripts/build_number.brand_b.txt").write_text("1\n")
+        self.assertEqual(android.read_local_build_number(self.root, "brand_b"), 1)
+        self.assertEqual(android.read_local_build_number(self.root, "brand_a"), 50)
+
+    def test_corrupt_local_counter_is_not_reset_from_ci(self):
+        android.read_local_build_number(self.root, "brand_a")
+        counter = android.local_counter_path(self.root, "brand_a")
+        for value in ("", "-1", "0", "1.5", "bad", "2100000001"):
+            with self.subTest(value=value):
+                counter.write_text(value)
+                with self.assertRaises(android.ReleaseError):
+                    android.read_local_build_number(self.root, "brand_a")
+                self.assertEqual(counter.read_text(), value)
+        self.assertEqual(self.ci.read_text(), "21\n")
+
+    def test_missing_seed_and_invalid_brand_fail_without_creating_counter(self):
+        self.ci.unlink()
+        with self.assertRaises(android.ReleaseError):
+            android.read_local_build_number(self.root, "brand_a")
+        self.assertFalse((self.root / ".local-build").exists())
+        with self.assertRaises(android.ReleaseError):
+            android.local_counter_path(self.root, "../brand_a")
+
+    def test_failed_atomic_replace_keeps_previous_local_number(self):
+        android.read_local_build_number(self.root, "brand_a")
+        with mock.patch.object(Path, "replace", side_effect=OSError("fixture failure")), self.assertRaises(OSError):
+            android.write_local_build_number(self.root, "brand_a", 50)
+        self.assertEqual(android.read_local_build_number(self.root, "brand_a"), 21)
+        self.assertEqual(len(list((self.root / ".local-build").iterdir())), 1)
+        self.assertEqual(self.ci.read_text(), "21\n")
+
+    @unittest.skipIf(os.name == "nt", "Symbolic-link fixture requires POSIX")
+    def test_local_path_cannot_alias_the_tracked_counter(self):
+        (self.root / ".local-build").symlink_to(self.root / "scripts", target_is_directory=True)
+        with self.assertRaises(android.ReleaseError):
+            android.read_local_build_number(self.root, "brand_a")
+        (self.root / ".local-build").unlink()
+        (self.root / ".local-build").mkdir()
+        (self.root / ".local-build/build_number.brand_a.txt").symlink_to(self.ci)
+        with self.assertRaises(android.ReleaseError):
+            android.write_local_build_number(self.root, "brand_a", 50)
+        self.assertEqual(self.ci.read_text(), "21\n")
+
+    @unittest.skipUnless(shutil.which("git"), "Git required for real index isolation fixture")
+    def test_git_add_all_excludes_local_number_and_retains_ci_number(self):
+        subprocess.run(["git", "init", "--quiet", str(self.root)], check=True, capture_output=True)
+        source = Path(__file__).resolve().parents[2] / ".gitignore"
+        (self.root / ".gitignore").write_bytes(source.read_bytes())
+        android.read_local_build_number(self.root, "brand_a")
+        android.write_local_build_number(self.root, "brand_a", 50)
+        subprocess.run(["git", "add", "-A"], cwd=self.root, check=True, capture_output=True)
+        staged = subprocess.check_output(["git", "diff", "--cached", "--name-only"], cwd=self.root, text=True).splitlines()
+        self.assertEqual(set(staged), {".gitignore", "scripts/build_number.brand_a.txt"})
+        self.assertEqual(subprocess.check_output(["git", "show", ":scripts/build_number.brand_a.txt"], cwd=self.root, text=True), "21\n")
+        subprocess.run(["git", "check-ignore", "--quiet", ".local-build/build_number.brand_a.txt"], cwd=self.root, check=True)
+
+
 class PostbuildTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -171,8 +244,9 @@ class AndroidLocalTests(unittest.TestCase):
         (self.root / "core/Clash.Meta/core.go").write_text("original core source")
         (self.root / "flavors/brand_a/flavor.yaml").write_text("versionName: '0.0.1'\nappId: com.example.test\nappName: Test Brand\nupdatePackageName: test\n")
         (self.root / "flavors/brand_a/assets/fallback.bin").write_bytes(b"fake-fallback")
-        self.counter = self.root / "scripts/build_number.brand_a.txt"
-        self.counter.write_text("17\n")
+        self.ci_counter = self.root / "scripts/build_number.brand_a.txt"
+        self.ci_counter.write_text("17\n")
+        self.counter = self.root / ".local-build/build_number.brand_a.txt"
         self.properties = self.root / "android/local.properties"
         self.properties.write_text("sdk.dir=/original\nXB_TARGET_ABI=x86_64\n")
         self.keystore = self.root / "android/app/keystore.jks"
@@ -208,7 +282,7 @@ class AndroidLocalTests(unittest.TestCase):
                 apk.write_bytes(b"fake-apk")
             if name == "sentry-symbols":
                 evidence = {"status": "audited" if "--audit-only" in command else "uploaded_and_processed",
-                            "platform": "android", "flavor": "brand_a", "product_version": "0.0.1", "build_number": "18", "source_revision": "a" * 40}
+                            "platform": "android", "flavor": "brand_a", "product_version": "0.0.1", "build_number": command[command.index("--build-number") + 1], "source_revision": "a" * 40}
                 if invalid_evidence:
                     evidence["build_number"] = "17"
                 (owner.batch / "sentry-symbols-evidence.json").write_text(json.dumps(evidence))
@@ -221,7 +295,8 @@ class AndroidLocalTests(unittest.TestCase):
         with mock.patch.dict(os.environ, {"ANDROID_HOME": str(self.base / "android-sdk"), "ANDROID_NDK": "fake-ndk", "GRADLE_USER_HOME": str(self.gradle_home)}, clear=True), mock.patch.object(android.shutil, "which", return_value="fake-tool"), mock.patch.object(android, "android_tools", return_value=self.base), mock.patch.object(android.subprocess, "check_output", side_effect=git_output), mock.patch.object(android.LocalBuild, "run", run), mock.patch.object(android, "verify_apk", return_value={"signatureVerified": True}), contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
             return android.main(arguments or self.arguments)
 
-    def assert_restored(self):
+    def assert_restored(self, ci_number="17"):
+        self.assertEqual(self.ci_counter.read_text(), ci_number + "\n")
         self.assertEqual(self.properties.read_text(), "sdk.dir=/original\nXB_TARGET_ABI=x86_64\n")
         self.assertEqual(self.keystore.read_bytes(), b"original-keystore")
         self.assertEqual(list((self.gradle_home / "init.d").iterdir()), [self.existing_init])
@@ -281,12 +356,56 @@ class AndroidLocalTests(unittest.TestCase):
         self.assertEqual(self.run_fake(arguments=changed), 1)
         self.assertEqual(self.counter.read_text(), "17\n")
 
+    def test_development_50_and_51_do_not_change_or_follow_ci_counter(self):
+        self.assertEqual(self.run_fake(arguments=[*self.arguments, "--build-number", "50"]), 0)
+        self.assertEqual(self.counter.read_text(), "50\n")
+        self.assert_restored()
+        # A later fetch/update of the tracked CI counter does not set the local number.
+        self.ci_counter.write_text("100\n")
+        self.batch = self.base / "next-batch"
+        args = self.arguments.copy()
+        args[args.index("--batch-dir") + 1] = str(self.batch)
+        self.calls.clear()
+        self.assertEqual(self.run_fake(arguments=args), 0)
+        self.assertEqual(self.counter.read_text(), "51\n")
+        report = json.loads((self.batch / "verification.json").read_text())
+        self.assertEqual(report["buildNumber"], 51)
+        self.assert_restored(ci_number="100")
+
+    def test_retry_keeps_explicit_number_without_repeating_override(self):
+        self.assertEqual(self.run_fake("flutter-apk", arguments=[*self.arguments, "--build-number", "50"]), 1)
+        self.assertEqual(self.counter.read_text(), "17\n")
+        self.assertEqual(self.run_fake(), 0)
+        self.assertEqual(self.counter.read_text(), "50\n")
+        self.assert_restored()
+
+    def test_stale_failed_batch_cannot_overwrite_a_later_success(self):
+        self.assertEqual(self.run_fake("flutter-apk"), 1)
+        android.write_local_build_number(self.root, "brand_a", 50)
+        self.calls.clear()
+        self.assertEqual(self.run_fake(), 1)
+        self.assertFalse(self.calls)
+        self.assertEqual(self.counter.read_text(), "50\n")
+        self.assert_restored()
+
+    def test_counter_is_read_only_after_acquiring_local_lock(self):
+        original = android.read_local_build_number
+        def read(root, flavor):
+            self.assertTrue((root / "android/.xfl-local-build.lock").is_file())
+            return original(root, flavor)
+        with mock.patch.object(android, "read_local_build_number", side_effect=read) as reader:
+            self.assertEqual(self.run_fake(), 0)
+        reader.assert_called_once()
+        self.assert_restored()
+
     def test_active_local_build_lock_is_never_removed_by_second_build(self):
         lock = self.root / "android/.xfl-local-build.lock"
         lock.write_text("another process")
         self.assertEqual(self.run_fake(), 1)
         self.assertEqual(lock.read_text(), "another process")
         self.assertFalse(self.calls)
+        self.assertFalse(self.counter.exists())
+        self.assertEqual(self.ci_counter.read_text(), "17\n")
 
     def test_restoration_failure_cannot_promote_or_advance_release(self):
         original = android.temporary_android_configuration
