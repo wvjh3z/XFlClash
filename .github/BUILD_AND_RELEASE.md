@@ -37,6 +37,8 @@ XFlclash 当前维护形态 A 商业客户端，FlClash 底座仍为 **v0.8.93**
 
 本地 release 批次读取计数后只分配一次新构建号。失败重试使用同一批次输入，成功并完成产物核验后才更新计数。CI 的计数更新时序按其 workflow 和构建记录核对，仓库中的数字不自动等于某个旧下载包的编号。最新实际 APK 和验证状态见 [STATUS](https://github.com/wvjh3z/proxy-suite-docs/blob/main/STATUS.md)。
 
+GitHub 的 `build_number` 可留空，使用本次触发源码中的品牌计数；也可填写不小于该计数的整数（1–65535）。准备步骤摘要和各平台任务名显示实际编号，所有平台、安装包和 Sentry 使用同一解析值。`upload=true` 且全部目标成功后，下一计数取最新 main 值与实际编号+1的最大值；`upload=false` 不推进。手动输入会显示在运行标题，自动值在准备步骤执行后显示，表单不提供实时灰色数字预填。本机开发脚本保持原逻辑，GitHub 编号按用户决策人工维护；并发 run 或旧源码重跑仍需核对，未实现跨端原子取号。
+
 ## 品牌配置与签名
 
 - 真实 `flavor.yaml`、`fallback.bin`、AES、Token、Sentry 上传凭据和签名材料保持 Git 忽略，不写入公开文档或构建日志。

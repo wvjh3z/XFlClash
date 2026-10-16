@@ -31,6 +31,7 @@
 #   会导致 rpm 打包失败（本地 Debian13/rpm4.20 已复现）。**勿把 amd64 升到 ubuntu-latest/24.04**。
 
 name: Release Package (multi-platform, flutter_distributor)
+run-name: "${{ inputs.flavor }} · ${{ inputs.target }} · build ${{ inputs.build_number || '自动读取' }}"
 
 on:
   workflow_dispatch:
@@ -56,6 +57,11 @@ on:
           - desktop-except-linux-amd64
           - all
         default: android
+      build_number:
+        description: '构建号（可选）：留空自动使用仓库下一编号；也可手动指定更大编号'
+        type: string
+        required: false
+        default: ''
       upload:
         description: '发布安装包到草稿 Release；false仍执行Sentry符号校验与上传'
         type: boolean
@@ -88,11 +94,17 @@ jobs:
   # 解析 target 输入 → 动态 matrix。（job 级 if 不能用 matrix 上下文 → 之前 startup_failure，
   # 故改为 setup job 按 target 产出 matrix JSON，package job 用 fromJson 消费。）
   setup:
-    name: Resolve matrix
+    name: Resolve targets and build number
     runs-on: ubuntu-latest
     outputs:
       include: ${{ steps.r.outputs.include }}
+      build_number: ${{ steps.number.outputs.build_number }}
     steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Check build-number rules offline
+        run: python3 tool/test/release_build_number_test.py
       - id: r
         env:
           TARGET: ${{ github.event.inputs.target || 'android' }}
@@ -118,11 +130,18 @@ jobs:
           esac
           echo "include=$INC" >> "$GITHUB_OUTPUT"
           echo "选定 matrix: $INC"
+      - name: Resolve build number
+        id: number
+        env:
+          REQUESTED_BUILD_NUMBER: ${{ inputs.build_number }}
+        run: python3 tool/release_build_number.py resolve --flavor "$FLAVOR"
 
   package:
     needs: setup
-    name: ${{ matrix.platform }}${{ matrix.arch && format('-{0}', matrix.arch) }} (${{ github.event.inputs.flavor || 'brand_a' }})
+    name: ${{ matrix.platform }}${{ matrix.arch && format('-{0}', matrix.arch) }} (${{ github.event.inputs.flavor || 'brand_a' }}, build ${{ needs.setup.outputs.build_number }})
     runs-on: ${{ matrix.os }}
+    env:
+      BUILD_NUMBER: ${{ needs.setup.outputs.build_number }}
     strategy:
       fail-fast: false
       matrix:
@@ -311,18 +330,16 @@ jobs:
           set -euo pipefail
           TAG="$(date +%Y%m%d%H%M)"
           PV="$(grep -m1 -E '^[[:space:]]*versionName:' "flavors/${FLAVOR}/flavor.yaml" | sed -E 's/.*versionName:[[:space:]]*"?([^"#]+)"?.*/\1/' | xargs)"
-          BN="$(cat "scripts/build_number.${FLAVOR}.txt" 2>/dev/null || echo 1)"
           SHA=""
           [ -f core_sha256.json ] && SHA="$(jq -r '.CORE_SHA256 // ""' core_sha256.json)"
           jq -n \
             --argjson flavor "$(cat flavor_defines.json)" \
-            --arg env "$APP_ENV" --arg sha "$SHA" --arg tag "$TAG" --arg pv "$PV" --arg bn "$BN" \
+            --arg env "$APP_ENV" --arg sha "$SHA" --arg tag "$TAG" --arg pv "$PV" --arg bn "$BUILD_NUMBER" \
             '$flavor + {APP_ENV:$env, CORE_SHA256:$sha, XB_FORM_A:"true", XB_BUILD_TAG:$tag, XB_PRODUCT_VERSION:$pv, XB_BUILD_NUMBER:$bn}' \
             > env.json
           echo "=== env.json 已准备（仅列字段名，不输出品牌配置值）==="
           jq -r 'keys | join(", ")' env.json
           echo "PRODUCT_VERSION=$PV" >> "$GITHUB_ENV"
-          echo "BUILD_NUMBER=$BN" >> "$GITHUB_ENV"
           echo "BASE_VERSION=$(grep -m1 -E '^version:' pubspec.yaml | sed -E 's/^version:[[:space:]]*([0-9.]+).*/\1/' | xargs)" >> "$GITHUB_ENV"
 
       # 所有 Mac 出包先在前台解析 Swift 包，保留超时和安全诊断。
@@ -378,8 +395,7 @@ jobs:
       - name: Package (flutter_distributor)
         run: |
           set -euo pipefail
-          # 版本：与 release-build.yml 一致——build-name=底座版本 / build-number=build_number.txt，
-          # 否则 flutter_distributor 回退 pubspec 版本号（大日期数），两工作流 versionCode 语义不一致。
+          # 全矩阵使用 setup job 确定的同一个构建号，保留底座 build-name。
           COMMON="dart-define-from-file=env.json,build-name=$BASE_VERSION,build-number=$BUILD_NUMBER,split-debug-info=build/debug-info"
           case "${{ matrix.platform }}" in
             android) TARGETS="apk"; BUILD_ARGS="$COMMON,split-per-abi,target-platform=android-arm,android-arm64,flavor=$FLAVOR" ;;
@@ -528,37 +544,44 @@ jobs:
           gh release upload "${TAG}" dist/* --repo "${GITHUB_REPOSITORY}" --clobber
           echo "✓ 已发布到草稿 Release：${TAG}（仅协作者可见，直链下载真安装包）"
 
-  # 发布成功后，把该 flavor 的 versionCode +1 并提交回仓库（下次发布自动用新号）。
+  # 发布成功后，下次编号至少为本批次编号+1；不降低已被其他发布推进的计数。
   # 仅 upload=true（真发布）才自增——纯构建验证（upload=false）不消耗版本号。
   # needs: package → 仅当所有平台 job 成功才跑（任一失败不自增，避免号空耗）。
   # a/b 各自独立计数：scripts/build_number.<flavor>.txt，互不影响。
   bump:
-    needs: package
+    needs: [setup, package]
     if: github.event.inputs.upload == 'true'
     name: Bump versionCode (next release)
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout (main, 可推回)
+      - name: Checkout numbering tool from this run
         uses: actions/checkout@v4
         with:
-          ref: main
+          ref: ${{ github.sha }}
           token: ${{ secrets.GITHUB_TOKEN }}
       - name: Increment build_number for flavor
         env:
           FLAVOR: ${{ github.event.inputs.flavor || 'brand_a' }}
+          RESOLVED_BUILD_NUMBER: ${{ needs.setup.outputs.build_number }}
         run: |
           set -euo pipefail
           FILE="scripts/build_number.${FLAVOR}.txt"
-          CUR="$(cat "$FILE" 2>/dev/null || echo 1)"
-          NEXT=$((CUR + 1))
-          echo "$NEXT" > "$FILE"
+          NUMBER_TOOL="${RUNNER_TEMP}/release_build_number.py"
+          cp tool/release_build_number.py "$NUMBER_TOOL"
           git config user.name "anonymous"
           git config user.email "anonymous@users.noreply.github.com"
-          git add "$FILE"
-          git commit -m "[xfork] chore(build): ${FLAVOR} versionCode ${CUR}→${NEXT}（CI 发布后自增）"
-          # 防与人工 push 竞态：rebase 重试（本工作流仅 workflow_dispatch，提交不会再触发 CI）
+          # 本 job 是独立临时 checkout。冲突后先取最新 main 再计算，不复用旧计算结果。
           for i in 1 2 3; do
-            if git pull --rebase origin main && git push origin HEAD:main; then
+            git fetch --no-tags origin main
+            git reset --hard FETCH_HEAD
+            python3 "$NUMBER_TOOL" advance --flavor "$FLAVOR"
+            NEXT="$(cat "$FILE")"
+            if git diff --quiet -- "$FILE"; then
+              echo "✓ ${FLAVOR} 下一编号已达到 ${NEXT}，无需重复递增"; exit 0
+            fi
+            git add "$FILE"
+            git commit -m "[xfork] chore(build): ${FLAVOR} next build ${NEXT}（CI 发布后更新）"
+            if git push origin HEAD:main; then
               echo "✓ ${FLAVOR} versionCode → ${NEXT}（已提交回仓库）"; exit 0
             fi
             echo "push 冲突，重试 ($i)…"; sleep 4

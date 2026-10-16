@@ -113,6 +113,21 @@ class ReleaseWorkflowTests(unittest.TestCase):
                 self.assertEqual(arguments[arguments.index("--platform") + 1], platform)
                 self.assertNotIn("fixture-upload-credential-never-real", " ".join(arguments))
 
+    @unittest.skipUnless(shutil.which("jq"), "The real compose step requires jq")
+    def test_compose_uses_resolved_number_instead_of_reading_old_counter(self):
+        (self.root / "flavors/brand_a").mkdir(parents=True)
+        (self.root / "flavors/brand_a/flavor.yaml").write_text('versionName: "0.0.1"\n')
+        (self.root / "flavor_defines.json").write_text(json.dumps({"XB_FLAVOR_ID": "brand_a"}))
+        (self.root / "pubspec.yaml").write_text("version: 0.8.93+9999\n")
+        (self.root / "scripts").mkdir()
+        (self.root / "scripts/build_number.brand_a.txt").write_text("21\n")
+        self.env.update(APP_ENV="stable", GITHUB_ENV=str(self.root / "job-env"))
+        result = self.execute("Compose env.json", "windows")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads((self.root / "env.json").read_text())["XB_BUILD_NUMBER"], "101")
+        self.assertNotIn("BUILD_NUMBER=", (self.root / "job-env").read_text())
+        self.assertEqual((self.root / "scripts/build_number.brand_a.txt").read_text(), "21\n")
+
     def test_postbuild_receives_final_apks_and_release_metadata_without_bypass(self):
         self.stub("python")
         (self.root / "dist").mkdir()
