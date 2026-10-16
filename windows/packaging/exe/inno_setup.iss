@@ -3,9 +3,8 @@ AppId={{APP_ID}}
 AppVersion={{APP_VERSION}}
 AppName={{DISPLAY_NAME}}
 AppPublisher={{PUBLISHER_NAME}}
-AppPublisherURL={{PUBLISHER_URL}}
-AppSupportURL={{PUBLISHER_URL}}
-AppUpdatesURL={{PUBLISHER_URL}}
+; xboard-installer-links:start
+; xboard-installer-links:end
 DefaultDirName={{INSTALL_DIR_NAME}}
 DisableProgramGroupPage=yes
 UsePreviousTasks=no

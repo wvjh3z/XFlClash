@@ -43,6 +43,7 @@ GitHub 的 `build_number` 可留空，使用本次触发源码中的品牌计数
 
 ## 品牌配置与签名
 
+- Windows 安装器发布者与可选官网/支持/更新网页由公开 `flavors/<brand>/windows_installer.yaml` 维护：A 为 Omofly，B 为 daishu；三个网址可全部不填，未配置不生成链接。现有桌面注入入口读取该文件，无需更新品牌 Secrets。字段与离线检查见 [Windows 安装器公开信息](https://github.com/wvjh3z/proxy-suite-docs/blob/main/DEVELOPMENT.md#windows-安装器公开信息)。
 - 真实 `flavor.yaml`、`fallback.bin`、AES、Token、Sentry 上传凭据和签名材料保持 Git 忽略，不写入公开文档或构建日志。
 - 从该品牌私密配置准备生产输入；AES 可以存在于被忽略的 flavor 配置中，不能沿用早期“生成文件恒为空、从开发 secrets 文档补 key”的说法。
 - 生产包使用该品牌原签名。缺少签名材料时停止生产打包，不以 debug 签名替代，也不生成新的 keystore 冒充原签名。
