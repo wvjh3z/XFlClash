@@ -22,7 +22,7 @@ on:
         description: 'Current documentation commit'
         type: string
         required: true
-        default: '669a3fe7cf3b762ca49770d1d65a1f5e9c7c838d'
+        default: 'ac1b495d3605fb53265a77095221aa17516622fb'
 
 # 配齐 secrets（SIBLING_SDK_TOKEN / BRAND_A_*）后启用：
 #  push:
