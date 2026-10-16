@@ -73,9 +73,8 @@ class XbApkDownloader {
     final oldFile = File(filePath);
     if (oldFile.existsSync()) oldFile.deleteSync();
 
-    // 逐源尝试下载。复用项目放行 dio（R4.4：浏览器 UA 伪装 + 证书放行 + 直连，与
-    // bootstrap / 加密订阅同款抗封锁链路）；connectTimeout 5s 快速切换死源，
-    // 大文件下载单独放宽 receiveTimeout 到 5 分钟。
+    // 与 Bootstrap/加密订阅共用工厂，继承全局代理路由与证书/UA 策略。
+    // connectTimeout 5s 快速切换死源；大文件 receiveTimeout 放宽至5分钟。
     final dio = buildReleasedIsolatedDio(timeout: const Duration(seconds: 5))
       ..options.receiveTimeout = const Duration(minutes: 5);
 
@@ -115,7 +114,8 @@ class XbApkDownloader {
       final hash = sha256.convert(bytes).toString();
       if (hash != expectedSha256.toLowerCase()) {
         debugPrint(
-            '[XbApkDownloader] SHA256 mismatch: expected=$expectedSha256, got=$hash');
+          '[XbApkDownloader] SHA256 mismatch: expected=$expectedSha256, got=$hash',
+        );
         file.deleteSync();
         // #2 监测：hash 不符 = 下载损坏 / 后台配错 sha256 / 潜在篡改 → 高价值，必报。
         SentryBootstrap.captureException(
@@ -147,8 +147,11 @@ class XbApkDownloader {
       return DownloadResult.success;
     } on PlatformException catch (e, s) {
       debugPrint('[XbApkDownloader] install failed: ${e.message}');
-      SentryBootstrap.captureException(e,
-          stackTrace: s, where: 'self-update install (android)');
+      SentryBootstrap.captureException(
+        e,
+        stackTrace: s,
+        where: 'self-update install (android)',
+      );
       return DownloadResult.installFailed;
     }
   }
@@ -165,8 +168,11 @@ class XbApkDownloader {
       return DownloadResult.success;
     } catch (e, s) {
       debugPrint('[XbApkDownloader] windows installer launch failed: $e');
-      SentryBootstrap.captureException(e,
-          stackTrace: s, where: 'self-update install (windows)');
+      SentryBootstrap.captureException(
+        e,
+        stackTrace: s,
+        where: 'self-update install (windows)',
+      );
       return DownloadResult.installFailed;
     }
   }
@@ -176,7 +182,9 @@ class XbApkDownloader {
   static Future<DownloadResult> _installLinux(String downloadedPath) async {
     final appImagePath = Platform.environment['APPIMAGE'];
     if (appImagePath == null || appImagePath.isEmpty) {
-      debugPrint('[XbApkDownloader] not running as AppImage（无 \$APPIMAGE）→ 回退浏览器');
+      debugPrint(
+        '[XbApkDownloader] not running as AppImage（无 \$APPIMAGE）→ 回退浏览器',
+      );
       return DownloadResult.installFailed;
     }
     try {
@@ -211,8 +219,11 @@ class XbApkDownloader {
       return DownloadResult.success;
     } catch (e, s) {
       debugPrint('[XbApkDownloader] linux self-update failed: $e');
-      SentryBootstrap.captureException(e,
-          stackTrace: s, where: 'self-update install (linux)');
+      SentryBootstrap.captureException(
+        e,
+        stackTrace: s,
+        where: 'self-update install (linux)',
+      );
       return DownloadResult.installFailed;
     }
   }

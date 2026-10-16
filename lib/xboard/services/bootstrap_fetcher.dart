@@ -1,8 +1,7 @@
 /// Bootstrap 远端拉取（R15.H.40 / D60 / θ-1）—— 异步阶段（runApp 后 fire-and-forget）。
 ///
-/// **自建独立 dio + IOHttpClientAdapter**（D60 / F76）：启动早期 globalState.attach 未完成，
-/// FlClashHttpOverrides.findProxy 访问未就绪运行时 ClashConfig 会抛 LateInitializationError。
-/// 自建 adapter 覆盖 findProxy=DIRECT 绕过。
+/// **自建独立 dio + IOHttpClientAdapter**：共用 release Dio 工厂的证书/UA 配置，
+/// 代理路由继承全局 FlClashHttpOverrides，按连接状态路由，不等待整个 attach 完成。
 ///
 /// **⚠️ 证书校验全放行（用户 override，2026-06-01 知情决策）**：原 θ-1 约束要求 bootstrap 拉取
 /// 走严格 TLS（`badCertificateCallback=null`）以挡明网 MITM。**用户已知晓全放行会带来明网 MITM
@@ -102,7 +101,7 @@ class BootstrapFetcher {
   final BootstrapDecryptor _decryptor;
   final Dio _dio;
 
-  /// 自建隔离 dio：直连 + 证书全放行（用户 override，见类注释）+ 5s 连接超时 + bytes 响应。
+  /// 独立 dio：继承全局代理 + 证书全放行（见类注释）+ 5s 连接超时 + bytes 响应。
   static Dio _buildIsolatedDio() =>
       buildReleasedIsolatedDio(timeout: kBootstrapPerMirrorTimeout);
 

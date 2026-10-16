@@ -17,6 +17,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../providers/xboard_providers.dart';
 import '../services/xb_apk_downloader.dart';
 import '../services/xb_update_service.dart';
+import '../services/xb_update_sources.dart';
 import 'xb_feedback.dart' show xbBrandColor;
 import 'xb_theme.dart' show xbShowDialog, XbTokens;
 
@@ -82,8 +83,10 @@ class _UpdateDialogState extends ConsumerState<_UpdateDialog> {
     final sdk = ref.read(xboardSdkProvider);
     if (sdk != null) {
       final race = ref.read(injectedRaceControllerProvider);
-      final result =
-          await XbUpdateService.check(sdk, apiFailover: race?.failOverApi);
+      final result = await XbUpdateService.check(
+        sdk,
+        apiFailover: race?.failOverApi,
+      );
       if (!mounted) return;
       if (result is UpdateAvailable) {
         _info = result.info;
@@ -152,28 +155,26 @@ class _UpdateDialogState extends ConsumerState<_UpdateDialog> {
 
   /// 档1 兜底：浏览器打开。
   Future<void> _fallbackToBrowser() async {
-    final urls = _info.downloads;
-    if (urls.isEmpty) return;
-    for (final dl in urls) {
-      final uri = Uri.tryParse(dl.url);
-      if (uri != null) {
-        await launchUrl(uri, mode: LaunchMode.externalApplication);
-        if (mounted) Navigator.of(context).pop();
-        return;
-      }
+    final opened = await xbOpenUpdateDownload(
+      _info,
+      open: (uri) async {
+        if (!mounted) return false;
+        return launchUrl(uri, mode: LaunchMode.externalApplication);
+      },
+    );
+    if (!mounted) return;
+    if (opened) {
+      Navigator.of(context).pop();
+      return;
     }
+    setState(() {
+      _state = _DialogState.failed;
+      _errorMsg = '无法打开下载链接，请重试';
+    });
   }
 
   /// 按 region 优先排序（不做 HEAD 探活,避免延迟）。
-  List<String> _getSortedUrls() {
-    final downloads = [..._info.downloads];
-    downloads.sort((a, b) {
-      final aMatch = a.region == _info.region ? 0 : 1;
-      final bMatch = b.region == _info.region ? 0 : 1;
-      return aMatch.compareTo(bMatch);
-    });
-    return downloads.map((d) => d.url).toList();
-  }
+  List<String> _getSortedUrls() => xbSortedUpdateUrls(_info);
 
   @override
   Widget build(BuildContext context) {
@@ -227,16 +228,16 @@ class _UpdateDialogState extends ConsumerState<_UpdateDialog> {
               child: EmojiText(
                 _info.changelog,
                 style: TextStyle(
-                    fontSize: 12.5, height: 2, color: scheme.onSurface),
+                  fontSize: 12.5,
+                  height: 2,
+                  color: scheme.onSurface,
+                ),
               ),
             ),
           ),
         const SizedBox(height: 14),
         // 固定高度底部区：按钮/进度/spinner/错误都在此切换，弹窗总高不变。
-        SizedBox(
-          height: 72,
-          child: Center(child: _buildFooter(t, scheme)),
-        ),
+        SizedBox(height: 72, child: Center(child: _buildFooter(t, scheme))),
       ],
     );
   }
@@ -255,9 +256,10 @@ class _UpdateDialogState extends ConsumerState<_UpdateDialog> {
                 child: Text(
                   '此为重要更新，必须更新后使用',
                   style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w500,
-                      color: scheme.error),
+                    fontSize: 11,
+                    fontWeight: FontWeight.w500,
+                    color: scheme.error,
+                  ),
                 ),
               ),
           ],
@@ -271,8 +273,10 @@ class _UpdateDialogState extends ConsumerState<_UpdateDialog> {
             if (_errorMsg != null)
               Padding(
                 padding: const EdgeInsets.only(bottom: 8),
-                child: Text(_errorMsg!,
-                    style: TextStyle(fontSize: 12, color: scheme.error)),
+                child: Text(
+                  _errorMsg!,
+                  style: TextStyle(fontSize: 12, color: scheme.error),
+                ),
               ),
             _failedButtons(t),
           ],
@@ -294,7 +298,8 @@ class _UpdateDialogState extends ConsumerState<_UpdateDialog> {
                   foregroundColor: t.on,
                   elevation: 0,
                   shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(XbTokens.rMd)),
+                    borderRadius: BorderRadius.circular(XbTokens.rMd),
+                  ),
                 ),
                 child: const Text('以后再说'),
               ),
@@ -308,7 +313,8 @@ class _UpdateDialogState extends ConsumerState<_UpdateDialog> {
               onPressed: _onUpdate,
               style: FilledButton.styleFrom(
                 shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(XbTokens.rMd)),
+                  borderRadius: BorderRadius.circular(XbTokens.rMd),
+                ),
               ),
               child: const Text('立即更新'),
             ),
@@ -332,12 +338,16 @@ class _UpdateDialogState extends ConsumerState<_UpdateDialog> {
                 elevation: 0,
                 padding: const EdgeInsets.symmetric(horizontal: 8),
                 shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(XbTokens.rMd)),
+                  borderRadius: BorderRadius.circular(XbTokens.rMd),
+                ),
               ),
               child: const FittedBox(
                 fit: BoxFit.scaleDown,
-                child: Text('浏览器下载',
-                    maxLines: 1, style: TextStyle(fontSize: 14)),
+                child: Text(
+                  '浏览器下载',
+                  maxLines: 1,
+                  style: TextStyle(fontSize: 14),
+                ),
               ),
             ),
           ),
@@ -350,7 +360,8 @@ class _UpdateDialogState extends ConsumerState<_UpdateDialog> {
               onPressed: _onUpdate,
               style: FilledButton.styleFrom(
                 shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(XbTokens.rMd)),
+                  borderRadius: BorderRadius.circular(XbTokens.rMd),
+                ),
               ),
               child: const Text('重试'),
             ),
@@ -373,11 +384,15 @@ class _UpdateDialogState extends ConsumerState<_UpdateDialog> {
             width: 18,
             height: 18,
             child: CircularProgressIndicator(
-                strokeWidth: 2, color: XbTokens.warn),
+              strokeWidth: 2,
+              color: XbTokens.warn,
+            ),
           ),
           const SizedBox(width: 8),
-          Text('正在准备下载…',
-              style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant)),
+          Text(
+            '正在准备下载…',
+            style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
+          ),
         ],
       );
     }
@@ -399,7 +414,9 @@ class _UpdateDialogState extends ConsumerState<_UpdateDialog> {
               children: [
                 // 底：浅红槽 + 居中品牌红百分比（未填充区域看这层，红字浅底 → 清晰）
                 Positioned.fill(
-                  child: Container(color: scheme.primary.withValues(alpha: 0.1)),
+                  child: Container(
+                    color: scheme.primary.withValues(alpha: 0.1),
+                  ),
                 ),
                 Center(
                   child: Text(
@@ -421,10 +438,12 @@ class _UpdateDialogState extends ConsumerState<_UpdateDialog> {
                         Positioned.fill(
                           child: Container(
                             decoration: BoxDecoration(
-                              gradient: LinearGradient(colors: [
-                                scheme.primary,
-                                scheme.primary.withValues(alpha: 0.85),
-                              ]),
+                              gradient: LinearGradient(
+                                colors: [
+                                  scheme.primary,
+                                  scheme.primary.withValues(alpha: 0.85),
+                                ],
+                              ),
                             ),
                           ),
                         ),

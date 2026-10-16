@@ -1,11 +1,10 @@
-/// W5.1.9 — BootstrapFetcher：串行命中首个有效镜像 / 全失败降级 / θ-1（隔离 dio 不继承全局）。
+// BootstrapFetcher：串行命中首个有效镜像 / 全失败降级；路由继承回归另见 xboard_global_transport_test。
 
 import 'dart:convert';
 
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:fl_clash/xboard/models/bootstrap_envelope.dart';
 import 'package:fl_clash/xboard/services/bootstrap_decryptor.dart';
 import 'package:fl_clash/xboard/services/bootstrap_fetcher.dart';
 

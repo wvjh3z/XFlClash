@@ -134,8 +134,13 @@ class EndpointRaceController {
   /// 默认探针 dio：注入浏览器 UA（R4.4 伪装 SSoT [XboardUserAgent.current]，与 SDK API /
   /// config.json / 加密订阅同源），避免 endpoint 探活请求暴露 Dart 默认 UA `Dart/x (dart:io)`。
   /// 证书放行 + 代理路由仍由全局 FlClashHttpOverrides 处理（默认 adapter）。
-  static Dio _defaultProbeDio() =>
-      Dio(BaseOptions(headers: {'User-Agent': XboardUserAgent.current}));
+  /// 关闭持久连接，避免代理状态变化后复用旧 HTTPS CONNECT 隧道。
+  static Dio _defaultProbeDio() => Dio(
+    BaseOptions(
+      headers: {'User-Agent': XboardUserAgent.current},
+      persistentConnection: false,
+    ),
+  );
 
   static EndpointProbe _defaultProbe(Dio dio) => (endpoint) async {
     try {

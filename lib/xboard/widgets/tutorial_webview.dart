@@ -15,6 +15,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../util/html_link.dart';
 import '../services/tutorial_webview_environment.dart';
+import '../services/xboard_release_dio.dart';
 import 'tutorial_html_fallback.dart';
 import 'xb_components.dart';
 
@@ -98,6 +99,12 @@ class _TutorialWebViewState extends State<TutorialWebView> {
             WebViewEnvironment.create(
               settings: WebViewEnvironmentSettings(
                 userDataFolder: profile.path,
+                // The pinned Windows plugin does not forward server trust
+                // challenges; apply the shared policy to this reader process.
+                additionalBrowserArguments:
+                    XboardReleaseHttp.allowBadCertificate
+                    ? '--ignore-certificate-errors'
+                    : null,
               ),
             ).then((value) {
               repairTutorialWebViewEnvironment(value);
@@ -281,6 +288,14 @@ class _TutorialWebViewState extends State<TutorialWebView> {
               allowFileAccess: false,
               disableContextMenu: false,
             ),
+            onReceivedServerTrustAuthRequest: (_, _) async =>
+                ServerTrustAuthResponse(
+                  action:
+                      _current(generation) &&
+                          XboardReleaseHttp.allowBadCertificate
+                      ? ServerTrustAuthResponseAction.PROCEED
+                      : ServerTrustAuthResponseAction.CANCEL,
+                ),
             onWebViewCreated: (controller) {
               controller.addJavaScriptHandler(
                 handlerName: 'tutorialCopy',

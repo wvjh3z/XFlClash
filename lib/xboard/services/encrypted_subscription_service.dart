@@ -7,8 +7,8 @@
 ///
 /// **为什么放客户端 `lib/xboard/` 而非 SDK**（2026-06-03 方案 B 定稿）：近 100% 复用现成
 /// bootstrap 基建——[BootstrapDecryptor] 的 AES-GCM 核心（只换 AAD 参数）、[buildReleasedIsolatedDio]
-/// 的放行 dio（裸 IP 证书放行）、[BootstrapFetcher.parseEnvelopeBytes] 的多档兼容解析；与 bootstrap
-/// 同构、零 SDK 改动零 θ-4、failOver 天然接 R4.9 的 [EndpointRaceController]。SDK 唯一贡献是
+/// 的独立 dio（裸 IP 证书放行，代理继承全局）、[BootstrapFetcher.parseEnvelopeBytes] 的多档兼容解析；
+/// 与 bootstrap 同构、零 SDK 改动零 θ-4、failOver 天然接 R4.9 的 [EndpointRaceController]。SDK 唯一贡献是
 /// `getSubscribeUrl()`（带 token 的原订阅 URL），经反腐层 [XboardService] 注入。
 ///
 /// **URL 构造（方案 b，contract 0-B）**：原订阅 URL `https://host/{path}/{token}` → 在

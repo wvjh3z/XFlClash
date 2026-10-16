@@ -172,7 +172,7 @@ class XboardModule {
   /// 通过 `EndpointRaceController.onApiSwitch` → `switchBaseUrl` 热替换（已加载 UI 不重建）。
   ///
   /// **编排**（永不抛，DD-2 / Property 1）：
-  ///   1. 远端拉取 `fetchRemote(bootstrapUrls)`（串行 + 30s 预算 + 严格 TLS θ-1）；
+  ///   1. 远端拉取 `fetchRemote(bootstrapUrls)`（串行 + 30s 预算；沿既有证书放行策略）；
   ///   2. 成功 → 写缓存密文（DD-22 / R15.D.25）+ 用远端 payload 竞速；
   ///      失败 → 退回同步阶段本地 payload（`_localPayload`）竞速；二者皆无 → 不竞速（沿用出厂）；
   ///   3. `raceApi` + `raceSubscription` → 最快可达者经 `onApiSwitch` 回调热替换 SDK baseUrl。
@@ -394,8 +394,8 @@ class XboardModule {
     }
 
     // step 4：SDK initialize（用本地 endpoint 作初始 baseUrl，远端拉到后 W5 热替换）。
-    // 统一放行策略 SSoT（XboardReleaseHttp）：UA 伪装 + 证书全放行 + 直连，与 release dio
-    // （config.json / 加密订阅 / 更新下载）同一份策略。证书全放行 = 可用性优先（accept MITM，见
+    // 统一放行策略 SSoT（XboardReleaseHttp）：UA 伪装 + 证书全放行，与 release dio
+    // （config.json / 加密订阅 / 更新下载）共同继承全局代理。证书全放行按既有决策（见
     // SECURITY.md）——裸 IP API endpoint 必需；UA 伪装躲 GFW 浅层检测（订阅协议已与 UA 解耦）。
     // 超时显式 5s（SDK 默认 30s 偏长——域名被墙时单请求最坏 30s×3 重试 + failover 太久）。
     final instance = sdk ?? XBoardSDK.instance;
