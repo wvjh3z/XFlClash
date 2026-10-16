@@ -50,13 +50,13 @@ void main() {
     test('YAML publisher and independent HTTP/HTTPS URLs are trimmed', () {
       final metadata = _metadata(
         loadYaml('''
-publisherName: ' daishu '
+publisherName: ' Daishu '
 publisherUrl: ' ${_linkValues['publisherUrl']} '
 supportUrl: '${_linkValues['supportUrl']}'
 updatesUrl: '${_linkValues['updatesUrl']}'
 '''),
       );
-      expect(metadata.publisherName, 'daishu');
+      expect(metadata.publisherName, 'Daishu');
       expect(_links(metadata), _linkValues);
     });
 
@@ -203,7 +203,7 @@ updatesUrl: '${_linkValues['updatesUrl']}'
         final brandB = injectWindowsInstallerLinks(
           brandA,
           _metadata({
-            'publisherName': 'daishu',
+            'publisherName': 'Daishu',
             'supportUrl': 'https://brand-b.example.invalid/support',
           }),
         );
@@ -280,9 +280,9 @@ locales:
         expect(injectWindowsInstallerConfig(result, _metadata()), result);
         final switched = injectWindowsInstallerConfig(
           result,
-          _metadata({'publisherName': 'daishu'}),
+          _metadata({'publisherName': 'Daishu'}),
         );
-        expect((loadYaml(switched) as YamlMap)['publisher_name'], 'daishu');
+        expect((loadYaml(switched) as YamlMap)['publisher_name'], 'Daishu');
         expect(switched, isNot(contains('Omofly')));
       },
     );
@@ -292,7 +292,7 @@ locales:
       () {
         for (final brand in {
           'brand_a': 'Omofly',
-          'brand_b': 'daishu',
+          'brand_b': 'Daishu',
         }.entries) {
           final source = File(
             'flavors/${brand.key}/windows_installer.yaml',
