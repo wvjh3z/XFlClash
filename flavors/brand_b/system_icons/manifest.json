@@ -1,0 +1,120 @@
+{
+  "schema": 1,
+  "brand": "brand_b",
+  "source": {
+    "color_sha256": "1ef234ccc7a676d83e60cd0a969290f9095e955df80ea12404858050c49de1a7",
+    "monochrome_sha256": "43332d1d2382d9d63daaa4e367d08508706046fcd2d19ff2be2fac885b721eda"
+  },
+  "badge_colors": {
+    "status_1": "#E5A14B",
+    "status_2": "#12B8A6",
+    "status_3": "#4B8FE8"
+  },
+  "files": {
+    "android/drawable-hdpi/xb_brand_system_icon.png": {
+      "sha256": "9ee76ccbc1d8ad3e64dcd08686ab937877d73e423d3ff76c60da1db62533e668",
+      "bytes": 1572,
+      "width": 36,
+      "height": 36
+    },
+    "android/drawable-xhdpi/xb_brand_system_icon.png": {
+      "sha256": "e3ac8e4930450d6afbe86d4e982f0f7bfd03513ba8ba5ea6dac73a7241546439",
+      "bytes": 1890,
+      "width": 48,
+      "height": 48
+    },
+    "android/drawable-xxhdpi/xb_brand_system_icon.png": {
+      "sha256": "eeaef03ecf20c538536983246433c96c77c9fe053b947f55095aa0ec1322d7c1",
+      "bytes": 3575,
+      "width": 72,
+      "height": 72
+    },
+    "android/drawable-xxxhdpi/xb_brand_system_icon.png": {
+      "sha256": "f9ad3302f17316b0f70b9e6b59f18bf3fcc63fe956c4ad6e7e189dd2b0ca2721",
+      "bytes": 4269,
+      "width": 96,
+      "height": 96
+    },
+    "android/drawable/xb_brand_system_icon.png": {
+      "sha256": "73c4fb88ba5ffed04860428f01b434324982cc5e9b77582b40e5be6f60c9de1b",
+      "bytes": 838,
+      "width": 24,
+      "height": 24
+    },
+    "linux/status_1.png": {
+      "sha256": "fd268ac3a4954b7ae420f26d0081651b0a17244e4c07f1aa420b04ab9a9c46d2",
+      "bytes": 7210,
+      "width": 108,
+      "height": 108
+    },
+    "linux/status_2.png": {
+      "sha256": "12e99fedacb19b9891e25de1ed32d239603ca226e3826b5826a037097e4f349a",
+      "bytes": 7242,
+      "width": 108,
+      "height": 108
+    },
+    "linux/status_3.png": {
+      "sha256": "4bf1edffe067bf12aba501846f03015cad499dff589f4944ad018bf5471f298f",
+      "bytes": 7226,
+      "width": 108,
+      "height": 108
+    },
+    "macos/status_1.png": {
+      "sha256": "66a5c2f56222687fa477097b19fd537af5d7f8d4412150ae863830cfcbbb7274",
+      "bytes": 6305,
+      "width": 128,
+      "height": 128
+    },
+    "windows/status_1.ico": {
+      "sha256": "ab921a57fa770fea2c7eb9aeba1983f8df1ef7b89f6fe407a9fbd45879986885",
+      "bytes": 47727,
+      "width": 256,
+      "height": 256,
+      "sizes": [
+        16,
+        20,
+        24,
+        32,
+        40,
+        48,
+        64,
+        128,
+        256
+      ]
+    },
+    "windows/status_2.ico": {
+      "sha256": "2176fd951c90a7d5a8eaf29783a60da6929605b9966bf4832f6ad7f1b8d4fc10",
+      "bytes": 47828,
+      "width": 256,
+      "height": 256,
+      "sizes": [
+        16,
+        20,
+        24,
+        32,
+        40,
+        48,
+        64,
+        128,
+        256
+      ]
+    },
+    "windows/status_3.ico": {
+      "sha256": "16babdf1f63f52c474732b968fe8633b89931f8735963693aca5ba3fcda751ed",
+      "bytes": 47785,
+      "width": 256,
+      "height": 256,
+      "sizes": [
+        16,
+        20,
+        24,
+        32,
+        40,
+        48,
+        64,
+        128,
+        256
+      ]
+    }
+  }
+}

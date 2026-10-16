@@ -343,7 +343,7 @@ jobs:
       # 桌面品牌注入（appName → 窗口标题 / 打包 make_config display_name 等）+ 图标重生成。
       - name: Inject desktop branding
         if: matrix.platform != 'android'
-        run: dart run tool/inject_desktop_brand.dart --flavor "$FLAVOR"
+        run: dart run tool/inject_desktop_brand.dart --flavor "$FLAVOR" --platform "${{ matrix.platform }}"
 
       - name: Generate desktop icons
         if: matrix.platform != 'android'

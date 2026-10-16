@@ -23,24 +23,34 @@
 //      `icon: ./assets/images/icon.png` ② 应用内 logo（桌面标题栏 window_manager.dart / 关于页
 //      about.dart）。本地跑后 `git checkout` 还原（committed 永远是 FlClash）。
 //   Android 启动图标走 prepare_flavor（本工具 android:false / ios:false）。
+//   3) 按目标平台复制已校验的 system_icons：Windows 三态 ICO、Linux 三态 PNG、
+//      macOS 单色 template PNG。共用 PNG 路径不能混用两个平台的素材。
 //
 // 用法：
-//   dart run tool/inject_desktop_brand.dart --flavor brand_a [--check]
+//   dart run tool/inject_desktop_brand.dart --flavor brand_a --platform windows [--check]
 //   --check：只报告将改动的文件，不写（CI 校验 / dry-run）。
 //
 // 退出码：0 成功；1 flavor.yaml 缺失/无 appName / 品牌图标缺失；2 用法错误。
 
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:args/args.dart';
 import 'package:path/path.dart' as p;
 import 'package:yaml/yaml.dart';
 
 import 'windows_installer_metadata.dart';
+import 'system_icon_assets.dart';
 
-void main(List<String> argv) {
+Future<void> main(List<String> argv) async {
   final parser = ArgParser()
     ..addOption('flavor', defaultsTo: 'brand_a')
+    ..addOption(
+      'platform',
+      allowed: ['windows', 'linux', 'macos'],
+      defaultsTo: Platform.operatingSystem,
+      help: '目标平台；默认当前主机，CI/本地打包显式传入',
+    )
     ..addFlag('check', negatable: false, help: 'dry-run：只报告不写')
     ..addFlag('help', abbr: 'h', negatable: false);
   final ArgResults args;
@@ -56,6 +66,7 @@ void main(List<String> argv) {
   }
 
   final flavor = args['flavor'] as String;
+  final platform = args['platform'] as String;
   final dryRun = args['check'] as bool;
   final yamlPath = p.join('flavors', flavor, 'flavor.yaml');
   final yf = File(yamlPath);
@@ -92,6 +103,25 @@ void main(List<String> argv) {
     );
   } on FormatException catch (error) {
     stderr.writeln('[inject-desktop] ✗ ${error.message}');
+    exit(1);
+  }
+
+  // Validate every resource before any text or image mutation. Builds never
+  // render SVGs or launch a browser; stale/missing assets fail closed.
+  final Map<String, Uint8List> systemIcons;
+  try {
+    final assets = await loadSystemIconAssets(
+      projectRoot: Directory.current.path,
+      flavor: flavor,
+    );
+    systemIcons = desktopSystemIconWrites(assets, platform: platform);
+    applySystemIconWrites(
+      projectRoot: Directory.current.path,
+      writes: systemIcons,
+      dryRun: true,
+    );
+  } catch (_) {
+    stderr.writeln('[inject-desktop] ✗ 系统图标资源缺失、过期或无效；请重新生成并核对');
     exit(1);
   }
 
@@ -152,12 +182,22 @@ void main(List<String> argv) {
     }
   }
   stdout.writeln(
-    '[inject-desktop] flavor=$flavor appName="$name" → '
+    '[inject-desktop] flavor=$flavor platform=$platform appName="$name" → '
     '${dryRun ? '将改' : '已改'} $changed 文件${missing > 0 ? '（$missing 缺失跳过）' : ''}',
   );
 
   // ───────── Phase 2：图标 ─────────
   injectIcons(flavor, dryRun: dryRun);
+  applySystemIconWrites(
+    projectRoot: Directory.current.path,
+    writes: systemIcons,
+    dryRun: dryRun,
+  );
+  for (final path in systemIcons.keys) {
+    stdout.writeln(
+      '[inject-desktop] ${dryRun ? '~ 将覆盖' : '✓ 已校验并注入'}：$path（$platform）',
+    );
+  }
 
   exit(0);
 }
