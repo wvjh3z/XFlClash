@@ -31,7 +31,7 @@
 #   会导致 rpm 打包失败（本地 Debian13/rpm4.20 已复现）。**勿把 amd64 升到 ubuntu-latest/24.04**。
 
 name: Release Package (multi-platform, flutter_distributor)
-run-name: "${{ inputs.build_number == '' && '准备编号 · ' || '' }}${{ inputs.flavor }} · ${{ inputs.target }}${{ inputs.build_number != '' && format(' · build {0}', inputs.build_number) || '' }}"
+run-name: "${{ github.event_name == 'workflow_dispatch' && inputs.build_number == '' && '准备编号 · ' || '' }}${{ inputs.flavor || github.event.client_payload.flavor }} · ${{ inputs.target || github.event.client_payload.target }}${{ (inputs.build_number || github.event.client_payload.build_number) && format(' · build {0}', inputs.build_number || github.event.client_payload.build_number) || '' }}${{ github.event_name == 'repository_dispatch' && format(' · 准备 #{0}', github.event.client_payload.origin.run_number) || '' }}"
 
 on:
   workflow_dispatch:
@@ -66,33 +66,21 @@ on:
         description: '发布安装包到草稿 Release；false仍执行Sentry符号校验与上传'
         type: boolean
         default: false
-      verify_symbolication:
-        description: '桌面受控地址探针：验证服务端函数与源码行解析（非真实崩溃）'
-        type: boolean
-        default: false
-      sdk_ref:
-        description: 'SDK commit or immutable tag'
-        type: string
-        required: true
-        default: '711e30dbd7a8553631193e4e7e62578f7af037af'
-      prepared_from:
-        description: '准备阶段关联信息（系统自动填写，通常留空）'
-        type: string
-        required: false
-        default: ''
+  # Internal continuation of a human-requested automatic-number build.
+  repository_dispatch:
+    types: [xflclash_numbered_release_v1]
 
 defaults:
   run:
     shell: bash
 
-# 发布到草稿 Release 需要 contents 写权限（gh release create/upload）。
+# 默认只读；仅准备分派、草稿上传和编号回写各自 job 提权。
 permissions:
-  contents: write
+  contents: read
 
 env:
   APP_ENV: stable
   GO_VERSION: 1.24.0
-  FLAVOR: ${{ github.event.inputs.flavor || 'brand_a' }}
   SENTRY_ORG: ka-chiu-lee
 
 jobs:
@@ -103,21 +91,43 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      actions: write # 自动模式仅在本 job 分派同一 workflow 的带号正式运行。
     outputs:
       include: ${{ steps.r.outputs.include }}
       build_number: ${{ steps.number.outputs.build_number }}
+      flavor: ${{ steps.request.outputs.flavor }}
+      target: ${{ steps.request.outputs.target }}
+      requested_number: ${{ steps.request.outputs.requested_number }}
+      upload: ${{ steps.request.outputs.upload }}
+      source_sha: ${{ steps.request.outputs.source_sha }}
+      source_ref: ${{ steps.request.outputs.source_ref }}
+      is_preparation: ${{ steps.request.outputs.is_preparation }}
+      sdk_ref: ${{ steps.settings.outputs.sdk_ref }}
+      verify_symbolication: ${{ steps.settings.outputs.verify_symbolication }}
     steps:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+      - name: Normalize release request
+        id: request
+        run: python3 tool/release_request.py normalize
+      - name: Checkout selected source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.request.outputs.source_sha }}
+          persist-credentials: false
+      - name: Read pinned release settings
+        id: settings
+        env:
+          BUILD_SOURCE_SHA: ${{ steps.request.outputs.source_sha }}
+        run: python3 tool/release_request.py config
       - name: Check build-number rules offline
         run: |
+          python3 tool/test/release_request_test.py
           python3 tool/test/release_build_number_test.py
           python3 tool/test/release_build_dispatch_test.py
       - id: r
         env:
-          TARGET: ${{ github.event.inputs.target || 'android' }}
+          TARGET: ${{ steps.request.outputs.target }}
         run: |
           set -euo pipefail
           A='{"platform":"android","os":"ubuntu-latest"}'
@@ -143,29 +153,49 @@ jobs:
       - name: Resolve build number
         id: number
         env:
-          REQUESTED_BUILD_NUMBER: ${{ inputs.build_number }}
-          PREPARED_FROM: ${{ inputs.prepared_from }}
+          FLAVOR: ${{ steps.request.outputs.flavor }}
+          REQUESTED_BUILD_NUMBER: ${{ steps.request.outputs.requested_number }}
+          PREPARED_FROM: ${{ steps.request.outputs.prepared_from }}
+          BUILD_SOURCE_SHA: ${{ steps.request.outputs.source_sha }}
+          BUILD_SOURCE_REF: ${{ steps.request.outputs.source_ref }}
         run: python3 tool/release_build_number.py resolve --flavor "$FLAVOR"
+
+  prepare:
+    needs: setup
+    if: needs.setup.outputs.is_preparation == 'true'
+    name: Start numbered build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # 本仓 repository_dispatch 需要；不写源码。
+      actions: read # 仅查询已发起的正式运行链接。
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.setup.outputs.source_sha }}
+          persist-credentials: false
       - name: Start numbered build
-        if: inputs.build_number == ''
         env:
           BUILD_DISPATCH_TOKEN: ${{ github.token }}
-          RESOLVED_BUILD_NUMBER: ${{ steps.number.outputs.build_number }}
-          REQUESTED_BUILD_NUMBER: ${{ inputs.build_number }}
-          PREPARED_FROM: ${{ inputs.prepared_from }}
-          BUILD_TARGET: ${{ inputs.target }}
-          UPLOAD_PACKAGES: ${{ inputs.upload }}
-          VERIFY_SYMBOLICATION: ${{ inputs.verify_symbolication }}
-          SDK_REF: ${{ inputs.sdk_ref }}
+          FLAVOR: ${{ needs.setup.outputs.flavor }}
+          RESOLVED_BUILD_NUMBER: ${{ needs.setup.outputs.build_number }}
+          REQUESTED_BUILD_NUMBER: ${{ needs.setup.outputs.requested_number }}
+          BUILD_TARGET: ${{ needs.setup.outputs.target }}
+          UPLOAD_PACKAGES: ${{ needs.setup.outputs.upload }}
+          BUILD_SOURCE_SHA: ${{ needs.setup.outputs.source_sha }}
+          BUILD_SOURCE_REF: ${{ needs.setup.outputs.source_ref }}
         run: python3 tool/release_build_number.py dispatch --flavor "$FLAVOR"
 
   package:
     needs: setup
-    if: inputs.build_number != ''
-    name: ${{ matrix.platform }}${{ matrix.arch && format('-{0}', matrix.arch) }} (${{ github.event.inputs.flavor || 'brand_a' }}, build ${{ needs.setup.outputs.build_number }})
+    if: needs.setup.outputs.is_preparation == 'false'
+    name: ${{ matrix.platform }}${{ matrix.arch && format('-{0}', matrix.arch) }} (${{ needs.setup.outputs.flavor }}, build ${{ needs.setup.outputs.build_number }})
     runs-on: ${{ matrix.os }}
+    permissions:
+      contents: write # 既有草稿 Release 上传。
     env:
       BUILD_NUMBER: ${{ needs.setup.outputs.build_number }}
+      FLAVOR: ${{ needs.setup.outputs.flavor }}
+      BUILD_SOURCE_SHA: ${{ needs.setup.outputs.source_sha }}
     strategy:
       fail-fast: false
       matrix:
@@ -174,6 +204,7 @@ jobs:
       - name: Checkout client (XFlClash)
         uses: actions/checkout@v4
         with:
+          ref: ${{ needs.setup.outputs.source_sha }}
           submodules: recursive
           persist-credentials: false
 
@@ -210,7 +241,7 @@ jobs:
 
       - name: Checkout Xboard_sdk (sibling, private)
         env:
-          SDK_REF: ${{ inputs.sdk_ref }}
+          SDK_REF: ${{ needs.setup.outputs.sdk_ref }}
           SDK_READ_TOKEN: ${{ secrets.SIBLING_SDK_TOKEN }}
         run: |
           set -euo pipefail
@@ -478,7 +509,7 @@ jobs:
           SYMBOL_ARGS=(
             --platform "${{ matrix.platform }}" --flavor "$FLAVOR"
             --product-version "$PRODUCT_VERSION" --build-number "$BUILD_NUMBER"
-            --source-revision "$GITHUB_SHA"
+            --source-revision "$BUILD_SOURCE_SHA"
           )
           if [ "${{ matrix.platform }}" = "android" ]; then
             shopt -s nullglob
@@ -493,7 +524,7 @@ jobs:
           python tool/postbuild_sentry_symbols.py "${SYMBOL_ARGS[@]}"
 
       - name: Send controlled desktop symbolication probe
-        if: inputs.verify_symbolication && matrix.platform != 'android'
+        if: needs.setup.outputs.verify_symbolication == 'true' && matrix.platform != 'android'
         run: |
           set -euo pipefail
           PICK_ARGS=(--build-root build --evidence build/sentry-symbols-evidence.json --output build/sentry-symbolication-selection.json)
@@ -508,7 +539,7 @@ jobs:
           python tool/sentry_desktop_symbolication_probe.py emit --evidence build/sentry-symbols-evidence.json --defines flavor_defines.json --selection build/sentry-symbolication-selection.json --report build/sentry-symbolication-probe.json
 
       - name: Verify only the newly sent symbolication event
-        if: inputs.verify_symbolication && matrix.platform != 'android'
+        if: needs.setup.outputs.verify_symbolication == 'true' && matrix.platform != 'android'
         env:
           SENTRY_MAINTENANCE_TOKEN: ${{ secrets.SENTRY_MAINTENANCE_TOKEN }}
         run: python tool/sentry_desktop_symbolication_probe.py verify --report build/sentry-symbolication-probe.json
@@ -532,7 +563,7 @@ jobs:
       # 列出产物清单（始终执行，便于核对构建/打包/命名是否正常，但不上传）。
       - name: List built artifacts (no upload)
         run: |
-          echo "=== dist 产物（验证构建+命名；upload=${{ github.event.inputs.upload }}）==="
+          echo "=== dist 产物（验证构建+命名；upload=${{ needs.setup.outputs.upload }}）==="
           ls -la dist/ 2>/dev/null || echo "(无 dist)"
 
       # 发布到草稿 Release（upload=true 时）。
@@ -542,7 +573,7 @@ jobs:
       # 并行 matrix 多 job 发到同一个草稿（tag=pkg-<flavor>-v<版本>）：幂等创建 + --clobber 覆盖，
       # 不同平台文件名不同不冲突；重跑同版本会覆盖同名资产。草稿不创建 git tag，不污染 tag 列表。
       - name: Publish to draft Release
-        if: github.event.inputs.upload == 'true'
+        if: needs.setup.outputs.upload == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: pkg-${{ env.FLAVOR }}-v${{ env.PRODUCT_VERSION }}
@@ -574,18 +605,20 @@ jobs:
   # a/b 各自独立计数：scripts/build_number.<flavor>.txt，互不影响。
   bump:
     needs: [setup, package]
-    if: inputs.build_number != '' && github.event.inputs.upload == 'true'
+    if: needs.setup.outputs.is_preparation == 'false' && needs.setup.outputs.upload == 'true'
     name: Bump versionCode (next release)
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - name: Checkout numbering tool from this run
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ needs.setup.outputs.source_sha }}
           token: ${{ secrets.GITHUB_TOKEN }}
       - name: Increment build_number for flavor
         env:
-          FLAVOR: ${{ github.event.inputs.flavor || 'brand_a' }}
+          FLAVOR: ${{ needs.setup.outputs.flavor }}
           RESOLVED_BUILD_NUMBER: ${{ needs.setup.outputs.build_number }}
         run: |
           set -euo pipefail

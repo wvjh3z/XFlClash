@@ -46,6 +46,7 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.env = {"PATH": str(self.bin) + os.pathsep + os.environ["PATH"],
                     "FLAVOR": "brand_a", "BASE_VERSION": "0.0.0", "BUILD_NUMBER": "101",
                     "PRODUCT_VERSION": "0.0.1", "GITHUB_SHA": "a" * 40,
+                    "BUILD_SOURCE_SHA": "b" * 40,
                     "RECORDED_ARGS": str(self.root / "arguments.json")}
 
     def stub(self, name):
@@ -144,7 +145,7 @@ class ReleaseWorkflowTests(unittest.TestCase):
                 self.assertEqual(arguments[0], "tool/postbuild_sentry_symbols.py")
                 self.assertEqual(arguments[arguments.index("--platform") + 1], platform)
                 self.assertEqual(arguments[arguments.index("--build-number") + 1], "101")
-                self.assertEqual(arguments[arguments.index("--source-revision") + 1], "a" * 40)
+                self.assertEqual(arguments[arguments.index("--source-revision") + 1], "b" * 40)
                 self.assertNotIn("--audit-only", arguments)
                 self.assertNotIn("--no-sentry", arguments)
                 self.assertNotIn("fixture-credential-only", " ".join(arguments))
