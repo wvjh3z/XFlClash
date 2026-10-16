@@ -46,7 +46,6 @@ const _ourAdditions = <String>[
   '.githooks/',
   'scripts/', // 形态 A 本地构建脚本（新增「加而不改」，build_local.sh 等）
   '.github/workflows/xboard-ci.yml', // W9.8 Xboard 专属 CI（新增文件，不改 upstream workflow）
-  '.github/workflows/release-build.yml', // 形态 A 桌面出包 CI（新增文件，不改 upstream workflow）
   '.github/BUILD_AND_RELEASE.md', // 构建/版本管理规范文档（新增）
   '.github/UPDATE_MECHANISM.md', // 更新机制说明文档（新增,屏蔽上游更新+自更新系统设计参考）
   '.github/UI_FRAMEWORK.md', // 形态 A UI 框架参考文档（新增,token/组件/mixin 速查）
@@ -77,8 +76,6 @@ const _pubGetDerivatives = <String>[
   'windows/flutter/generated_plugins.cmake',
   // 构建环境衍生（Flutter 版本迁移器自动产物，PATCHES.md「构建环境衍生改动」已登记）。
   'android/gradle.properties',
-  // CI 治理：禁用上游自动构建（PATCHES.md「其他 upstream 文件改动」已登记）。
-  '.github/workflows/build.yaml',
   // W8.5 衍生：.gitignore 追加 flavor_config.g.dart（PATCHES.md「衍生」段已登记）。
   '.gitignore',
 ];
