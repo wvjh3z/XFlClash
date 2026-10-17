@@ -18,45 +18,44 @@ import release_request as requests
 class RequestTests(unittest.TestCase):
     def setUp(self):
         self.env = {"GITHUB_REPOSITORY": requests.REPOSITORY, "GITHUB_EVENT_NAME": "workflow_dispatch",
-                    "GITHUB_SHA": "a" * 40, "GITHUB_REF": "refs/heads/main", "GITHUB_RUN_ID": "100",
-                    "GITHUB_RUN_NUMBER": "75"}
+                    "GITHUB_SHA": "a" * 40, "GITHUB_REF": "refs/heads/main"}
         self.inputs = {"flavor": "brand_a", "target": "windows-amd64", "build_number": "", "upload": "false"}
-        self.origin = {"run_id": "100", "run_number": "75", "sha": "a" * 40, "ref": "refs/heads/main"}
 
-    def internal(self):
-        event = {"action": requests.EVENT_TYPE, "client_payload": {**self.inputs, "build_number": "21",
-                 "upload": False, "origin": dict(self.origin)}}
-        env = {**self.env, "GITHUB_EVENT_NAME": "repository_dispatch", "GITHUB_RUN_ID": "101",
-               "GITHUB_RUN_NUMBER": "76", "GITHUB_SHA": "b" * 40, "GITHUB_REF": "refs/heads/new-default"}
-        return event, env
-
-    def test_empty_manual_prepares_and_explicit_number_builds_directly(self):
+    def test_empty_manual_number_and_explicit_number_share_one_request_path(self):
         actual = requests.normalize({"inputs": self.inputs}, self.env)
         self.assertEqual(actual, {"flavor": "brand_a", "target": "windows-amd64", "requested_number": "",
-            "upload": "false", "source_sha": "a" * 40, "source_ref": "refs/heads/main",
-            "prepared_from": "", "is_preparation": "true"})
+            "upload": "false", "source_sha": "a" * 40, "source_ref": "refs/heads/main"})
         actual = requests.normalize({"inputs": {**self.inputs, "build_number": "65535", "upload": True}}, self.env)
-        self.assertEqual(actual["is_preparation"], "false")
         self.assertEqual(actual["upload"], "true")
         self.assertEqual(actual["requested_number"], "65535")
 
-    def test_internal_build_uses_origin_snapshot_and_never_prepares(self):
-        event, env = self.internal()
-        actual = requests.normalize(event, env)
-        self.assertEqual(actual["source_sha"], "a" * 40)
-        self.assertEqual(actual["source_ref"], "refs/heads/main")
-        self.assertEqual(actual["requested_number"], "21")
-        self.assertEqual(actual["is_preparation"], "false")
-        self.assertEqual(json.loads(actual["prepared_from"]), self.origin)
+    def test_omitted_empty_and_null_number_all_use_automatic_numbering(self):
+        omitted = {key: value for key, value in self.inputs.items() if key != "build_number"}
+        for values in (omitted, self.inputs, {**self.inputs, "build_number": None}):
+            with self.subTest(values=values):
+                actual = requests.normalize({"inputs": values}, self.env)
+                self.assertEqual(actual["requested_number"], "")
+                self.assertEqual(actual["target"], "windows-amd64")
 
-    def test_public_and_internal_branch_and_tag_source_refs(self):
+    def test_missing_fields_use_the_workflow_defaults(self):
+        expected = {"flavor": "brand_a", "target": "android", "requested_number": "", "upload": "false",
+                    "source_sha": "a" * 40, "source_ref": "refs/heads/main"}
+        for event in ({"inputs": {}}, {}):
+            with self.subTest(event=event):
+                self.assertEqual(requests.normalize(event, self.env), expected)
+        defaults = {"flavor": "brand_a", "target": "android", "build_number": "", "upload": False}
+        for field in defaults:
+            with self.subTest(missing=field):
+                values = {key: value for key, value in defaults.items() if key != field}
+                self.assertEqual(requests.normalize({"inputs": values}, self.env), expected)
+        actual = requests.normalize({"inputs": {"flavor": "brand_b", "upload": "true"}}, self.env)
+        self.assertEqual((actual["flavor"], actual["target"], actual["upload"]), ("brand_b", "android", "true"))
+
+    def test_branch_and_tag_source_refs(self):
         for ref in ("refs/heads/release/test", "refs/tags/v1.0.0"):
             with self.subTest(ref=ref):
                 actual = requests.normalize({"inputs": self.inputs}, {**self.env, "GITHUB_REF": ref})
                 self.assertEqual(actual["source_ref"], ref)
-                event, env = self.internal()
-                event["client_payload"]["origin"]["ref"] = ref
-                self.assertEqual(requests.normalize(event, env)["source_ref"], ref)
 
     def test_all_target_choices_and_both_brands(self):
         for target in requests.TARGETS:
@@ -64,57 +63,46 @@ class RequestTests(unittest.TestCase):
                 actual = requests.normalize({"inputs": {**self.inputs, "target": target, "flavor": flavor}}, self.env)
                 self.assertEqual((actual["target"], actual["flavor"]), (target, flavor))
 
-    def test_public_schema_rejects_removed_unknown_or_missing_fields(self):
-        for field in ("prepared_from", "sdk_ref", "verify_symbolication", "unknown"):
+    def test_public_schema_rejects_removed_and_unknown_fields_or_invalid_containers(self):
+        for field in ("prepared_from", "origin", "sdk_ref", "verify_symbolication", "unknown"):
             with self.subTest(field=field), self.assertRaises(requests.RequestError):
                 requests.normalize({"inputs": {**self.inputs, field: "private-untrusted"}}, self.env)
-        for field in self.inputs:
-            values = dict(self.inputs)
-            del values[field]
-            with self.subTest(missing=field), self.assertRaises(requests.RequestError):
+        for values in (None, [], "", False):
+            with self.subTest(inputs=values), self.assertRaises(requests.RequestError):
                 requests.normalize({"inputs": values}, self.env)
+        for event in (None, [], "", False):
+            with self.subTest(event=event), self.assertRaises(requests.RequestError):
+                requests.normalize(event, self.env)
 
     def test_invalid_choices_numbers_and_upload_types_are_rejected(self):
-        for key, bad_values in {"flavor": ["other", None, []], "target": ["unknown", {}, None],
-            "build_number": [None, False, 21, "0", "-1", "21\n", "0021", "65536", "$(id)"],
-            "upload": ["False", "TRUE", "1", 0, 1, None, [], {}]}.items():
+        for key, bad_values in {"flavor": ["other", "", None, [], False],
+            "target": ["unknown", "", {}, None, False],
+            "build_number": [False, True, 21, [], {}, "0", "-1", "21.0", "21\n", "0021", "65536", " 21", "２１", "$(id)"],
+            "upload": ["False", "TRUE", "1", "", 0, 1, None, [], {}]}.items():
             for value in bad_values:
                 with self.subTest(key=key, value=value), self.assertRaises(requests.RequestError):
                     requests.normalize({"inputs": {**self.inputs, key: value}}, self.env)
 
-    def test_internal_payload_requires_exact_schema_and_boolean(self):
-        event, env = self.internal()
-        for values in (None, [], {}, {**event["client_payload"], "extra": "bad"},
-                       {**event["client_payload"], "build_number": ""},
-                       {**event["client_payload"], "upload": "false"}):
-            with self.subTest(values=values), self.assertRaises(requests.RequestError):
-                requests.normalize({**event, "client_payload": values}, env)
-        for action in ("other", "", None):
-            with self.subTest(action=action), self.assertRaises(requests.RequestError):
-                requests.normalize({**event, "action": action}, env)
+    def test_internal_and_other_events_are_rejected(self):
+        internal = {"action": "xflclash_numbered_release_v1", "client_payload": {**self.inputs,
+                    "build_number": "21", "upload": False,
+                    "origin": {"run_id": "100", "run_number": "75", "sha": "a" * 40, "ref": "refs/heads/main"}}}
+        for kind in ("repository_dispatch", "push", "", None):
+            with self.subTest(kind=kind), self.assertRaises(requests.RequestError):
+                requests.normalize(internal, {**self.env, "GITHUB_EVENT_NAME": kind})
 
-    def test_origin_types_identity_and_source_are_strict(self):
-        event, env = self.internal()
-        for key, bad_values in {"run_id": ["101", "0", "100\n", 100, True],
-            "run_number": ["0", "-1", 75, "75\n"], "sha": ["A" * 40, "a" * 39, None],
-            "ref": ["main", "refs/heads/", "refs/tags/", "refs/heads/a\n", "refs/heads/.bad",
-                    "refs/heads/a..b", "refs/heads/a.lock", "refs/heads/a@{b", "refs/heads/a//b"]}.items():
+    def test_source_sha_and_refs_are_strict_and_do_not_depend_on_run_identity(self):
+        for key, bad_values in {"GITHUB_SHA": ["A" * 40, "a" * 39, None, "bad"],
+            "GITHUB_REF": ["main", "refs/heads/", "refs/tags/", "refs/heads/a\n", "refs/heads/.bad",
+                    "refs/heads/a..b", "refs/heads/a.lock", "refs/heads/a@{b", "refs/heads/a//b", None]}.items():
             for value in bad_values:
                 with self.subTest(key=key, value=value), self.assertRaises(requests.RequestError):
-                    requests.normalize({**event, "client_payload": {**event["client_payload"],
-                        "origin": {**self.origin, key: value}}}, env)
-        for origin in ({}, [], None, {**self.origin, "extra": "bad"}):
-            with self.subTest(origin=origin), self.assertRaises(requests.RequestError):
-                requests.normalize({**event, "client_payload": {**event["client_payload"], "origin": origin}}, env)
+                    requests.normalize({"inputs": self.inputs}, {**self.env, key: value})
+        with self.assertRaises(requests.RequestError):
+            requests.normalize({"inputs": self.inputs}, {**self.env, "GITHUB_REPOSITORY": "other/repo"})
+        self.assertEqual(requests.normalize({"inputs": self.inputs}, self.env)["source_sha"], "a" * 40)
 
-    def test_unknown_events_repositories_and_invalid_native_identity_fail(self):
-        for env in ({**self.env, "GITHUB_EVENT_NAME": "push"}, {**self.env, "GITHUB_REPOSITORY": "other/repo"},
-                    {**self.env, "GITHUB_SHA": "bad"}, {**self.env, "GITHUB_RUN_NUMBER": ""},
-                    {**self.env, "GITHUB_RUN_ID": "0"}):
-            with self.subTest(env=env), self.assertRaises(requests.RequestError):
-                requests.normalize({"inputs": self.inputs}, env)
-
-    def test_cli_native_event_outputs_and_redacted_errors(self):
+    def test_cli_native_event_outputs_and_fixed_redacted_errors(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             event, output = root / "event.json", root / "output"
@@ -122,13 +110,18 @@ class RequestTests(unittest.TestCase):
             env = {**self.env, "GITHUB_EVENT_PATH": str(event), "GITHUB_OUTPUT": str(output)}
             with mock.patch.dict(os.environ, env, clear=True), contextlib.redirect_stdout(io.StringIO()):
                 self.assertEqual(requests.main(["normalize"]), 0)
-            self.assertIn("is_preparation=true\n", output.read_text())
-            output.write_text("")
-            event.write_text(json.dumps({"inputs": {**self.inputs, "target": "fixture-private-input"}}))
-            with mock.patch.dict(os.environ, env, clear=True), contextlib.redirect_stderr(io.StringIO()) as errors:
-                self.assertEqual(requests.main(["normalize"]), 1)
-            self.assertNotIn("fixture-private-input", errors.getvalue())
-            self.assertEqual(output.read_text(), "")
+            self.assertEqual(output.read_text(), "flavor=brand_a\ntarget=windows-amd64\nrequested_number=\nupload=false\n"
+                             + "source_sha=" + "a" * 40 + "\nsource_ref=refs/heads/main\n")
+            for values, message in (({**self.inputs, "target": "fixture-private-input"}, "Invalid release brand or target"),
+                                    ({**self.inputs, "build_number": "fixture-private-input"},
+                                     "Build number must be an integer from 1 to 65535"),
+                                    ({**self.inputs, "fixture-private-input": "secret"}, "Invalid public release input fields")):
+                output.write_text("")
+                event.write_text(json.dumps({"inputs": values}))
+                with mock.patch.dict(os.environ, env, clear=True), contextlib.redirect_stderr(io.StringIO()) as errors:
+                    self.assertEqual(requests.main(["normalize"]), 1)
+                self.assertEqual(errors.getvalue(), "Release request: " + message + "\n")
+                self.assertEqual(output.read_text(), "")
 
     def test_json_reader_rejects_duplicate_keys_oversize_and_invalid_json(self):
         with tempfile.TemporaryDirectory() as temporary:

@@ -37,15 +37,15 @@ XFlclash 当前维护形态 A 商业客户端，FlClash 底座仍为 **v0.8.93**
 
 本机 Android 首次使用时，将仓库品牌计数只读复制为本机起点；以后只读写 `.local-build/`，不修改 GitHub 计数。该目录位于 Flutter build 输出之外，普通 clean 不会清除。新 release 默认本机计数+1；失败重试沿用同一批次冻结编号，已有更高本机成功号时拒绝过期批次，不能回退覆盖。成功并完成产物核验后才推进本机计数，debug/诊断不推进；首次复制起点不表示执行过构建。CI 的计数更新时序按其 workflow 和构建记录核对，仓库中的数字不自动等于某个旧下载包的编号。最新实际 APK 和验证状态见 [STATUS](https://github.com/wvjh3z/proxy-suite-docs/blob/main/STATUS.md)。
 
-GitHub Release Package 表单只提供 `flavor`、`target`、`build_number`、`upload` 四项。SDK 固定引用与默认 false 的 `verify_symbolication` 由实际构建源码的 `tool/release-config.json` 维护；该开关只控制额外桌面受控探针，正式符号链仍执行。`prepared_from` 不再是手动输入。
+GitHub Release Package 表单只提供 `flavor`、`target`、`build_number`、`upload` 四项。SDK 固定引用与默认 false 的 `verify_symbolication` 由本次源码的 `tool/release-config.json` 维护；该开关只控制额外桌面受控探针，正式符号链仍执行。
 
-`build_number` 留空使用本次源码中的品牌计数，也可填写不小于该计数的整数（1–65535）。明确号直接创建正式记录，例如 `brand_a · windows-amd64 · build 21`；留空先创建“准备编号”记录，setup 归一/解析后由 prepare job 向本仓库一次发送 `repository_dispatch: xflclash_numbered_release_v1`，再创建同一 workflow 的正式记录，例如 `brand_a · windows-amd64 · build 21 · 准备 #123`。后缀为父记录的 run number。事件携带明确号及来源 run ID/run number/SHA/ref，不能再次准备分派。三个 workflow 文件保持，人手动发起，不接入 push、PR 或 schedule。
+点击一次 Run workflow 即在同一条运行中完成输入归一、编号解析和所选平台打包。`build_number` 留空、未提供或 null 都按未填写处理，读取本次源码中的品牌计数；手动填写须为不小于该计数的整数（1–65535）。其他未提供的公开字段使用表单默认值，未知字段和非法值仍拒绝。仅允许 `workflow_dispatch`，不再保留准备记录、内部二次分派或父子运行关联；三个 workflow 文件保持，不接入 push、PR 或 schedule。
 
-正式任务使用默认分支的 workflow 定义，setup 归一请求后 checkout 准备时的冻结 SHA 读取配置、校验和解析编号；package/bump 工具与 SDK/探针配置也使用该快照。分支后来移动也继续构建原源码；GitHub 事件页 SHA/ref 可能是默认分支，实际构建身份看摘要和符号收据的 `source_revision`。默认分支与冻结源码须已包含对应内部事件、工具和配置。
+自动取号时，Actions 列表标题只显示品牌和目标，例如 `brand_a · windows-amd64`；手动填号时可显示 `brand_a · windows-amd64 · build 22`。实际编号继续显示在运行摘要、各平台任务名、草稿 Release 和应用内。用户已取消为了列表标题显示自动号而增加第二条运行的方案。
 
-准备摘要提供正式记录链接，正式摘要链接回准备记录；POST 返回 204 后只通过 GET 确认精确且唯一的子标题，未确认给 workflow 列表链接，不再次 POST。父成功只表示事件已接受，构建成败以正式记录为准；准备记录不编译或推进计数，Re-run 不重复分派。重试请打开正式记录，取消准备记录不会自动取消正式记录。表单不提供实时灰色数字预填，完整权限、身份与重试边界见 DEVELOPMENT。
+setup 使用本次手动触发的固定 SHA/ref 归一请求并读取 SDK/探针配置；各平台 checkout、编号工具、摘要和 Sentry 的 `source_revision` 继续使用这份源码，分支后来移动不改用新代码。重试可在该运行中进行；修改 workflow 或修复代码后应重新 Run workflow，旧记录的 Re-run 仍执行旧快照。
 
-准备摘要、正式摘要和各平台任务名显示实际编号，所有平台、安装包和 Sentry 使用同一值。`upload=true` 且全部目标成功后，下一计数取最新 main 值与实际编号+1的最大值；`upload=false` 不推进。GitHub 编号按用户决策维护，本机开发计数独立；并发 GitHub run 或旧源码重跑仍需核对，未实现全局唯一取号。开发包编号较高的测试设备不会把较低编号的正式包识别为更新，文件隔离不改变更新比较或签名规则。
+所有平台、安装包和 Sentry 使用同一实际编号。`upload=true` 时上传前确认目标仍为草稿，上传成功后同步标题和自动说明中的编号；已公开版本拒绝覆盖，上传失败不刷新旧编号。草稿沿用同品牌/产品版本的 tag，未选平台的旧资产仍可能保留，标题表示本轮上传编号，不能由此推断所有历史资产同号。`upload=true` 且全部目标成功后，下一计数取最新 main 值与实际编号+1的最大值；`upload=false` 不推进。GitHub 编号按用户决策维护，本机开发计数独立；并发 GitHub run 或旧源码重跑仍需核对，未实现全局唯一取号。开发包编号较高的测试设备不会把较低编号的正式包识别为更新，文件隔离不改变更新比较或签名规则。
 
 ## 品牌配置与签名
 

@@ -184,6 +184,66 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertNotEqual(unknown.returncode, 0)
         self.assertFalse(output.exists())
 
+    def test_draft_metadata_tracks_uploaded_build_and_published_releases_are_preserved(self):
+        state = self.root / "draft-state.json"
+        self.env.update(GITHUB_REPOSITORY="fixture/repo", TAG="pkg-brand_a-v0.0.1",
+                        TITLE="brand_a v0.0.1 (build 101)", DRAFT_STATE=str(state))
+        (self.root / "dist").mkdir()
+        (self.root / "dist/fixture-setup.exe").write_bytes(b"fixture")
+        gh = self.bin / "gh"
+        gh.write_text("#!/usr/bin/env python3\n" + '''
+import json, os, pathlib, sys
+path = pathlib.Path(os.environ['DRAFT_STATE'])
+state = json.loads(path.read_text())
+args = sys.argv[1:]
+state['calls'].append(args)
+code, output = 0, ''
+if args[:2] == ['release', 'view']:
+    if not state['exists']:
+        code = 1
+    elif '--json' in args:
+        output = 'true' if state['draft'] else 'false'
+elif args[:2] == ['release', 'create']:
+    state.update(exists=True, draft='--draft' in args,
+                 title=args[args.index('--title') + 1], notes=args[args.index('--notes') + 1])
+elif args[:2] == ['release', 'upload']:
+    code = 1 if state['uploadFailure'] else 0
+    if not code:
+        state['uploaded'] = [a for a in args if a.startswith('dist/')]
+elif args[:2] == ['release', 'edit']:
+    state.update(title=args[args.index('--title') + 1], notes=args[args.index('--notes') + 1])
+else:
+    code = 2
+path.write_text(json.dumps(state))
+print(output)
+sys.exit(code)
+''')
+        gh.chmod(0o755)
+        for exists, draft, upload_failure in ((False, False, False), (True, True, False),
+                                             (True, False, False), (True, True, True)):
+            with self.subTest(exists=exists, draft=draft, upload_failure=upload_failure):
+                state.write_text(json.dumps({"exists": exists, "draft": draft, "title": "build 9",
+                    "notes": "build=9", "uploadFailure": upload_failure, "uploaded": [], "calls": []}))
+                result = self.execute("Publish to draft Release", "windows")
+                actual = json.loads(state.read_text())
+                commands = [call[:2] for call in actual["calls"]]
+                if exists and not draft:
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertNotIn(["release", "upload"], commands)
+                    self.assertNotIn(["release", "edit"], commands)
+                    self.assertEqual(actual["title"], "build 9")
+                elif upload_failure:
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertNotIn(["release", "edit"], commands)
+                    self.assertEqual(actual["title"], "build 9")
+                else:
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual(actual["title"], self.env["TITLE"])
+                    self.assertIn("build=101", actual["notes"])
+                    self.assertEqual(actual["uploaded"], ["dist/fixture-setup.exe"])
+                    self.assertLess(commands.index(["release", "upload"]), commands.index(["release", "edit"]))
+                    self.assertEqual(commands.count(["release", "create"]), 0 if exists else 1)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -31,7 +31,7 @@
 #   会导致 rpm 打包失败（本地 Debian13/rpm4.20 已复现）。**勿把 amd64 升到 ubuntu-latest/24.04**。
 
 name: Release Package (multi-platform, flutter_distributor)
-run-name: "${{ github.event_name == 'workflow_dispatch' && inputs.build_number == '' && '准备编号 · ' || '' }}${{ inputs.flavor || github.event.client_payload.flavor }} · ${{ inputs.target || github.event.client_payload.target }}${{ (inputs.build_number || github.event.client_payload.build_number) && format(' · build {0}', inputs.build_number || github.event.client_payload.build_number) || '' }}${{ github.event_name == 'repository_dispatch' && format(' · 准备 #{0}', github.event.client_payload.origin.run_number) || '' }}"
+run-name: "${{ inputs.flavor }} · ${{ inputs.target }}${{ inputs.build_number && format(' · build {0}', inputs.build_number) || '' }}"
 
 on:
   workflow_dispatch:
@@ -66,15 +66,12 @@ on:
         description: '发布安装包到草稿 Release；false仍执行Sentry符号校验与上传'
         type: boolean
         default: false
-  # Internal continuation of a human-requested automatic-number build.
-  repository_dispatch:
-    types: [xflclash_numbered_release_v1]
 
 defaults:
   run:
     shell: bash
 
-# 默认只读；仅准备分派、草稿上传和编号回写各自 job 提权。
+# 默认只读；仅草稿上传和编号回写各自 job 提权。
 permissions:
   contents: read
 
@@ -95,12 +92,8 @@ jobs:
       include: ${{ steps.r.outputs.include }}
       build_number: ${{ steps.number.outputs.build_number }}
       flavor: ${{ steps.request.outputs.flavor }}
-      target: ${{ steps.request.outputs.target }}
-      requested_number: ${{ steps.request.outputs.requested_number }}
       upload: ${{ steps.request.outputs.upload }}
       source_sha: ${{ steps.request.outputs.source_sha }}
-      source_ref: ${{ steps.request.outputs.source_ref }}
-      is_preparation: ${{ steps.request.outputs.is_preparation }}
       sdk_ref: ${{ steps.settings.outputs.sdk_ref }}
       verify_symbolication: ${{ steps.settings.outputs.verify_symbolication }}
     steps:
@@ -124,7 +117,6 @@ jobs:
         run: |
           python3 tool/test/release_request_test.py
           python3 tool/test/release_build_number_test.py
-          python3 tool/test/release_build_dispatch_test.py
       - id: r
         env:
           TARGET: ${{ steps.request.outputs.target }}
@@ -155,39 +147,12 @@ jobs:
         env:
           FLAVOR: ${{ steps.request.outputs.flavor }}
           REQUESTED_BUILD_NUMBER: ${{ steps.request.outputs.requested_number }}
-          PREPARED_FROM: ${{ steps.request.outputs.prepared_from }}
           BUILD_SOURCE_SHA: ${{ steps.request.outputs.source_sha }}
           BUILD_SOURCE_REF: ${{ steps.request.outputs.source_ref }}
         run: python3 tool/release_build_number.py resolve --flavor "$FLAVOR"
 
-  prepare:
-    needs: setup
-    if: needs.setup.outputs.is_preparation == 'true'
-    name: Start numbered build
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write # 本仓 repository_dispatch 需要；不写源码。
-      actions: read # 仅查询已发起的正式运行链接。
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ needs.setup.outputs.source_sha }}
-          persist-credentials: false
-      - name: Start numbered build
-        env:
-          BUILD_DISPATCH_TOKEN: ${{ github.token }}
-          FLAVOR: ${{ needs.setup.outputs.flavor }}
-          RESOLVED_BUILD_NUMBER: ${{ needs.setup.outputs.build_number }}
-          REQUESTED_BUILD_NUMBER: ${{ needs.setup.outputs.requested_number }}
-          BUILD_TARGET: ${{ needs.setup.outputs.target }}
-          UPLOAD_PACKAGES: ${{ needs.setup.outputs.upload }}
-          BUILD_SOURCE_SHA: ${{ needs.setup.outputs.source_sha }}
-          BUILD_SOURCE_REF: ${{ needs.setup.outputs.source_ref }}
-        run: python3 tool/release_build_number.py dispatch --flavor "$FLAVOR"
-
   package:
     needs: setup
-    if: needs.setup.outputs.is_preparation == 'false'
     name: ${{ matrix.platform }}${{ matrix.arch && format('-{0}', matrix.arch) }} (${{ needs.setup.outputs.flavor }}, build ${{ needs.setup.outputs.build_number }})
     runs-on: ${{ matrix.os }}
     permissions:
@@ -580,13 +545,14 @@ jobs:
           TITLE: ${{ env.FLAVOR }} v${{ env.PRODUCT_VERSION }} (build ${{ env.BUILD_NUMBER }})
         run: |
           set -euo pipefail
+          NOTES="自动构建（草稿，仅协作者可见，测试完可删）。flavor=${FLAVOR} 版本=${PRODUCT_VERSION} build=${BUILD_NUMBER}"
           # 幂等创建草稿（并行 job 抢创建：后者命中"已存在"→ || true 不致命）
           if ! gh release view "${TAG}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
             gh release create "${TAG}" \
               --repo "${GITHUB_REPOSITORY}" \
               --draft \
               --title "${TITLE}" \
-              --notes "自动构建（草稿，仅协作者可见，测试完可删）。flavor=${FLAVOR} 版本=${PRODUCT_VERSION} build=${BUILD_NUMBER}" \
+              --notes "${NOTES}" \
               || true
           fi
           # 等草稿就绪（防并行创建竞态：本 job 没创建但另一 job 正在建）
@@ -594,9 +560,17 @@ jobs:
             gh release view "${TAG}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1 && break
             echo "等待草稿 Release 就绪… (${i})"; sleep 3
           done
+          # 已有公开版本不能作为草稿覆盖。
+          IS_DRAFT="$(gh release view "${TAG}" --repo "${GITHUB_REPOSITORY}" --json isDraft --jq '.isDraft')"
+          if [ "$IS_DRAFT" != "true" ]; then
+            echo "::error::Expected a draft Release; refusing to change a published version"
+            exit 1
+          fi
           # 上传本平台产物（直链原文件；--clobber 覆盖同名，便于重跑）
           # ⚠️ macOS /bin/bash 3.2：变量紧跟中文必须用 ${VAR} 花括号，否则会吞字节报 unbound（PATCHES 经验 #3）
           gh release upload "${TAG}" dist/* --repo "${GITHUB_REPOSITORY}" --clobber
+          # 同名草稿重复使用时，标题也同步为本次实际编号。
+          gh release edit "${TAG}" --repo "${GITHUB_REPOSITORY}" --title "${TITLE}" --notes "${NOTES}"
           echo "✓ 已发布到草稿 Release：${TAG}（仅协作者可见，直链下载真安装包）"
 
   # 发布成功后，下次编号至少为本批次编号+1；不降低已被其他发布推进的计数。
@@ -605,7 +579,7 @@ jobs:
   # a/b 各自独立计数：scripts/build_number.<flavor>.txt，互不影响。
   bump:
     needs: [setup, package]
-    if: needs.setup.outputs.is_preparation == 'false' && needs.setup.outputs.upload == 'true'
+    if: needs.setup.outputs.upload == 'true'
     name: Bump versionCode (next release)
     runs-on: ubuntu-latest
     permissions:

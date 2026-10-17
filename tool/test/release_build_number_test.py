@@ -73,6 +73,38 @@ class NumberTests(unittest.TestCase):
                 self.assertEqual(numbers.main(["resolve", "--flavor", "brand_b", "--project-root", str(root)]), 1)
             self.assertNotIn("fake-private-input", errors.getvalue())
 
+    @unittest.skipUnless(shutil.which("git"), "Pinned source validation needs Git")
+    def test_cli_checks_pinned_source_before_writing_number_outputs(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "scripts").mkdir()
+            counter = root / "scripts/build_number.brand_a.txt"
+            counter.write_text("21\n")
+            for arguments in (["init", "--initial-branch=main"], ["add", "."],
+                              ["-c", "user.name=fixture", "-c", "user.email=fixture@example.invalid",
+                               "commit", "-m", "fixture"]):
+                subprocess.run(["git", *arguments], cwd=root, check=True, capture_output=True)
+            sha = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip()
+            output, summary = root / "output", root / "summary"
+            for expected_sha, ref, expected_code in (("a" * 40, "refs/heads/main", 1),
+                                                       (sha, "invalid-ref", 1),
+                                                       (sha, "refs/heads/main", 0)):
+                with self.subTest(source=expected_sha, ref=ref):
+                    env = {"BUILD_SOURCE_SHA": expected_sha, "BUILD_SOURCE_REF": ref,
+                           "GITHUB_OUTPUT": str(output), "GITHUB_STEP_SUMMARY": str(summary)}
+                    with mock.patch.dict(os.environ, env, clear=True), \
+                         contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                        self.assertEqual(numbers.main(["resolve", "--flavor", "brand_a",
+                                                       "--project-root", str(root)]), expected_code)
+                    if expected_code:
+                        self.assertFalse(output.exists())
+                        self.assertFalse(summary.exists())
+                    else:
+                        self.assertEqual(output.read_text(), "build_number=21\n")
+                        self.assertIn(sha, summary.read_text())
+                        self.assertIn("source snapshot counter", summary.read_text())
+                    self.assertEqual(counter.read_text(), "21\n")
+
 
 @unittest.skipUnless(os.name == "posix" and shutil.which("bash") and shutil.which("git"),
                      "Real isolated Git race uses POSIX shell fixtures")
