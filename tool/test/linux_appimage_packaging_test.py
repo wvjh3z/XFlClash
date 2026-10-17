@@ -125,11 +125,65 @@ class PrepareLinuxPackagerTest(unittest.TestCase):
         self.assertFalse(self.output.exists())
 
     def test_wrong_revision_is_rejected(self):
+        self.assert_wrong_revision_is_rejected(shallow=False)
+
+    def test_wrong_revision_is_rejected_in_shallow_clone(self):
+        self.assert_wrong_revision_is_rejected(shallow=True)
+
+    def commit_tree(self, source, tree, *parents):
+        env = dict(
+            os.environ,
+            GIT_AUTHOR_NAME="Packager test", GIT_AUTHOR_EMAIL="packager-test@example.invalid",
+            GIT_COMMITTER_NAME="Packager test", GIT_COMMITTER_EMAIL="packager-test@example.invalid",
+            GIT_AUTHOR_DATE="2000-01-01T00:00:00+0000",
+            GIT_COMMITTER_DATE="2000-01-01T00:00:00+0000",
+        )
+        return command(
+            "git", "-C", str(source), "commit-tree", tree, *parents,
+            "-m", "Local revision fixture", env=env,
+        ).stdout.strip()
+
+    def assert_wrong_revision_is_rejected(self, *, shallow):
+        # A local two-commit seed gives a real full-history case even when the
+        # checkout's distributor submodule is itself shallow, as it is in CI.
+        seed = self.root / "seed"
+        command("git", "init", "--quiet", "--initial-branch=fixture", str(seed))
+        tree = command("git", "-C", str(seed), "mktree", input="").stdout.strip()
+        first = self.commit_tree(seed, tree)
+        second = self.commit_tree(seed, tree, "-p", first)
+        command("git", "-C", str(seed), "update-ref", "refs/heads/fixture", second)
         clone = self.root / "source"
-        command("git", "clone", "--quiet", "--shared", "--no-hardlinks", str(SOURCE), str(clone))
-        command("git", "-C", str(clone), "checkout", "--quiet", "HEAD^1")
+        # file:// forces transport cloning, so --depth is actually honored.
+        depth = ["--depth=1"] if shallow else []
+        command("git", "clone", "--quiet", *depth, seed.as_uri(), str(clone))
+        self.assertEqual(PACKAGER.git(clone, "rev-parse", "--is-shallow-repository").strip(), b"true" if shallow else b"false")
+        self.assertEqual(PACKAGER.git(clone, "rev-list", "--count", "HEAD").strip(), b"1" if shallow else b"2")
+        # Manufacture an unknown revision without asking for an upstream parent.
+        revision = self.commit_tree(clone, "HEAD^{tree}", "-p", "HEAD")
+        command("git", "-C", str(clone), "checkout", "--quiet", "--detach", revision)
+        self.assertNotEqual(PACKAGER.git(clone, "rev-parse", "HEAD").decode().strip(), PACKAGER.PINNED_REVISION)
         with self.assertRaisesRegex(RuntimeError, "Unexpected distributor revision"):
             PACKAGER.prepare(clone, self.output)
+        self.assertFalse(self.output.exists())
+
+    def test_pinned_revision_prepares_in_shallow_clone(self):
+        original_revision = PACKAGER.git(SOURCE, "rev-parse", "HEAD")
+        original_status = PACKAGER.git(SOURCE, "status", "--porcelain")
+        PACKAGER.verify_hashes(SOURCE, 0)
+        clone = self.root / "source"
+        command("git", "clone", "--quiet", "--depth=1", SOURCE.as_uri(), str(clone))
+        self.assertEqual(PACKAGER.git(clone, "rev-parse", "--is-shallow-repository").strip(), b"true")
+        self.assertEqual(PACKAGER.git(clone, "rev-list", "--count", "HEAD").strip(), b"1")
+        self.assertEqual(PACKAGER.git(clone, "rev-parse", "HEAD").decode().strip(), PACKAGER.PINNED_REVISION)
+        PACKAGER.verify_hashes(clone, 0)
+        PACKAGER.prepare(clone, self.output)
+        PACKAGER.verify_hashes(self.output, 1)
+        PACKAGER.verify_hashes(clone, 0)
+        self.assertEqual(PACKAGER.git(clone, "rev-parse", "HEAD"), original_revision)
+        self.assertEqual(PACKAGER.git(clone, "status", "--porcelain"), b"")
+        PACKAGER.verify_hashes(SOURCE, 0)
+        self.assertEqual(PACKAGER.git(SOURCE, "rev-parse", "HEAD"), original_revision)
+        self.assertEqual(PACKAGER.git(SOURCE, "status", "--porcelain"), original_status)
 
     def test_output_parent_symlink_cannot_pollute_source(self):
         alias = self.root / "source_alias"
