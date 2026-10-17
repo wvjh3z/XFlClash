@@ -420,7 +420,43 @@ Future<T?> xbShowDialog<T>({
   return showDialog<T>(
     context: context,
     barrierDismissible: barrierDismissible,
-    builder: (ctx) => _XbBrandThemeHost(
+    builder: (_) => _XbDialogContent(brandColor: brandColor, builder: builder),
+  );
+}
+
+/// 需要持有并精确关闭某次弹窗时使用，保持根 Navigator 和品牌主题语义。
+///
+/// 在调用页面仍存活时创建并 push；完成后按路由身份移除，不能依赖旧页面的 context
+/// 或直接 pop 当前栈顶，否则页面重建或其他弹窗覆盖时会漏关、误关。
+DialogRoute<T> xbDialogRoute<T>({
+  required BuildContext context,
+  required Color brandColor,
+  required WidgetBuilder builder,
+  bool barrierDismissible = true,
+}) {
+  final navigator = Navigator.of(context, rootNavigator: true);
+  return DialogRoute<T>(
+    context: context,
+    barrierDismissible: barrierDismissible,
+    barrierColor:
+        DialogTheme.of(context).barrierColor ??
+        Theme.of(context).dialogTheme.barrierColor ??
+        Colors.black54,
+    themes: InheritedTheme.capture(from: context, to: navigator.context),
+    traversalEdgeBehavior: TraversalEdgeBehavior.closedLoop,
+    builder: (_) => _XbDialogContent(brandColor: brandColor, builder: builder),
+  );
+}
+
+class _XbDialogContent extends StatelessWidget {
+  const _XbDialogContent({required this.brandColor, required this.builder});
+
+  final Color brandColor;
+  final WidgetBuilder builder;
+
+  @override
+  Widget build(BuildContext context) {
+    return _XbBrandThemeHost(
       brandColor: brandColor,
       // 桌面宽窗下限定对话框宽度：AlertDialog 默认按最长文本行撑宽，桌面会被那句很长的
       // 「提现须符合…」排成一行 → 弹窗超宽（即「弹窗太长」）。限到手机级宽度，文本正常换行、
@@ -431,6 +467,6 @@ Future<T?> xbShowDialog<T>({
           child: Builder(builder: builder),
         ),
       ),
-    ),
-  );
+    );
+  }
 }

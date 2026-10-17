@@ -8,6 +8,8 @@
 /// 不经 adapter，无风险②）；仅设置入口（原生 ToolsView）= ◆ 经 `XbNativePageAdapter`。
 library;
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -36,7 +38,7 @@ import 'package:fl_clash/xboard/widgets/xb_feedback.dart'
     show xbConfirm, xbBrandColor, xbToast;
 import 'package:fl_clash/xboard/widgets/xb_refresh_throttle_guard.dart';
 import 'package:fl_clash/xboard/widgets/xb_theme.dart'
-    show xbPush, xbShowDialog, XbTokens;
+    show xbDialogRoute, xbPush, XbTokens;
 import 'package:fl_clash/xboard/pages/xb_about_page.dart';
 import '../../widgets/xb_content_header.dart';
 import '../../widgets/xb_responsive.dart';
@@ -1170,7 +1172,7 @@ class _SettingsSection extends ConsumerWidget {
   final bool hideSettingsEntry;
 
   /// 退出登录二次确认（破坏性操作，原型 15b）：destructive 红确认键。确认后执行登出编排
-  /// （清 token/profile + 服务端撤销，永不抛）+ 全程 loading 遮罩（编排有网络耗时，避免无反馈）。
+  /// （清本地凭据、归属配置和缓存）并等待清理；Xboard 没有服务端注销端点。
   Future<void> _confirmLogout(BuildContext context, WidgetRef ref) async {
     final ok = await xbConfirm(
       context,
@@ -1180,19 +1182,23 @@ class _SettingsSection extends ConsumerWidget {
       destructive: true,
     );
     if (!ok || !context.mounted) return;
-    // 登出编排有网络耗时（服务端撤销 token）→ 弹不可关闭 loading，完成后自动消失（切游客态重建树）。
-    // 走 xbShowDialog 套品牌主题（裸 showDialog 挂根 Navigator 会逃逸 formA 主题，§check-xb-theme）。
-    xbShowDialog<void>(
+    // 退出会立即切换游客布局并卸载本设置区，不能再靠旧 context 关闭根弹窗。
+    // 保存本次路由，只移除自己；清理期间有其他弹窗时也不误关栈顶。
+    final auth = ref.read(authStateProvider.notifier);
+    final navigator = Navigator.of(context, rootNavigator: true);
+    final loadingRoute = xbDialogRoute<void>(
       context: context,
       brandColor: xbBrandColor(),
       barrierDismissible: false,
       builder: (_) => const Center(child: CircularProgressIndicator()),
     );
+    unawaited(navigator.push(loadingRoute));
     try {
-      await ref.read(authStateProvider.notifier).logout();
+      await auth.logout();
     } finally {
-      // logout 永不抛；切到游客态后关掉 loading（用根 navigator pop 掉 loading dialog）。
-      if (context.mounted) Navigator.of(context, rootNavigator: true).pop();
+      if (navigator.mounted && loadingRoute.isActive) {
+        navigator.removeRoute(loadingRoute);
+      }
     }
   }
 

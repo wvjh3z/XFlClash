@@ -92,6 +92,7 @@ lib/xboard/util/
 | `XbBrandScaffold(title, body, {bottomNavigationBar, actions})` | widget | 二级页脚手架：BrandTheme + Scaffold + AppBar 一站封装。新建 push 页用它。 |
 | `xbPush<T>(context, page, {brandColor, replace})` | fn | 带品牌主题的页面跳转。 |
 | `xbShowDialog<T>({context, brandColor, builder})` | fn | 带品牌主题的对话框。 |
+| `xbDialogRoute<T>({context, brandColor, builder})` | fn | 返回带品牌主题的根对话框路由，供异步动作保存并精确关闭本次遮罩。 |
 
 > 新建二级页统一用 `XbBrandScaffold`，不手写 Scaffold+AppBar+主题（重复 5 处已收口）。
 
@@ -279,7 +280,7 @@ XbFitText(xbYuan(p.amountYuan), alignment: Alignment.center, ...);          // �
 2. **异步加载**：用 `XbAsyncView` 统一 loading/retrying/error/data 四态，别手写 FutureBuilder 分支。
 3. **提交动作**：State 混入 `XbSubmitGuard`，按钮 loading 用 `submitting`，提交包 `runSubmit`。
 4. **点击后需先拉数据再跳转**：**立即 `xbPush` 到目标页**，由目标页用 `XbAsyncView` 自己加载转圈（如续费 `PlanRenewLoader`），与「购买/更改/流量重置」口径一致。不要在当前页 `await` + 弹遮罩，也不要在按钮里自己写 `_busy` + 转圈。
-5. **页面跳转**：一律 `xbPush`（已内置 500ms 防连点节流），不裸用 `Navigator.push`。
+5. **页面跳转**：一律 `xbPush`（已内置 500ms 防连点节流）。普通弹窗用 `xbShowDialog`；需要在原页面卸载后关闭的进度遮罩，可提前保存根 Navigator 并 push `xbDialogRoute`，完成后检查 Navigator 仍存活且该路由仍活动，再按身份 `removeRoute`。不要使用旧页面 context，也不要直接 pop 当前栈顶，以免漏关自身或误关后来弹窗。
 6. **验证码冷却**：混入 `XbCooldownGuard`，别手写 Timer。
 7. **颜色/圆角/间距**：一律用 `XbTokens`，不写裸数字裸色值。
 8. **图标方块**：用 `XbIconBadge`，不手写 Container+BoxDecoration+Icon。
