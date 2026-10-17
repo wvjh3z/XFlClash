@@ -222,6 +222,20 @@ class ReleaseWorkflowTests(unittest.TestCase):
             self.assertLess(workflow.index(marker), workflow.index("name: Package (flutter_distributor)"))
         self.assertIn("LINUX_PACKAGER_REQUIRE_DART: '1'", workflow)
 
+    def test_windows_checks_real_resource_checkout_before_brand_injection(self):
+        workflow = WORKFLOW.read_text()
+        marker = "      - name: Check brand resource checkout"
+        start = workflow.index(marker)
+        end = workflow.index("      - name:", start + len(marker))
+        block = workflow[start:end]
+        self.assertIn("if: matrix.platform == 'windows'", block)
+        self.assertEqual(step_script("Check brand resource checkout").strip(),
+                         "flutter test --no-pub tool/test/system_icon_git_checkout_test.dart")
+        self.assertLess(workflow.index("name: Get Flutter dependency"), start)
+        self.assertLess(start, workflow.index("name: Inject desktop branding"))
+        self.assertLess(start, workflow.index("name: Package (flutter_distributor)"))
+        self.assertTrue((WORKFLOW.parents[2] / "tool/test/system_icon_git_checkout_test.dart").is_file())
+
     @unittest.skipUnless(shutil.which("jq"), "The real compose step requires jq")
     def test_compose_uses_resolved_number_instead_of_reading_old_counter(self):
         (self.root / "flavors/brand_a").mkdir(parents=True)

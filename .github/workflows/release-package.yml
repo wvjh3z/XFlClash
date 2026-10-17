@@ -333,6 +333,12 @@ jobs:
             echo "✓ 已移除 XB_TARGET_ABI（split-per-abi 出全部 ABI）"
           fi
 
+      # Check real Git checkout bytes before modifying desktop branding inputs.
+      - name: Check brand resource checkout
+        if: matrix.platform == 'windows'
+        run: |
+          flutter test --no-pub tool/test/system_icon_git_checkout_test.dart
+
       # 桌面品牌注入（appName → 窗口标题 / 打包 make_config display_name 等）+ 图标重生成。
       - name: Inject desktop branding
         if: matrix.platform != 'android'

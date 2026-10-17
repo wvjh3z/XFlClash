@@ -1,0 +1,4 @@
+# Brand resource manifests validate exact committed bytes across platforms.
+# Do not let core.autocrlf change SVG source or generated resource checksums.
+flavors/*/system_icons/** -text
+flavors/*/assets/icons/*.png -text
