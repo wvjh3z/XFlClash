@@ -63,6 +63,14 @@ class ReleaseWorkflowTests(unittest.TestCase):
         return subprocess.run(["bash", "-c", script], cwd=self.root, capture_output=True,
                               text=True, env={**self.env, "SENTRY_AUTH_TOKEN": token})
 
+    def stub_python_version(self, version):
+        python = self.bin / "python3"
+        python.write_text(f"#!{sys.executable}\nimport sys\n"
+                          f"sys.version_info = {version!r}\n"
+                          f"sys.version = {'.'.join(map(str, version)) + ' (test fixture)'!r}\n"
+                          "exec(compile(sys.stdin.read(), '<workflow-python-check>', 'exec'))\n")
+        python.chmod(0o755)
+
     def test_all_release_platforms_require_a_token_without_printing_it(self):
         for platform in ("windows", "android", "linux", "macos"):
             with self.subTest(platform=platform):
@@ -163,12 +171,47 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertEqual({path.name for path in diagnostics.iterdir()},
                          {"keep.json", "failure-extra.json", "failure-16.json", "failure-99.json"})
         workflow = WORKFLOW.read_text()
-        self.assertLess(workflow.index("name: Setup Python for macOS symbol tooling"),
+        self.assertLess(workflow.index("name: Setup Python for Linux and macOS tooling"),
                         workflow.index("name: Setup Sentry CLI and verify symbol tooling"))
         self.assertIn("python-version: '3.12'", workflow)
         self.assertIn("SENTRY_MACOS_DIAGNOSTICS_DIR: ${{ matrix.platform == 'macos'", workflow)
         self.assertIn("            build/sentry-diagnostics/macos/", workflow)
         self.assertIn("          if-no-files-found: ignore", workflow)
+
+    def test_linux_and_macos_pin_python_before_packaging_tools(self):
+        workflow = WORKFLOW.read_text()
+        name = "      - name: Setup Python for Linux and macOS tooling"
+        start = workflow.index(name)
+        end = workflow.index("      - name:", start + len(name))
+        setup = workflow[start:end]
+        self.assertIn("if: matrix.platform == 'linux' || matrix.platform == 'macos'", setup)
+        self.assertIn("uses: actions/setup-python@v5", setup)
+        self.assertIn("python-version: '3.12'", setup)
+        # The platform condition covers both Linux CPU targets; no architecture
+        # exclusion can leave amd64 on Ubuntu 22.04's default interpreter.
+        self.assertNotIn("matrix.arch", setup)
+        verify = workflow.index("name: Verify packaging Python")
+        verify_end = workflow.index("      - name:", verify)
+        self.assertIn("if: matrix.platform == 'linux' || matrix.platform == 'macos'",
+                      workflow[verify:verify_end])
+        self.assertLess(start, verify)
+        for marker in ("name: Setup Sentry CLI and verify symbol tooling",
+                       "name: Install Linux package deps",
+                       "name: Activate flutter_distributor",
+                       "name: Check Linux AppImage packaging without compilation"):
+            self.assertLess(verify, workflow.index(marker))
+
+    def test_packaging_python_check_reports_and_accepts_selected_interpreter(self):
+        self.stub_python_version((3, 12, 3))
+        result = self.execute("Verify packaging Python", "linux")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Packaging Python: 3.12.", result.stdout)
+
+    def test_packaging_python_check_rejects_an_older_interpreter(self):
+        self.stub_python_version((3, 10, 12))
+        result = self.execute("Verify packaging Python", "linux")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("requires Python 3.12", result.stderr)
 
     def test_real_packager_checks_run_after_dependency_setup_and_activation(self):
         workflow = WORKFLOW.read_text()

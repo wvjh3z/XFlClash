@@ -10,7 +10,8 @@ from __future__ import annotations
 import argparse
 import hashlib
 import io
-from pathlib import Path
+from pathlib import Path, PurePosixPath
+import shutil
 import subprocess
 import tarfile
 import tempfile
@@ -55,6 +56,58 @@ def verify_hashes(directory: Path, side: int) -> None:
             raise RuntimeError(f"{'Patched' if side else 'Upstream'} source drift: {name}")
 
 
+def export_tool_archive(archive: bytes, staged: Path) -> None:
+    """Export the pinned Git tree into a fresh directory, then check its links.
+
+    Git archives need only directories, regular files and relative symlinks.
+    Write files before creating links so no archive entry can write through a
+    symlink. This also avoids the data_filter relative-link bug in Python 3.10.12.
+    """
+    with tarfile.open(fileobj=io.BytesIO(archive)) as contents:
+        members = {}
+        for member in contents.getmembers():
+            name = PurePosixPath(member.name)
+            if (name.is_absolute() or not name.parts or ".." in name.parts
+                    or "\\" in member.name or member.name.rstrip("/") != name.as_posix()
+                    or name in members
+                    or not (member.isdir() or member.isfile() or member.issym())):
+                raise RuntimeError(f"Unsafe tool archive member: {member.name}")
+            if member.issym() and (not member.linkname or "\\" in member.linkname
+                                  or PurePosixPath(member.linkname).is_absolute()):
+                raise RuntimeError(f"Unsafe tool archive link: {member.name}")
+            members[name] = member
+        for name in members:
+            if any(parent in members and not members[parent].isdir() for parent in name.parents):
+                raise RuntimeError(f"Unsafe tool archive parent: {name}")
+
+        for name, member in members.items():
+            target = staged.joinpath(*name.parts)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            if member.isdir():
+                target.mkdir(exist_ok=True)
+            elif member.isfile():
+                with contents.extractfile(member) as source, target.open("xb") as destination:
+                    shutil.copyfileobj(source, destination)
+                # Git tracks only the executable bit. Do not restore owners,
+                # setuid/setgid, or archive-supplied writable permission bits.
+                target.chmod(0o755 if member.mode & 0o100 else 0o644)
+
+        for name, member in members.items():
+            if member.issym():
+                staged.joinpath(*name.parts).symlink_to(member.linkname)
+        # Resolve only after every link exists: a later link may change an
+        # earlier target's effective destination. Require existing targets so
+        # dangling links and cycles fail consistently across Python versions.
+        for name, member in members.items():
+            if member.issym():
+                try:
+                    safe = staged.joinpath(*name.parts).resolve(strict=True).is_relative_to(staged)
+                except (OSError, RuntimeError) as error:
+                    raise RuntimeError(f"Unsafe tool archive link: {name}") from error
+                if not safe:
+                    raise RuntimeError(f"Unsafe tool archive link: {name}")
+
+
 def prepare(source: Path, output: Path, patch: Path = PATCH) -> Path:
     source, output, patch = source.resolve(), output.absolute(), patch.resolve()
     if output.is_symlink():
@@ -75,17 +128,7 @@ def prepare(source: Path, output: Path, patch: Path = PATCH) -> Path:
     with tempfile.TemporaryDirectory(prefix=".prepare-linux-packager-", dir=output.parent) as temporary:
         staged = Path(temporary) / "flutter_distributor"
         staged.mkdir()
-        with tarfile.open(fileobj=io.BytesIO(archive)) as contents:
-            for member in contents.getmembers():
-                target = (staged / member.name).resolve()
-                safe_link = member.issym() and (target.parent / member.linkname).resolve().is_relative_to(staged)
-                if not target.is_relative_to(staged) or not (member.isdir() or member.isfile() or safe_link):
-                    raise RuntimeError(f"Unsafe tool archive member: {member.name}")
-            # All entries were checked above and come from the pinned Git tree.
-            if hasattr(tarfile, "data_filter"):
-                contents.extractall(staged, filter="data")
-            else:
-                contents.extractall(staged)
+        export_tool_archive(archive, staged)
         verify_hashes(staged, 0)
         for arguments in (("--check",), ()):
             result = subprocess.run(

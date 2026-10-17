@@ -178,11 +178,21 @@ jobs:
         if: matrix.platform == 'windows'
         run: python tool/test/windows_loader_install_test.py
 
-      - name: Setup Python for macOS symbol tooling
-        if: matrix.platform == 'macos'
+      - name: Setup Python for Linux and macOS tooling
+        if: matrix.platform == 'linux' || matrix.platform == 'macos'
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+
+      - name: Verify packaging Python
+        if: matrix.platform == 'linux' || matrix.platform == 'macos'
+        run: |
+          python3 - <<'PY'
+          import sys
+          print(f"Packaging Python: {sys.version.split()[0]} ({sys.executable})")
+          if sys.version_info[:2] != (3, 12):
+              raise SystemExit("Linux/macOS packaging requires Python 3.12")
+          PY
 
       - name: Setup Sentry CLI and verify symbol tooling
         run: |

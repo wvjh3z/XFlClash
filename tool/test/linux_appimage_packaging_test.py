@@ -7,6 +7,7 @@ CI sets LINUX_PACKAGER_REQUIRE_DART=1 to make missing prerequisites a failure.
 from __future__ import annotations
 
 import importlib.util
+import io
 import json
 import os
 from pathlib import Path
@@ -15,8 +16,10 @@ import shutil
 import struct
 import subprocess
 import sys
+import tarfile
 import tempfile
 import unittest
+from unittest import mock
 from urllib.parse import unquote, urljoin, urlparse
 
 
@@ -100,6 +103,121 @@ class PrepareLinuxPackagerTest(unittest.TestCase):
         self.assertTrue((self.output / "LICENSE").is_file())
         self.assertFalse(list(self.output.rglob(".git")))
         self.assertFalse(list(self.output.rglob(".dart_tool")))
+
+    def test_preparation_preserves_real_relative_readme_links_without_data_filter(self):
+        # Python 3.10.12's filter incorrectly resolves this link from the
+        # extraction root instead of packages/flutter_distributor. The complete
+        # preparation must keep the link and still apply all pinned hashes.
+        with mock.patch.object(PACKAGER.tarfile, "data_filter", create=True,
+                               side_effect=AssertionError("version-dependent data_filter called")):
+            PACKAGER.prepare(SOURCE, self.output)
+        link = self.output / "packages/flutter_distributor/README.md"
+        self.assertTrue(link.is_symlink())
+        self.assertEqual(os.readlink(link), "../../README.md")
+        self.assertEqual(link.resolve(), self.output / "README.md")
+        self.assertEqual(link.read_bytes(), (SOURCE / "README.md").read_bytes())
+        PACKAGER.verify_hashes(self.output, 1)
+
+    def archive(self, *entries):
+        archive = io.BytesIO()
+        with tarfile.open(fileobj=archive, mode="w") as contents:
+            for name, kind, value, *mode in entries:
+                member = tarfile.TarInfo(name)
+                member.type = kind
+                member.mode = mode[0] if mode else 0o7777
+                if kind == tarfile.REGTYPE:
+                    member.size = len(value)
+                    contents.addfile(member, io.BytesIO(value))
+                else:
+                    member.linkname = value
+                    contents.addfile(member)
+        return archive.getvalue()
+
+    def test_export_preserves_internal_links_and_git_executable_bit(self):
+        staged = self.root / "staged"
+        staged.mkdir()
+        # The directory link's target deliberately appears later in the tar.
+        archive = self.archive(
+            ("packages/docs", tarfile.SYMTYPE, "../docs"),
+            ("packages/readme", tarfile.SYMTYPE, "docs/README.md"),
+            ("docs/README.md", tarfile.REGTYPE, b"linked content"),
+            ("bin/tool", tarfile.REGTYPE, b"#!/bin/sh\n"),
+            ("docs/plain", tarfile.REGTYPE, b"ordinary", 0o666),
+        )
+        PACKAGER.export_tool_archive(archive, staged)
+        self.assertEqual((staged / "packages/readme").read_bytes(), b"linked content")
+        self.assertTrue((staged / "packages/docs").is_symlink())
+        self.assertEqual((staged / "bin/tool").stat().st_mode & 0o7777, 0o755)
+        self.assertEqual((staged / "docs/plain").stat().st_mode & 0o7777, 0o644)
+
+    def test_unsafe_archives_do_not_replace_complete_output_or_write_outside(self):
+        PACKAGER.prepare(SOURCE, self.output)
+        sentinel = self.output / "complete"
+        sentinel.write_text("preserve")
+        outside = self.root / "outside"
+        outside.write_text("untouched")
+        cases = {
+            "absolute member": ((str(outside), tarfile.REGTYPE, b"overwrite"),),
+            "parent traversal": (("../../outside", tarfile.REGTYPE, b"overwrite"),),
+            "absolute link": (("packages/link", tarfile.SYMTYPE, str(outside)),),
+            "escaping relative link": (("packages/link", tarfile.SYMTYPE, "../../../outside"),),
+            "dangling internal link": (("packages/link", tarfile.SYMTYPE, "missing"),),
+            "hard link": (("hard", tarfile.LNKTYPE, str(outside)),),
+            "fifo": (("pipe", tarfile.FIFOTYPE, ""),),
+            "character device": (("device", tarfile.CHRTYPE, ""),),
+            "block device": (("device", tarfile.BLKTYPE, ""),),
+            "duplicate link": (
+                ("link", tarfile.SYMTYPE, "README.md"),
+                ("link", tarfile.SYMTYPE, "../outside"),
+            ),
+            "duplicate file": (
+                ("README.md", tarfile.REGTYPE, b"first"),
+                ("README.md", tarfile.REGTYPE, b"second"),
+            ),
+            "file under link": (
+                ("packages/dir", tarfile.SYMTYPE, "../.."),
+                ("packages/dir/outside", tarfile.REGTYPE, b"overwrite"),
+            ),
+            "link under link": (
+                ("packages/dir", tarfile.SYMTYPE, "../.."),
+                ("packages/dir/link", tarfile.SYMTYPE, "outside"),
+            ),
+            "file as parent": (
+                ("packages/file", tarfile.REGTYPE, b"file"),
+                ("packages/file/child", tarfile.REGTYPE, b"child"),
+            ),
+            "link cycle": (
+                ("first", tarfile.SYMTYPE, "second"),
+                ("second", tarfile.SYMTYPE, "first"),
+            ),
+        }
+        # Every direct target looks contained before following the links.
+        # Collapsing next/another changes first's '..' segments to reach the
+        # existing outside sentinel, so this tests containment, not absence.
+        chain = (
+            ("packages/first", tarfile.SYMTYPE, "next/another/../../../outside"),
+            ("packages/next", tarfile.SYMTYPE, "."),
+            ("packages/another", tarfile.SYMTYPE, "."),
+        )
+        cases["link chain escape"] = chain
+        cases["reversed link chain escape"] = tuple(reversed(chain))
+        original_git = PACKAGER.git
+        for name, entries in cases.items():
+            with self.subTest(archive=name):
+                archive = self.archive(*entries)
+
+                def fixture_git(source, *arguments):
+                    if arguments[0] == "archive":
+                        return archive
+                    return original_git(source, *arguments)
+
+                with mock.patch.object(PACKAGER, "git", side_effect=fixture_git):
+                    with self.assertRaisesRegex(RuntimeError, "Unsafe tool archive"):
+                        PACKAGER.prepare(SOURCE, self.output)
+                self.assertEqual(sentinel.read_text(), "preserve")
+                self.assertEqual(outside.read_text(), "untouched")
+                PACKAGER.verify_hashes(self.output, 1)
+                self.assertFalse(list(self.root.glob(".prepare-linux-packager-*")))
 
     def test_changed_patch_does_not_replace_complete_output(self):
         PACKAGER.prepare(SOURCE, self.output)
