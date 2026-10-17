@@ -29,7 +29,7 @@
 # ───────── 固化的跨平台构建经验（来自 CI 实跑，见 .kiro/PATCHES.md「多平台打包 CI 跨平台经验」）─────────
 #   #2 Linux 打包依赖：webkit2gtk-4.1/libsoup-3.0（desktop_webview_window）+ libcurl（sentry-native）
 #      + libsecret-1/jsoncpp（flutter_secure_storage）+ ninja/gtk/appindicator/keybinder + patchelf/fuse
-#      + appimagetool（按 arch）。本机缺则 --install-deps 装，或脚本检查后给提示。
+#      + 固定版本 appimagetool（按 host/target 校验后下载到 .local-build，免 FUSE）。
 #   #3 可移植 shell：一律 ${VAR} 花括号（macOS bash 3.2 多字节吞字节）；base64 用 `tr 去空白 | base64 -d`
 #      （BSD 无 -i）；正则用 POSIX [[:space:]]（非 GNU \s）；sed 就地改用临时文件（BSD sed -i 需参数）。
 #   #4 flutter_distributor 不靠 PATH → `dart pub global run flutter_distributor:main`。
@@ -125,14 +125,8 @@ install_linux_deps() {
   echo "=== 安装 Linux 打包依赖（sudo apt）==="
   sudo apt-get update -y
   sudo apt-get install -y ninja-build libgtk-3-dev libayatana-appindicator3-dev libkeybinder-3.0-dev \
-    libwebkit2gtk-4.1-dev libsoup-3.0-dev libcurl4-openssl-dev libsecret-1-dev libjsoncpp-dev patchelf
+    libwebkit2gtk-4.1-dev libsoup-3.0-dev libcurl4-openssl-dev libsecret-1-dev libjsoncpp-dev patchelf file squashfs-tools
   sudo apt-get install -y libfuse2 || sudo apt-get install -y libfuse2t64 || true
-  if [ "${ARCH}" = "amd64" ]; then AIT_ARCH="x86_64"; else AIT_ARCH="aarch64"; fi
-  if ! command -v appimagetool >/dev/null 2>&1; then
-    sudo wget -O /usr/local/bin/appimagetool \
-      "https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-${AIT_ARCH}.AppImage"
-    sudo chmod +x /usr/local/bin/appimagetool
-  fi
 }
 install_macos_deps() {
   echo "=== 安装 macOS 打包依赖（npm appdmg）==="
@@ -147,9 +141,15 @@ if [ "${INSTALL_DEPS}" = "1" ]; then
   esac
 fi
 
-# 软检查（不阻断，缺啥给提示，让 flutter_distributor 在缺依赖时报错更易懂）。
+# AppImage 工具与真实契约必须通过；其余开发库缺失时给安装提示。
 if [ "${PLATFORM}" = "linux" ]; then
-  command -v appimagetool >/dev/null 2>&1 || echo "⚠ 缺 appimagetool（AppImage 会失败）；可加 --install-deps"
+  need file "安装 file（或加 --install-deps）"
+  need unsquashfs "安装 squashfs-tools（或加 --install-deps）"
+  [ "${MISSING}" = "0" ] || exit 1
+  APPIMAGETOOL_BIN="$(python3 tool/prepare_appimagetool.py --target-arch "${ARCH}" --print-bin-dir)"
+  export PATH="${APPIMAGETOOL_BIN}:${PATH}"
+  # The cache lives outside build/: flutter clean below must not remove this PATH.
+  APPIMAGETOOL_REQUIRE_REAL=1 python3 -m unittest tool.test.appimagetool_contract_test
   pkg-config --exists webkit2gtk-4.1 2>/dev/null || echo "⚠ 缺 libwebkit2gtk-4.1-dev（桌面 WebView 构建会失败）；可加 --install-deps"
 fi
 [ "${PLATFORM}" = "macos" ] && { command -v appdmg >/dev/null 2>&1 || echo "⚠ 缺 appdmg（dmg 会失败）；可加 --install-deps"; }

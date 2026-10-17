@@ -401,7 +401,7 @@ jobs:
         run: |
           set -euo pipefail
           sudo apt-get update -y
-          sudo apt-get install -y ninja-build libgtk-3-dev libayatana-appindicator3-dev libkeybinder-3.0-dev locate
+          sudo apt-get install -y ninja-build libgtk-3-dev libayatana-appindicator3-dev libkeybinder-3.0-dev locate file squashfs-tools
           # 桌面 WebView（desktop_webview_window）需 webkit2gtk-4.1 + libsoup-3.0（插件 CMake REQUIRED）。
           # sentry-native（原生崩溃上报）CMake find_package(CURL) 需 libcurl dev。
           # flutter_secure_storage_linux 需 libsecret-1 + jsoncpp（arm64 runner 不自带）。
@@ -411,13 +411,10 @@ jobs:
           sudo apt-get install -y libfuse2 || sudo apt-get install -y libfuse2t64
           if [ "${{ matrix.arch }}" = "amd64" ]; then
             sudo apt-get install -y rpm   # rpm 仅 amd64 出
-            AIT_ARCH=x86_64
-          else
-            AIT_ARCH=aarch64
           fi
-          sudo wget -O /usr/local/bin/appimagetool \
-            "https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-${AIT_ARCH}.AppImage"
-          sudo chmod +x /usr/local/bin/appimagetool
+          # Pin official asset IDs, SHA256 and native CPU; use extracted tools without FUSE.
+          APPIMAGETOOL_BIN="$(python3 tool/prepare_appimagetool.py --target-arch "${{ matrix.arch }}" --print-bin-dir)"
+          echo "$APPIMAGETOOL_BIN" >> "$GITHUB_PATH"
 
       # 激活 vendored flutter_distributor，加到 PATH。
       - name: Activate flutter_distributor
@@ -441,7 +438,10 @@ jobs:
         if: matrix.platform == 'linux'
         env:
           LINUX_PACKAGER_REQUIRE_DART: '1'
-        run: python3 -m unittest tool.test.linux_appimage_packaging_test
+          APPIMAGETOOL_REQUIRE_REAL: '1'
+        run: |
+          python3 -m unittest tool.test.appimagetool_contract_test
+          python3 -m unittest tool.test.linux_appimage_packaging_test
 
       # 打包：按平台选 targets，喂我们的 env.json + split-debug-info（Sentry 符号）。
       # android 加 split-per-abi 出 ARM32/ARM64 两个包；逗号值走独立参数。
@@ -557,6 +557,7 @@ jobs:
             build/sentry-symbols-evidence.json
             build/sentry-symbolication-probe.json
             build/sentry-package-resolution.json
+            build/appimage-elf-audit.json
             build/macos/sentry-native-inventory.json
             build/macos/sentry-native-build.json
             build/macos/sentry-manifest-diagnostics.json

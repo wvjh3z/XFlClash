@@ -6,6 +6,7 @@ import 'package:flutter_app_builder/flutter_app_builder.dart';
 import 'package:flutter_app_packager/src/api/app_package_maker.dart';
 import 'package:flutter_app_packager/src/makers/appimage/app_package_maker_appimage.dart';
 import 'package:pubspec_parse/pubspec_parse.dart';
+import 'package:shell_executor/shell_executor.dart';
 
 // Only unrelated CLI output and the all-platform maker registry are replaced.
 // The test inserts the complete production package method verbatim below; its
@@ -22,7 +23,15 @@ extension _Colors on String {
   String brightGreen() => this;
   String yellow() => this;
   String red() => this;
+  String brightBlack() => this;
+  String brightRed() => this;
 }
+
+// Linux decoding matches the production platform branch. The complete production
+// executor class is inserted verbatim, including Process.start(runInShell: true).
+String convertToString(List<int> bytes) => utf8.decode(bytes, allowMalformed: true);
+
+// INSERT_PRODUCTION_DEFAULT_SHELL_EXECUTOR
 
 class _Options {
   Directory get outputDirectory => Directory('dist');
@@ -50,6 +59,10 @@ class _LinuxPackager {
 }
 
 class PackageMethodHarness {
+  PackageMethodHarness() {
+    // INSERT_PRODUCTION_EXECUTOR_REGISTRATION
+  }
+
   final _builder = FlutterAppBuilder();
   final _packager = _LinuxPackager();
   final distributeOptions = _Options();
@@ -73,6 +86,8 @@ Future<void> main(List<String> arguments) async {
       stdout.writeln('XFL_RESULT:${jsonEncode({'ok': true, 'arch': results.single.config.arch})}');
       return;
     }
+    // The direct maker case must use the same executor as the distributor.
+    PackageMethodHarness();
     final result = BuildLinuxResult(BuildConfig());
     final arch = request.containsKey('config_arch')
         ? request['config_arch']

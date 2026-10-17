@@ -21,7 +21,14 @@
      return _arch!;
 --- a/packages/flutter_app_packager/lib/src/makers/appimage/app_package_maker_appimage.dart
 +++ b/packages/flutter_app_packager/lib/src/makers/appimage/app_package_maker_appimage.dart
-@@ -27,9 +27,12 @@
+@@ -1,4 +1,6 @@
++import 'dart:convert';
+ import 'dart:io';
++import 'dart:typed_data';
+
+ import 'package:flutter_app_packager/src/api/app_package_maker.dart';
+ import 'package:flutter_app_packager/src/makers/appimage/make_appimage_config.dart';
+@@ -27,9 +29,12 @@
        if (value.exitCode != 0) {
          throw MakeError(value.stderr as String);
        }
@@ -35,7 +42,7 @@
          final soDeps = lines
              .split('\n')
              .where(
-@@ -49,6 +52,32 @@
+@@ -49,6 +54,162 @@
      );
    }
 
@@ -65,10 +72,140 @@
 +    }
 +  }
 +
++  // Inspect the final AppDir, including copied dependencies and linked files.
++  // Extensions and executable bits do not distinguish ELF from scripts or PE.
++  Future<void> _validateElfArchitecture(Directory appDir, String arch) async {
++    final expectedMachine = arch == 'x64' ? 62 : 183;
++    final root = await appDir.resolveSymbolicLinks();
++    final visited = <String>{};
++    var elfCount = 0;
++    final entries = <Map<String, Object?>>[];
++    var status = 'failed';
++    var failureCode = 'io_error';
++    Never fail(String code, String message) {
++      failureCode = code;
++      throw MakeError(message);
++    }
++
++    Future<void> inspect(String name) async {
++      final String resolved;
++      try {
++        resolved = await File(name).resolveSymbolicLinks();
++      } on FileSystemException catch (error) {
++        fail('invalid_link', 'Invalid AppImage link or file $name: $error');
++      }
++      if (resolved != root && !path.isWithin(root, resolved)) {
++        fail(
++          'external_link',
++          'AppImage link escapes AppDir: $name -> $resolved',
++        );
++      }
++      if (!visited.add(resolved)) return;
++      final type = await FileSystemEntity.type(resolved, followLinks: false);
++      if (type == FileSystemEntityType.directory) {
++        final children = await Directory(
++          resolved,
++        ).list(followLinks: false).toList();
++        children.sort((a, b) => a.path.compareTo(b.path));
++        for (final child in children) {
++          await inspect(child.path);
++        }
++        return;
++      }
++      if (type != FileSystemEntityType.file) {
++        fail('unsupported_file_type', 'Unsupported AppImage file type: $name');
++      }
++      final file = await File(resolved).open();
++      final List<int> header;
++      try {
++        header = await file.read(64);
++      } finally {
++        await file.close();
++      }
++      if (header.length < 4 ||
++          header[0] != 0x7f ||
++          header[1] != 0x45 ||
++          header[2] != 0x4c ||
++          header[3] != 0x46) {
++        return;
++      }
++      final entry = <String, Object?>{
++        'path': path.relative(name, from: root),
++        'class': header.length > 4 ? header[4] : null,
++        'endianness': header.length > 5 ? header[5] : null,
++      };
++      entries.add(entry);
++      if (header.length < 64) {
++        fail('truncated_header', 'Truncated ELF header in AppImage: $name');
++      }
++      if (header[4] != 2) {
++        fail(
++          'unsupported_class',
++          'Unsupported ELF class ${header[4]} in AppImage: $name; expected ELF64',
++        );
++      }
++      if (header[5] != 1) {
++        fail(
++          'unsupported_endianness',
++          'Unsupported ELF endianness ${header[5]} in AppImage: $name; expected little endian',
++        );
++      }
++      final data = ByteData.sublistView(Uint8List.fromList(header));
++      if (header[6] != 1 ||
++          data.getUint32(20, Endian.little) != 1 ||
++          data.getUint16(52, Endian.little) != 64) {
++        fail(
++          'invalid_header',
++          'Invalid ELF version or header size in AppImage: $name',
++        );
++      }
++      final machine = data.getUint16(18, Endian.little);
++      entry['machine'] = machine;
++      if (machine != 62 && machine != 183) {
++        fail(
++          'unsupported_machine',
++          'Unsupported ELF e_machine $machine in AppImage: $name',
++        );
++      }
++      if (machine != expectedMachine) {
++        fail(
++          'architecture_mismatch',
++          'AppImage ELF architecture mismatch: $name has e_machine $machine; expected $expectedMachine ($arch)',
++        );
++      }
++      elfCount++;
++    }
++
++    try {
++      await inspect(appDir.path);
++      if (elfCount == 0) {
++        fail(
++          'missing_target_elf',
++          'AppImage contains no valid ELF64 for $arch: ${appDir.path}',
++        );
++      }
++      status = 'passed';
++      failureCode = '';
++    } finally {
++      // Keep diagnostics outside AppDir, without bytes or host absolute paths.
++      final audit = File(path.join('build', 'appimage-elf-audit.json'));
++      await audit.parent.create(recursive: true);
++      await audit.writeAsString(
++        jsonEncode({
++          'expected_arch': arch,
++          'expected_machine': expectedMachine,
++          'status': status,
++          'failure_code': failureCode,
++          'elf_files': entries,
++        }),
++      );
++    }
++  }
++
    @override
    Future<MakeResult> make(MakeConfig config) {
      return _make(
-@@ -64,6 +93,17 @@
+@@ -64,6 +225,17 @@
      required MakeAppImageConfig makeConfig,
    }) async {
      try {
@@ -76,7 +213,7 @@
 +      if (makeConfig.arch == 'x64') {
 +        appImageArch = 'x86_64';
 +      } else if (makeConfig.arch == 'arm64') {
-+        appImageArch = 'aarch64';
++        appImageArch = 'arm_aarch64';
 +      } else {
 +        throw MakeError(
 +          'Unsupported AppImage architecture: ${makeConfig.arch}',
@@ -86,7 +223,7 @@
        await $('cp', [
          '-r',
          appDirectory.path,
-@@ -183,62 +223,68 @@
+@@ -183,61 +355,77 @@
          ),
        );
 
@@ -150,7 +287,7 @@
 +              ..removeWhere((lib) => lib.contains('libflutter_linux_gtk.so')),
            );
          }),
-       );
++      );
 +      final included = await Future.wait(
 +        makeConfig.include.map((so) async {
 +          final result = await $('locate', [so]);
@@ -203,10 +340,19 @@
 +          throw MakeError(result.stderr as String);
 +        }
 +      }
++
++      await _validateElfArchitecture(
++        Directory(
++          path.join(
++            makeConfig.packagingDirectory.path,
++            '${makeConfig.appName}.AppDir',
++          ),
++        ),
++        makeConfig.arch!,
+       );
 
        await $(
-         'appimagetool',
-@@ -249,9 +295,7 @@
+@@ -249,9 +437,7 @@
            ),
            makeConfig.outputFile.path.replaceAll('.appimage', '.AppImage'),
          ],

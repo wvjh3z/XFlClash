@@ -1,0 +1,25 @@
+{
+  "repository": "AppImage/AppImageKit",
+  "release_id": 95000337,
+  "release_tag": "continuous",
+  "release_commit": "5735cc5bed206497cddfbd2a75e1982c2606c35d",
+  "version_commit": "5735cc5",
+  "assets": {
+    "x86_64": {
+      "id": 98605504,
+      "name": "appimagetool-x86_64.AppImage",
+      "url": "https://api.github.com/repos/AppImage/AppImageKit/releases/assets/98605504",
+      "size": 8811712,
+      "sha256": "b90f4a8b18967545fda78a445b27680a1642f1ef9488ced28b65398f2be7add2",
+      "elf_machine": 62
+    },
+    "aarch64": {
+      "id": 98605483,
+      "name": "appimagetool-aarch64.AppImage",
+      "url": "https://api.github.com/repos/AppImage/AppImageKit/releases/assets/98605483",
+      "size": 6115712,
+      "sha256": "a48972e5ae91c944c5a7c80214e7e0a42dd6aa3ae979d8756203512a74ff574d",
+      "elf_machine": 183
+    }
+  }
+}

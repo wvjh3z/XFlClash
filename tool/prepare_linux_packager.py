@@ -19,7 +19,7 @@ import tempfile
 REPO = Path(__file__).resolve().parents[1]
 PINNED_REVISION = "cdeeef2d8f8325bb6ae0bc86b39f56e4325d1a58"
 PATCH = REPO / "tool/patches/flutter_distributor_appimage.patch"
-PATCH_SHA256 = "691f2e1b246829b5d4b78b18cd567c00aea403774cc3a4edfc33fa99bbc01152"
+PATCH_SHA256 = "a13987c59fc6660312dcbfa9c0332a337084ed9ee1a39d8153d60b9cd03f7f71"
 OUTPUT = REPO / "build/packaging-tools/flutter_distributor"
 # Both sides are intentional: reject changed upstream input and changed patch
 # output, including an accidentally partial or already applied patch.
@@ -30,7 +30,7 @@ SOURCE_HASHES = {
     ),
     "packages/flutter_app_packager/lib/src/makers/appimage/app_package_maker_appimage.dart": (
         "3ff1a24f3496d1f885ba69b57fbba7fbe77be4ba1a21383c264aab5a79608cdd",
-        "c61cd95c9190c62b69d6e84637af5ed638eb85db558fa57f56a7be27bdc42b7f",
+        "465f3e38b9f7ef7bc16226f84b377eaf45dc90600f6a63018ae87e1f28419bd6",
     ),
     "packages/flutter_distributor/lib/src/flutter_distributor.dart": (
         "02f826c354adf53c4026d4172640d5d2b7c70fb151fd2ae9ca079bc8e1815b25",

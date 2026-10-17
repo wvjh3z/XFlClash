@@ -1,6 +1,6 @@
 """Offline regression of the pinned patch and the actual Dart AppImage maker.
 
-Fake ldd/locate/appimagetool operate on ordinary files; cp is the real system cp.
+Fake ldd/locate/appimagetool operate on synthetic ELF files; cp is the real system cp.
 No pub get, Flutter compilation, native build, or network operations are run.
 CI sets LINUX_PACKAGER_REQUIRE_DART=1 to make missing prerequisites a failure.
 """
@@ -12,6 +12,7 @@ import os
 from pathlib import Path
 import re
 import shutil
+import struct
 import subprocess
 import sys
 import tempfile
@@ -208,8 +209,14 @@ class LocalDesktopArchitectureGuardTest(unittest.TestCase):
                         self.assertEqual(process.returncode, 0 if host == target else 1)
 
 
+def elf_header(machine=62, *, endian="<", elf_class=2):
+    """ELF64 header without native compilation; suitable for architecture checks."""
+    ident = b"\x7fELF" + bytes((elf_class, 1 if endian == "<" else 2, 1, 0)) + bytes(8)
+    return struct.pack(endian + "16sHHIQQQIHHHHHH", ident, 3, machine, 1, 0, 0, 0, 0, 64, 56, 0, 64, 0, 0)
+
+
 FAKE_TOOL = r'''#!{python}
-import base64, json, os, pathlib, subprocess, sys
+import base64, json, os, pathlib, struct, subprocess, sys
 request = json.loads(pathlib.Path(os.environ['XFL_FAKE_REQUEST']).read_text())
 tool = pathlib.Path(sys.argv[0]).name
 args = sys.argv[1:]
@@ -236,12 +243,28 @@ elif tool == 'cp':
         sys.exit(6)
     sys.exit(subprocess.run([{cp}, *args]).returncode)
 elif tool == 'appimagetool':
+    # AppImageKit 5735cc5 accepts this exact internal spelling, not aarch64.
+    arch = os.environ.get('ARCH')
+    if arch not in ('x86_64', 'arm_aarch64'):
+        print('Unsupported ARCH for AppImageKit 5735cc5: ' + str(arch), file=sys.stderr)
+        sys.exit(11)
+    expected = 62 if arch == 'x86_64' else 183
+    machines = set()
+    for entry in pathlib.Path(args[0]).rglob('*'):
+        if entry.is_file():
+            data = entry.read_bytes()
+            if data[:4] == b'\x7fELF' and len(data) >= 64:
+                machines.add(struct.unpack_from('<H', data, 18)[0])
+    if machines != {{expected}}:
+        print('ELF payload differs from requested ARCH', file=sys.stderr)
+        sys.exit(12)
     if request.get('appimagetool_exit'):
         print('real appimagetool failure', file=sys.stderr)
         sys.exit(8)
     libraries = pathlib.Path(args[0]) / 'usr/lib'
     pathlib.Path(args[1]).write_text(json.dumps({{
         'ARCH': os.environ.get('ARCH'),
+        'executor_parent': os.readlink('/proc/' + str(os.getppid()) + '/exe'),
         'libraries': {{p.name: base64.b64encode(p.read_bytes()).decode() for p in libraries.iterdir()}},
     }}))
 elif tool == 'flutter':
@@ -276,7 +299,14 @@ class LinuxAppImageMakerTest(unittest.TestCase):
             source = (cls.tools / "packages/flutter_distributor/lib/src/flutter_distributor.dart").read_text()
             method = source[source.index("  Future<List<MakeResult>> package("):source.index("  Future<List<PublishResult>> publish(")]
             cls.fixture = cls.root / "linux_appimage_maker.dart"
-            cls.fixture.write_text(FIXTURE.read_text().replace("  // INSERT_PRODUCTION_PACKAGE_METHOD", method))
+            executor = (cls.tools / "packages/flutter_distributor/lib/src/utils/default_shell_executor.dart").read_text()
+            executor_class = executor[executor.index("class DefaultShellExecutor extends ShellExecutor {"):]
+            # Keep the production constructor registration, not a base executor.
+            registration = re.search(r"ShellExecutor\.global = DefaultShellExecutor\(\);", source).group(0)
+            cls.fixture.write_text(FIXTURE.read_text()
+                .replace("  // INSERT_PRODUCTION_PACKAGE_METHOD", method)
+                .replace("// INSERT_PRODUCTION_DEFAULT_SHELL_EXECUTOR", executor_class)
+                .replace("// INSERT_PRODUCTION_EXECUTOR_REGISTRATION", registration))
         except RuntimeError as error:
             if os.environ.get("LINUX_PACKAGER_REQUIRE_DART") == "1":
                 raise AssertionError(str(error)) from error
@@ -288,7 +318,7 @@ class LinuxAppImageMakerTest(unittest.TestCase):
         self.work = Path(self.case.name)
         (self.work / "bundle/lib").mkdir(parents=True)
         for name in ("libflutter_linux_gtk.so", "libplugin_a.so", "libplugin_b.so"):
-            (self.work / "bundle/lib" / name).write_text("ordinary fixture")
+            (self.work / "bundle/lib" / name).write_bytes(elf_header())
         for arch in ("x64", "arm64"):
             bundle = self.work / "build/linux" / arch / "release/bundle"
             bundle.parent.mkdir(parents=True)
@@ -304,13 +334,14 @@ class LinuxAppImageMakerTest(unittest.TestCase):
             executable.write_text(script)
             executable.chmod(0o755)
 
-    def library(self, name="libshared.so.1", directory="one", content=b"shared contents"):
+    def library(self, name="libshared.so.1", directory="one", content=None):
         target = self.work / directory / name
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(content)
+        target.write_bytes(elf_header() if content is None else content)
         return str(target)
 
     def run_maker(self, dependencies=None, include=None, **request):
+        (self.work / "commands.jsonl").unlink(missing_ok=True)
         request["dependencies"] = dependencies or {}
         config = {"display_name": "Fixture", "icon": "icon.png", "include": list((include or {}).keys())}
         (self.work / "linux/packaging/appimage/make_config.yaml").write_text(json.dumps(config))
@@ -323,7 +354,8 @@ class LinuxAppImageMakerTest(unittest.TestCase):
         self.assertEqual(len(results), 1, process.stdout + process.stderr)
         self.last_returncode = process.returncode
         self.commands = [json.loads(line) for line in (self.work / "commands.jsonl").read_text().splitlines()] if (self.work / "commands.jsonl").exists() else []
-        return json.loads(results[0])
+        self.last_result = json.loads(results[0])
+        return self.last_result
 
     def dependency_copies(self):
         return [args for tool, args in self.commands if tool == "cp" and args[0] != "-r"]
@@ -410,13 +442,135 @@ class LinuxAppImageMakerTest(unittest.TestCase):
         self.assertEqual(set(self.artifact()["libraries"]), {"libown.so"})
 
     def test_architecture_reaches_loader_and_appimagetool(self):
-        for machine, arch, appimage in (("x86_64", "x64", "x86_64"), ("amd64", "x64", "x86_64"), ("aarch64", "arm64", "aarch64"), ("arm64", "arm64", "aarch64")):
+        for machine, arch, appimage in (("x86_64", "x64", "x86_64"), ("amd64", "x64", "x86_64"), ("aarch64", "arm64", "arm_aarch64"), ("arm64", "arm64", "arm_aarch64")):
             with self.subTest(machine=machine):
+                for file in (self.work / "bundle/lib").iterdir():
+                    file.write_bytes(elf_header(62 if arch == "x64" else 183))
                 result = self.run_maker(machine=machine, distributor=True)
                 self.assertTrue(result["ok"], result)
                 self.assertEqual(self.last_returncode, 0)
                 self.assertEqual(result["arch"], arch)
                 self.assertEqual(self.artifact()["ARCH"], appimage)
+
+    def assert_elf_error(self, message, **request):
+        result = self.run_maker(**request)
+        self.assertFalse(result["ok"], result)
+        self.assertIn(message, result["error"])
+        self.assertEqual(result["error_type"], "MakeError")
+        self.assertFalse([entry for entry in self.commands if entry[0] == "appimagetool"])
+        audit_path = self.work / "build/appimage-elf-audit.json"
+        audit = json.loads(audit_path.read_text())
+        self.assertEqual(audit["status"], "failed")
+        self.assertTrue(audit["failure_code"])
+        self.assertNotIn(str(self.work), audit_path.read_text())
+        self.assertTrue(all(not Path(entry["path"]).is_absolute() for entry in audit["elf_files"]))
+
+    def test_old_tool_double_rejects_aarch64_spelling(self):
+        request = self.work / "direct-request.json"
+        request.write_text("{}")
+        result = subprocess.run(
+            [str(self.bin / "appimagetool"), str(self.work / "bundle"), str(self.work / "direct.AppImage")],
+            cwd=self.work, env=dict(os.environ, XFL_FAKE_REQUEST=str(request), ARCH="aarch64"),
+            capture_output=True, text=True, timeout=60,
+        )
+        self.assertEqual(result.returncode, 11)
+        self.assertIn("Unsupported ARCH for AppImageKit 5735cc5: aarch64", result.stderr)
+        self.assertFalse((self.work / "direct.AppImage").exists())
+
+    def test_full_production_default_executor_passes_arch_through_shell(self):
+        result = self.run_maker(distributor=True)
+        self.assertTrue(result["ok"], result)
+        artifact = self.artifact()
+        self.assertEqual(artifact["ARCH"], "x86_64")
+        audit_path = self.work / "build/appimage-elf-audit.json"
+        audit = json.loads(audit_path.read_text())
+        self.assertEqual(audit["status"], "passed")
+        self.assertEqual(audit["failure_code"], "")
+        self.assertEqual(audit["expected_arch"], "x64")
+        self.assertEqual(audit["expected_machine"], 62)
+        self.assertEqual(len(audit["elf_files"]), 3)
+        self.assertTrue(all(entry["class"] == 2 and entry["endianness"] == 1 and entry["machine"] == 62 for entry in audit["elf_files"]))
+        self.assertNotIn(str(self.work), audit_path.read_text())
+        self.assertIn(Path(artifact["executor_parent"]).name, ("dash", "sh", "bash"))
+        executor = (self.tools / "packages/flutter_distributor/lib/src/utils/default_shell_executor.dart").read_text()
+        production_class = executor[executor.index("class DefaultShellExecutor extends ShellExecutor {"):]
+        self.assertIn(production_class, self.fixture.read_text())
+        self.assertIn("ShellExecutor.global = DefaultShellExecutor();", self.fixture.read_text())
+
+    def test_mixed_bundle_and_copied_dependency_are_rejected(self):
+        for machine, expected, foreign in (("x86_64", 62, 183), ("aarch64", 183, 62)):
+            for location in ("bundle", "dependency", "include"):
+                with self.subTest(machine=machine, location=location):
+                    for file in (self.work / "bundle/lib").iterdir():
+                        file.write_bytes(elf_header(expected))
+                    mixed = self.library(content=elf_header(foreign))
+                    kwargs = {}
+                    if location == "bundle":
+                        (self.work / "bundle/lib/libplugin_a.so").write_bytes(elf_header(foreign))
+                    elif location == "dependency":
+                        kwargs["dependencies"] = {"libplugin_a.so": [mixed]}
+                    else:
+                        kwargs["include"] = {"foreign": mixed}
+                    self.assert_elf_error("ELF architecture mismatch", machine=machine, distributor=True, **kwargs)
+                    self.assertEqual(self.last_returncode, 1)
+                    if location != "bundle":
+                        self.assertEqual(len(self.dependency_copies()), 1)
+
+    def test_non_elf_offset_18_traps_are_ignored(self):
+        # AppImageKit's old sniffing logic reads e_machine's offset in every
+        # file. Actual validation must first require the ELF magic.
+        for prefix, machine in ((b"#!/bin/sh\n", 183), (b"MZ", 62), (b"PNG", 40)):
+            data = bytearray(prefix.ljust(64, b"x"))
+            struct.pack_into("<H", data, 18, machine)
+            (self.work / "bundle" / ("trap-" + str(machine))).write_bytes(data)
+        for machine, elf_machine in (("x86_64", 62), ("aarch64", 183)):
+            with self.subTest(machine=machine):
+                for file in (self.work / "bundle/lib").iterdir():
+                    file.write_bytes(elf_header(elf_machine))
+                result = self.run_maker(machine=machine, distributor=True)
+                self.assertTrue(result["ok"], result)
+
+    def test_invalid_elf_headers_fail_with_path(self):
+        broken = self.work / "bundle/lib/libplugin_a.so"
+        cases = [
+            (b"\x7fELF", "Truncated ELF header"),
+            (elf_header(elf_class=1), "Unsupported ELF class 1"),
+            (elf_header(endian=">"), "Unsupported ELF endianness 2"),
+            (elf_header(243), "Unsupported ELF e_machine 243"),
+        ]
+        for offset in (6, 20, 52):
+            data = bytearray(elf_header())
+            data[offset] = 0
+            cases.append((bytes(data), "Invalid ELF version or header size"))
+        for data, message in cases:
+            with self.subTest(message=message, header=data.hex()):
+                broken.write_bytes(data)
+                self.assert_elf_error(message)
+                self.assertIn("libplugin_a.so", self.last_result["error"])
+
+    def test_appdir_without_valid_target_elf_is_rejected(self):
+        for file in (self.work / "bundle/lib").iterdir():
+            file.write_text("ordinary data, not ELF")
+        self.assert_elf_error("contains no valid ELF64 for x64")
+
+    def test_internal_symlinks_and_directory_cycle_are_checked_once(self):
+        (self.work / "bundle/plugin-link").symlink_to("lib/libplugin_a.so")
+        (self.work / "bundle/lib/root-link").symlink_to("..", target_is_directory=True)
+        result = self.run_maker()
+        self.assertTrue(result["ok"], result)
+
+    def test_foreign_elf_reached_via_internal_symlink_is_rejected(self):
+        (self.work / "bundle/foreign.bin").write_bytes(elf_header(183))
+        (self.work / "bundle/first-link").symlink_to("foreign.bin")
+        self.assert_elf_error("ELF architecture mismatch")
+
+    def test_dangling_and_external_appdir_links_are_rejected(self):
+        link = self.work / "bundle/link"
+        link.symlink_to("missing")
+        self.assert_elf_error("Invalid AppImage link or file")
+        link.unlink()
+        link.symlink_to(self.library())
+        self.assert_elf_error("AppImage link escapes AppDir")
 
     def test_unknown_make_architecture_is_rejected_before_copy(self):
         for arch in (None, "riscv64", "x86_64"):
