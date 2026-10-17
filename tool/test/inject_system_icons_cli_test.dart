@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:crypto/crypto.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
+import 'package:yaml/yaml.dart';
 
 final _repository = Directory.current.path;
 final _script = p.join(_repository, 'tool/inject_desktop_brand.dart');
@@ -14,6 +15,7 @@ const _textInputs = [
   'linux/runner/my_application.cc',
   'macos/Runner/Configs/AppInfo.xcconfig',
   'macos/Runner/Info.plist',
+  'macos/Runner.xcodeproj/project.pbxproj',
   'macos/packaging/dmg/make_config.yaml',
   'linux/packaging/appimage/make_config.yaml',
   'linux/packaging/rpm/make_config.yaml',
@@ -139,6 +141,87 @@ void main() {
       },
     );
   }
+
+  test(
+    'macOS CLI keeps current A/B bundle and DMG names in sync on switch',
+    () async {
+      // Public display names; private flavor files are absent in clean checkouts.
+      const names = {'brand_a': 'OmoFly', 'brand_b': '袋鼠加速'};
+      for (final brand in ['brand_a', 'brand_b']) {
+        File(
+          p.join(project.path, 'flavors/$brand/flavor.yaml'),
+        ).writeAsStringSync('appName: "${names[brand]}"\n');
+      }
+      String read(String path) =>
+          File(p.join(project.path, path)).readAsStringSync();
+      final originalProject = read('macos/Runner.xcodeproj/project.pbxproj');
+      final originalInfo = read('macos/Runner/Info.plist');
+      final bundleIdentifier = RegExp(
+        r'^PRODUCT_BUNDLE_IDENTIFIER\s*=.*$',
+        multiLine: true,
+      ).firstMatch(read('macos/Runner/Configs/AppInfo.xcconfig'))!.group(0);
+
+      for (final brand in ['brand_a', 'brand_b', 'brand_a']) {
+        final result = await inject(brand, 'macos');
+        expect(
+          result.exitCode,
+          0,
+          reason: '${result.stdout}\n${result.stderr}',
+        );
+        final name = names[brand]!;
+        final appInfo = read('macos/Runner/Configs/AppInfo.xcconfig');
+        expect(
+          RegExp(
+            r'^PRODUCT_NAME\s*=\s*(.*)$',
+            multiLine: true,
+          ).firstMatch(appInfo)?.group(1),
+          name,
+        );
+        expect(appInfo, contains(bundleIdentifier!));
+        final info = read('macos/Runner/Info.plist');
+        for (final key in ['CFBundleDisplayName', 'CFBundleName']) {
+          expect(
+            RegExp(
+              '<key>$key</key>\\s*<string>([^<]*)</string>',
+            ).firstMatch(info)?.group(1),
+            r'$(PRODUCT_NAME)',
+            reason: '$brand / $key',
+          );
+        }
+        for (final key in [
+          'CFBundleIdentifier',
+          'CFBundleExecutable',
+          'CFBundleURLTypes',
+        ]) {
+          final value = RegExp(
+            '<key>$key</key>\\s*(<string>[^<]*</string>|<array>[\\s\\S]*?</array>\\s*</dict>\\s*</array>)',
+          );
+          expect(value.firstMatch(info)?.group(1), isNotNull, reason: key);
+          expect(
+            value.firstMatch(info)?.group(1),
+            value.firstMatch(originalInfo)?.group(1),
+          );
+        }
+        expect(read('macos/Runner.xcodeproj/project.pbxproj'), originalProject);
+        final dmg =
+            loadYaml(read('macos/packaging/dmg/make_config.yaml')) as YamlMap;
+        expect(dmg['title'], name);
+        final appEntry = (dmg['contents'] as YamlList)
+            .cast<YamlMap>()
+            .singleWhere((entry) => entry['type'] == 'file');
+        expect(appEntry['path'], '$name.app');
+
+        final before = {for (final path in _textInputs) path: read(path)};
+        final repeated = await inject(brand, 'macos');
+        expect(
+          repeated.exitCode,
+          0,
+          reason: '${repeated.stdout}\n${repeated.stderr}',
+        );
+        expect({for (final path in _textInputs) path: read(path)}, before);
+      }
+    },
+  );
 
   test(
     '--check reports planned changes without writing any project entry',

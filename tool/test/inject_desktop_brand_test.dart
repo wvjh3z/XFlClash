@@ -1,6 +1,8 @@
 // inject_desktop_brand 纯变换契约测试（真实文件片段 + 幂等）。
 // 跑：dart test tool/test/inject_desktop_brand_test.dart
 
+import 'dart:io';
+
 import 'package:test/test.dart';
 
 import '../inject_desktop_brand.dart';
@@ -17,7 +19,8 @@ void main() {
   });
 
   test('Windows Runner.rc FileDescription（不动 ProductName/InternalName）', () {
-    const src = '            VALUE "FileDescription", "FlClash" "\\0"\n'
+    const src =
+        '            VALUE "FileDescription", "FlClash" "\\0"\n'
         '            VALUE "ProductName", "clash" "\\0"\n'
         '            VALUE "InternalName", "clash" "\\0"';
     final out = injectWindowsRc(src, app);
@@ -28,7 +31,8 @@ void main() {
   });
 
   test('Linux 窗口标题（header_bar + window 两处）', () {
-    const src = '    gtk_header_bar_set_title(header_bar, "FlClash");\n'
+    const src =
+        '    gtk_header_bar_set_title(header_bar, "FlClash");\n'
         '    gtk_window_set_title(window, "FlClash");';
     final out = injectLinuxTitle(src, app);
     expect('OmoFly'.allMatches(out).length, 2);
@@ -37,7 +41,8 @@ void main() {
   });
 
   test('macOS PRODUCT_NAME', () {
-    const src = '// comment\nPRODUCT_NAME = FlClash\n'
+    const src =
+        '// comment\nPRODUCT_NAME = FlClash\n'
         'PRODUCT_BUNDLE_IDENTIFIER = com.follow.clash';
     final out = injectMacProductName(src, app);
     expect(out, contains('PRODUCT_NAME = OmoFly'));
@@ -45,8 +50,68 @@ void main() {
     expect(injectMacProductName(out, app), out);
   });
 
+  test('macOS 显示名与 Bundle 名共用 PRODUCT_NAME，无本地化覆盖', () {
+    final plist = File('macos/Runner/Info.plist').readAsStringSync();
+    for (final key in ['CFBundleDisplayName', 'CFBundleName']) {
+      expect(
+        RegExp(
+          '<key>$key</key>\\s*<string>([^<]*)</string>',
+        ).firstMatch(plist)?.group(1),
+        r'$(PRODUCT_NAME)',
+        reason: key,
+      );
+    }
+    final project = File(
+      'macos/Runner.xcodeproj/project.pbxproj',
+    ).readAsStringSync();
+    final runnerConfigurations =
+        RegExp(r'buildSettings = \{([\s\S]*?)\n\t\t\t\};\n\t\t\tname = (\w+);')
+            .allMatches(project)
+            .where(
+              (match) => match
+                  .group(1)!
+                  .contains('INFOPLIST_FILE = Runner/Info.plist;'),
+            );
+    expect(
+      runnerConfigurations.map((match) => match.group(2)),
+      unorderedEquals(['Debug', 'Release', 'Profile']),
+    );
+    for (final configuration in runnerConfigurations) {
+      expect(
+        configuration.group(1),
+        contains(r'INFOPLIST_KEY_CFBundleDisplayName = "$(PRODUCT_NAME)";'),
+        reason: configuration.group(2),
+      );
+    }
+    expect(
+      Directory('macos/Runner')
+          .listSync(recursive: true)
+          .whereType<File>()
+          .where((file) => file.uri.pathSegments.last == 'InfoPlist.strings'),
+      isEmpty,
+      reason: '本地化显示名不能覆盖品牌 PRODUCT_NAME',
+    );
+  });
+
+  test('macOS PRODUCT_NAME 保留中文与文件名标点并可重复切换', () {
+    const source =
+        'PRODUCT_NAME = FlClash\n'
+        'PRODUCT_BUNDLE_IDENTIFIER = com.follow.clash\n';
+    var current = source;
+    for (final name in ['OmoFly', '袋鼠加速', '袋鼠加速-Pro_2.0', 'OmoFly']) {
+      current = injectMacProductName(current, name);
+      expect(
+        current,
+        'PRODUCT_NAME = $name\n'
+        'PRODUCT_BUNDLE_IDENTIFIER = com.follow.clash\n',
+      );
+      expect(injectMacProductName(current, name), current);
+    }
+  });
+
   test('macOS Info.plist 定位权限文案（不动 URL scheme flclash）', () {
-    const src = '<string>flclash</string>\n'
+    const src =
+        '<string>flclash</string>\n'
         '<key>NSLocationWhenInUseUsageDescription</key>\n'
         '<string>FlClash needs location access to detect WiFi network name.</string>';
     final out = injectMacInfoPlist(src, app);
@@ -56,7 +121,8 @@ void main() {
   });
 
   test('macOS dmg make_config（title + .app 路径）', () {
-    const src = 'title: FlClash\ncontents:\n  - type: file\n    path: FlClash.app\n';
+    const src =
+        'title: FlClash\ncontents:\n  - type: file\n    path: FlClash.app\n';
     final out = injectDmgMakeConfig(src, app);
     expect(out, contains('title: OmoFly'));
     expect(out, contains('path: OmoFly.app'));
@@ -65,7 +131,8 @@ void main() {
   });
 
   test('通用 make_config 显示名（display_name/generic_name/keywords 外）', () {
-    const src = 'display_name: FlClash\napp_name: MyClient\n'
+    const src =
+        'display_name: FlClash\napp_name: MyClient\n'
         'generic_name: FlClash\npublisher: chen08209\napp_id: ABC-123\n';
     final out = injectMakeConfigNames(src, app);
     expect(out, contains('display_name: OmoFly'));
