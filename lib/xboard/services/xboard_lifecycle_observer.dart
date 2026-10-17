@@ -5,7 +5,7 @@
 ///
 /// **ζ2 平台分级**（design 跨平台矩阵 § B）：
 /// - `paused`：移动端（Android）暂停心跳/QR/processing Timer（电池）；desktop 保持运行。
-/// - `resumed`：Android/Windows 检查前台业务刷新；移动端重启 Timer；四平台重选端点。
+/// - `resumed`：各平台检查更新；Android/Windows 检查前台账号刷新；移动端重启 Timer；重选端点。
 ///
 /// **dispose 顺序**（DD-19）：removeObserver → cancel 订阅 → cancel timer → race dispose
 /// （避免 Timer 最后一拍撞 disposed 依赖）。
@@ -23,6 +23,7 @@ class XboardLifecycleObserver with WidgetsBindingObserver {
     this.onPauseTimers,
     this.onResumeTimers,
     this.onForegroundRefresh,
+    this.onForegroundUpdateCheck,
     this.onRecoverPending,
     bool? isMobileOverride,
     bool? isWindowsOverride,
@@ -40,6 +41,10 @@ class XboardLifecycleObserver with WidgetsBindingObserver {
 
   /// Android/Windows 回前台的业务刷新，24h 节流和登录门控由触发器负责。
   final VoidCallback? onForegroundRefresh;
+
+  /// 各平台回前台检查更新，成功后的 24h 节流由更新服务负责，与账号刷新独立。
+  final VoidCallback? onForegroundUpdateCheck;
+
   final VoidCallback? onRecoverPending;
 
   final bool _isMobile;
@@ -70,6 +75,7 @@ class XboardLifecycleObserver with WidgetsBindingObserver {
           debugPrint('[XboardLifecycle] resumed (mobile) → 重启 Timer');
           onResumeTimers?.call();
         }
+        onForegroundUpdateCheck?.call();
         // 4 平台都后台竞速（R15.C.20）。
         _race.refreshRaceInBackground();
       case AppLifecycleState.inactive:

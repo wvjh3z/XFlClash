@@ -8,8 +8,10 @@
 /// - 永不抛（race controller 未就绪 / 无 payload 都安全返回）。
 library;
 
+import 'dart:async';
 import 'dart:convert';
 
+import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_xboard_sdk/flutter_xboard_sdk.dart';
@@ -20,6 +22,7 @@ import 'package:fl_clash/xboard/config/bootstrap_constants.dart';
 import 'package:fl_clash/xboard/config/xboard_config.dart';
 import 'package:fl_clash/xboard/providers/xboard_providers.dart';
 import 'package:fl_clash/xboard/xboard_module.dart';
+import 'package:fl_clash/xboard/services/xb_update_service.dart';
 
 import '../_fixtures/fake_token_storage.dart';
 import '../_fixtures/fake_xboard_sdk.dart';
@@ -31,12 +34,14 @@ const _apiB = 'https://api-b.example.com';
 const _subA = 'https://sub-a.example.com';
 
 void main() {
+  final binding = TestWidgetsFlutterBinding.ensureInitialized();
   late ProviderContainer container;
   late FakeXBoardSDK sdk;
 
   setUpAll(() => registerFallbackValue(_FakeTokenStorageFallback()));
 
   setUp(() {
+    XbUpdateService.resetThrottle();
     container = ProviderContainer();
     sdk = FakeXBoardSDK();
     when(() => sdk.initialize(
@@ -56,6 +61,7 @@ void main() {
 
   tearDown(() async {
     await XboardModule.dispose();
+    XbUpdateService.resetThrottle();
     container.dispose();
     XboardConfig.resetForTest();
   });
@@ -154,6 +160,52 @@ void main() {
     expect(container.read(bootstrapReadyProvider), isFalse);
   });
 
+  test(
+    'module wires foreground update checks without mobile timer or login',
+    () async {
+      bindTestConfig();
+      SharedPreferences.setMockInitialValues({});
+      final updateApi = _MockAppUpdateApi();
+      final requested = Completer<void>();
+      var checks = 0;
+      when(() => sdk.appUpdate).thenReturn(updateApi);
+      when(
+        () => updateApi.checkUpdate(
+          platform: any(named: 'platform'),
+          abi: any(named: 'abi'),
+          currentVersionCode: any(named: 'currentVersionCode'),
+        ),
+      ).thenAnswer((_) async {
+        checks++;
+        if (!requested.isCompleted) requested.complete();
+        return null;
+      });
+      await XboardModule.bootstrap(
+        container,
+        tokenStorage: FakeTokenStorage(),
+        sdk: sdk,
+        debugProbe: (_) async => true,
+      );
+      expect(container.read(bootstrapReadyProvider), isTrue);
+      expect(checks, 0, reason: 'No cold-start or VPN-on check was requested');
+
+      binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
+      binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await requested.future.timeout(const Duration(seconds: 5));
+      await Future<void>.delayed(Duration.zero);
+      expect(checks, 1);
+      binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
+      binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await Future<void>.delayed(Duration.zero);
+      expect(
+        checks,
+        1,
+        reason: 'Repeated restores use the update service throttle',
+      );
+      expect(container.read(availableUpdateProvider), isNull);
+    },
+  );
+
   test('永不抛：无缓存 + 无镜像 → 无竞速候选，安全返回（沿用出厂 endpoint）', () async {
     bindTestConfig();
     SharedPreferences.setMockInitialValues({}); // 无缓存
@@ -172,3 +224,5 @@ void main() {
 }
 
 class _FakeTokenStorageFallback extends Fake implements TokenStorage {}
+
+class _MockAppUpdateApi extends Mock implements AppUpdateApi {}

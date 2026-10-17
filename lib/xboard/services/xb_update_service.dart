@@ -111,6 +111,14 @@ class XbUpdateService {
   /// 24h 节流单调时钟（θ-7：距上次成功检查 ≥24h 才真请求；防改系统时间绕过）。
   /// null = 从未检查过（首次直接放行）。
   static Stopwatch? _throttle;
+  static Stopwatch Function() _createStopwatch = Stopwatch.new;
+
+  /// 注入单调计时器以覆盖 24h 临界点；生产仍使用真实 Stopwatch。
+  @visibleForTesting
+  static void debugSetStopwatchFactory(Stopwatch Function()? factory) {
+    resetThrottle();
+    _createStopwatch = factory ?? Stopwatch.new;
+  }
 
   /// single-flight：检查进行中标志，避免并发请求。
   static bool _checking = false;
@@ -136,9 +144,9 @@ class XbUpdateService {
       final result = await check(sdk, apiFailover: race?.failOverApi);
       if (result is UpdateAvailable) {
         container.read(availableUpdateProvider.notifier).set(result.info);
-        _throttle = Stopwatch()..start(); // 成功且有更新 → 重置节流时钟
+        _throttle = _createStopwatch()..start(); // 成功且有更新 → 重置节流时钟
       } else if (result is UpdateNotAvailable) {
-        _throttle = Stopwatch()..start(); // 成功但无更新 → 也重置（避免频繁查）
+        _throttle = _createStopwatch()..start(); // 成功但无更新 → 也重置（避免频繁查）
       }
       // 检查失败（网络/被墙）→ 不重置时钟，下次触发仍可重试
     } finally {

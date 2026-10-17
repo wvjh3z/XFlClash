@@ -96,6 +96,103 @@ void main() {
     obs.dispose();
   });
 
+  for (final platform in ['Android', 'Windows', 'macOS', 'Linux']) {
+    test(
+      '$platform resumed checks updates independently of accounts and timers',
+      () async {
+        var updates = 0;
+        var accounts = 0;
+        var timers = 0;
+        var recoveries = 0;
+        var probes = 0;
+        final endpoints = [const BootstrapEndpoint(url: 'https://update.test')];
+        final controller = EndpointRaceController(
+          probe: (_) async {
+            probes++;
+            return true;
+          },
+        );
+        controller.seedEndpoints(endpoints, []);
+        await controller.raceApi(endpoints);
+        final initialProbes = probes;
+        final observer = XboardLifecycleObserver(
+          raceController: controller,
+          isMobileOverride: platform == 'Android',
+          isWindowsOverride: platform == 'Windows',
+          onRecoverPending: () => recoveries++,
+          onForegroundRefresh: () => accounts++,
+          onResumeTimers: () => timers++,
+          onForegroundUpdateCheck: () => updates++,
+        );
+        addTearDown(() {
+          observer.dispose();
+          controller.dispose();
+        });
+
+        for (final state in [
+          AppLifecycleState.inactive,
+          AppLifecycleState.hidden,
+          AppLifecycleState.paused,
+          AppLifecycleState.detached,
+        ]) {
+          observer.didChangeAppLifecycleState(state);
+        }
+        expect(updates, 0);
+        expect(accounts, 0);
+        expect(timers, 0);
+        expect(recoveries, 0);
+
+        observer.didChangeAppLifecycleState(AppLifecycleState.resumed);
+        await Future<void>.delayed(Duration.zero);
+        expect(updates, 1);
+        expect(recoveries, 1);
+        expect(
+          accounts,
+          platform == 'Android' || platform == 'Windows' ? 1 : 0,
+        );
+        expect(timers, platform == 'Android' ? 1 : 0);
+        expect(probes, greaterThan(initialProbes));
+
+        observer.didChangeAppLifecycleState(AppLifecycleState.inactive);
+        observer.didChangeAppLifecycleState(AppLifecycleState.resumed);
+        expect(
+          updates,
+          2,
+          reason: 'The update service owns the shared throttle',
+        );
+        expect(recoveries, 2);
+        expect(
+          accounts,
+          platform == 'Android' || platform == 'Windows' ? 2 : 0,
+        );
+        expect(timers, platform == 'Android' ? 2 : 0);
+      },
+    );
+  }
+
+  testWidgets(
+    'attached observer checks updates on binding resume until disposed',
+    (tester) async {
+      var updates = 0;
+      final observer = XboardLifecycleObserver(
+        raceController: race,
+        isMobileOverride: false,
+        isWindowsOverride: true,
+        onForegroundUpdateCheck: () => updates++,
+      )..attach();
+      addTearDown(observer.dispose);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pump();
+      expect(updates, 1);
+      observer.dispose();
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pump();
+      expect(updates, 1);
+    },
+  );
+
   test('移动端 paused → 暂停 Timer 回调触发', () {
     var paused = false;
     final obs = XboardLifecycleObserver(

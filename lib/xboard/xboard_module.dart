@@ -516,8 +516,8 @@ class XboardModule {
         },
         // Android/Windows 全局前台刷新：登录 gate + 24h 节流，不依赖 Tab 构建。
         onForegroundRefresh: () => SubscriptionTriggers.onResume(container),
-        // 移动端更新检查独立保留，采用更新服务自己的成功后 24h 节流。
-        onResumeTimers: () {
+        // 各平台回前台检查更新，独立于账号刷新和移动端 Timer，成功后 24h 节流。
+        onForegroundUpdateCheck: () {
           // ignore: discarded_futures
           XbUpdateService.autoCheckThrottled(container);
         },
