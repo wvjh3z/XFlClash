@@ -1,0 +1,229 @@
+--- a/packages/flutter_app_builder/lib/src/builders/linux/build_linux_result.dart
++++ b/packages/flutter_app_builder/lib/src/builders/linux/build_linux_result.dart
+@@ -18,10 +18,16 @@
+   String get arch {
+     if (_arch == null) {
+       ProcessResult r = Process.runSync('uname', ['-m']);
+-      if ('${r.stdout}'.trim() == 'aarch64') {
++      if (r.exitCode != 0) {
++        throw StateError('Unable to determine Linux architecture: ${r.stderr}');
++      }
++      final machine = '${r.stdout}'.trim();
++      if (machine == 'aarch64' || machine == 'arm64') {
+         _arch = 'arm64';
++      } else if (machine == 'x86_64' || machine == 'amd64') {
++        _arch = 'x64';
+       } else {
+-        _arch = 'x64';
++        throw StateError('Unsupported Linux architecture: $machine');
+       }
+     }
+     return _arch!;
+--- a/packages/flutter_app_packager/lib/src/makers/appimage/app_package_maker_appimage.dart
++++ b/packages/flutter_app_packager/lib/src/makers/appimage/app_package_maker_appimage.dart
+@@ -27,9 +27,12 @@
+       if (value.exitCode != 0) {
+         throw MakeError(value.stderr as String);
+       }
+-      return value.stdout as String;
++      return value.stdout as String? ?? '';
+     }).then(
+       (lines) {
++        if (RegExp(r'=>\s+not found').hasMatch(lines)) {
++          throw MakeError('Missing shared dependency for $so: $lines');
++        }
+         final soDeps = lines
+             .split('\n')
+             .where(
+@@ -49,6 +52,32 @@
+     );
+   }
+
++  // Compare bounded chunks rather than loading large shared objects at once.
++  Future<bool> _sameContents(String first, String second) async {
++    final a = File(first);
++    final b = File(second);
++    if (await a.length() != await b.length()) return false;
++    final left = await a.open();
++    try {
++      final right = await b.open();
++      try {
++        while (true) {
++          final x = await left.read(64 * 1024);
++          final y = await right.read(64 * 1024);
++          if (x.length != y.length) return false;
++          for (var i = 0; i < x.length; i++) {
++            if (x[i] != y[i]) return false;
++          }
++          if (x.isEmpty) return true;
++        }
++      } finally {
++        await right.close();
++      }
++    } finally {
++      await left.close();
++    }
++  }
++
+   @override
+   Future<MakeResult> make(MakeConfig config) {
+     return _make(
+@@ -64,6 +93,17 @@
+     required MakeAppImageConfig makeConfig,
+   }) async {
+     try {
++      final String appImageArch;
++      if (makeConfig.arch == 'x64') {
++        appImageArch = 'x86_64';
++      } else if (makeConfig.arch == 'arm64') {
++        appImageArch = 'aarch64';
++      } else {
++        throw MakeError(
++          'Unsupported AppImage architecture: ${makeConfig.arch}',
++        );
++      }
++
+       await $('cp', [
+         '-r',
+         appDirectory.path,
+@@ -183,62 +223,68 @@
+         ),
+       );
+
+-      await Future.wait(
++      // Discovery can run concurrently; all dependency and include copies share
++      // one destination plan, so shared plugin dependencies cannot race in cp.
++      final discovered = await Future.wait(
+         appSOLibs.map((so) async {
+-          final referencedSharedLibs =
+-              await _getSharedDependencies(so.path).then(
++          return await _getSharedDependencies(so.path).then(
+             (d) => d.difference(libFlutterGtkDeps)
+-              ..removeWhere(
+-                (lib) => lib.contains('libflutter_linux_gtk.so'),
+-              ),
+-          );
+-
+-          if (referencedSharedLibs.isEmpty) return;
+-
+-          await $(
+-            'cp',
+-            [
+-              ...referencedSharedLibs,
+-              path.join(
+-                makeConfig.packagingDirectory.path,
+-                '${makeConfig.appName}.AppDir/usr/lib',
+-              ),
+-            ],
+-          ).then((value) {
+-            if (value.exitCode != 0) {
+-              throw MakeError(value.stderr as String);
+-            }
+-          });
+-        }),
+-      );
+-
+-      await Future.wait(
+-        makeConfig.include.map((so) async {
+-          final file = await $('locate', [so]).then((value) {
+-            if (value.exitCode != 0) {
+-              throw MakeError(value.stderr as String);
+-            }
+-            return value.stdout as String;
+-          }).then((out) {
+-            final paths = out
+-                .split('\n')
+-                .where((p) => p.isNotEmpty && !p.contains('/Trash'))
+-                .toList();
+-            if (paths.isEmpty) {
+-              throw MakeError("Can't find specified shared object $so");
+-            }
+-            return File(paths.first.trim());
+-          });
+-
+-          await file.copy(
+-            path.join(
+-              makeConfig.packagingDirectory.path,
+-              '${makeConfig.appName}.AppDir/usr/lib/',
+-              path.basename(file.path),
+-            ),
++              ..removeWhere((lib) => lib.contains('libflutter_linux_gtk.so')),
+           );
+         }),
+       );
++      final included = await Future.wait(
++        makeConfig.include.map((so) async {
++          final result = await $('locate', [so]);
++          if (result.exitCode != 0) {
++            throw MakeError(result.stderr as String);
++          }
++          final paths = (result.stdout as String? ?? '')
++              .split('\n')
++              .map((p) => p.trim())
++              .where((p) => p.isNotEmpty && !p.contains('/Trash'))
++              .toList();
++          if (paths.isEmpty) {
++            throw MakeError("Can't find specified shared object $so");
++          }
++          return paths.first;
++        }),
++      );
++      final sources = [
++        for (final dependencies in discovered) ...dependencies,
++        ...included,
++      ]..sort();
++      final planned = <String, String>{};
++      for (final source in sources) {
++        final resolved = await File(source).resolveSymbolicLinks();
++        final name = path.basename(source);
++        final previous = planned[name];
++        if (previous != null) {
++          if (previous != resolved &&
++              !await _sameContents(previous, resolved)) {
++            throw MakeError(
++              'Conflicting AppImage dependency $name: $previous and $resolved',
++            );
++          }
++          continue;
++        }
++        // resolveSymbolicLinks also rejects missing inputs before any copies.
++        // Keep the requested basename even when the source is a symlink.
++        planned[name] = resolved;
++      }
++      final destination = path.join(
++        makeConfig.packagingDirectory.path,
++        '${makeConfig.appName}.AppDir/usr/lib',
++      );
++      for (final entry in planned.entries) {
++        final result = await $('cp', [
++          entry.value,
++          path.join(destination, entry.key),
++        ]);
++        if (result.exitCode != 0) {
++          throw MakeError(result.stderr as String);
++        }
++      }
+
+       await $(
+         'appimagetool',
+@@ -249,9 +295,7 @@
+           ),
+           makeConfig.outputFile.path.replaceAll('.appimage', '.AppImage'),
+         ],
+-        environment: {
+-          'ARCH': 'x86_64',
+-        },
++        environment: {'ARCH': appImageArch},
+       ).then((value) {
+         if (value.exitCode != 0) {
+           throw MakeError(value.stderr as String);
+--- a/packages/flutter_distributor/lib/src/flutter_distributor.dart
++++ b/packages/flutter_distributor/lib/src/flutter_distributor.dart
+@@ -185,6 +185,7 @@
+             'description': description,
+             if (Platform.isWindows)
+               'arch': (buildResult as BuildWindowsResult).arch,
++            if (buildResult is BuildLinuxResult) 'arch': buildResult.arch,
+           };
+           MakeResult makeResult = await _packager.package(
+             platform,

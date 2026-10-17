@@ -607,12 +607,14 @@ class MacSliceGenerationTests(MacGenerationTests):
 
     def test_rust_language_evidence_is_required_in_each_actual_slice(self):
         self.install_fat("rust_api", existing=("arm64", "x86_64"))
-        tool = self.root / "dwarfdump"
-        tool.write_text("#!" + sys.executable + "\nimport sys\n"
-                        "print('DW_AT_language (DW_LANG_Rust)' if '--arch=x86_64' in sys.argv else 'DW_AT_language (DW_LANG_C11)')\n")
-        tool.chmod(0o755)
-        with self.assertRaisesRegex(PreparationError, "rust_framework_missing_rust_compilation_units"):
-            Preparer(self.build, dsymutil=DSYMUTIL, dwarfdump=str(tool)).prepare()
+        # Keep the per-slice rule deterministic. Real reader/process behavior
+        # has independent no-compiler coverage in sentry_macos_reader_test.py.
+        def evidence(_tool, _path, *, architecture, **_kwargs):
+            return architecture == "x86_64"
+        with mock.patch.object(preparation, "contains_rust_debug", side_effect=evidence) as reader, \
+             self.assertRaisesRegex(PreparationError, "^rust_framework_missing_rust_compilation_units$"):
+            Preparer(self.build, dsymutil=DSYMUTIL, dwarfdump="fixture-dwarfdump").prepare()
+        self.assertEqual({call.kwargs["architecture"] for call in reader.call_args_list}, {"arm64", "x86_64"})
         rows = {row["architecture"]: row for row in self.report()["modules"] if row["target"] == "rust_api"}
         self.assertTrue(rows["x86_64"]["ready"])
         self.assertFalse(rows["arm64"]["ready"])

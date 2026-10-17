@@ -105,8 +105,8 @@ if [ "${PLATFORM}" != "${HOST_OS}" ]; then
   echo "  请在对应 OS 的机器上构建（或用 CI release-package.yml 跑全平台）。"
   exit 1
 fi
-if [ "${PLATFORM}" = "macos" ] && [ "${ARCH}" != "${HOST_ARCH}" ]; then
-  echo "✗ macOS 按主机架构出包：主机是 ${HOST_ARCH}，无法在此机出 macos-${ARCH}。"
+if { [ "${PLATFORM}" = "macos" ] || [ "${PLATFORM}" = "linux" ]; } && [ "${ARCH}" != "${HOST_ARCH}" ]; then
+  echo "✗ ${PLATFORM} 按主机架构出包：主机是 ${HOST_ARCH}，无法在此机出 ${PLATFORM}-${ARCH}。"
   exit 1
 fi
 
@@ -247,7 +247,12 @@ jq -r 'keys | join(", ")' env.json
 
 # ───────── 激活 vendored flutter_distributor（经验 #4：不靠 PATH）─────────
 echo "=== activate flutter_distributor ==="
-dart pub global activate -s path plugins/flutter_distributor/packages/flutter_distributor >/dev/null
+PACKAGER_PATH="plugins/flutter_distributor/packages/flutter_distributor"
+if [ "${PLATFORM}" = "linux" ]; then
+  python3 tool/prepare_linux_packager.py
+  PACKAGER_PATH="build/packaging-tools/flutter_distributor/packages/flutter_distributor"
+fi
+dart pub global activate -s path "${PACKAGER_PATH}" >/dev/null
 
 # ───────── 打包 ─────────
 COMMON="dart-define-from-file=env.json,build-name=${BASE_VERSION},build-number=${BUILD_NUMBER}"

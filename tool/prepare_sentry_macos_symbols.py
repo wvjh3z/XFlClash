@@ -46,7 +46,92 @@ RUST_LANGUAGE_ATTRIBUTE = re.compile(
 
 
 class PreparationError(RuntimeError):
-    pass
+    def __init__(self, code, *, diagnostic=None):
+        super().__init__(code)
+        self.diagnostic = diagnostic
+
+
+DIAGNOSTIC_PHASES = frozenset({
+    "prepare", "inventory", "companions", "products", "normalize", "rust_debug", "manifest", "report",
+    "launch", "selector", "read", "eof", "wait", "cleanup", "complete",
+})
+EXCEPTION_KINDS = frozenset({
+    "none", "preparation", "file_not_found", "permission", "os_error", "value_error", "type_error",
+    "timeout", "runtime_error", "other",
+})
+MAX_RETAINED_DIAGNOSTICS = 16
+
+
+def exception_kind(error):
+    # Never serialize class names or exception messages supplied by a tool.
+    for category, label in ((PreparationError, "preparation"), (subprocess.TimeoutExpired, "timeout"),
+                            (FileNotFoundError, "file_not_found"), (PermissionError, "permission"),
+                            (OSError, "os_error"), (ValueError, "value_error"), (TypeError, "type_error"),
+                            (RuntimeError, "runtime_error")):
+        if isinstance(error, category):
+            return label
+    return "other"
+
+
+def safe_diagnostic(value):
+    """Project only fixed enum values, booleans and bounded numbers."""
+    result = {}
+    for key in ("phase", "exception_kind", "cleanup_exception_kind", "cleanup"):
+        allowed = (DIAGNOSTIC_PHASES if key == "phase" else
+                   {"not_started", "complete", "failed"} if key == "cleanup" else EXCEPTION_KINDS)
+        if value.get(key) in allowed:
+            result[key] = value[key]
+    for key in ("process_started", "eof", "reaped", "pipe_closed"):
+        if type(value.get(key)) is bool:
+            result[key] = value[key]
+    for key in ("returncode", "output_bytes"):
+        number = value.get(key)
+        if key in value and (number is None or (type(number) is int and -2147483648 <= number <= MAX_RUST_DEBUG_OUTPUT + 65536)):
+            result[key] = number
+    if value.get("architecture") in {"arm64", "x86_64"}:
+        result["architecture"] = value["architecture"]
+    return result
+
+
+def retain_failure_diagnostic(code, diagnostics):
+    """Optional bounded CI summaries survive TemporaryDirectory fixture cleanup."""
+    configured = os.environ.get("SENTRY_MACOS_DIAGNOSTICS_DIR")
+    if not configured:
+        return
+    try:
+        destination = Path(configured)
+        if destination.is_symlink():
+            return
+        destination.mkdir(parents=True, exist_ok=True)
+        slots = [destination / f"failure-{index:02d}.json" for index in range(MAX_RETAINED_DIAGNOSTICS)]
+        # Fixed names cap output even when many intentional negative fixtures run.
+        slot = next((path for path in slots if not path.exists() and not path.is_symlink()), None)
+        if slot is None:
+            candidates = [path for path in slots if path.is_file() and not path.is_symlink()]
+            if not candidates:
+                return
+            slot = min(candidates, key=lambda path: path.stat().st_mtime_ns)
+        value = dict(schema_version=1, failure=code if code in SAFE_PREPARATION_CODES else
+                     "macos_symbol_preparation_failed", diagnostics=[safe_diagnostic(item) for item in diagnostics[:MAX_PREPARATION_MODULES]])
+        # Open without following a substituted symlink; no raw report is copied.
+        descriptor = os.open(slot, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, "O_NOFOLLOW", 0), 0o600)
+        with os.fdopen(descriptor, "w") as stream:
+            json.dump(value, stream, indent=2, sort_keys=True)
+            stream.write("\n")
+        # Ordinary missing-symbol/UUID negative cases cannot overwrite these
+        # fixed slots for unexpected exceptions or reader lifecycle failures.
+        reserved = {"macos_symbol_preparation_failed": "unexpected.json",
+                    "macos_rust_dwarfdump_failed": "reader-lifecycle.json",
+                    "macos_debug_process_termination_timeout": "reader-termination.json"}.get(value["failure"])
+        if reserved is not None:
+            descriptor = os.open(destination / reserved,
+                                 os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, "O_NOFOLLOW", 0), 0o600)
+            with os.fdopen(descriptor, "w") as stream:
+                json.dump(value, stream, indent=2, sort_keys=True)
+                stream.write("\n")
+    except (OSError, ValueError, TypeError):
+        # Failure to retain optional CI evidence must not replace the real error.
+        pass
 
 
 SAFE_PREPARATION_CODES = frozenset({
@@ -215,6 +300,7 @@ def dwarf_files(root: Path):
 
 
 def stop_debug_process(process) -> None:
+    failure = None
     if os.name == "posix":
         # The leader may exit while an inherited pipe is still held by a
         # descendant. The process owns a private session, so clean its group.
@@ -223,15 +309,21 @@ def stop_debug_process(process) -> None:
                 os.killpg(process.pid, sig)
             except ProcessLookupError:
                 pass
+            except OSError as error:
+                failure = failure or error
             if sig == signal.SIGTERM:
                 try:
                     process.wait(timeout=1)
                 except subprocess.TimeoutExpired:
                     pass
+                except Exception as error:
+                    failure = failure or error
         try:
             process.wait(timeout=5)
         except subprocess.TimeoutExpired:
-            raise PreparationError("macos_debug_process_termination_timeout") from None
+            failure = failure or PreparationError("macos_debug_process_termination_timeout")
+        except Exception as error:
+            failure = failure or error
     elif process.poll() is None:
         try:
             process.terminate()
@@ -242,6 +334,8 @@ def stop_debug_process(process) -> None:
                 process.wait(timeout=5)
             except subprocess.TimeoutExpired:
                 raise PreparationError("macos_debug_process_termination_timeout") from None
+    if failure is not None:
+        raise failure
 
 
 def run_dsymutil(tool: str, binary: Path, destination: Path, *, timeout=DSYMUTIL_TIMEOUT):
@@ -258,28 +352,40 @@ def is_rust_language_attribute(line: bytes) -> bool:
     return RUST_LANGUAGE_ATTRIBUTE.fullmatch(line) is not None
 
 
-def contains_rust_debug(dwarfdump: str, path: Path, *, architecture=None, timeout=RUST_DWARFDUMP_TIMEOUT) -> bool:
+def contains_rust_debug(dwarfdump: str, path: Path, *, architecture=None, timeout=RUST_DWARFDUMP_TIMEOUT,
+                        diagnostic=None) -> bool:
     # Read only until a Rust compilation unit is proved, never emit source paths.
     if architecture is not None and architecture not in {"arm64", "x86_64"}:
         raise PreparationError("unsupported_rust_debug_architecture")
     command = [dwarfdump, "--debug-info"] + (["--arch=" + architecture] if architecture else []) + [str(path)]
-    process = subprocess.Popen(command, stdout=subprocess.PIPE,
-                               stderr=subprocess.DEVNULL, start_new_session=os.name == "posix")
+    state = dict(phase="launch", exception_kind="none", cleanup_exception_kind="none", returncode=None,
+                 output_bytes=0, process_started=False, eof=False, reaped=False, pipe_closed=False,
+                 cleanup="not_started")
+    if architecture is not None:
+        state["architecture"] = architecture
+    process, failure = None, None
     total, found, pending, dropping_line = 0, False, b"", False
     deadline = time.monotonic() + timeout
     try:
+        process = subprocess.Popen(command, stdout=subprocess.PIPE,
+                                   stderr=subprocess.DEVNULL, start_new_session=os.name == "posix")
+        state["process_started"] = True
+        state["phase"] = "selector"
         with selectors.DefaultSelector() as selector:
             selector.register(process.stdout, selectors.EVENT_READ)
-            while selector.get_map() or process.poll() is None:
+            while selector.get_map():
+                state["phase"] = "read"
                 if time.monotonic() >= deadline:
                     raise PreparationError("macos_rust_dwarfdump_timeout")
                 for key, _ in selector.select(min(0.1, max(0, deadline - time.monotonic()))):
                     chunk = os.read(key.fileobj.fileno(), min(65536, MAX_RUST_DEBUG_OUTPUT - total + 1))
                     if not chunk:
+                        state.update(phase="eof", eof=True)
                         selector.unregister(key.fileobj)
                         continue
                     remaining = MAX_RUST_DEBUG_OUTPUT - total
                     total += len(chunk)
+                    state["output_bytes"] = total
                     captured = chunk[:remaining]
                     if dropping_line:
                         _, separator, captured = captured.partition(b"\n")
@@ -303,18 +409,49 @@ def contains_rust_debug(dwarfdump: str, path: Path, *, architecture=None, timeou
                         dropping_line = True
                 if found:
                     break
-            if (not found and process.poll() == 0 and not dropping_line
-                    and is_rust_language_attribute(pending)):
-                found = True
-            if not found and process.poll() != 0:
-                raise PreparationError("macos_rust_dwarfdump_incomplete")
-    except (OSError, ValueError):
-        raise PreparationError("macos_rust_dwarfdump_failed") from None
+            if not found:
+                # EOF and child exit are separate events. Explicitly reap after
+                # EOF instead of selecting an empty set or racing poll().
+                state["phase"] = "wait"
+                try:
+                    process.wait(timeout=max(.001, deadline - time.monotonic()))
+                except subprocess.TimeoutExpired:
+                    raise PreparationError("macos_rust_dwarfdump_timeout") from None
+                if process.returncode != 0:
+                    raise PreparationError("macos_rust_dwarfdump_incomplete")
+                found = not dropping_line and is_rust_language_attribute(pending)
+        state["phase"] = "complete"
+    except Exception as error:
+        state["exception_kind"] = exception_kind(error)
+        failure = error if isinstance(error, PreparationError) else PreparationError("macos_rust_dwarfdump_failed")
     finally:
-        try:
-            stop_debug_process(process)
-        finally:
-            process.stdout.close()
+        if process is not None:
+            try:
+                stop_debug_process(process)
+                state["cleanup"] = "complete"
+            except Exception as error:
+                state.update(cleanup="failed", cleanup_exception_kind=exception_kind(error))
+                if failure is None:
+                    state.update(phase="cleanup", exception_kind=exception_kind(error))
+                    failure = error if isinstance(error, PreparationError) else PreparationError("macos_rust_dwarfdump_failed")
+            finally:
+                state["returncode"] = process.returncode
+                state["reaped"] = process.returncode is not None
+                try:
+                    process.stdout.close()
+                    state["pipe_closed"] = True
+                except Exception as error:
+                    state["pipe_closed"] = process.stdout.closed
+                    state.update(cleanup="failed", cleanup_exception_kind=exception_kind(error))
+                    if failure is None:
+                        state.update(phase="cleanup", exception_kind=exception_kind(error))
+                        failure = PreparationError("macos_rust_dwarfdump_failed")
+        if diagnostic is not None:
+            diagnostic.update(safe_diagnostic(state))
+    if failure is not None:
+        summary = safe_diagnostic(state)
+        retain_failure_diagnostic(preparation_code(failure), [summary])
+        raise PreparationError(preparation_code(failure), diagnostic=summary) from None
     return found
 
 
@@ -365,6 +502,10 @@ class Preparer:
         code = preparation_code(error)
         if code not in self.failures:
             self.failures.append(code)
+        detail = safe_diagnostic(getattr(error, "diagnostic", None) or
+                                 dict(phase=self.phase, exception_kind=exception_kind(error)))
+        if detail not in self.diagnostics and len(self.diagnostics) < MAX_PREPARATION_MODULES:
+            self.diagnostics.append(detail)
         return code
 
     def _tool(self, name):
@@ -509,7 +650,7 @@ class Preparer:
         value = dict(schema_version=1, platform="macos", status="failed" if self.failures else "complete",
                      elapsed_seconds=round(time.monotonic() - self.started, 2),
                      timeout_seconds=PREPARATION_TIMEOUT, generation_limit=MAX_GENERATED_DSYMS,
-                     module_generation_limit=MAX_MODULE_GENERATIONS, failures=self.failures,
+                     module_generation_limit=MAX_MODULE_GENERATIONS, failures=self.failures, diagnostics=self.diagnostics,
                      counts=dict(modules=self.module_count, slices=len(self.rows), required_slices=len(required),
                                  ready_slices=sum(row["ready"] for row in self.rows),
                                  failed_required_slices=sum(not row["ready"] for row in required),
@@ -530,6 +671,7 @@ class Preparer:
         self.started = time.monotonic()
         self.deadline = self.started + PREPARATION_TIMEOUT
         self.rows, self.failures, self.companions, self.generated = [], [], {}, set()
+        self.diagnostics, self.phase = [], "prepare"
         self.code_signatures, self.module_generations = {}, {}
         self.tools = {}
         self.source_candidates, self.module_count = 0, 0
@@ -548,15 +690,21 @@ class Preparer:
             return self._prepare_all()
         except Exception as error:
             self._problem(error)
-            raise PreparationError(preparation_code(error)) from None
+            raise PreparationError(preparation_code(error), diagnostic=getattr(error, "diagnostic", None)
+                                   or self.diagnostics[-1]) from None
         finally:
             if self.failures:
                 self._remove_manifest()
             try:
                 self._write_report()
-            except Exception:
+            except Exception as error:
                 self._remove_manifest()
+                self.phase = "report"
+                self._problem(error)
+                retain_failure_diagnostic("macos_symbol_preparation_report_failed", self.diagnostics)
                 raise PreparationError("macos_symbol_preparation_report_failed") from None
+            if self.failures:
+                retain_failure_diagnostic(self.failures[0], self.diagnostics)
 
     def _remove_manifest(self):
         # Retry safety checks can fail before an output directory is trusted.
@@ -565,6 +713,7 @@ class Preparer:
             (self.output / "manifest.json").unlink(missing_ok=True)
 
     def _prepare_all(self):
+        self.phase = "inventory"
         try:
             metadata = load_inventory(self.root, self.app, self.configuration)
             owned = {item["product"]: item for item in metadata["products"]}
@@ -612,6 +761,7 @@ class Preparer:
             plans.append((binary, target, source, dart, slices, rows))
         for root, origin in ((self.products, "existing_products"), (self.root.parent / "libclash/macos", "existing_core"),
                              (self.root / "macos/sentry-prebuilt-dsyms", "existing_vendor")):
+            self.phase = "companions"
             for path in dwarf_files(root):
                 try:
                     self._budget()
@@ -629,6 +779,7 @@ class Preparer:
                     self.limitation(target, row["architecture"], "dart", "split_debug_info_managed_separately")
                 continue
             try:
+                self.phase = "products"
                 products_sources, source_counts = self._products_sources(binary, slices)
                 # Match audit's independent Products/OSO ownership discovery,
                 # including native-assets modules absent from Pods/SPM metadata.
@@ -644,6 +795,7 @@ class Preparer:
                 continue
             for item, row in zip(slices, rows):
                 try:
+                    self.phase = "normalize"
                     self._budget()
                     matches = self._matches(item["architecture"], item["uuid"])
                     existing = [entry for entry in matches if entry[2].startswith("existing_")]
@@ -672,10 +824,13 @@ class Preparer:
                     destination = self._normalize(original, debug, target, len(slices))
                     row.update(origin=origin, has_debug_info=True, has_debug_line=True, no_executable_text=True)
                     if source == "rust":
+                        self.phase = "rust_debug"
                         self._budget()
                         row["rust_cu_checked"] = True
+                        row["rust_reader"] = {}
                         if not contains_rust_debug(self.dwarfdump or self._tool("dwarfdump"), destination,
-                                architecture=item["architecture"], timeout=min(RUST_DWARFDUMP_TIMEOUT, max(.001, self.deadline - time.monotonic()))):
+                                architecture=item["architecture"], timeout=min(RUST_DWARFDUMP_TIMEOUT, max(.001, self.deadline - time.monotonic())),
+                                diagnostic=row["rust_reader"]):
                             raise PreparationError("rust_framework_missing_rust_compilation_units")
                     row["ready"] = True
                     self.artifacts.append(dict(target=target, architecture=item["architecture"], source=source,
@@ -693,7 +848,7 @@ class Preparer:
                for item in required_source_targets(metadata["source_targets"])):
             self._problem(PreparationError("static_macos_package_host_dsym_missing"))
         if self.failures:
-            raise PreparationError(self.failures[0])
+            raise PreparationError(self.failures[0], diagnostic=self.diagnostics[0])
         host_architectures = {}
         for _, target, _, _, slices, _ in plans:
             host_architectures[target] = {item["architecture"] for item in slices}
@@ -709,6 +864,7 @@ class Preparer:
         result = dict(schema_version=1, platform="macos", app=self.app.relative_to(self.root).as_posix(),
                       artifacts=self.artifacts, required=self.required, limitations=self.limitations)
         manifest = self.output / "manifest.json"
+        self.phase = "manifest"
         manifest.write_text(json.dumps(result, indent=2) + "\n")
         return manifest
 

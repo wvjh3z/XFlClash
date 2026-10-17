@@ -161,6 +161,7 @@ jobs:
       BUILD_NUMBER: ${{ needs.setup.outputs.build_number }}
       FLAVOR: ${{ needs.setup.outputs.flavor }}
       BUILD_SOURCE_SHA: ${{ needs.setup.outputs.source_sha }}
+      SENTRY_MACOS_DIAGNOSTICS_DIR: ${{ matrix.platform == 'macos' && 'build/sentry-diagnostics/macos' || '' }}
     strategy:
       fail-fast: false
       matrix:
@@ -177,9 +178,23 @@ jobs:
         if: matrix.platform == 'windows'
         run: python tool/test/windows_loader_install_test.py
 
+      - name: Setup Python for macOS symbol tooling
+        if: matrix.platform == 'macos'
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
       - name: Setup Sentry CLI and verify symbol tooling
         run: |
           set -euo pipefail
+          if [ "${{ matrix.platform }}" = 'macos' ]; then
+            mkdir -p "$SENTRY_MACOS_DIAGNOSTICS_DIR"
+            rm -f "$SENTRY_MACOS_DIAGNOSTICS_DIR"/failure-0[0-9].json \
+              "$SENTRY_MACOS_DIAGNOSTICS_DIR"/failure-1[0-5].json
+            rm -f "$SENTRY_MACOS_DIAGNOSTICS_DIR"/unexpected.json \
+              "$SENTRY_MACOS_DIAGNOSTICS_DIR"/reader-lifecycle.json \
+              "$SENTRY_MACOS_DIAGNOSTICS_DIR"/reader-termination.json
+          fi
           npm install -g @sentry/cli@2.58.4
           python tool/test/sentry_symbols_test.py
           python tool/test/sentry_native_generation_test.py
@@ -188,6 +203,9 @@ jobs:
           python tool/test/sentry_macos_generation_test.py
           python tool/test/sentry_macos_spm_inventory_test.py
           python tool/test/sentry_macos_symbols_test.py
+          if [ "${{ matrix.platform }}" = 'macos' ]; then
+            python tool/test/sentry_macos_reader_test.py
+          fi
           python tool/test/local_release_automation_test.py
           python tool/test/sentry_release_workflow_test.py
           python tool/test/sentry_windows_rust_manifest_test.py
@@ -405,34 +423,55 @@ jobs:
       - name: Activate flutter_distributor
         run: |
           set -euo pipefail
-          dart pub global activate -s path plugins/flutter_distributor/packages/flutter_distributor
+          DISTRIBUTOR_PATH=plugins/flutter_distributor/packages/flutter_distributor
+          if [ "${{ matrix.platform }}" = 'linux' ]; then
+            python3 tool/prepare_linux_packager.py
+            DISTRIBUTOR_PATH=build/packaging-tools/flutter_distributor/packages/flutter_distributor
+          fi
+          dart pub global activate -s path "$DISTRIBUTOR_PATH"
           echo "$HOME/.pub-cache/bin" >> "$GITHUB_PATH"
           # Windows pub-cache bin 路径不同。
           if [ "${{ matrix.platform }}" = "windows" ]; then echo "$LOCALAPPDATA/Pub/Cache/bin" >> "$GITHUB_PATH"; fi
 
+      - name: Check Android package argument forwarding
+        if: matrix.platform == 'android'
+        run: python3 tool/test/android_package_arguments_test.py
+
+      - name: Check Linux AppImage packaging without compilation
+        if: matrix.platform == 'linux'
+        env:
+          LINUX_PACKAGER_REQUIRE_DART: '1'
+        run: python3 -m unittest tool.test.linux_appimage_packaging_test
+
       # 打包：按平台选 targets，喂我们的 env.json + split-debug-info（Sentry 符号）。
-      # android 加 split-per-abi 出 3 个 ABI 包。
+      # android 加 split-per-abi 出 ARM32/ARM64 两个包；逗号值走独立参数。
       - name: Package (flutter_distributor)
         run: |
           set -euo pipefail
           # 全矩阵使用 setup job 确定的同一个构建号，保留底座 build-name。
           COMMON="dart-define-from-file=env.json,build-name=$BASE_VERSION,build-number=$BUILD_NUMBER,split-debug-info=build/debug-info"
+          PLATFORM_ARGS=()
           case "${{ matrix.platform }}" in
-            android) TARGETS="apk"; BUILD_ARGS="$COMMON,split-per-abi,target-platform=android-arm,android-arm64,flavor=$FLAVOR" ;;
+            android)
+              TARGETS="apk"
+              BUILD_ARGS="$COMMON,split-per-abi"
+              # flutter-build-args 按逗号拆分；target-platform 的逗号不能经过它。
+              PLATFORM_ARGS+=(--build-target-platform=android-arm,android-arm64 --build-flavor "$FLAVOR") ;;
             windows) TARGETS="exe"; BUILD_ARGS="$COMMON" ;;
             macos)   TARGETS="dmg"; BUILD_ARGS="$COMMON" ;;
             linux)
               if [ "${{ matrix.arch }}" = "amd64" ]; then TARGETS="deb,appimage,rpm"; else TARGETS="deb,appimage"; fi
               BUILD_ARGS="$COMMON" ;;
           esac
-          DESC=""
-          [ "${{ matrix.platform }}" != "android" ] && DESC="--description ${{ matrix.arch }}"
+          if [ "${{ matrix.platform }}" != "android" ]; then
+            PLATFORM_ARGS+=(--description "${{ matrix.arch }}")
+          fi
           dart pub global run flutter_distributor:main package \
             --skip-clean \
             --platform "${{ matrix.platform }}" \
             --targets "$TARGETS" \
             --flutter-build-args="$BUILD_ARGS" \
-            $DESC
+            "${PLATFORM_ARGS[@]}"
 
       # 重命名 dist 产物为 AppVersion 插件/FlClash 约定名：
       #   {updatePackageName}-{产品版本}-{平台}-{archToken}{后缀}
@@ -522,6 +561,7 @@ jobs:
             build/macos/sentry-native-build.json
             build/macos/sentry-manifest-diagnostics.json
             build/macos/sentry-symbol-preparation.json
+            build/sentry-diagnostics/macos/
           if-no-files-found: ignore
           retention-days: 30
 

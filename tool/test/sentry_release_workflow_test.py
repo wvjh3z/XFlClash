@@ -6,6 +6,7 @@ from pathlib import Path
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -113,6 +114,70 @@ class ReleaseWorkflowTests(unittest.TestCase):
                 self.assertIn("--platform", arguments)
                 self.assertEqual(arguments[arguments.index("--platform") + 1], platform)
                 self.assertNotIn("fixture-upload-credential-never-real", " ".join(arguments))
+                if platform == "android":
+                    self.assertIn("--build-target-platform=android-arm,android-arm64", arguments)
+                    self.assertEqual(arguments[arguments.index("--build-flavor") + 1], "brand_a")
+                    self.assertIn("split-per-abi", build_arguments.split(","))
+                    self.assertNotIn("target-platform=", build_arguments)
+                    self.assertNotIn("--description", arguments)
+                else:
+                    self.assertEqual(arguments[arguments.index("--description") + 1], architecture)
+                    self.assertFalse(any(arg.startswith("--build-target-platform") for arg in arguments))
+
+    def test_linux_activation_uses_the_prepared_copy_and_other_platforms_keep_the_submodule(self):
+        for name in ("python3", "dart"):
+            path = self.bin / name
+            path.write_text(f"#!{sys.executable}\nimport json,os,sys\n"
+                            "with open(os.environ['RECORDED_ARGS'],'a') as stream: "
+                            f"stream.write(json.dumps([{name!r}, *sys.argv[1:]])+'\\n')\n")
+            path.chmod(0o755)
+        self.env.update(HOME=str(self.root / "home"), LOCALAPPDATA=str(self.root / "local"),
+                        GITHUB_PATH=str(self.root / "github-path"))
+        output = self.root / "arguments.json"
+        for platform in ("android", "linux", "macos", "windows"):
+            with self.subTest(platform=platform):
+                output.unlink(missing_ok=True)
+                result = self.execute("Activate flutter_distributor", platform)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                calls = [json.loads(line) for line in output.read_text().splitlines()]
+                if platform == "linux":
+                    self.assertEqual(calls[0], ["python3", "tool/prepare_linux_packager.py"])
+                    expected = "build/packaging-tools/flutter_distributor/packages/flutter_distributor"
+                    self.assertEqual(len(calls), 2)
+                else:
+                    expected = "plugins/flutter_distributor/packages/flutter_distributor"
+                    self.assertEqual(len(calls), 1)
+                self.assertEqual(calls[-1], ["dart", "pub", "global", "activate", "-s", "path", expected])
+
+    def test_macos_tool_checks_clear_only_managed_diagnostic_slots(self):
+        self.stub("npm")
+        self.stub("python")
+        diagnostics = self.root / "build/sentry-diagnostics/macos"
+        diagnostics.mkdir(parents=True)
+        for name in ("failure-00.json", "failure-15.json", "unexpected.json", "reader-lifecycle.json",
+                     "reader-termination.json", "keep.json", "failure-extra.json", "failure-16.json", "failure-99.json"):
+            (diagnostics / name).write_text("fixture")
+        self.env["SENTRY_MACOS_DIAGNOSTICS_DIR"] = str(diagnostics)
+        result = self.execute("Setup Sentry CLI and verify symbol tooling", "macos")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual({path.name for path in diagnostics.iterdir()},
+                         {"keep.json", "failure-extra.json", "failure-16.json", "failure-99.json"})
+        workflow = WORKFLOW.read_text()
+        self.assertLess(workflow.index("name: Setup Python for macOS symbol tooling"),
+                        workflow.index("name: Setup Sentry CLI and verify symbol tooling"))
+        self.assertIn("python-version: '3.12'", workflow)
+        self.assertIn("SENTRY_MACOS_DIAGNOSTICS_DIR: ${{ matrix.platform == 'macos'", workflow)
+        self.assertIn("            build/sentry-diagnostics/macos/", workflow)
+        self.assertIn("          if-no-files-found: ignore", workflow)
+
+    def test_real_packager_checks_run_after_dependency_setup_and_activation(self):
+        workflow = WORKFLOW.read_text()
+        for marker in ("name: Check Android package argument forwarding",
+                       "name: Check Linux AppImage packaging without compilation"):
+            self.assertLess(workflow.index("name: Get Flutter dependency"), workflow.index(marker))
+            self.assertLess(workflow.index("name: Activate flutter_distributor"), workflow.index(marker))
+            self.assertLess(workflow.index(marker), workflow.index("name: Package (flutter_distributor)"))
+        self.assertIn("LINUX_PACKAGER_REQUIRE_DART: '1'", workflow)
 
     @unittest.skipUnless(shutil.which("jq"), "The real compose step requires jq")
     def test_compose_uses_resolved_number_instead_of_reading_old_counter(self):
