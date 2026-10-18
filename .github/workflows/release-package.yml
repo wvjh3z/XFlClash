@@ -178,6 +178,22 @@ jobs:
         if: matrix.platform == 'windows'
         run: python tool/test/windows_loader_install_test.py
 
+      - name: Check Windows runtime prerequisite rules
+        if: matrix.platform == 'windows'
+        shell: powershell
+        run: |
+          & tool/test/windows_vc_runtime_test.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python tool/test/windows_vc_runtime_contract_test.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Fetch verified offline VC runtime
+        if: matrix.platform == 'windows'
+        shell: powershell
+        run: |
+          & tool/windows/prepare_vc_runtime.ps1 -Root $env:GITHUB_WORKSPACE -DownloadOnly
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       - name: Setup Python for Linux and macOS tooling
         if: matrix.platform == 'linux' || matrix.platform == 'macos'
         uses: actions/setup-python@v5

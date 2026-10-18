@@ -1,4 +1,9 @@
+; Both brands use this shared prerequisite gate before app files are replaced.
+#define XbBundle "{{SOURCE_DIR}}"
+#include "..\windows\packaging\exe\vc_runtime.iss"
+
 [Setup]
+MinVersion=10.0
 AppId={{APP_ID}}
 AppVersion={{APP_VERSION}}
 AppName={{DISPLAY_NAME}}

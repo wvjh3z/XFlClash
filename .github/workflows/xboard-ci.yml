@@ -16,7 +16,7 @@ on:
         description: 'Current documentation commit'
         type: string
         required: true
-        default: '131aed4d610d97a9f0a22dfa3c768a8ebb004f5b'
+        default: 'e87e79e7c0f3db713b9df2f56e3d4ce80cbebabe'
 
 permissions:
   contents: read
