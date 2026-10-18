@@ -113,10 +113,13 @@ jobs:
         env:
           BUILD_SOURCE_SHA: ${{ steps.request.outputs.source_sha }}
         run: python3 tool/release_request.py config
-      - name: Check build-number rules offline
-        run: |
-          python3 tool/test/release_request_test.py
-          python3 tool/test/release_build_number_test.py
+      - name: Setup Python for shared release checks
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      # Fast, secret-free gate: do not start six runners for one broken contract.
+      - name: Check shared release contracts
+        run: python3 tool/check_release_workflow.py
       - id: r
         env:
           TARGET: ${{ steps.request.outputs.target }}
@@ -173,6 +176,9 @@ jobs:
           ref: ${{ needs.setup.outputs.source_sha }}
           submodules: recursive
           persist-credentials: false
+
+      - name: Check release workflow structure
+        run: python tool/test/sentry_release_workflow_test.py ReleaseWorkflowStructureTests
 
       - name: Check Windows WebView build rules
         if: matrix.platform == 'windows'
@@ -238,7 +244,6 @@ jobs:
             python tool/test/sentry_macos_reader_test.py
           fi
           python tool/test/local_release_automation_test.py
-          python tool/test/sentry_release_workflow_test.py
           python tool/test/sentry_windows_rust_manifest_test.py
           python tool/test/sentry_symbolication_picker_test.py
           python tool/test/sentry_desktop_symbolication_probe_test.py

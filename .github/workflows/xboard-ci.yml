@@ -16,7 +16,7 @@ on:
         description: 'Current documentation commit'
         type: string
         required: true
-        default: '927e87b5683596fbac039055221ffdc37fae8c30'
+        default: 'c4819e68acd956201938b5726d1069cdec43d0c1'
 
 permissions:
   contents: read
@@ -31,6 +31,9 @@ jobs:
           fetch-depth: 0 # 校验实际 FlClash 基线需要完整历史
           submodules: recursive # tray_manager/flutter_distributor + core/Clash.Meta submodule（pub get path 依赖需在）
           persist-credentials: false
+
+      - name: Check shared release contracts
+        run: python3 tool/check_release_workflow.py
 
       # actions/checkout 不允许 path 在 workspace 外（`..`）；SDK 是平级 path 依赖，
       # 统一助手在原 sibling 目录拉取，认证只存本 step 的子进程环境。

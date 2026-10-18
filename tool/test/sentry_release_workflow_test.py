@@ -5,10 +5,12 @@ import os
 from pathlib import Path
 import re
 import shutil
+import shlex
 import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 
 WORKFLOW = Path(__file__).resolve().parents[2] / ".github/workflows/release-package.yml"
@@ -19,11 +21,14 @@ def step_script(name):
 
 
 def script_after_marker(marker):
-    lines = WORKFLOW.read_text().splitlines()
+    lines = WORKFLOW.read_text(encoding="utf-8").splitlines()
     begin = lines.index(marker) + 1
     end = next((index for index in range(begin, len(lines))
                 if lines[index].startswith("      - ")), len(lines))
     for index in range(begin, end):
+        inline = re.fullmatch(r"\s*run: (?!\|)(.+)", lines[index])
+        if inline:
+            return inline.group(1)
         match = re.fullmatch(r"(\s*)run: \|", lines[index])
         if match:
             width = len(match.group(1)) + 2
@@ -34,6 +39,176 @@ def script_after_marker(marker):
                 body.append(line[width:] if line.strip() else "")
             return "\n".join(body)
     raise AssertionError("Missing executable workflow step: " + marker)
+
+
+REQUIRED_BRAND_TESTS = frozenset({
+    "tool/test/system_icon_git_checkout_test.dart",
+    "tool/test/windows_installer_metadata_test.dart",
+    "tool/test/inject_desktop_brand_test.dart",
+})
+
+
+def flutter_test_commands(script):
+    """Check simple test invocations, not a fixed spelling of the whole command.
+
+    This intentionally accepts no shell control flow or test-name filters:
+    quoting, comments, continuations, order and extra test files are supported.
+    Bash execution/failure propagation is verified independently below.
+    """
+    commands = []
+    for line in script.replace("\\\r\n", "").replace("\\\n", "").splitlines():
+        try:
+            args = shlex.split(line, comments=True)
+        except ValueError as error:
+            raise AssertionError("Invalid test command quoting") from error
+        if not args or args == ["set", "-euo", "pipefail"]:
+            continue
+        if args[:2] != ["flutter", "test"] or "--no-pub" not in args[2:]:
+            raise AssertionError("Expected flutter test --no-pub")
+        # Accept additive file/format changes, but never silently permit `|| true`,
+        # command substitution, filtering away required tests, or background jobs.
+        files = []
+        index = 2
+        while index < len(args):
+            value = args[index]
+            if value == "--no-pub":
+                pass
+            elif value == "--reporter":
+                index += 1
+                if index >= len(args) or args[index] not in {"expanded", "compact", "json", "github"}:
+                    raise AssertionError("Unsupported test reporter")
+            elif value.startswith("--reporter=") and value.split("=", 1)[1] in {"expanded", "compact", "json", "github"}:
+                pass
+            elif re.fullmatch(r"(?:\./)?(?:tool/)?test/[A-Za-z0-9_./-]+_test\.dart", value):
+                if ".." in value.split("/"):
+                    raise AssertionError("Test path escapes repository")
+                files.append(value.removeprefix("./"))
+            else:
+                raise AssertionError("Unexpected shell operator, filter or test argument")
+            index += 1
+        if not files:
+            raise AssertionError("Explicit test files required")
+        commands.append(args)
+    actual = {a.removeprefix("./") for command in commands for a in command}
+    if not REQUIRED_BRAND_TESTS <= actual:
+        raise AssertionError("Required brand regression omitted")
+    return commands
+
+
+class ReleaseWorkflowStructureTests(unittest.TestCase):
+    def test_linux_and_macos_pin_python_before_packaging_tools(self):
+        workflow = WORKFLOW.read_text(encoding="utf-8")
+        name = "      - name: Setup Python for Linux and macOS tooling"
+        start = workflow.index(name)
+        end = workflow.index("      - name:", start + len(name))
+        setup = workflow[start:end]
+        self.assertIn("if: matrix.platform == 'linux' || matrix.platform == 'macos'", setup)
+        self.assertIn("uses: actions/setup-python@v5", setup)
+        self.assertIn("python-version: '3.12'", setup)
+        # The platform condition covers both Linux CPU targets; no architecture
+        # exclusion can leave amd64 on Ubuntu 22.04's default interpreter.
+        self.assertNotIn("matrix.arch", setup)
+        verify = workflow.index("name: Verify packaging Python")
+        verify_end = workflow.index("      - name:", verify)
+        self.assertIn("if: matrix.platform == 'linux' || matrix.platform == 'macos'",
+                      workflow[verify:verify_end])
+        self.assertLess(start, verify)
+        for marker in ("name: Setup Sentry CLI and verify symbol tooling",
+                       "name: Install Linux package deps",
+                       "name: Activate flutter_distributor",
+                       "name: Check Linux AppImage packaging without compilation"):
+            self.assertLess(verify, workflow.index(marker))
+
+    def test_real_packager_checks_run_after_dependency_setup_and_activation(self):
+        workflow = WORKFLOW.read_text(encoding="utf-8")
+        for marker in ("name: Check Android package argument forwarding",
+                       "name: Check Linux AppImage packaging without compilation"):
+            self.assertLess(workflow.index("name: Get Flutter dependency"), workflow.index(marker))
+            self.assertLess(workflow.index("name: Activate flutter_distributor"), workflow.index(marker))
+            self.assertLess(workflow.index(marker), workflow.index("name: Package (flutter_distributor)"))
+        self.assertIn("LINUX_PACKAGER_REQUIRE_DART: '1'", workflow)
+
+    def test_windows_checks_real_resource_checkout_before_brand_injection(self):
+        workflow = WORKFLOW.read_text(encoding="utf-8")
+        marker = "      - name: Check brand resource checkout"
+        start = workflow.index(marker)
+        end = workflow.index("      - name:", start + len(marker))
+        block = workflow[start:end]
+        self.assertIn("if: matrix.platform == 'windows'", block)
+        commands = flutter_test_commands(step_script("Check brand resource checkout"))
+        self.assertTrue(commands)
+        self.assertNotRegex(block, r"(?m)^\s*continue-on-error:")
+        for path in REQUIRED_BRAND_TESTS:
+            self.assertTrue((WORKFLOW.parents[2] / path).is_file())
+        self.assertLess(workflow.index("name: Get Flutter dependency"), start)
+        self.assertLess(start, workflow.index("name: Inject desktop branding"))
+        self.assertLess(start, workflow.index("name: Package (flutter_distributor)"))
+        self.assertTrue((WORKFLOW.parents[2] / "tool/test/system_icon_git_checkout_test.dart").is_file())
+
+    def test_command_semantics_accept_additions_reordering_and_line_endings(self):
+        paths = sorted(REQUIRED_BRAND_TESTS)
+        samples = [
+            "flutter test --no-pub " + " ".join(paths),
+            'flutter  test --reporter expanded --no-pub ' + ' '.join('"'+p+'"' for p in reversed(paths)) + ' tool/test/extra_test.dart # extra allowed',
+            "# comment\r\nflutter test --no-pub \\\r\n  " + " \\\r\n  ".join(paths),
+            "set -euo pipefail\n" + "\n".join("flutter test --no-pub " + p for p in paths),
+        ]
+        for script in samples:
+            with self.subTest(script=script):
+                self.assertTrue(flutter_test_commands(script))
+
+    def test_command_semantics_reject_missing_test_flag_and_failure_bypasses(self):
+        base = "flutter test --no-pub " + " ".join(sorted(REQUIRED_BRAND_TESTS))
+        bad = [base.replace(p, "") for p in REQUIRED_BRAND_TESTS]
+        bad += [base.replace("--no-pub", ""), base + " || true", base + " ; exit 0",
+                base + " &", "echo " + base, "# " + base, "false\n" + base,
+                base + " --name only_one_test", base + " --exclude-tags all", base + " > /dev/null",
+                base + " $(echo hidden)", base + " --help", base + " --list-tests"]
+        for script in bad:
+            with self.subTest(script=script), self.assertRaises(AssertionError):
+                flutter_test_commands(script)
+
+    def test_shared_preflight_blocks_matrix_and_is_not_duplicated_in_symbol_checks(self):
+        text = WORKFLOW.read_text(encoding="utf-8")
+        setup = text.split("  setup:\n", 1)[1].split("  package:\n", 1)[0]
+        package = text.split("  package:\n", 1)[1].split("    steps:\n", 1)[0]
+        self.assertIn("needs: setup", package)
+        self.assertNotIn("always()", package)
+        self.assertNotIn("continue-on-error:", setup)
+        self.assertNotRegex(setup.split("    steps:", 1)[0], r"(?m)^    if:")
+        marker = "name: Check shared release contracts"
+        gate_header = setup[setup.index(marker):setup.index("        run:", setup.index(marker))]
+        self.assertNotRegex(gate_header, r"(?m)^\s*(if|continue-on-error):")
+        self.assertLess(setup.index("name: Checkout selected source"), setup.index(marker))
+        self.assertLess(setup.index(marker), setup.index("- id: r"))
+        self.assertEqual(shlex.split(step_script("Check shared release contracts")),
+                         ["python3", "tool/check_release_workflow.py"])
+        self.assertNotIn("sentry_release_workflow_test.py", step_script("Setup Sentry CLI and verify symbol tooling"))
+        structure = step_script("Check release workflow structure")
+        self.assertEqual(shlex.split(structure), ["python", "tool/test/sentry_release_workflow_test.py", "ReleaseWorkflowStructureTests"])
+        self.assertNotIn("__unittest_skip__", ReleaseWorkflowStructureTests.__dict__)
+
+
+
+    def test_shared_gate_wiring_rejects_skipping_swallowing_and_detached_matrix(self):
+        original = WORKFLOW.read_text(encoding="utf-8")
+        mutations = [
+            original.replace("    needs: setup", "    needs: []", 1),
+            original.replace("  setup:\n", "  setup:\n    if: false\n", 1),
+            original.replace("  package:\n", "  package:\n    if: always()\n", 1),
+            original.replace("      - name: Check shared release contracts\n", "      - name: Check shared release contracts\n        if: false\n", 1),
+            original.replace("run: python3 tool/check_release_workflow.py", "run: python3 tool/check_release_workflow.py || true", 1),
+            original.replace("run: python3 tool/check_release_workflow.py", "run: python3 tool/check_release_workflow.py\n        continue-on-error: true", 1),
+        ]
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "workflow.yml"
+            for index, text in enumerate(mutations):
+                self.assertNotEqual(original, text)
+                path.write_text(text, encoding="utf-8")
+                with self.subTest(mutation=index), mock.patch.object(sys.modules[__name__], "WORKFLOW", path):
+                    with self.assertRaises(AssertionError):
+                        self.test_shared_preflight_blocks_matrix_and_is_not_duplicated_in_symbol_checks()
+
 
 
 @unittest.skipUnless(os.name == "posix" and shutil.which("bash"), "POSIX shell fixture required")
@@ -70,6 +245,37 @@ class ReleaseWorkflowTests(unittest.TestCase):
                           f"sys.version = {'.'.join(map(str, version)) + ' (test fixture)'!r}\n"
                           "exec(compile(sys.stdin.read(), '<workflow-python-check>', 'exec'))\n")
         python.chmod(0o755)
+
+    def test_brand_check_executes_required_tests_and_propagates_each_failure(self):
+        flutter = self.bin / "flutter"
+        flutter.write_text(f"#!{sys.executable}\nimport json,os,sys\n"
+                          "with open(os.environ['RECORDED_ARGS'],'a') as f: f.write(json.dumps(sys.argv[1:])+'\\n')\n"
+                          "sys.exit(37 if os.environ.get('FAIL_TEST') in sys.argv[1:] else 0)\n")
+        flutter.chmod(0o755)
+        scripts = [step_script("Check brand resource checkout"),
+                   "\n".join("flutter test --no-pub " + p for p in sorted(REQUIRED_BRAND_TESTS))]
+        for script in scripts:
+            for failure in ["none", *sorted(REQUIRED_BRAND_TESTS)]:
+                with self.subTest(script=script, failure=failure):
+                    record = self.root / "arguments.json"
+                    record.unlink(missing_ok=True)
+                    result = subprocess.run(["bash", "--noprofile", "--norc", "-e", "-o", "pipefail", "-c", script],
+                        cwd=self.root, env={**self.env, "FAIL_TEST": failure}, capture_output=True, text=True, timeout=15)
+                    calls = [json.loads(line) for line in record.read_text().splitlines()]
+                    self.assertTrue(all(call[:2] == ["test", "--no-pub"] for call in calls))
+                    if failure == "none":
+                        self.assertEqual(result.returncode, 0, result.stderr)
+                        self.assertTrue(REQUIRED_BRAND_TESTS <= {a for call in calls for a in call})
+                    else:
+                        self.assertEqual(result.returncode, 37)
+                        self.assertIn(failure, calls[-1])
+        # A swallowed status really returns zero; static semantics must reject it.
+        swallowed = step_script("Check brand resource checkout").rstrip() + " || true"
+        result = subprocess.run(["bash", "-e", "-o", "pipefail", "-c", swallowed], cwd=self.root,
+            env={**self.env, "FAIL_TEST": sorted(REQUIRED_BRAND_TESTS)[0]}, capture_output=True, text=True, timeout=15)
+        self.assertEqual(result.returncode, 0)
+        with self.assertRaises(AssertionError):
+            flutter_test_commands(swallowed)
 
     def test_all_release_platforms_require_a_token_without_printing_it(self):
         for platform in ("windows", "android", "linux", "macos"):
@@ -170,7 +376,7 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual({path.name for path in diagnostics.iterdir()},
                          {"keep.json", "failure-extra.json", "failure-16.json", "failure-99.json"})
-        workflow = WORKFLOW.read_text()
+        workflow = WORKFLOW.read_text(encoding="utf-8")
         self.assertLess(workflow.index("name: Setup Python for Linux and macOS tooling"),
                         workflow.index("name: Setup Sentry CLI and verify symbol tooling"))
         self.assertIn("python-version: '3.12'", workflow)
@@ -178,28 +384,6 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertIn("            build/sentry-diagnostics/macos/", workflow)
         self.assertIn("          if-no-files-found: ignore", workflow)
 
-    def test_linux_and_macos_pin_python_before_packaging_tools(self):
-        workflow = WORKFLOW.read_text()
-        name = "      - name: Setup Python for Linux and macOS tooling"
-        start = workflow.index(name)
-        end = workflow.index("      - name:", start + len(name))
-        setup = workflow[start:end]
-        self.assertIn("if: matrix.platform == 'linux' || matrix.platform == 'macos'", setup)
-        self.assertIn("uses: actions/setup-python@v5", setup)
-        self.assertIn("python-version: '3.12'", setup)
-        # The platform condition covers both Linux CPU targets; no architecture
-        # exclusion can leave amd64 on Ubuntu 22.04's default interpreter.
-        self.assertNotIn("matrix.arch", setup)
-        verify = workflow.index("name: Verify packaging Python")
-        verify_end = workflow.index("      - name:", verify)
-        self.assertIn("if: matrix.platform == 'linux' || matrix.platform == 'macos'",
-                      workflow[verify:verify_end])
-        self.assertLess(start, verify)
-        for marker in ("name: Setup Sentry CLI and verify symbol tooling",
-                       "name: Install Linux package deps",
-                       "name: Activate flutter_distributor",
-                       "name: Check Linux AppImage packaging without compilation"):
-            self.assertLess(verify, workflow.index(marker))
 
     def test_packaging_python_check_reports_and_accepts_selected_interpreter(self):
         self.stub_python_version((3, 12, 3))
@@ -213,28 +397,7 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("requires Python 3.12", result.stderr)
 
-    def test_real_packager_checks_run_after_dependency_setup_and_activation(self):
-        workflow = WORKFLOW.read_text()
-        for marker in ("name: Check Android package argument forwarding",
-                       "name: Check Linux AppImage packaging without compilation"):
-            self.assertLess(workflow.index("name: Get Flutter dependency"), workflow.index(marker))
-            self.assertLess(workflow.index("name: Activate flutter_distributor"), workflow.index(marker))
-            self.assertLess(workflow.index(marker), workflow.index("name: Package (flutter_distributor)"))
-        self.assertIn("LINUX_PACKAGER_REQUIRE_DART: '1'", workflow)
 
-    def test_windows_checks_real_resource_checkout_before_brand_injection(self):
-        workflow = WORKFLOW.read_text()
-        marker = "      - name: Check brand resource checkout"
-        start = workflow.index(marker)
-        end = workflow.index("      - name:", start + len(marker))
-        block = workflow[start:end]
-        self.assertIn("if: matrix.platform == 'windows'", block)
-        self.assertEqual(step_script("Check brand resource checkout").strip(),
-                         "flutter test --no-pub tool/test/system_icon_git_checkout_test.dart")
-        self.assertLess(workflow.index("name: Get Flutter dependency"), start)
-        self.assertLess(start, workflow.index("name: Inject desktop branding"))
-        self.assertLess(start, workflow.index("name: Package (flutter_distributor)"))
-        self.assertTrue((WORKFLOW.parents[2] / "tool/test/system_icon_git_checkout_test.dart").is_file())
 
     @unittest.skipUnless(shutil.which("jq"), "The real compose step requires jq")
     def test_compose_uses_resolved_number_instead_of_reading_old_counter(self):
