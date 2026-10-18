@@ -5,7 +5,9 @@
 [Setup]
 MinVersion=10.0
 AppId={{APP_ID}}
-AppVersion={{APP_VERSION}}
+; xboard-installer-version:start
+#error "Run inject_desktop_brand with the product version and actual build number before packaging"
+; xboard-installer-version:end
 AppName={{DISPLAY_NAME}}
 AppPublisher={{PUBLISHER_NAME}}
 ; xboard-installer-links:start
@@ -22,6 +24,10 @@ WizardStyle=modern
 PrivilegesRequired={{PRIVILEGES_REQUIRED}}
 ArchitecturesAllowed={{ARCH}}
 ArchitecturesInstallIn64BitMode={{ARCH}}
+
+[CustomMessages]
+chineseSimplified.XbBuildLabel=构建
+english.XbBuildLabel=build
 
 [Code]
 procedure KillProcesses;

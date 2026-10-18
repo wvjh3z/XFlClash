@@ -123,7 +123,11 @@ def run(args):
                 original_script = script.read_text(encoding='utf-8-sig')
                 if ('{{' in original_script or '{%' in original_script or
                     'AppPublisher=' + row['publisher'] not in original_script or
-                    'AppName=' + row['display_name'] not in original_script):
+                    'AppName=' + row['display_name'] not in original_script or
+                    'AppVersion=' + row['version'] not in original_script or
+                    'AppVerName=' + row['app_ver_name'] not in original_script or
+                    'VersionInfoVersion=' + row['file_version'] not in original_script or
+                    'AppVersion=0.8.93+2026052901' in original_script or '{{APP_VERSION}}' in original_script):
                     raise RuntimeError('Incomplete or wrong-brand maker rendering')
                 include = Path(row['root']) / 'windows/packaging/exe/vc_runtime.iss'
                 original_include = include.read_text(encoding='utf-8-sig')

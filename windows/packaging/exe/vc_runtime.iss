@@ -16,6 +16,7 @@ Source: "{#XbRuntimeTools}vc_runtime.json"; DestName: "xb_vc_runtime.json"; Flag
 
 [CustomMessages]
 chineseSimplified.XbVcTitle=检查必要组件
+chineseSimplified.XbVcDescription=安装前检查运行环境。
 chineseSimplified.XbVcProgress=正在检查或安装 Microsoft Visual C++ 运行库，请稍候……
 chineseSimplified.XbVcFailed=必要组件安装未完成（代码 %1）。客户端尚未安装或更新。%n%2%n诊断日志（如已生成）：%3 及其 .wrapper.txt 文件
 chineseSimplified.XbVcRetry=请检查系统权限和磁盘空间，排除问题后重新运行安装程序。
@@ -31,6 +32,7 @@ chineseSimplified.XbVcPlatform=必要组件检查要求 Windows 10 或更新的�
 chineseSimplified.XbVcPayload=内置运行库文件校验失败。请重新下载完整安装包后重试。
 chineseSimplified.XbVcVerify=运行库安装程序已返回，但重新检测仍不满足最低要求。请查看检测日志中的注册版本和 DLL 版本。
 english.XbVcTitle=Checking prerequisites
+english.XbVcDescription=Check the runtime requirements before installation.
 english.XbVcProgress=Checking or installing Microsoft Visual C++ Runtime. Please wait...
 english.XbVcFailed=Prerequisite installation did not complete (code %1). The app has not been installed or updated.%n%2%nDiagnostic logs (if generated): %3 and its .wrapper.txt file
 english.XbVcRetry=Check system permissions and free disk space, then run this installer again.
@@ -87,7 +89,7 @@ begin
     exit;
   end;
   if XbVcPage = nil then
-    XbVcPage := CreateOutputProgressPage(CustomMessage('XbVcTitle'), CustomMessage('XbVcProgress'));
+    XbVcPage := CreateOutputProgressPage(CustomMessage('XbVcTitle'), CustomMessage('XbVcDescription'));
   XbVcPage.SetText(CustomMessage('XbVcProgress'), '');
   XbVcPage.Show;
   try

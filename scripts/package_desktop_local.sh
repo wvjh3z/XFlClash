@@ -209,7 +209,7 @@ SENTRY_ARGS=(--platform "${PLATFORM}" --flavor "${FLAVOR}" --product-version "${
 run_sentry_postbuild "${SENTRY_ARGS[@]}" --preflight
 
 echo "=== inject_desktop_brand（窗口标题 / 打包 display_name / 图标）==="
-dart run tool/inject_desktop_brand.dart --flavor "${FLAVOR}" --platform "${PLATFORM}"
+dart run tool/inject_desktop_brand.dart --flavor "${FLAVOR}" --platform "${PLATFORM}" --build-number "${BUILD_NUMBER}"
 
 echo "=== generate desktop icons ==="
 dart run flutter_launcher_icons -f flutter_launcher_icons.yaml

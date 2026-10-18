@@ -28,6 +28,93 @@ Map<String, String?> _links(WindowsInstallerMetadata metadata) => {
 };
 
 void main() {
+  group('Installer product version and actual build', () {
+    final template = File(
+      'windows/packaging/exe/inno_setup.iss',
+    ).readAsStringSync();
+    test('version directives ignore upstream version and remain idempotent', () {
+      final version = WindowsInstallerVersion('1.2.3-rc.1+channel', '65535');
+      final result = injectWindowsInstallerVersion(template, version);
+      expect(result, contains('AppVersion=1.2.3-rc.1+channel (build 65535)'));
+      expect(result, contains('VersionInfoVersion=1.2.3.65535'));
+      expect(
+        result,
+        contains(
+          'AppVerName={{DISPLAY_NAME}} 1.2.3-rc.1+channel ({cm:XbBuildLabel} 65535)',
+        ),
+      );
+      expect(result, isNot(contains('{{APP_VERSION}}')));
+      expect(result, isNot(contains('#error "Run inject_desktop_brand')));
+      expect(injectWindowsInstallerVersion(result, version), result);
+      final switched = injectWindowsInstallerVersion(
+        result,
+        WindowsInstallerVersion('0.0.1', '30'),
+      );
+      expect(switched, contains('AppVersion=0.0.1 (build 30)'));
+      expect(switched, isNot(contains('65535')));
+      expect(
+        switched.substring(switched.indexOf('[Tasks]')),
+        template.substring(template.indexOf('[Tasks]')),
+      );
+      expect(switched, contains('AppId={{APP_ID}}'));
+    });
+    for (final value in [
+      '',
+      '0',
+      '-1',
+      '1.1',
+      '01',
+      '65536',
+      '999999999999999',
+      '1\nAppId=bad',
+      '30\n',
+    ]) {
+      test('reject invalid actual build number ${value.length}/$value', () {
+        expect(
+          () => WindowsInstallerVersion('0.0.1', value),
+          throwsFormatException,
+        );
+      });
+    }
+    for (final value in [
+      '',
+      '1.2',
+      '01.2.3',
+      '65536.0.0',
+      '0.0.1\nAppId=bad',
+      '{app}',
+      '{{APP_VERSION}}',
+      '0.0.1"',
+      '0.0.1\n',
+      '0.0.1-..',
+    ]) {
+      test('reject invalid product version ${value.length}/$value', () {
+        expect(
+          () => WindowsInstallerVersion(value, '30'),
+          throwsFormatException,
+        );
+      });
+    }
+    test(
+      'missing duplicate reversed or outside version directives fail closed',
+      () {
+        for (final value in [
+          template.replaceAll('; xboard-installer-version:start', ''),
+          '$template\n; xboard-installer-version:end\n',
+          '; xboard-installer-version:end\n; xboard-installer-version:start\n',
+          '$template\nAppVersion=old\n',
+        ]) {
+          expect(
+            () => injectWindowsInstallerVersion(
+              value,
+              WindowsInstallerVersion('0.0.1', '30'),
+            ),
+            throwsFormatException,
+          );
+        }
+      },
+    );
+  });
   group('Windows installer metadata configuration', () {
     test(
       'missing, empty and YAML mappings use the trimmed publisher fallback',

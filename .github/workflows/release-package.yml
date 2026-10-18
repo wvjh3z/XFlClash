@@ -363,12 +363,12 @@ jobs:
       - name: Check brand resource checkout
         if: matrix.platform == 'windows'
         run: |
-          flutter test --no-pub tool/test/system_icon_git_checkout_test.dart
+          flutter test --no-pub tool/test/system_icon_git_checkout_test.dart tool/test/windows_installer_metadata_test.dart tool/test/inject_desktop_brand_test.dart
 
       # 桌面品牌注入（appName → 窗口标题 / 打包 make_config display_name 等）+ 图标重生成。
       - name: Inject desktop branding
         if: matrix.platform != 'android'
-        run: dart run tool/inject_desktop_brand.dart --flavor "$FLAVOR" --platform "${{ matrix.platform }}"
+        run: dart run tool/inject_desktop_brand.dart --flavor "$FLAVOR" --platform "${{ matrix.platform }}" --build-number "$BUILD_NUMBER"
 
       - name: Generate desktop icons
         if: matrix.platform != 'android'

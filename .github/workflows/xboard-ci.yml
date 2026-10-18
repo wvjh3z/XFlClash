@@ -16,7 +16,7 @@ on:
         description: 'Current documentation commit'
         type: string
         required: true
-        default: 'cab6f116616aaa7ed1e648eab0f12c4d9f13cb15'
+        default: 'd4cbeeeb104debb39b131182a69b91fe1352f44d'
 
 permissions:
   contents: read
@@ -103,6 +103,9 @@ jobs:
       # DD-20 contract + 全 xboard 单测/widget test（已包含 shell/，无需重复执行）。
       - name: Test (xboard + contract)
         run: flutter test test/xboard/ test/sdk_contract_test.dart test/_fixtures/
+
+      - name: Test desktop installer branding and version injection
+        run: flutter test --no-pub tool/test/windows_installer_metadata_test.dart tool/test/inject_desktop_brand_test.dart tool/test/inject_system_icons_cli_test.dart
 
       - name: Preserve dependency retry diagnostics
         if: always()

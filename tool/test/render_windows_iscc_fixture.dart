@@ -58,12 +58,19 @@ Future<void> main(List<String> args) async {
           metadata,
         ),
       );
+      final version = WindowsInstallerVersion(
+        entry.key == 'brand_a' ? '0.1.2' : '1.2.3-rc.1+fixture',
+        entry.key == 'brand_a' ? '43' : '65535',
+      );
       File('windows/packaging/exe/inno_setup.iss').writeAsStringSync(
-        injectWindowsInstallerLinks(templateSource, metadata),
+        injectWindowsInstallerVersion(
+          injectWindowsInstallerLinks(templateSource, metadata),
+          version,
+        ),
       );
       File(
         'pubspec.yaml',
-      ).writeAsStringSync('name: iscc_fixture\nversion: 0.0.1+1\n');
+      ).writeAsStringSync('name: iscc_fixture\nversion: 0.8.93+2026052901\n');
       File(
         'distribute_options.yaml',
       ).writeAsStringSync('app_name: iscc_fixture\n');
@@ -92,6 +99,12 @@ Future<void> main(List<String> args) async {
         'script': script.absolute.path,
         'bundle': config.packagingDirectory.absolute.path,
         'publisher': metadata.publisherName,
+        'version': version.displayVersion,
+        'app_ver_name': version.appVerName.replaceAll(
+          '{{DISPLAY_NAME}}',
+          entry.value,
+        ),
+        'file_version': version.fileVersion,
         'display_name': entry.value,
       });
     }

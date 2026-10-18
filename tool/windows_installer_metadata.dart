@@ -120,3 +120,78 @@ String injectWindowsInstallerLinks(
     content.toString(),
   );
 }
+
+/// Installer-only identity. Never derive it from the FlClash pubspec version.
+class WindowsInstallerVersion {
+  WindowsInstallerVersion(String productVersion, String buildNumber) {
+    final match = RegExp(
+      r'^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$',
+    ).firstMatch(productVersion);
+    final number = int.tryParse(buildNumber);
+    if (match == null ||
+        match.end != productVersion.length ||
+        !RegExp(r'^[1-9][0-9]{0,4}$').hasMatch(buildNumber) ||
+        number == null ||
+        number.toString() != buildNumber ||
+        number > 65535) {
+      throw const FormatException(
+        'Installer product version/build number is invalid',
+      );
+    }
+    final parts = [for (var i = 1; i <= 3; i++) int.tryParse(match.group(i)!)];
+    if (parts.any((part) => part == null || part > 65535)) {
+      throw const FormatException(
+        'Installer version component exceeds Windows limits',
+      );
+    }
+    displayVersion = '$productVersion (build $number)';
+    appVerName = '{{DISPLAY_NAME}} $productVersion ({cm:XbBuildLabel} $number)';
+    fileVersion = '${parts.join('.')}.$number';
+  }
+
+  late final String displayVersion;
+  late final String appVerName;
+  late final String fileVersion;
+}
+
+String injectWindowsInstallerVersion(
+  String source,
+  WindowsInstallerVersion version,
+) {
+  const start = '; xboard-installer-version:start';
+  const end = '; xboard-installer-version:end';
+  final starts = RegExp(
+    '^${RegExp.escape(start)}\\r?\$',
+    multiLine: true,
+  ).allMatches(source).toList();
+  final ends = RegExp(
+    '^${RegExp.escape(end)}\\r?\$',
+    multiLine: true,
+  ).allMatches(source).toList();
+  if (starts.length != 1 ||
+      ends.length != 1 ||
+      starts.single.end >= ends.single.start) {
+    throw const FormatException(
+      'Installer version markers are missing or invalid',
+    );
+  }
+  final outside =
+      source.substring(0, starts.single.start) +
+      source.substring(ends.single.end);
+  if (RegExp(
+    r'^\s*(AppVersion|AppVerName|VersionInfoVersion|VersionInfoProductTextVersion)\s*=',
+    multiLine: true,
+  ).hasMatch(outside)) {
+    throw const FormatException(
+      'Installer version directives outside owned block',
+    );
+  }
+  return source.replaceRange(
+    starts.single.end,
+    ends.single.start,
+    '\nAppVersion=${version.displayVersion}\n'
+    'AppVerName=${version.appVerName}\n'
+    'VersionInfoVersion=${version.fileVersion}\n'
+    'VersionInfoProductTextVersion=${version.displayVersion}\n',
+  );
+}

@@ -10,7 +10,7 @@
 //   - Linux 窗口标题 my_application.cc
 //   - macOS PRODUCT_NAME（Dock/菜单名）/ Info.plist 定位权限文案 / dmg .app 名
 //   - 各打包 make_config 显示名（appimage/exe/rpm/deb/dmg）统一到 appName
-//   - Windows publisher_name 和自有 Inno 模板的三个可选网址（空值不生成指令）
+//   - Windows publisher_name、自有 Inno 模板可选网址、产品版本与实际构建号
 //   **不动**：CFBundleURLSchemes 的 `flclash`（功能性深链）、CMake BINARY_NAME / 可执行名
 //   （内部，改名风险高）、FlClashCore 等同名标识。
 //
@@ -27,7 +27,7 @@
 //      macOS 单色 template PNG。共用 PNG 路径不能混用两个平台的素材。
 //
 // 用法：
-//   dart run tool/inject_desktop_brand.dart --flavor brand_a --platform windows [--check]
+//   dart run tool/inject_desktop_brand.dart --flavor brand_a --platform windows --build-number 29 [--check]
 //   --check：只报告将改动的文件，不写（CI 校验 / dry-run）。
 //
 // 退出码：0 成功；1 flavor.yaml 缺失/无 appName / 品牌图标缺失；2 用法错误。
@@ -51,6 +51,7 @@ Future<void> main(List<String> argv) async {
       defaultsTo: Platform.operatingSystem,
       help: '目标平台；默认当前主机，CI/本地打包显式传入',
     )
+    ..addOption('build-number', help: 'Windows必填：本次Flutter编译使用的实际构建号')
     ..addFlag('check', negatable: false, help: 'dry-run：只报告不写')
     ..addFlag('help', abbr: 'h', negatable: false);
   final ArgResults args;
@@ -106,6 +107,21 @@ Future<void> main(List<String> argv) async {
     exit(1);
   }
 
+  final WindowsInstallerVersion? installerVersion;
+  try {
+    installerVersion = platform == 'windows'
+        ? WindowsInstallerVersion(
+            doc is YamlMap && doc['versionName'] is String
+                ? doc['versionName'] as String
+                : '',
+            args['build-number'] as String? ?? '',
+          )
+        : null;
+  } on FormatException catch (error) {
+    stderr.writeln('[inject-desktop] ✗ ${error.message}');
+    exit(1);
+  }
+
   // Validate every resource before any text or image mutation. Builds never
   // render SVGs or launch a browser; stale/missing assets fail closed.
   final Map<String, Uint8List> systemIcons;
@@ -141,8 +157,12 @@ Future<void> main(List<String> argv) async {
           injectMakeConfigNames(src, app),
           installer,
         ),
-    'windows/packaging/exe/inno_setup.iss': (src, _) =>
-        injectWindowsInstallerLinks(src, installer),
+    'windows/packaging/exe/inno_setup.iss': (src, _) {
+      final linked = injectWindowsInstallerLinks(src, installer);
+      return installerVersion == null
+          ? linked
+          : injectWindowsInstallerVersion(linked, installerVersion);
+    },
   };
 
   // Validate every transformation before changing files, including template markers.

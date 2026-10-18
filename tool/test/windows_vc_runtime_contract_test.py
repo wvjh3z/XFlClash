@@ -22,6 +22,17 @@ class RuntimeContractTest(unittest.TestCase):
         self.assertIn("script_template: inno_setup.iss", config)
         self.assertIn("privileges_required: admin", config)
 
+    def test_installer_uses_actual_release_inputs_and_no_pubspec_fallback(self):
+        template = self.read("windows/packaging/exe/inno_setup.iss")
+        self.assertNotIn("AppVersion={{APP_VERSION}}", template)
+        self.assertIn('#error "Run inject_desktop_brand', template)
+        workflow = self.read(".github/workflows/release-package.yml")
+        self.assertIn('--build-number "$BUILD_NUMBER"', workflow.split('- name: Inject desktop branding', 1)[1].split('- name:', 1)[0])
+        local = self.read("scripts/package_desktop_local.sh")
+        self.assertIn('--platform "${PLATFORM}" --build-number "${BUILD_NUMBER}"', local)
+        self.assertIn('build-number=${BUILD_NUMBER}', local)
+        self.assertIn('build-number=$BUILD_NUMBER', workflow)
+
     def test_maker_source_path_contract(self):
         maker = self.read("plugins/flutter_distributor/packages/flutter_app_packager/lib/src/makers/exe/inno_setup/inno_setup_script.dart")
         self.assertIn("'SOURCE_DIR': makeConfig.sourceDir", maker)

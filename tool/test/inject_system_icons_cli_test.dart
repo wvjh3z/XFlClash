@@ -52,7 +52,7 @@ void main() {
       }
       File(
         p.join(project.path, 'flavors', brand, 'flavor.yaml'),
-      ).writeAsStringSync('appName: "Fixture $brand"\n');
+      ).writeAsStringSync('appName: "Fixture $brand"\nversionName: 0.1.2\n');
     }
   });
 
@@ -62,6 +62,7 @@ void main() {
     String brand,
     String platform, {
     bool check = false,
+    String? buildNumber = '43',
   }) => Process.run('dart', [
     '--packages=$_packages',
     _script,
@@ -69,8 +70,58 @@ void main() {
     brand,
     '--platform',
     platform,
+    if (buildNumber != null) ...['--build-number', buildNumber],
     if (check) '--check',
   ], workingDirectory: project.path);
+
+  test('Windows actual build number is required before any mutation', () async {
+    final before = File(
+      p.join(project.path, 'windows/packaging/exe/inno_setup.iss'),
+    ).readAsStringSync();
+    for (final number in <String?>[null, '', '0', '65536', 'x']) {
+      final result = await inject('brand_a', 'windows', buildNumber: number);
+      expect(result.exitCode, isNot(0));
+      expect(
+        File(
+          p.join(project.path, 'windows/packaging/exe/inno_setup.iss'),
+        ).readAsStringSync(),
+        before,
+      );
+    }
+  });
+
+  test(
+    'Windows A/B/A actual CLI reinjects product version and build without stale values',
+    () async {
+      for (final brand in ['brand_a', 'brand_b', 'brand_a']) {
+        final version = brand == 'brand_a' ? '0.2.3' : '1.2.3-rc.1+test';
+        final number = brand == 'brand_a' ? '31' : '52';
+        File(
+          p.join(project.path, 'flavors/$brand/flavor.yaml'),
+        ).writeAsStringSync(
+          'appName: "Fixture $brand"\nversionName: $version\n',
+        );
+        final result = await inject(brand, 'windows', buildNumber: number);
+        expect(result.exitCode, 0, reason: '${result.stdout} ${result.stderr}');
+        final file = File(
+          p.join(project.path, 'windows/packaging/exe/inno_setup.iss'),
+        );
+        final first = file.readAsStringSync();
+        expect(first, contains('AppVersion=$version (build $number)'));
+        expect(
+          first,
+          contains(
+            'AppVerName={{DISPLAY_NAME}} $version ({cm:XbBuildLabel} $number)',
+          ),
+        );
+        expect(first, isNot(contains('{{APP_VERSION}}')));
+        expect(first, isNot(contains('2026052901')));
+        final repeated = await inject(brand, 'windows', buildNumber: number);
+        expect(repeated.exitCode, 0);
+        expect(file.readAsStringSync(), first);
+      }
+    },
+  );
 
   for (final brand in ['brand_a', 'brand_b']) {
     test(
