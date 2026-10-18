@@ -30,8 +30,8 @@ class RuntimeContractTest(unittest.TestCase):
         self.assertIn('--build-number "$BUILD_NUMBER"', workflow.split('- name: Inject desktop branding', 1)[1].split('- name:', 1)[0])
         local = self.read("scripts/package_desktop_local.sh")
         self.assertIn('--platform "${PLATFORM}" --build-number "${BUILD_NUMBER}"', local)
-        self.assertIn('build-number=${BUILD_NUMBER}', local)
-        self.assertIn('build-number=$BUILD_NUMBER', workflow)
+        self.assertIn('python3 tool/release_pipeline.py package', local)
+        self.assertIn('python tool/release_pipeline.py package', workflow)
 
     def test_maker_source_path_contract(self):
         maker = self.read("plugins/flutter_distributor/packages/flutter_app_packager/lib/src/makers/exe/inno_setup/inno_setup_script.dart")

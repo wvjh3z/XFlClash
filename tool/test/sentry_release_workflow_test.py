@@ -14,6 +14,7 @@ from unittest import mock
 
 
 WORKFLOW = Path(__file__).resolve().parents[2] / ".github/workflows/release-package.yml"
+sys.path.insert(0, str(WORKFLOW.parents[2]))
 
 
 def step_script(name):
@@ -225,6 +226,19 @@ class ReleaseWorkflowTests(unittest.TestCase):
                     "BUILD_SOURCE_SHA": "b" * 40,
                     "RECORDED_ARGS": str(self.root / "arguments.json")}
 
+    def pipeline_context(self, platform, architecture):
+        python = self.bin / "python"
+        python.write_text("#!/bin/sh\nexec " + shlex.quote(sys.executable) + ' "$@"\n')
+        python.chmod(0o755)
+        from tool.test.release_pipeline_test import context
+        data = context(platform, architecture, base_version=self.env["BASE_VERSION"],
+                       product_version=self.env["PRODUCT_VERSION"], build_number=int(self.env["BUILD_NUMBER"]),
+                       source_revision=self.env["BUILD_SOURCE_SHA"])
+        (self.root / "build").mkdir(exist_ok=True)
+        (self.root / "build/release-context.json").write_text(json.dumps(data))
+        (self.root / "tool").mkdir(exist_ok=True)
+        shutil.copyfile(WORKFLOW.parents[2] / "tool/release_pipeline.py", self.root / "tool/release_pipeline.py")
+
     def stub(self, name):
         path = self.bin / name
         path.write_text("#!/usr/bin/env python3\nimport json,os,sys\n"
@@ -233,6 +247,8 @@ class ReleaseWorkflowTests(unittest.TestCase):
         path.chmod(0o755)
 
     def execute(self, name, platform, architecture="amd64", token=""):
+        if name in ("Package (flutter_distributor)", "Compose env.json"):
+            self.pipeline_context(platform, architecture)
         script = step_script(name).replace("${{ matrix.platform }}", platform).replace(
             "${{ matrix.arch }}", architecture)
         return subprocess.run(["bash", "-c", script], cwd=self.root, capture_output=True,
@@ -399,7 +415,6 @@ class ReleaseWorkflowTests(unittest.TestCase):
 
 
 
-    @unittest.skipUnless(shutil.which("jq"), "The real compose step requires jq")
     def test_compose_uses_resolved_number_instead_of_reading_old_counter(self):
         (self.root / "flavors/brand_a").mkdir(parents=True)
         (self.root / "flavors/brand_a/flavor.yaml").write_text('versionName: "0.0.1"\n')
@@ -411,7 +426,7 @@ class ReleaseWorkflowTests(unittest.TestCase):
         result = self.execute("Compose env.json", "windows")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(json.loads((self.root / "env.json").read_text())["XB_BUILD_NUMBER"], "101")
-        self.assertNotIn("BUILD_NUMBER=", (self.root / "job-env").read_text())
+        self.assertFalse((self.root / "job-env").exists())
         self.assertEqual((self.root / "scripts/build_number.brand_a.txt").read_text(), "21\n")
 
     def test_postbuild_receives_final_apks_and_release_metadata_without_bypass(self):
@@ -470,11 +485,16 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertFalse(output.exists())
 
     def test_draft_metadata_tracks_uploaded_build_and_published_releases_are_preserved(self):
+        self.pipeline_context("windows", "amd64")
         state = self.root / "draft-state.json"
         self.env.update(GITHUB_REPOSITORY="fixture/repo", TAG="pkg-brand_a-v0.0.1",
                         TITLE="brand_a v0.0.1 (build 101)", DRAFT_STATE=str(state))
         (self.root / "dist").mkdir()
         (self.root / "dist/fixture-setup.exe").write_bytes(b"fixture")
+        from tool import release_pipeline
+        report = release_pipeline.normalize(json.loads((self.root / "build/release-context.json").read_text()),
+                                            self.root / "dist", self.root / "build/release-artifacts.json")
+        package_path = "dist/" + report["artifacts"][0]["file"]
         gh = self.bin / "gh"
         gh.write_text("#!/usr/bin/env python3\n" + '''
 import json, os, pathlib, sys
@@ -525,7 +545,7 @@ sys.exit(code)
                     self.assertEqual(result.returncode, 0, result.stderr)
                     self.assertEqual(actual["title"], self.env["TITLE"])
                     self.assertIn("build=101", actual["notes"])
-                    self.assertEqual(actual["uploaded"], ["dist/fixture-setup.exe"])
+                    self.assertEqual(actual["uploaded"], [package_path])
                     self.assertLess(commands.index(["release", "upload"]), commands.index(["release", "edit"]))
                     self.assertEqual(commands.count(["release", "create"]), 0 if exists else 1)
 

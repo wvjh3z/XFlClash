@@ -10,6 +10,8 @@ import json
 import os
 from pathlib import Path
 import shutil
+import shlex
+import sys
 import subprocess
 import tempfile
 import unittest
@@ -134,6 +136,14 @@ class Charset {
         dart.write_text("#!/usr/bin/env python3\nimport json, os, pathlib, sys\n"
                         "pathlib.Path(os.environ['RECORDED_ARGS']).write_text(json.dumps(sys.argv[1:]))\n")
         dart.chmod(0o755)
+        from tool.test.release_pipeline_test import context
+        python = self.bin / "python"
+        python.write_text("#!/bin/sh\nexec " + shlex.quote(sys.executable) + ' "$@"\n')
+        python.chmod(0o755)
+        (self.root / "tool").mkdir(exist_ok=True)
+        shutil.copyfile(Path(__file__).resolve().parents[2] / "tool/release_pipeline.py", self.root / "tool/release_pipeline.py")
+        (self.root / "build").mkdir(exist_ok=True)
+        (self.root / "build/release-context.json").write_text(json.dumps(context("android", "", base_version="0.0.0", build_number=101)))
         script = step_script("Package (flutter_distributor)").replace("${{ matrix.platform }}", "android").replace(
             "${{ matrix.arch }}", "")
         shell = subprocess.run(["bash", "-c", script], cwd=self.root, env=self.env,

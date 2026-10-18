@@ -16,7 +16,7 @@ on:
         description: 'Current documentation commit'
         type: string
         required: true
-        default: 'c4819e68acd956201938b5726d1069cdec43d0c1'
+        default: '01d79c2a161c871d5ae49631f2ca72075599e739'
 
 permissions:
   contents: read
@@ -25,6 +25,7 @@ jobs:
   analyze-and-test:
     name: Analyze + Test (Xboard module)
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
         with:
@@ -32,6 +33,9 @@ jobs:
           submodules: recursive # tray_manager/flutter_distributor + core/Clash.Meta submodule（pub get path 依赖需在）
           persist-credentials: false
 
+      - name: Static workflow and shell checks
+        timeout-minutes: 5
+        run: python3 tool/check_workflow_lints.py --prepare
       - name: Check shared release contracts
         run: python3 tool/check_release_workflow.py
 
@@ -108,7 +112,7 @@ jobs:
         run: flutter test test/xboard/ test/sdk_contract_test.dart test/_fixtures/
 
       - name: Test desktop installer branding and version injection
-        run: flutter test --no-pub tool/test/windows_installer_metadata_test.dart tool/test/inject_desktop_brand_test.dart tool/test/inject_system_icons_cli_test.dart
+        run: flutter test --no-pub tool/test/windows_installer_metadata_test.dart tool/test/inject_desktop_brand_test.dart tool/test/inject_system_icons_cli_test.dart tool/test/prepare_release_context_test.dart
 
       - name: Preserve dependency retry diagnostics
         if: always()

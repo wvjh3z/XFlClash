@@ -30,8 +30,8 @@ class PreflightResultTests(unittest.TestCase):
                 self.assertIn('"passed": false', output.getvalue())
 
     def test_missing_tool_or_non_posix_is_explicit_not_successful_skip(self):
-        with mock.patch.object(gate.os, "name", "posix"), mock.patch.object(gate.shutil, "which", side_effect=lambda n: None if n == "jq" else "/fixture/"+n):
-            self.assertEqual(gate.requirements(), ["jq"])
+        with mock.patch.object(gate.os, "name", "posix"), mock.patch.object(gate.shutil, "which", side_effect=lambda n: None if n == "git" else "/fixture/"+n):
+            self.assertEqual(gate.requirements(), ["git"])
             with mock.patch.object(gate.unittest.defaultTestLoader, "loadTestsFromNames") as loader, mock.patch("sys.stderr", new=io.StringIO()):
                 self.assertEqual(gate.main(), 2)
                 loader.assert_not_called()

@@ -85,6 +85,7 @@ jobs:
   # 故改为 setup job 按 target 产出 matrix JSON，package job 用 fromJson 消费。）
   setup:
     name: Resolve targets and build number
+    timeout-minutes: 15
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -118,7 +119,11 @@ jobs:
         with:
           python-version: '3.12'
       # Fast, secret-free gate: do not start six runners for one broken contract.
+      - name: Static workflow and shell checks
+        timeout-minutes: 5
+        run: python3 tool/check_workflow_lints.py --prepare
       - name: Check shared release contracts
+        timeout-minutes: 5
         run: python3 tool/check_release_workflow.py
       - id: r
         env:
@@ -156,6 +161,7 @@ jobs:
 
   package:
     needs: setup
+    timeout-minutes: 150
     name: ${{ matrix.platform }}${{ matrix.arch && format('-{0}', matrix.arch) }} (${{ needs.setup.outputs.flavor }}, build ${{ needs.setup.outputs.build_number }})
     runs-on: ${{ matrix.os }}
     permissions:
@@ -180,6 +186,9 @@ jobs:
       - name: Check release workflow structure
         run: python tool/test/sentry_release_workflow_test.py ReleaseWorkflowStructureTests
 
+      - name: Check shared package helper contracts
+        run: python tool/test/release_pipeline_test.py
+
       - name: Check Windows WebView build rules
         if: matrix.platform == 'windows'
         run: python tool/test/windows_loader_install_test.py
@@ -198,6 +207,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Fetch verified offline VC runtime
+        timeout-minutes: 10
         if: matrix.platform == 'windows'
         shell: powershell
         run: |
@@ -221,6 +231,7 @@ jobs:
           PY
 
       - name: Setup Sentry CLI and verify symbol tooling
+        timeout-minutes: 20
         run: |
           set -euo pipefail
           if [ "${{ matrix.platform }}" = 'macos' ]; then
@@ -259,6 +270,7 @@ jobs:
           fi
 
       - name: Checkout Xboard_sdk (sibling, private)
+        timeout-minutes: 10
         env:
           SDK_REF: ${{ needs.setup.outputs.sdk_ref }}
           SDK_READ_TOKEN: ${{ secrets.SIBLING_SDK_TOKEN }}
@@ -334,6 +346,7 @@ jobs:
         run: python tool/test/pub_get_retry_test.py
 
       - name: Get Flutter dependency
+        timeout-minutes: 15
         run: |
           set -euo pipefail
           flutter --version
@@ -341,6 +354,7 @@ jobs:
 
       # µ-8 顺序：SDK build_runner → client build_runner。
       - name: SDK build_runner
+        timeout-minutes: 20
         working-directory: ../Xboard_sdk
         run: |
           set -euo pipefail
@@ -348,6 +362,7 @@ jobs:
           dart run build_runner build
 
       - name: Client codegen
+        timeout-minutes: 20
         run: dart run build_runner build
 
       # prepare_flavor 生成 flavor_defines.json（含真实 aesKey）。Android 额外 --android-signing
@@ -368,7 +383,7 @@ jobs:
       - name: Check brand resource checkout
         if: matrix.platform == 'windows'
         run: |
-          flutter test --no-pub tool/test/system_icon_git_checkout_test.dart tool/test/windows_installer_metadata_test.dart tool/test/inject_desktop_brand_test.dart
+          flutter test --no-pub tool/test/system_icon_git_checkout_test.dart tool/test/windows_installer_metadata_test.dart tool/test/inject_desktop_brand_test.dart tool/test/prepare_release_context_test.dart
 
       # 桌面品牌注入（appName → 窗口标题 / 打包 make_config display_name 等）+ 图标重生成。
       - name: Inject desktop branding
@@ -376,32 +391,16 @@ jobs:
         run: dart run tool/inject_desktop_brand.dart --flavor "$FLAVOR" --platform "${{ matrix.platform }}" --build-number "$BUILD_NUMBER"
 
       - name: Generate desktop icons
+        timeout-minutes: 5
         if: matrix.platform != 'android'
         run: dart run flutter_launcher_icons -f flutter_launcher_icons.yaml
 
-      # distribute_options.yaml 的 app_name（影响产物文件名前缀 + rpm spec 的 Name:/二进制名/
-      # 路径标识 %{name} + Exec/Icon）按 flavor 的 appName 校正。⚠️ rpm 的 Name: 必须 ASCII 且无
-      # 空格（中文如「袋鼠加速」会触发 `Illegal char` MakeError）；deb/AppImage/dmg/exe 的「可见
-      # 品牌名」走各自 make_config 的 display_name（inject_desktop_brand 注入中文，不受此处影响）。
-      # 故此处对 appName 做 ASCII 净化（去非 ASCII / 空格）；净化后为空（纯中文 appName）则回退到
-      # ASCII 的 updatePackageName（omo / ds）。最终产物名由 Normalize 步骤统一收口，前缀不影响交付。
-      - name: Align package app_name to flavor
-        run: |
-          set -euo pipefail
-          APP_NAME="$(grep -m1 -E '^[[:space:]]*appName:' "flavors/${FLAVOR}/flavor.yaml" | sed -E 's/.*appName:[[:space:]]*"?([^"#]+)"?.*/\1/' | xargs)"
-          ASCII_NAME="$(printf '%s' "$APP_NAME" | LC_ALL=C tr -cd 'A-Za-z0-9_.-')"
-          if [ -z "$ASCII_NAME" ]; then
-            ASCII_NAME="$(grep -m1 -E '^[[:space:]]*updatePackageName:' "flavors/${FLAVOR}/flavor.yaml" | sed -E 's/.*updatePackageName:[[:space:]]*"?([^"#]+)"?.*/\1/' | xargs)"
-            echo "ℹ appName「${APP_NAME}」非 ASCII → app_name 回退到 updatePackageName「${ASCII_NAME}」（rpm Name: 合法性）"
-          fi
-          # 可移植 in-place（BSD sed -i 需参数；用临时文件避开）。
-          if [ -n "$ASCII_NAME" ]; then
-            sed -E "s/^app_name:.*/app_name: '${ASCII_NAME}'/" distribute_options.yaml > distribute_options.yaml.tmp && mv distribute_options.yaml.tmp distribute_options.yaml
-          fi
-          echo "=== distribute_options.yaml ==="; cat distribute_options.yaml
+      - name: Prepare public release context
+        run: dart run tool/prepare_release_context.dart --flavor "$FLAVOR" --platform "${{ matrix.platform }}" --arch "${{ matrix.arch }}" --build-number "$BUILD_NUMBER" --source-revision "$BUILD_SOURCE_SHA" --align-package-name
 
       # Windows：先编 Go 核心取 CORE_SHA256（编译期 define，运行时核心完整性校验）。
       - name: Build Go core + read CORE_SHA256 (Windows)
+        timeout-minutes: 20
         if: matrix.platform == 'windows'
         working-directory: plugins/setup/buildkit/build_tool
         run: |
@@ -411,24 +410,11 @@ jobs:
 
       # 合成 env.json（flavor_defines + APP_ENV + CORE_SHA256 + XB_FORM_A + 版本/构建号/tag）。
       - name: Compose env.json
-        run: |
-          set -euo pipefail
-          TAG="$(date +%Y%m%d%H%M)"
-          PV="$(grep -m1 -E '^[[:space:]]*versionName:' "flavors/${FLAVOR}/flavor.yaml" | sed -E 's/.*versionName:[[:space:]]*"?([^"#]+)"?.*/\1/' | xargs)"
-          SHA=""
-          [ -f core_sha256.json ] && SHA="$(jq -r '.CORE_SHA256 // ""' core_sha256.json)"
-          jq -n \
-            --argjson flavor "$(cat flavor_defines.json)" \
-            --arg env "$APP_ENV" --arg sha "$SHA" --arg tag "$TAG" --arg pv "$PV" --arg bn "$BUILD_NUMBER" \
-            '$flavor + {APP_ENV:$env, CORE_SHA256:$sha, XB_FORM_A:"true", XB_BUILD_TAG:$tag, XB_PRODUCT_VERSION:$pv, XB_BUILD_NUMBER:$bn}' \
-            > env.json
-          echo "=== env.json 已准备（仅列字段名，不输出品牌配置值）==="
-          jq -r 'keys | join(", ")' env.json
-          echo "PRODUCT_VERSION=$PV" >> "$GITHUB_ENV"
-          echo "BASE_VERSION=$(grep -m1 -E '^version:' pubspec.yaml | sed -E 's/^version:[[:space:]]*([0-9.]+).*/\1/' | xargs)" >> "$GITHUB_ENV"
+        run: python tool/release_pipeline.py compose
 
       # 所有 Mac 出包先在前台解析 Swift 包，保留超时和安全诊断。
       - name: Resolve macOS packages with bounded diagnostics
+        timeout-minutes: 15
         if: matrix.platform == 'macos'
         run: |
           set -euo pipefail
@@ -438,12 +424,14 @@ jobs:
 
       # macOS 打包依赖：appdmg（dmg 制作）。
       - name: Install macOS package deps
+        timeout-minutes: 10
         if: matrix.platform == 'macos'
-        run: npm install -g appdmg
+        run: npm install -g "appdmg@$(python tool/record_build_environment.py --print-appdmg-pin)"
 
       # Linux 打包依赖：gtk/appindicator/keybinder + AppImage 所需 patchelf/libfuse2/appimagetool
       # （amd64 + arm64 都出 AppImage，appimagetool 按 arch 选）；rpm 仅 amd64。
       - name: Install Linux package deps
+        timeout-minutes: 15
         if: matrix.platform == 'linux'
         run: |
           set -euo pipefail
@@ -465,6 +453,7 @@ jobs:
 
       # 激活 vendored flutter_distributor，加到 PATH。
       - name: Activate flutter_distributor
+        timeout-minutes: 10
         run: |
           set -euo pipefail
           DISTRIBUTOR_PATH=plugins/flutter_distributor/packages/flutter_distributor
@@ -496,67 +485,28 @@ jobs:
 
       # 打包：按平台选 targets，喂我们的 env.json + split-debug-info（Sentry 符号）。
       # android 加 split-per-abi 出 ARM32/ARM64 两个包；逗号值走独立参数。
-      - name: Package (flutter_distributor)
-        run: |
-          set -euo pipefail
-          # 全矩阵使用 setup job 确定的同一个构建号，保留底座 build-name。
-          COMMON="dart-define-from-file=env.json,build-name=$BASE_VERSION,build-number=$BUILD_NUMBER,split-debug-info=build/debug-info"
-          PLATFORM_ARGS=()
-          case "${{ matrix.platform }}" in
-            android)
-              TARGETS="apk"
-              BUILD_ARGS="$COMMON,split-per-abi"
-              # flutter-build-args 按逗号拆分；target-platform 的逗号不能经过它。
-              PLATFORM_ARGS+=(--build-target-platform=android-arm,android-arm64 --build-flavor "$FLAVOR") ;;
-            windows) TARGETS="exe"; BUILD_ARGS="$COMMON" ;;
-            macos)   TARGETS="dmg"; BUILD_ARGS="$COMMON" ;;
-            linux)
-              if [ "${{ matrix.arch }}" = "amd64" ]; then TARGETS="deb,appimage,rpm"; else TARGETS="deb,appimage"; fi
-              BUILD_ARGS="$COMMON" ;;
-          esac
-          if [ "${{ matrix.platform }}" != "android" ]; then
-            PLATFORM_ARGS+=(--description "${{ matrix.arch }}")
-          fi
-          dart pub global run flutter_distributor:main package \
-            --skip-clean \
-            --platform "${{ matrix.platform }}" \
-            --targets "$TARGETS" \
-            --flutter-build-args="$BUILD_ARGS" \
-            "${PLATFORM_ARGS[@]}"
+      - name: Record build tool versions
+        timeout-minutes: 5
+        run: python tool/record_build_environment.py --platform "${{ matrix.platform }}"
 
-      # 重命名 dist 产物为 AppVersion 插件/FlClash 约定名：
-      #   {updatePackageName}-{产品版本}-{平台}-{archToken}{后缀}
-      # 客户端 v0.3 自更新按此规则拼下载 URL（后端 AppVersion 插件自动拼文件名），
-      # 镜像上的文件名必须精确匹配，否则 404。flutter_distributor 默认名（含 -brand_x
-      # 后缀 + 底座版本 + 缺 -平台- 段）对不上，故在此统一收口。
+      - name: Package (flutter_distributor)
+        id: package_build
+        timeout-minutes: 90
+        run: python tool/release_pipeline.py package
+
+      - name: Record final build tool versions
+        if: always() && (steps.package_build.outcome == 'success' || steps.package_build.outcome == 'failure')
+        timeout-minutes: 5
+        run: python tool/record_build_environment.py --platform "${{ matrix.platform }}"
+
       - name: Normalize artifact names (AppVersion convention)
-        run: |
-          set -euo pipefail
-          PKG="$(grep -m1 -E '^[[:space:]]*updatePackageName:' "flavors/${FLAVOR}/flavor.yaml" | sed -E 's/.*updatePackageName:[[:space:]]*"?([^"#]+)"?.*/\1/' | xargs)"
-          [ -n "$PKG" ] || { echo "✗ flavor.yaml 缺 updatePackageName"; exit 1; }
-          PV="$PRODUCT_VERSION"
-          AR="${{ matrix.arch }}"
-          cd dist
-          shopt -s nullglob
-          case "${{ matrix.platform }}" in
-            android)
-              for abi in armeabi-v7a arm64-v8a; do
-                for f in *"$abi"*.apk; do mv -f "$f" "${PKG}-${PV}-android-${abi}.apk"; done
-              done ;;
-            windows)
-              for f in *setup.exe; do mv -f "$f" "${PKG}-${PV}-windows-${AR}-setup.exe"; done ;;
-            macos)
-              for f in *.dmg; do mv -f "$f" "${PKG}-${PV}-macos-${AR}.dmg"; done ;;
-            linux)
-              for f in *.AppImage; do mv -f "$f" "${PKG}-${PV}-linux-${AR}.AppImage"; done
-              for f in *.deb;      do mv -f "$f" "${PKG}-${PV}-linux-${AR}.deb"; done
-              for f in *.rpm;      do mv -f "$f" "${PKG}-${PV}-linux-${AR}.rpm"; done ;;
-          esac
-          echo "=== dist 重命名后（AppVersion 约定）==="; ls -la
+        timeout-minutes: 10
+        run: python tool/release_pipeline.py normalize
 
       # 与本机共用：核对生产配置、准备最终分发匹配符号，再上传并等服务器处理。
       # 所有正式平台均强制凭据；诊断跳过选项不暴露在正式工作流中。
       - name: Prepare, audit and upload matching Sentry symbols
+        timeout-minutes: 30
         env:
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
         run: |
@@ -610,6 +560,9 @@ jobs:
             build/sentry-package-resolution.json
             build/dependency-retries/
             build/windows-iscc-preflight.json
+            build/release-context.json
+            build/release-artifacts.json
+            build/toolchain-versions.json
             build/appimage-elf-audit.json
             build/macos/sentry-native-inventory.json
             build/macos/sentry-native-build.json
@@ -620,6 +573,10 @@ jobs:
           retention-days: 30
 
       # 列出产物清单（始终执行，便于核对构建/打包/命名是否正常，但不上传）。
+      - name: Verify final distribution manifest
+        timeout-minutes: 10
+        run: python tool/release_pipeline.py verify
+
       - name: List built artifacts (no upload)
         run: |
           echo "=== dist 产物（验证构建+命名；upload=${{ needs.setup.outputs.upload }}）==="
@@ -632,6 +589,7 @@ jobs:
       # 并行 matrix 多 job 发到同一个草稿（tag=pkg-<flavor>-v<版本>）：幂等创建 + --clobber 覆盖，
       # 不同平台文件名不同不冲突；重跑同版本会覆盖同名资产。草稿不创建 git tag，不污染 tag 列表。
       - name: Publish to draft Release
+        timeout-minutes: 15
         if: needs.setup.outputs.upload == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -662,7 +620,7 @@ jobs:
           fi
           # 上传本平台产物（直链原文件；--clobber 覆盖同名，便于重跑）
           # ⚠️ macOS /bin/bash 3.2：变量紧跟中文必须用 ${VAR} 花括号，否则会吞字节报 unbound（PATCHES 经验 #3）
-          gh release upload "${TAG}" dist/* --repo "${GITHUB_REPOSITORY}" --clobber
+          python tool/release_pipeline.py upload
           # 同名草稿重复使用时，标题也同步为本次实际编号。
           gh release edit "${TAG}" --repo "${GITHUB_REPOSITORY}" --title "${TITLE}" --notes "${NOTES}"
           echo "✓ 已发布到草稿 Release：${TAG}（仅协作者可见，直链下载真安装包）"
@@ -675,6 +633,7 @@ jobs:
     needs: [setup, package]
     if: needs.setup.outputs.upload == 'true'
     name: Bump versionCode (next release)
+    timeout-minutes: 10
     runs-on: ubuntu-latest
     permissions:
       contents: write

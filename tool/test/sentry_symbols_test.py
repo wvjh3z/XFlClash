@@ -873,23 +873,25 @@ class NativeElfSymbolsTest(unittest.TestCase):
         self.assertNotIn("fixture-secret", evidence_file.read_text())
 
 
-@unittest.skipUnless(os.name != "nt" and shutil.which("bash"), "Local shell entrypoint checks use POSIX bash")
 class LocalUploadEntrypointTest(unittest.TestCase):
-    @unittest.skipUnless(shutil.which("jq"), "jq is required for package config logging")
     def test_config_logging_never_prints_private_values(self):
+        sys.path.insert(0, str(SCRIPT.parents[1]))
+        from tool.test.release_pipeline_test import context
         for relative in (".github/workflows/release-package.yml", "scripts/package_desktop_local.sh"):
-            text = (SCRIPT.parents[1] / relative).read_text()
-            line = next(line.strip() for line in text.splitlines()
-                        if line.strip().startswith("jq -r 'keys | join"))
+            text = (SCRIPT.parents[1] / relative).read_text(encoding="utf-8")
+            self.assertIn("tool/release_pipeline.py compose", text)
             with tempfile.TemporaryDirectory() as temporary:
                 root = Path(temporary).resolve()
-                (root / "env.json").write_text(json.dumps({"XB_AES_KEY_B64": "fixture-private-aes",
-                    "XB_SENTRY_DSN": "fixture-private-dsn", "NEW_PRIVATE_DEFINE": "fixture-other-private"}))
-                result = subprocess.run(["bash", "-c", line], cwd=root, capture_output=True,
-                                        text=True, check=True, timeout=10)
-                self.assertIn("XB_SENTRY_DSN", result.stdout)
-                self.assertNotIn("fixture-private", result.stdout)
-                self.assertNotIn("fixture-other-private", result.stdout)
+                (root / "build").mkdir()
+                (root / "build/release-context.json").write_text(json.dumps(context()))
+                (root / "flavor_defines.json").write_text(json.dumps({"XB_FLAVOR_ID":"brand_a",
+                    "XB_AES_KEY_B64":"fixture-private-aes", "XB_SENTRY_DSN":"fixture-private-dsn",
+                    "NEW_PRIVATE_DEFINE":"fixture-other-private"}))
+                result = subprocess.run([sys.executable, str(SCRIPT.parent / "release_pipeline.py"), "compose"],
+                                        cwd=root, capture_output=True, text=True, check=True, timeout=10)
+                self.assertNotIn("fixture-private", result.stdout + result.stderr)
+                self.assertNotIn("fixture-other-private", result.stdout + result.stderr)
+                self.assertEqual(json.loads((root / "env.json").read_text())["NEW_PRIVATE_DEFINE"], "fixture-other-private")
 
 
 def write_windows_symbol_fixture(source):

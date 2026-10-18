@@ -26,7 +26,7 @@
 #   dist/{updatePackageName}-{产品版本}-{平台}-{arch}{后缀}
 #   例：omo-0.0.1-linux-amd64.deb / ds-0.0.1-macos-arm64.dmg / omo-0.0.1-windows-amd64-setup.exe
 #
-# ───────── 固化的跨平台构建经验（来自 CI 实跑，见 .kiro/PATCHES.md「多平台打包 CI 跨平台经验」）─────────
+# ───────── 固化的跨平台构建经验（来自 CI 实跑，见 Docs/PATCHES.md「多平台打包 CI 跨平台经验」）─────────
 #   #2 Linux 打包依赖：webkit2gtk-4.1/libsoup-3.0（desktop_webview_window）+ libcurl（sentry-native）
 #      + libsecret-1/jsoncpp（flutter_secure_storage）+ ninja/gtk/appindicator/keybinder + patchelf/fuse
 #      + 固定版本 appimagetool（按 host/target 校验后下载到 .local-build，免 FUSE）。
@@ -116,7 +116,6 @@ MISSING=0
 need flutter "安装 Flutter SDK"
 need dart    "随 Flutter 附带"
 need git     "版本控制"
-need jq      "合成 env.json（Linux: apt install jq / macOS: brew install jq / Win: choco install jq）"
 need python3 "Sentry 符号准备、审计和上传（Python 3.10+）"
 [ "${MISSING}" = "1" ] && { echo "→ 补齐上述工具后重试"; exit 1; }
 
@@ -130,7 +129,7 @@ install_linux_deps() {
 }
 install_macos_deps() {
   echo "=== 安装 macOS 打包依赖（npm appdmg）==="
-  command -v appdmg >/dev/null 2>&1 || npm install -g appdmg
+  npm install -g "appdmg@$(python3 tool/record_build_environment.py --print-appdmg-pin)"
 }
 
 if [ "${INSTALL_DEPS}" = "1" ]; then
@@ -171,15 +170,8 @@ if [ "${PLATFORM}" = "linux" ] && [ "${ARCH}" = "amd64" ]; then
 fi
 
 # ───────── 版本号 ─────────
-VERSION_NAME="$(grep -m1 -E '^[[:space:]]*versionName:' "${FLAVOR_YAML}" | sed -E 's/.*versionName:[[:space:]]*"?([^"#]+)"?.*/\1/' | xargs)"
-[ -n "${VERSION_NAME}" ] || { echo "✗ 未能从 ${FLAVOR_YAML} 读到 versionName"; exit 1; }
-BASE_VERSION="$(grep -m1 -E '^version:' pubspec.yaml | sed -E 's/^version:[[:space:]]*([0-9.]+).*/\1/' | xargs)"
-[ -n "${BASE_VERSION}" ] || BASE_VERSION="0.8.93"
 BUILD_NUMBER="$(cat scripts/build_number.txt 2>/dev/null || echo 1)"
-TAG="$(date +%Y%m%d%H%M)"
-
-echo "=== package: flavor=${FLAVOR} target=${TARGET} ==="
-echo "    产品版本=${VERSION_NAME}  底座(build-name)=${BASE_VERSION}  versionCode=${BUILD_NUMBER}  tag=${TAG}  rpm=${WANT_RPM}"
+echo "=== package: flavor=${FLAVOR} target=${TARGET} build=${BUILD_NUMBER} ==="
 
 # ───────── 依赖 + codegen（与 CI 同序：SDK build_runner → client codegen）─────────
 echo "=== flutter clean + strict pub get ==="
@@ -201,6 +193,14 @@ dart run build_runner build
 echo "=== prepare_flavor（生成 flavor_defines.json，含 aesKey）==="
 dart run tool/prepare_flavor.dart --flavor "${FLAVOR}" --target prod
 
+CONTEXT_ARGS=(--flavor "${FLAVOR}" --platform "${PLATFORM}" --arch "${ARCH}"
+  --build-number "${BUILD_NUMBER}" --source-revision "$(git rev-parse HEAD)" --align-package-name)
+[ "${PLATFORM}" != "windows" ] || CONTEXT_ARGS+=(--include-zip)
+[ "${WANT_RPM}" = "1" ] || CONTEXT_ARGS+=(--no-include-rpm)
+dart run tool/prepare_release_context.dart "${CONTEXT_ARGS[@]}"
+VERSION_NAME="$(python3 tool/release_pipeline.py value --key product_version)"
+BASE_VERSION="$(python3 tool/release_pipeline.py value --key base_version)"
+
 # 和CI共用同一入口；已配置DSN的正式包在编译前先检查固定CLI和上传凭据。
 SENTRY_ARGS=(--platform "${PLATFORM}" --flavor "${FLAVOR}" --product-version "${VERSION_NAME}"
   --build-number "${BUILD_NUMBER}" --source-revision "$(git rev-parse HEAD)")
@@ -214,36 +214,14 @@ dart run tool/inject_desktop_brand.dart --flavor "${FLAVOR}" --platform "${PLATF
 echo "=== generate desktop icons ==="
 dart run flutter_launcher_icons -f flutter_launcher_icons.yaml
 
-# ───────── Align package app_name → ASCII（经验 #8：rpm Name 必须 ASCII 无空格）─────────
-APP_NAME="$(grep -m1 -E '^[[:space:]]*appName:' "${FLAVOR_YAML}" | sed -E 's/.*appName:[[:space:]]*"?([^"#]+)"?.*/\1/' | xargs)"
-ASCII_NAME="$(printf '%s' "${APP_NAME}" | LC_ALL=C tr -cd 'A-Za-z0-9_.-')"
-if [ -z "${ASCII_NAME}" ]; then
-  ASCII_NAME="$(grep -m1 -E '^[[:space:]]*updatePackageName:' "${FLAVOR_YAML}" | sed -E 's/.*updatePackageName:[[:space:]]*"?([^"#]+)"?.*/\1/' | xargs)"
-  echo "ℹ appName「${APP_NAME}」非 ASCII → app_name 回退到 updatePackageName「${ASCII_NAME}」"
-fi
-if [ -n "${ASCII_NAME}" ]; then
-  # 可移植就地编辑（BSD sed -i 需参数 → 临时文件）。
-  sed -E "s/^app_name:.*/app_name: '${ASCII_NAME}'/" distribute_options.yaml > distribute_options.yaml.tmp \
-    && mv distribute_options.yaml.tmp distribute_options.yaml
-fi
-
 # ───────── Windows：先编 Go 核心取 CORE_SHA256（运行时核心完整性校验）─────────
-SHA=""
 if [ "${PLATFORM}" = "windows" ]; then
   echo "=== build Go core + CORE_SHA256（Windows）==="
   ( cd plugins/setup/buildkit/build_tool && dart pub get && dart run build_tool windows --root-dir "${REPO_DIR}" )
-  [ -f core_sha256.json ] && SHA="$(jq -r '.CORE_SHA256 // ""' core_sha256.json)"
 fi
 
 # ───────── 合成 env.json（保住全部 XB_* defines；不走 setup.dart）─────────
-echo "=== compose env.json ==="
-jq -n \
-  --argjson flavor "$(cat flavor_defines.json)" \
-  --arg env "stable" --arg sha "${SHA}" --arg tag "${TAG}" --arg pv "${VERSION_NAME}" --arg bn "${BUILD_NUMBER}" \
-  '$flavor + {APP_ENV:$env, CORE_SHA256:$sha, XB_FORM_A:"true", XB_BUILD_TAG:$tag, XB_PRODUCT_VERSION:$pv, XB_BUILD_NUMBER:$bn}' \
-  > env.json
-echo "  env.json 已准备（仅列字段名，不输出品牌配置值）："
-jq -r 'keys | join(", ")' env.json
+APP_ENV=stable python3 tool/release_pipeline.py compose
 
 # ───────── 激活 vendored flutter_distributor（经验 #4：不靠 PATH）─────────
 echo "=== activate flutter_distributor ==="
@@ -254,46 +232,17 @@ if [ "${PLATFORM}" = "linux" ]; then
 fi
 dart pub global activate -s path "${PACKAGER_PATH}" >/dev/null
 
-# ───────── 打包 ─────────
-COMMON="dart-define-from-file=env.json,build-name=${BASE_VERSION},build-number=${BUILD_NUMBER}"
-case "${PLATFORM}" in
-  windows) TARGETS="exe,zip"; BUILD_ARGS="${COMMON},split-debug-info=build/debug-info" ;;
-  macos)   TARGETS="dmg";     BUILD_ARGS="${COMMON},split-debug-info=build/debug-info" ;;
-  linux)
-    if [ "${WANT_RPM}" = "1" ]; then TARGETS="deb,appimage,rpm"; else TARGETS="deb,appimage"; fi
-    BUILD_ARGS="${COMMON},split-debug-info=build/debug-info" ;;
-esac
-
-echo "=== flutter_distributor package（platform=${PLATFORM} targets=${TARGETS}）==="
-dart pub global run flutter_distributor:main package \
-  --skip-clean \
-  --platform "${PLATFORM}" \
-  --targets "${TARGETS}" \
-  --flutter-build-args="${BUILD_ARGS}" \
-  --description "${ARCH}"
-
-# ───────── 统一产物命名（AppVersion 插件/CI 同款；v0.3 自更新按此拼下载 URL）─────────
-PKG="$(grep -m1 -E '^[[:space:]]*updatePackageName:' "${FLAVOR_YAML}" | sed -E 's/.*updatePackageName:[[:space:]]*"?([^"#]+)"?.*/\1/' | xargs)"
-[ -n "${PKG}" ] || { echo "✗ flavor.yaml 缺 updatePackageName"; exit 1; }
-echo "=== normalize dist 命名 → ${PKG}-${VERSION_NAME}-${PLATFORM}-${ARCH}* ==="
-( cd dist
-  shopt -s nullglob
-  case "${PLATFORM}" in
-    windows)
-      for f in *setup.exe; do mv -f "${f}" "${PKG}-${VERSION_NAME}-windows-${ARCH}-setup.exe"; done
-      for f in *.zip;       do mv -f "${f}" "${PKG}-${VERSION_NAME}-windows-${ARCH}.zip"; done ;;
-    macos)
-      for f in *.dmg; do mv -f "${f}" "${PKG}-${VERSION_NAME}-macos-${ARCH}.dmg"; done ;;
-    linux)
-      for f in *.AppImage; do mv -f "${f}" "${PKG}-${VERSION_NAME}-linux-${ARCH}.AppImage"; done
-      for f in *.deb;      do mv -f "${f}" "${PKG}-${VERSION_NAME}-linux-${ARCH}.deb"; done
-      for f in *.rpm;      do mv -f "${f}" "${PKG}-${VERSION_NAME}-linux-${ARCH}.rpm"; done ;;
-  esac )
+# Shared target arguments and strict final package inventory.
+python3 tool/record_build_environment.py --platform "${PLATFORM}"
+python3 tool/release_pipeline.py package
+python3 tool/record_build_environment.py --platform "${PLATFORM}"
+python3 tool/release_pipeline.py normalize
 
 # ───────── Sentry：最终包匹配、伴随符号审计和上传，失败不报告完成 ─────────
 NATIVE_ARCH="${ARCH}"
 [ "${NATIVE_ARCH}" != "amd64" ] || NATIVE_ARCH=x64
 run_sentry_postbuild "${SENTRY_ARGS[@]}" --architecture "${NATIVE_ARCH}"
+python3 tool/release_pipeline.py verify
 
 # ───────── 完成 ─────────
 echo "=== done ==="
