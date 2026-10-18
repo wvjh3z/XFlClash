@@ -20,6 +20,7 @@ TOOL = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(TOOL))
 sys.path.insert(0, str(TOOL / "test"))
 import prepare_sentry_macos_symbols as preparation
+import owned_process_cleanup as cleanup
 from sentry_macos_inventory import write_inventory
 from sentry_macos_symbols_test import macho, universal
 
@@ -69,6 +70,31 @@ class RustReaderTests(unittest.TestCase):
         self.assertTrue(diagnostic["eof"])
         self.assertTrue(diagnostic["reaped"])
         self.assertTrue(diagnostic["pipe_closed"])
+
+    def test_success_survives_darwin_permission_race_with_safe_evidence(self):
+        # Read a real completed child's output, then inject Darwin's signaling
+        # result; actual wait and /bin/ps still verify that no group is running.
+        process = subprocess.Popen([sys.executable, '-c', "print('DW_AT_language (DW_LANG_Rust)')"],
+                                   stdout=subprocess.PIPE, start_new_session=True)
+        process.wait(timeout=3)
+        diagnostic = {}
+        with mock.patch.object(preparation, 'launch_debug_reader', return_value=process), \
+             mock.patch.object(cleanup.os, 'killpg', side_effect=[PermissionError(1, 'private-token'), ProcessLookupError()]):
+            self.assertTrue(self.scan('', diagnostic=diagnostic))
+        self.assertEqual(diagnostic['cleanup'], 'complete')
+        self.assertTrue(diagnostic['cleanup_details']['permission_race_recovered'])
+        self.assertNotIn('private', json.dumps(diagnostic))
+
+    def test_retained_cleanup_diagnostics_include_errno_without_process_identity(self):
+        detail = {'outcome':'failed', 'phase':'verify', 'group_state':'live', 'reaped':True,
+                  'errors':[{'phase':'kill','kind':'permission','errno':1,'message':'private-token'}], 'pid':123}
+        preparation.retain_failure_diagnostic('macos_rust_dwarfdump_failed',
+                                             [{'phase':'cleanup','cleanup_details':detail}])
+        data=json.loads((self.root/'diagnostics/reader-lifecycle.json').read_text())
+        actual=data['diagnostics'][0]['cleanup_details']
+        self.assertEqual(actual['errors'][0]['errno'],1)
+        self.assertNotIn('pid',actual)
+        self.assertNotIn('private',json.dumps(data))
 
     def test_eof_with_delayed_success_preserves_unterminated_rust_attribute(self):
         diagnostic = {}
@@ -120,7 +146,7 @@ class RustReaderTests(unittest.TestCase):
     def test_selector_and_read_failures_release_pipe_and_reap_child(self):
         for phase, patch in (("selector", mock.patch.object(preparation.selectors, "DefaultSelector",
                                                            side_effect=ValueError("private-token"))),
-                             ("read", mock.patch.object(preparation.os, "read",
+                             ("read", mock.patch.object(preparation, "read_debug_pipe",
                                                         side_effect=OSError("private-token /private/path")))):
             with self.subTest(phase=phase):
                 diagnostic = {}
@@ -128,7 +154,7 @@ class RustReaderTests(unittest.TestCase):
                 # child before injecting the reader failure so launch is intact.
                 process = subprocess.Popen([sys.executable, "-c", "print('fixture', flush=True); import time; time.sleep(60)"],
                                            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, start_new_session=True)
-                with mock.patch.object(preparation.subprocess, "Popen", return_value=process), patch, \
+                with mock.patch.object(preparation, "launch_debug_reader", return_value=process), patch, \
                      self.assertRaisesRegex(preparation.PreparationError, "^macos_rust_dwarfdump_failed$"):
                     self.scan("", diagnostic=diagnostic)
                 self.assertEqual(diagnostic["phase"], phase)
@@ -156,8 +182,9 @@ class RustReaderTests(unittest.TestCase):
 
     def test_cleanup_signal_failure_still_attempts_kill_and_wait(self):
         process = mock.Mock(pid=123, returncode=0)
-        with mock.patch.object(preparation.os, "killpg", side_effect=PermissionError("private")) as kill:
-            with self.assertRaises(PermissionError):
+        with mock.patch.object(preparation.os, "killpg", side_effect=PermissionError(1, "private")) as kill, \
+             mock.patch.object(cleanup, "group_state", return_value="live"):
+            with self.assertRaises(cleanup.CleanupError):
                 preparation.stop_debug_process(process)
         self.assertEqual(kill.call_count, 2)
         self.assertEqual(process.wait.call_count, 2)
@@ -167,10 +194,11 @@ class RustReaderTests(unittest.TestCase):
             with self.subTest(kind=type(failure).__name__):
                 process = mock.Mock(pid=123, returncode=0)
                 process.wait.side_effect = [failure, 0]
-                with mock.patch.object(preparation.os, "killpg") as kill, self.assertRaises(type(failure)):
+                with mock.patch.object(preparation.os, "killpg") as kill, \
+                     mock.patch.object(cleanup, "group_state", return_value="gone"), self.assertRaises(cleanup.CleanupError):
                     preparation.stop_debug_process(process)
                 self.assertEqual([call.args[1] for call in kill.call_args_list], [signal.SIGTERM, signal.SIGKILL])
-                self.assertEqual([call.kwargs["timeout"] for call in process.wait.call_args_list], [1, 5])
+                self.assertEqual([call.kwargs["timeout"] for call in process.wait.call_args_list], [.1, .5])
 
     def test_pipe_close_failure_is_safe_and_fails_closed(self):
         process = subprocess.Popen([sys.executable, "-c", "print('DW_AT_language (DW_LANG_C11)')"],
@@ -184,7 +212,7 @@ class RustReaderTests(unittest.TestCase):
                 raise ValueError("private-token /private/path")
         process.stdout = Pipe()
         diagnostic = {}
-        with mock.patch.object(preparation.subprocess, "Popen", return_value=process), \
+        with mock.patch.object(preparation, "launch_debug_reader", return_value=process), \
              self.assertRaisesRegex(preparation.PreparationError, "^macos_rust_dwarfdump_failed$"):
             self.scan("", diagnostic=diagnostic)
         self.assertEqual(diagnostic["phase"], "cleanup")

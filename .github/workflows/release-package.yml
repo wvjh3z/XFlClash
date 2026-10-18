@@ -222,6 +222,7 @@ jobs:
               "$SENTRY_MACOS_DIAGNOSTICS_DIR"/reader-termination.json
           fi
           npm install -g @sentry/cli@2.58.4
+          python tool/test/owned_process_cleanup_test.py
           python tool/test/sentry_symbols_test.py
           python tool/test/sentry_native_generation_test.py
           python tool/test/sentry_linux_inventory_test.py

@@ -16,7 +16,7 @@ on:
         description: 'Current documentation commit'
         type: string
         required: true
-        default: 'e87e79e7c0f3db713b9df2f56e3d4ce80cbebabe'
+        default: '8b8ac7995149807f3255f58791b616b01b693caa'
 
 permissions:
   contents: read
@@ -64,7 +64,9 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y fonts-noto-cjk
 
       - name: Check bounded dependency download retries
-        run: python3 tool/test/pub_get_retry_test.py
+        run: |
+          python3 tool/test/owned_process_cleanup_test.py
+          python3 tool/test/pub_get_retry_test.py
 
       # µ-8 顺序：SDK build_runner → client pub get → client build_runner → analyze → test
       - name: SDK build_runner

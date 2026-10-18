@@ -21,6 +21,8 @@ import time
 import uuid
 import zlib
 
+from owned_process_cleanup import CleanupError, cleanup_owned_group, safe_cleanup
+
 from sentry_macho import MachoError, inspect_macho, is_macho, read_slices, static_archive_architectures
 from sentry_macos_inventory import (
     InventoryError, load_inventory, required_source_targets, source_line_limitations,
@@ -88,6 +90,8 @@ def safe_diagnostic(value):
         number = value.get(key)
         if key in value and (number is None or (type(number) is int and -2147483648 <= number <= MAX_RUST_DEBUG_OUTPUT + 65536)):
             result[key] = number
+    if isinstance(value.get("cleanup_details"), dict):
+        result["cleanup_details"] = safe_cleanup(value["cleanup_details"])
     if value.get("architecture") in {"arm64", "x86_64"}:
         result["architecture"] = value["architecture"]
     return result
@@ -299,32 +303,10 @@ def dwarf_files(root: Path):
                     yield path
 
 
-def stop_debug_process(process) -> None:
-    failure = None
+def stop_debug_process(process):
     if os.name == "posix":
-        # The leader may exit while an inherited pipe is still held by a
-        # descendant. The process owns a private session, so clean its group.
-        for sig in (signal.SIGTERM, signal.SIGKILL):
-            try:
-                os.killpg(process.pid, sig)
-            except ProcessLookupError:
-                pass
-            except OSError as error:
-                failure = failure or error
-            if sig == signal.SIGTERM:
-                try:
-                    process.wait(timeout=1)
-                except subprocess.TimeoutExpired:
-                    pass
-                except Exception as error:
-                    failure = failure or error
-        try:
-            process.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            failure = failure or PreparationError("macos_debug_process_termination_timeout")
-        except Exception as error:
-            failure = failure or error
-    elif process.poll() is None:
+        return cleanup_owned_group(process)
+    if process.poll() is None:
         try:
             process.terminate()
             process.wait(timeout=1)
@@ -334,8 +316,7 @@ def stop_debug_process(process) -> None:
                 process.wait(timeout=5)
             except subprocess.TimeoutExpired:
                 raise PreparationError("macos_debug_process_termination_timeout") from None
-    if failure is not None:
-        raise failure
+    return {"outcome": "complete", "reaped": process.returncode is not None, "errors": []}
 
 
 def run_dsymutil(tool: str, binary: Path, destination: Path, *, timeout=DSYMUTIL_TIMEOUT):
@@ -350,6 +331,15 @@ def is_rust_language_attribute(line: bytes) -> bool:
     # Match the property itself, never a source/producer/name string that
     # happens to contain its spelling. This is LLVM/Apple dwarfdump syntax.
     return RUST_LANGUAGE_ATTRIBUTE.fullmatch(line) is not None
+
+
+def launch_debug_reader(command):
+    return subprocess.Popen(command, stdout=subprocess.PIPE,
+                            stderr=subprocess.DEVNULL, start_new_session=os.name == "posix")
+
+
+def read_debug_pipe(descriptor, size):
+    return os.read(descriptor, size)
 
 
 def contains_rust_debug(dwarfdump: str, path: Path, *, architecture=None, timeout=RUST_DWARFDUMP_TIMEOUT,
@@ -367,8 +357,7 @@ def contains_rust_debug(dwarfdump: str, path: Path, *, architecture=None, timeou
     total, found, pending, dropping_line = 0, False, b"", False
     deadline = time.monotonic() + timeout
     try:
-        process = subprocess.Popen(command, stdout=subprocess.PIPE,
-                                   stderr=subprocess.DEVNULL, start_new_session=os.name == "posix")
+        process = launch_debug_reader(command)
         state["process_started"] = True
         state["phase"] = "selector"
         with selectors.DefaultSelector() as selector:
@@ -378,7 +367,7 @@ def contains_rust_debug(dwarfdump: str, path: Path, *, architecture=None, timeou
                 if time.monotonic() >= deadline:
                     raise PreparationError("macos_rust_dwarfdump_timeout")
                 for key, _ in selector.select(min(0.1, max(0, deadline - time.monotonic()))):
-                    chunk = os.read(key.fileobj.fileno(), min(65536, MAX_RUST_DEBUG_OUTPUT - total + 1))
+                    chunk = read_debug_pipe(key.fileobj.fileno(), min(65536, MAX_RUST_DEBUG_OUTPUT - total + 1))
                     if not chunk:
                         state.update(phase="eof", eof=True)
                         selector.unregister(key.fileobj)
@@ -427,9 +416,11 @@ def contains_rust_debug(dwarfdump: str, path: Path, *, architecture=None, timeou
     finally:
         if process is not None:
             try:
-                stop_debug_process(process)
+                state["cleanup_details"] = stop_debug_process(process)
                 state["cleanup"] = "complete"
             except Exception as error:
+                if isinstance(error, CleanupError):
+                    state["cleanup_details"] = error.diagnostic
                 state.update(cleanup="failed", cleanup_exception_kind=exception_kind(error))
                 if failure is None:
                     state.update(phase="cleanup", exception_kind=exception_kind(error))

@@ -13,6 +13,7 @@ import unittest
 from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / 'tool'))
 spec = importlib.util.spec_from_file_location('pub_retry', ROOT / 'tool/pub_get_retry.py')
 retry = importlib.util.module_from_spec(spec); spec.loader.exec_module(retry)
 
@@ -156,7 +157,7 @@ class ProcessTests(unittest.TestCase):
                   ' time.sleep(10)\n')
         code, report = retry.execute([sys.executable,str(self.script)],self.root,self.environment,
             attempts=2,attempt_timeout=.25,total_timeout=3,delays=(.01,),emit=self.lines.append)
-        self.assertEqual(code, 0); self.assertEqual(len(report['attempts']), 2)
+        self.assertEqual(code, 0, json.dumps(report)); self.assertEqual(len(report['attempts']), 2)
         self.assertEqual(report['attempts'][0]['reason'], 'attempt_timeout')
         time.sleep(.85)
         self.assertFalse(marker.exists(), 'owned descendant survived timeout')
@@ -187,8 +188,8 @@ class ProcessTests(unittest.TestCase):
     def test_cleanup_failure_blocks_retry(self):
         self.code('print("Connection reset by peer")\nsys.exit(69)\n')
         original = retry.stop_tree
-        def stop(process, job=None):
-            original(process, job); return False
+        def stop(process, job=None, **kwargs):
+            original(process, job, **kwargs); return False
         with mock.patch.object(retry,'stop_tree',side_effect=stop):
             code, report = self.run_fixture()
         self.assertEqual(code, 125); self.assertEqual(len(report['attempts']), 1)
@@ -227,10 +228,12 @@ class ProcessTests(unittest.TestCase):
                 self.code(body+'\n'); self.count.unlink(missing_ok=True)
                 launcher=self.root/'launch.py'
                 launcher.write_text('import importlib.util,sys,os,signal\nfrom pathlib import Path\n'
+                    f'sys.path.insert(0,{str(ROOT/"tool")!r})\n'
                     f's=importlib.util.spec_from_file_location("retry",{str(ROOT/"tool/pub_get_retry.py")!r})\n'
                     'r=importlib.util.module_from_spec(s);s.loader.exec_module(r)\nc=[0]\n'
                     'signal.signal(signal.SIGTERM,lambda n,f:c.__setitem__(0,n))\n'
                     f'code,report=r.execute([sys.executable,{str(self.script)!r}],Path({str(self.root)!r}),os.environ,cancelled=lambda:c[0],delays=(30,),emit=lambda s:print(s,flush=True))\n'
+                    f'r.write_report(Path({str(self.root/"cancel-report.json")!r}),report)\n'
                     'sys.exit(code)\n')
                 process=subprocess.Popen([sys.executable,str(launcher)],env=self.environment,stdout=subprocess.DEVNULL)
                 try:
@@ -238,20 +241,73 @@ class ProcessTests(unittest.TestCase):
                     while not self.count.exists() and time.monotonic()<end:time.sleep(.02)
                     self.assertTrue(self.count.exists())
                     time.sleep(.25); process.send_signal(signal.SIGTERM)
-                    self.assertEqual(process.wait(timeout=5),143)
+                    actual=process.wait(timeout=8)
+                    self.assertEqual(actual,143,(self.root/"cancel-report.json").read_text() if (self.root/"cancel-report.json").exists() else "no report")
                     self.assertEqual(self.count.read_text(),'1')
                 finally:
                     if process.poll() is None:process.kill();process.wait()
 
 
 class WindowsContractTests(unittest.TestCase):
+    def test_actual_worker_separates_missing_target_from_exit_127(self):
+        with tempfile.TemporaryDirectory(prefix='worker control ') as directory:
+            status = Path(directory) / 'status.json'
+            commands = [([str(Path(directory)/'absent')], {'state':'launch_failed'}),
+                        ([sys.executable,'-c','raise SystemExit(127)'], {'state':'exited','exit_code':127}),
+                        ([sys.executable,'-c','pass'], {'state':'exited','exit_code':0})]
+            for command, expected in commands:
+                with self.subTest(expected=expected):
+                    status.unlink(missing_ok=True)
+                    result = subprocess.run([sys.executable, str(ROOT/'tool/pub_get_retry.py'),
+                        '--worker', json.dumps(command), str(status)], input=b'launch\n',
+                        capture_output=True, timeout=10)
+                    self.assertEqual(retry.worker_result(status), expected)
+                    self.assertNotIn(b'Traceback', result.stderr)
+
+    def test_worker_without_gate_never_starts_target(self):
+        with tempfile.TemporaryDirectory() as directory:
+            status = Path(directory)/'status.json'
+            marker = Path(directory)/'must-not-exist'
+            command = [sys.executable,'-c',f'from pathlib import Path;Path({str(marker)!r}).touch()']
+            result = subprocess.run([sys.executable,str(ROOT/'tool/pub_get_retry.py'),
+                '--worker',json.dumps(command),str(status)], input=b'', capture_output=True, timeout=10)
+            self.assertEqual(result.returncode,125)
+            self.assertFalse(marker.exists()); self.assertFalse(status.exists())
+
+    def test_corrupt_missing_or_oversized_worker_control_is_rejected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path=Path(directory)/'status'
+            self.assertIsNone(retry.worker_result(path))
+            for value in ('{}','{"state":"started"}','{"state":"exited","exit_code":true}',
+                          '{"state":"launch_failed","text":"private"}', 'x'*1025):
+                path.write_text(value)
+                self.assertIsNone(retry.worker_result(path))
+
+    def test_job_stop_error_still_waits_and_records_failure(self):
+        process=mock.Mock(returncode=0)
+        job=mock.Mock();job.stop.side_effect=OSError('private-token')
+        diagnostic={}
+        self.assertFalse(retry.stop_tree(process,job,diagnostic=diagnostic))
+        process.wait.assert_called_once_with(timeout=3)
+        self.assertEqual(diagnostic['outcome'],'failed')
+        self.assertNotIn('private',json.dumps(diagnostic))
+
     def test_job_assignment_precedes_launch_gate(self):
         self.check(False)
 
     def test_job_assignment_failure_never_launches_pub(self):
         self.check(True)
 
-    def check(self, reject):
+    def test_parent_uses_control_channel_not_worker_exit_code(self):
+        for status, reason, code in (({'state':'launch_failed'}, 'launch_or_io_error', 127),
+                                      ({'state':'exited','exit_code':127}, 'exit', 127),
+                                      (None, 'worker_protocol_error', 125)):
+            with self.subTest(status=status):
+                self.check(False, status=status, reason=reason, code=code)
+
+    def check(self, reject, *, status='success', reason='exit', code=0):
+        if status == 'success':
+            status = {'state':'exited','exit_code':0}
         events=[]
         job=mock.Mock()
         job.assign.side_effect=lambda process: events.append('assign')
@@ -265,6 +321,7 @@ class WindowsContractTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory, \
              mock.patch.object(retry,'IS_WINDOWS',True), \
              mock.patch.object(retry,'WindowsJob',return_value=job), \
+             mock.patch.object(retry,'worker_result',return_value=status), \
              mock.patch.object(retry.subprocess,'CREATE_NEW_PROCESS_GROUP',512,create=True), \
              mock.patch.object(retry.subprocess,'CREATE_NO_WINDOW',0x08000000,create=True), \
              mock.patch.object(retry.subprocess,'Popen',return_value=process) as launch:
@@ -276,7 +333,9 @@ class WindowsContractTests(unittest.TestCase):
         else:
             self.assertEqual(events,['assign',('gate',b'launch\n')])
             self.assertIn('--worker',launch.call_args.args[0])
-            self.assertEqual(result['exit_code'],0)
+            self.assertEqual(result['exit_code'],code)
+            self.assertEqual(result['reason'],reason)
+            self.assertEqual(result['cleanup_diagnostic']['outcome'],'complete')
         job.stop.assert_called_once();job.close.assert_called_once()
 
 

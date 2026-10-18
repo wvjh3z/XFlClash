@@ -20,6 +20,8 @@ import sys
 import tempfile
 import time
 
+from owned_process_cleanup import CleanupError, cleanup_owned_group, safe_cleanup
+
 PERMANENT = {
     'dependency_resolution': r'version solving failed|version solver failed|could not resolve packages|requires (?:the )?(?:dart |flutter )?sdk version|sdk version constraint|doesn.t support null safety',
     'authentication': r'authentication failed|permission denied|terminal prompts disabled|could not read username|repository not found|\b401\b.*unauthorized|\b403\b.*forbidden|http basic: access denied|requested url returned error: (?:401|403)|http code 407',
@@ -153,43 +155,70 @@ class WindowsJob:
             self.api.CloseHandle(self.handle); self.handle = None
 
 
-def stop_tree(process, job=None):
-    if job is not None:
-        ok = job.stop()
-        try:
-            process.wait(timeout=3)
-        except subprocess.TimeoutExpired:
-            ok = False
-        return ok
-    for sig in (signal.SIGTERM, signal.SIGKILL):
-        try:
-            os.killpg(process.pid, sig)
-        except ProcessLookupError:
-            break
-        except OSError:
-            return False
-        if sig == signal.SIGTERM:
-            time.sleep(.1)
+def stop_tree(process, job=None, *, diagnostic=None):
+    detail = {}
     try:
-        process.wait(timeout=3)
-        # Reaped descendants can remain zombies under a container's PID 1;
-        # they cannot write/cache-lock. Never retry while any live group member remains.
-        result = subprocess.run(['ps', '-eo', 'pgid=,stat='], capture_output=True,
-                                text=True, timeout=2, check=True)
-        return not any(len(fields := line.split()) == 2 and fields[0] == str(process.pid)
-                       and not fields[1].startswith('Z') for line in result.stdout.splitlines())
-    except (OSError, subprocess.SubprocessError):
-        return False
+        if job is not None:
+            ok = False
+            detail = {'phase': 'job', 'outcome': 'failed', 'errors': []}
+            try:
+                ok = job.stop()
+            except OSError:
+                detail['errors'].append({'phase': 'job', 'kind': 'os_error'})
+            finally:
+                try:
+                    process.wait(timeout=3)
+                except (OSError, subprocess.SubprocessError):
+                    ok = False
+                    detail['errors'].append({'phase': 'wait', 'kind': 'os_error'})
+            detail['reaped'] = process.returncode is not None
+            ok = ok and detail['reaped']
+            detail['outcome'] = 'complete' if ok else 'failed'
+            return ok
+        try:
+            detail = cleanup_owned_group(process)
+            return True
+        except CleanupError as error:
+            detail = error.diagnostic
+            return False
+    finally:
+        if diagnostic is not None:
+            diagnostic.update(safe_cleanup(detail))
 
 
-def worker(command):
+def worker(command, status_path):
     # A Windows process is assigned to its Job before this gate is opened.
     if sys.stdin.buffer.readline() != b'launch\n':
         return 125
     use_shell = IS_WINDOWS and Path(command[0]).suffix.lower() in ('.bat', '.cmd')
-    child = subprocess.Popen(command, stdin=subprocess.DEVNULL, shell=use_shell)
+    try:
+        child = subprocess.Popen(command, stdin=subprocess.DEVNULL, shell=use_shell)
+    except OSError:
+        write_report(status_path, {'state': 'launch_failed'})
+        return 127
+    write_report(status_path, {'state': 'started'})
     code = child.wait()
+    write_report(status_path, {'state': 'exited', 'exit_code': code})
     return code if code >= 0 else 128 - code
+
+
+def worker_result(path):
+    # Private, per-attempt control file. Never interpret child stdout/tracebacks
+    # as protocol messages or confuse a real target exit 127 with launch failure.
+    try:
+        if path.is_symlink() or path.stat().st_size > 1024:
+            return None
+        with path.open('r', encoding='utf-8') as stream:
+            value = json.loads(stream.read(1025))
+        if value == {'state': 'launch_failed'}:
+            return value
+        if (isinstance(value, dict) and set(value) == {'state', 'exit_code'} and
+                value['state'] == 'exited' and type(value['exit_code']) is int and
+                -2147483648 <= value['exit_code'] <= 4294967295):
+            return value
+    except (OSError, ValueError):
+        pass
+    return None
 
 
 def attempt(command, cwd, environment, timeout, cancelled, emit, output_limit=MAX_OUTPUT):
@@ -200,8 +229,10 @@ def attempt(command, cwd, environment, timeout, cancelled, emit, output_limit=MA
     code = None
     cleaned = True
     cleanup_done = False
+    cleanup_diagnostic = {}
     with tempfile.TemporaryDirectory(prefix='pub-get-') as folder:
         path = Path(folder) / 'output'
+        status_path = Path(folder) / 'worker-status.json'
         try:
             with path.open('wb') as writer, path.open('rb') as reader:
                 os.chmod(path, 0o600)
@@ -211,7 +242,7 @@ def attempt(command, cwd, environment, timeout, cancelled, emit, output_limit=MA
                     job = WindowsJob()
                     options = {'creationflags': subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW,
                                'stdin': subprocess.PIPE}
-                    argv = [sys.executable, str(Path(__file__).resolve()), '--worker', json.dumps(command)]
+                    argv = [sys.executable, str(Path(__file__).resolve()), '--worker', json.dumps(command), str(status_path)]
                 process = subprocess.Popen(argv, cwd=cwd, env=clean_environment(environment),
                                            stdout=writer, stderr=subprocess.STDOUT, **options)
                 if job:
@@ -235,7 +266,7 @@ def attempt(command, cwd, environment, timeout, cancelled, emit, output_limit=MA
                         emit('[pub-get] running; elapsed_seconds=' + str(int(time.monotonic() - started)))
                         heartbeat = time.monotonic() + 20
                     time.sleep(.02)
-                cleaned = stop_tree(process, job)
+                cleaned = stop_tree(process, job, diagnostic=cleanup_diagnostic)
                 cleanup_done = True
                 # Retain the command's original exit code, not the cleanup signal.
                 if code is None:
@@ -247,21 +278,34 @@ def attempt(command, cwd, environment, timeout, cancelled, emit, output_limit=MA
                         break
                     output.feed(chunk); remaining -= len(chunk)
                 output.feed(b'', final=True)
+                if IS_WINDOWS and reason == 'exit':
+                    status = worker_result(status_path)
+                    if status and status['state'] == 'launch_failed':
+                        reason, code = 'launch_or_io_error', 127
+                    elif status and status['state'] == 'exited':
+                        code = status['exit_code']
+                    elif code is None or 0 <= code < 0x80000000:
+                        reason, code = 'worker_protocol_error', 125
+
         except (OSError, subprocess.SubprocessError):
             reason = 'launch_or_io_error'
             if process:
                 if job:
                     # If assignment failed, worker has not passed its stdin gate.
-                    process.kill()
-                cleaned = stop_tree(process, job)
+                    try:
+                        process.kill()
+                    except OSError:
+                        pass  # Job termination and bounded wait still run below.
+                cleaned = stop_tree(process, job, diagnostic=cleanup_diagnostic)
                 cleanup_done = True
         finally:
             if process and not cleanup_done:
-                stop_tree(process, job)
+                stop_tree(process, job, diagnostic=cleanup_diagnostic)
             if job:
                 job.close()
     return {'reason': reason, 'exit_code': code, 'cleanup_succeeded': cleaned,
             'elapsed_seconds': round(time.monotonic() - started, 3),
+            'cleanup_diagnostic': safe_cleanup(cleanup_diagnostic),
             'network': sorted(output.categories['network']),
             'permanent': sorted(output.categories['permanent'])}
 
@@ -361,8 +405,8 @@ def main(argv=None):
 
 
 if __name__ == '__main__':
-    if len(sys.argv) == 3 and sys.argv[1] == '--worker':
-        raise SystemExit(worker(json.loads(sys.argv[2])))
+    if len(sys.argv) == 4 and sys.argv[1] == '--worker':
+        raise SystemExit(worker(json.loads(sys.argv[2]), Path(sys.argv[3])))
     try:
         raise SystemExit(main())
     except (OSError, ValueError):
