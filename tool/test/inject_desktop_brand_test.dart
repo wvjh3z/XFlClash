@@ -1,7 +1,10 @@
 // inject_desktop_brand 纯变换契约测试（真实文件片段 + 幂等）。
 // 跑：dart test tool/test/inject_desktop_brand_test.dart
 
+import 'dart:convert';
 import 'dart:io';
+
+import 'package:path/path.dart' as p;
 
 import 'package:test/test.dart';
 
@@ -9,6 +12,72 @@ import '../inject_desktop_brand.dart';
 
 void main() {
   const app = 'OmoFly';
+
+  group('Runner branding survives real Git checkout', () {
+    late _RunnerCheckoutFixture fixture;
+    setUpAll(() {
+      fixture = _RunnerCheckoutFixture();
+      addTearDown(() => fixture.root.deleteSync(recursive: true));
+      fixture.initialize();
+    });
+    for (final autocrlf in ['false', 'input', 'true']) {
+      test('core.autocrlf=$autocrlf preserves all three configurations', () {
+        final checkout = fixture.checkout(autocrlf);
+        final file = File(p.join(checkout.path, _runnerProject));
+        final bytes = file.readAsBytesSync();
+        final project = utf8.decode(bytes);
+        final crlf = autocrlf == 'true';
+        expect(project.contains('\r\n'), crlf);
+        expect(
+          project,
+          crlf ? fixture.canonical.replaceAll('\n', '\r\n') : fixture.canonical,
+        );
+        _expectRunnerBrandConfiguration(project);
+        expect(
+          file.readAsBytesSync(),
+          orderedEquals(bytes),
+          reason: 'Validation must not rewrite checkout',
+        );
+        expect(fixture.git(checkout, ['status', '--porcelain']), isEmpty);
+      });
+    }
+    test('CRLF checkout reproduces the old LF-only regex failure', () {
+      final project = File(
+        p.join(fixture.checkout('true').path, _runnerProject),
+      ).readAsStringSync();
+      final old = RegExp(
+        r'buildSettings = \{([\s\S]*?)\n\t\t\t\};\n\t\t\tname = (\w+);',
+      );
+      expect(project.contains('\r\n'), isTrue);
+      expect(old.allMatches(project), isEmpty);
+      _expectRunnerBrandConfiguration(project);
+    });
+    test(
+      'real checkout still rejects missing configurations and wrong display names',
+      () {
+        for (final mode in ['false', 'true']) {
+          final project = File(
+            p.join(fixture.checkout(mode).path, _runnerProject),
+          ).readAsStringSync();
+          expect(
+            () => _expectRunnerBrandConfiguration(
+              project.replaceAll('name = Debug;', 'name = Renamed;'),
+            ),
+            throwsA(isA<TestFailure>()),
+          );
+          expect(
+            () => _expectRunnerBrandConfiguration(
+              project.replaceAll(
+                r'INFOPLIST_KEY_CFBundleDisplayName = "$(PRODUCT_NAME)";',
+                'INFOPLIST_KEY_CFBundleDisplayName = FlClash;',
+              ),
+            ),
+            throwsA(isA<TestFailure>()),
+          );
+        }
+      },
+    );
+  });
 
   test('Windows 窗口标题', () {
     const src = '  if (!window.Create(L"FlClash", origin, size)) {';
@@ -64,25 +133,7 @@ void main() {
     final project = File(
       'macos/Runner.xcodeproj/project.pbxproj',
     ).readAsStringSync();
-    final runnerConfigurations =
-        RegExp(r'buildSettings = \{([\s\S]*?)\n\t\t\t\};\n\t\t\tname = (\w+);')
-            .allMatches(project)
-            .where(
-              (match) => match
-                  .group(1)!
-                  .contains('INFOPLIST_FILE = Runner/Info.plist;'),
-            );
-    expect(
-      runnerConfigurations.map((match) => match.group(2)),
-      unorderedEquals(['Debug', 'Release', 'Profile']),
-    );
-    for (final configuration in runnerConfigurations) {
-      expect(
-        configuration.group(1),
-        contains(r'INFOPLIST_KEY_CFBundleDisplayName = "$(PRODUCT_NAME)";'),
-        reason: configuration.group(2),
-      );
-    }
+    _expectRunnerBrandConfiguration(project);
     expect(
       Directory('macos/Runner')
           .listSync(recursive: true)
@@ -153,4 +204,104 @@ void main() {
     expect(out, contains('icon_size: 256'));
     expect(out, contains('macos:'));
   });
+}
+
+void _expectRunnerBrandConfiguration(String project) {
+  // Normalize only the in-memory parser input; keep checkout bytes untouched.
+  final normalized = project.replaceAll('\r\n', '\n');
+  final runnerConfigurations =
+      RegExp(r'buildSettings = \{([\s\S]*?)\n\t\t\t\};\n\t\t\tname = (\w+);')
+          .allMatches(normalized)
+          .where(
+            (match) =>
+                match.group(1)!.contains('INFOPLIST_FILE = Runner/Info.plist;'),
+          );
+  expect(
+    runnerConfigurations.map((match) => match.group(2)),
+    unorderedEquals(['Debug', 'Release', 'Profile']),
+  );
+  for (final configuration in runnerConfigurations) {
+    expect(
+      configuration.group(1),
+      contains(r'INFOPLIST_KEY_CFBundleDisplayName = "$(PRODUCT_NAME)";'),
+      reason: configuration.group(2),
+    );
+  }
+}
+
+const _runnerProject = 'macos/Runner.xcodeproj/project.pbxproj';
+
+class _RunnerCheckoutFixture {
+  final root = Directory.systemTemp.createTempSync('runner checkout ');
+  late final seed = Directory(p.join(root.path, 'seed'));
+  late final emptyConfig = p.join(root.path, 'empty-config');
+  late final String canonical;
+  var serial = 0;
+
+  void initialize() {
+    File(emptyConfig).writeAsStringSync('');
+    Directory(p.join(root.path, 'hooks')).createSync();
+    seed.createSync();
+    canonical = File(
+      _runnerProject,
+    ).readAsStringSync().replaceAll('\r\n', '\n');
+    final project = File(p.join(seed.path, _runnerProject));
+    project.parent.createSync(recursive: true);
+    project.writeAsStringSync(canonical);
+    File('.gitattributes').copySync(p.join(seed.path, '.gitattributes'));
+    git(seed, ['init', '--quiet']);
+    git(seed, ['config', '--local', 'user.name', 'Runner Checkout Test']);
+    git(seed, [
+      'config',
+      '--local',
+      'user.email',
+      'runner-test@example.invalid',
+    ]);
+    git(seed, ['config', '--local', 'commit.gpgsign', 'false']);
+    git(seed, ['config', '--local', 'core.autocrlf', 'false']);
+    git(seed, ['config', '--local', 'core.eol', 'lf']);
+    git(seed, ['add', '--', '.']);
+    git(seed, ['commit', '--quiet', '-m', 'Public runner checkout fixture']);
+  }
+
+  Directory checkout(String mode) {
+    final directory = Directory(p.join(root.path, 'checkout-${serial++}'));
+    git(root, ['clone', '--quiet', '--no-checkout', seed.path, directory.path]);
+    git(directory, ['config', '--local', 'core.autocrlf', mode]);
+    git(directory, ['config', '--local', 'core.eol', 'lf']);
+    git(directory, ['checkout', '--quiet', '--detach', 'HEAD']);
+    return directory;
+  }
+
+  String git(Directory directory, List<String> args) {
+    final result = Process.runSync(
+      'git',
+      [
+        '-c',
+        'core.attributesFile=$emptyConfig',
+        '-c',
+        'core.hooksPath=${p.join(root.path, 'hooks')}',
+        ...args,
+      ],
+      workingDirectory: directory.path,
+      environment: {
+        for (final entry in Platform.environment.entries)
+          if (!entry.key.toUpperCase().startsWith('GIT_'))
+            entry.key: entry.value,
+        'GIT_CONFIG_NOSYSTEM': '1',
+        'GIT_CONFIG_GLOBAL': emptyConfig,
+        'GIT_ATTR_NOSYSTEM': '1',
+        'GIT_TERMINAL_PROMPT': '0',
+      },
+      includeParentEnvironment: false,
+      stdoutEncoding: utf8,
+      stderrEncoding: utf8,
+    );
+    expect(
+      result.exitCode,
+      0,
+      reason: 'git ${args.join(' ')}: ${result.stderr}',
+    );
+    return result.stdout as String;
+  }
 }
