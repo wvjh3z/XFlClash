@@ -184,6 +184,8 @@ jobs:
         run: |
           & tool/test/windows_vc_runtime_test.ps1
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & tool/test/windows_vc_runtime_process_test.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python tool/test/windows_vc_runtime_contract_test.py
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python tool/test/windows_iscc_preflight_test.py

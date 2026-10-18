@@ -43,7 +43,10 @@ class RuntimeContractTest(unittest.TestCase):
         self.assertNotIn("[UninstallRun]", source)
         self.assertNotIn("[Run]", source)
         self.assertIn("function PrepareToInstall", source)
+        self.assertIn("Exec(PowerShellPath,", source)
         self.assertIn("{sysnative}\\WindowsPowerShell", source)
+        self.assertIn("Params, ExpandConstant('{tmp}'), SW_HIDE", source)
+        self.assertNotIn("ExecWithNativeSysDir", source)
         self.assertIn("finally\n    XbVcPage.Hide", source)
         self.assertNotIn("NeedsRestart := True", source)
 
@@ -55,6 +58,21 @@ class RuntimeContractTest(unittest.TestCase):
         self.assertTrue(set(re.findall(r"CustomMessage\('(XbVc\w+)'\)", source)) <= zh)
         self.assertLess(source.index("if XbVcStopCode <> 0"), source.index("ExtractTemporaryFile"))
         self.assertIn("XbVcStopCode := Code", source)
+
+    def test_process_diagnostics_and_launch_boundary(self):
+        source = self.read("tool/windows/vc_runtime.ps1")
+        self.assertIn("$start.WorkingDirectory = [IO.Path]::GetDirectoryName", source)
+        self.assertIn("return 4007", source)
+        self.assertIn("exit 4008", source)
+        self.assertNotIn("exit 4005", source)
+        for field in ("nativeError=", "readiness-before", "readiness-after",
+                      "registryReady=", "filesReady=", "dll=$name", "registry=$view"):
+            self.assertIn(field, source)
+        installer = self.read("windows/packaging/exe/vc_runtime.iss")
+        for code, key in ((4007, "Launch"), (4008, "Check"), (4009, "Prepare")):
+            self.assertIn(f"{code}: Hint := CustomMessage('XbVc{key}')", installer)
+        self.assertIn("tool/test/windows_vc_runtime_process_test.ps1",
+                      self.read(".github/workflows/release-package.yml"))
 
     def test_default_config_has_separate_supported_minimum(self):
         config = json.loads(self.read("tool/windows/vc_runtime.json"))
