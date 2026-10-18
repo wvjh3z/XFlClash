@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 """Offline subprocess/cleanup tests; never launches Flutter or fetches packages."""
+import inspect
+import contextlib
 import importlib.util
 import json
 import os
@@ -14,6 +16,8 @@ from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'tool'))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from ready_process_tree import ReadyTree, STARTUP_TIMEOUT
 spec = importlib.util.spec_from_file_location('pub_retry', ROOT / 'tool/pub_get_retry.py')
 retry = importlib.util.module_from_spec(spec); spec.loader.exec_module(retry)
 
@@ -92,6 +96,86 @@ class ClassifierTests(unittest.TestCase):
         self.assertFalse(any('TOKEN' in x or 'AES_KEY' in x or x.startswith('GIT_TRACE') for x in env))
 
 
+class VirtualClock:
+    def __init__(self):
+        self.now = 100.0
+        self.sleeps = []
+
+    def monotonic(self):
+        return self.now
+
+    def sleep(self, seconds):
+        self.sleeps.append(seconds)
+        self.now += seconds
+
+
+class DeadlineTests(unittest.TestCase):
+    def item(self, reason='exit', code=0, cleaned=True, network=()):
+        return {'reason':reason, 'exit_code':code, 'cleanup_succeeded':cleaned,
+                'elapsed_seconds':0, 'network':list(network), 'permanent':[]}
+
+    def test_production_budgets_are_unchanged(self):
+        parameters=inspect.signature(retry.execute).parameters
+        for name, expected in {'attempts':3, 'attempt_timeout':300, 'total_timeout':720, 'delays':(10,30)}.items():
+            self.assertEqual(parameters[name].default, expected)
+
+    def test_real_attempt_deadline_uses_controlled_clock_without_spawning(self):
+        clock=VirtualClock()
+        process=mock.Mock(returncode=1)
+        process.poll.return_value=None
+        with tempfile.TemporaryDirectory() as directory, \
+             mock.patch.object(retry,'time',clock), mock.patch.object(retry,'IS_WINDOWS',False), \
+             mock.patch.object(retry.subprocess,'Popen',return_value=process), \
+             mock.patch.object(retry,'stop_tree',return_value=True) as cleanup:
+            result=retry.attempt(['fixture'],Path(directory),{},.25,lambda:0,lambda _:None)
+        self.assertEqual(result['reason'],'attempt_timeout')
+        self.assertTrue(result['cleanup_succeeded'])
+        self.assertGreaterEqual(result['elapsed_seconds'],.25)
+        self.assertLessEqual(result['elapsed_seconds'],.27)
+        cleanup.assert_called_once()
+
+    def test_timeout_retries_only_after_completed_cleanup_then_success(self):
+        clock=VirtualClock(); sequence=[]
+        def attempt(command,cwd,env,timeout,*_):
+            sequence.append(timeout)
+            if len(sequence)==1:
+                clock.sleep(timeout)
+                return self.item('attempt_timeout',1)
+            return self.item()
+        with mock.patch.object(retry,'time',clock), mock.patch.object(retry,'attempt',side_effect=attempt):
+            code,report=retry.execute(['fixture'],Path('.'),{},emit=lambda _:None)
+        self.assertEqual(code,0)
+        self.assertEqual(sequence,[300,300])
+        self.assertEqual(len(report['attempts']),2)
+        self.assertAlmostEqual(report['elapsed_seconds'],310,places=3)
+
+    def test_failed_cleanup_blocks_retry_even_after_timeout(self):
+        with mock.patch.object(retry,'time',VirtualClock()), \
+             mock.patch.object(retry,'attempt',return_value=self.item('attempt_timeout',1,False)) as attempt:
+            code,report=retry.execute(['fixture'],Path('.'),{},emit=lambda _:None)
+        self.assertEqual(code,125); self.assertEqual(report['outcome'],'cleanup_failed')
+        attempt.assert_called_once()
+
+    def test_budget_exhaustion_prevents_backoff_and_second_attempt(self):
+        clock=VirtualClock()
+        def attempt(*_):
+            clock.sleep(.4)
+            return self.item(code=69,network=['connection'])
+        with mock.patch.object(retry,'time',clock), mock.patch.object(retry,'attempt',side_effect=attempt) as call:
+            code,report=retry.execute(['fixture'],Path('.'),{},total_timeout=.5,delays=(5,),emit=lambda _:None)
+        self.assertEqual(code,124); self.assertEqual(report['outcome'],'budget_exhausted')
+        self.assertEqual(clock.sleeps,[.4]);call.assert_called_once()
+
+    def test_cancellation_during_virtual_backoff_prevents_retry(self):
+        clock=VirtualClock()
+        with mock.patch.object(retry,'time',clock), \
+             mock.patch.object(retry,'attempt',return_value=self.item(code=69,network=['connection'])) as call:
+            code,report=retry.execute(['fixture'],Path('.'),{},
+                cancelled=lambda:signal.SIGTERM if clock.now>=100.2 else 0,emit=lambda _:None)
+        self.assertEqual(code,143);self.assertEqual(report['outcome'],'cancelled')
+        self.assertLess(report['elapsed_seconds'],1);call.assert_called_once()
+
+
 class ProcessTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix='pub retry fixture ')
@@ -113,7 +197,7 @@ class ProcessTests(unittest.TestCase):
 
     def run_fixture(self, **kwargs):
         return retry.execute([sys.executable, str(self.script)], self.root, self.environment,
-            emit=self.lines.append, delays=(.01,.02), attempt_timeout=2, total_timeout=6, **kwargs)
+            emit=self.lines.append, delays=(.01,.02), attempt_timeout=15, total_timeout=60, **kwargs)
 
     def test_success_no_retry_despite_warning(self):
         self.code('print("Connection reset by peer was recovered")\n')
@@ -146,44 +230,76 @@ class ProcessTests(unittest.TestCase):
         code, report = self.run_fixture()
         self.assertEqual(code, 1); self.assertEqual(len(report['attempts']), 1)
 
-    def descendant(self, marker):
-        return 'import time;from pathlib import Path;time.sleep(.8);Path('+repr(str(marker))+').write_text("escaped")'
+    def ready_tree_attempt(self, *, parent_exits=False, startup_delay=0, timeout_after_ready=False):
+        with ReadyTree(self.root, startup_delay=startup_delay) as tree:
+            observed_ready = False
+            clock = VirtualClock()
+            # Jump the deadline only after ready, but keep ticking in real time:
+            # WindowsJob.stop also reads retry.time and must retain its bound.
+            clock.monotonic = lambda: time.monotonic() + clock.now
+            clock.sleep = time.sleep
+            def when_ready():
+                nonlocal observed_ready
+                if not observed_ready and tree.is_ready():
+                    tree.assert_alive()
+                    observed_ready = True
+                    if parent_exits:
+                        tree.exit_parent()
+                    if timeout_after_ready:
+                        clock.now += 300
+                return 0 if parent_exits or timeout_after_ready or not observed_ready else signal.SIGTERM
+            with mock.patch.object(retry, 'time', clock) if timeout_after_ready else contextlib.nullcontext():
+                result = retry.attempt(tree.command, self.root, self.environment,
+                                       300 if timeout_after_ready else STARTUP_TIMEOUT + 5,
+                                       when_ready, self.lines.append)
+            self.assertTrue(observed_ready, json.dumps(result))
+            expected = 'attempt_timeout' if timeout_after_ready else 'exit' if parent_exits else 'cancelled'
+            self.assertEqual(result['reason'], expected, json.dumps(result))
+            if parent_exits:
+                self.assertEqual(result['exit_code'], 7)
+            self.assertTrue(result['cleanup_succeeded'], json.dumps(result))
+            self.assertTrue(result['cleanup_diagnostic']['reaped'])
+            tree.assert_closed()
+            # A fresh real command must work after cleanup; its budget is for
+            # integration startup, not the production timeout decision test.
+            self.code('pass\n')
+            code, report = self.run_fixture()
+            self.assertEqual(code, 0, json.dumps(report))
 
-    def test_timeout_can_retry_after_cleaning_owned_process_tree(self):
-        marker = self.root/'orphan'
-        child = self.descendant(marker)
-        self.code('if n==1:\n'
-                  f' subprocess.Popen([sys.executable,"-c",{child!r}])\n'
-                  ' time.sleep(10)\n')
-        code, report = retry.execute([sys.executable,str(self.script)],self.root,self.environment,
-            attempts=2,attempt_timeout=.25,total_timeout=3,delays=(.01,),emit=self.lines.append)
-        self.assertEqual(code, 0, json.dumps(report)); self.assertEqual(len(report['attempts']), 2)
-        self.assertEqual(report['attempts'][0]['reason'], 'attempt_timeout')
-        time.sleep(.85)
-        self.assertFalse(marker.exists(), 'owned descendant survived timeout')
+    def test_ready_parent_and_descendant_are_really_cleaned(self):
+        self.ready_tree_attempt()
 
-    def test_parent_exit_does_not_leave_child_inheriting_output_or_cache_work(self):
-        marker = self.root/'orphan'
-        child = self.descendant(marker)
-        self.code(f'subprocess.Popen([sys.executable,"-c",{child!r}])\n'
-                  'print("unknown failure")\nsys.exit(1)\n')
-        code, report = self.run_fixture()
-        self.assertEqual(code, 1); self.assertTrue(report['attempts'][0]['cleanup_succeeded'])
-        time.sleep(.85)
-        self.assertFalse(marker.exists(), 'descendant survived parent exit')
+    def test_slow_startup_does_not_turn_cleanup_test_into_speed_test(self):
+        self.ready_tree_attempt(startup_delay=.35)
+
+    def test_timeout_after_readiness_cleans_real_tree_then_allows_new_command(self):
+        self.ready_tree_attempt(startup_delay=.35, timeout_after_ready=True)
+
+    def test_parent_exit_does_not_leave_ready_descendant_running(self):
+        self.ready_tree_attempt(parent_exits=True)
+
+    def test_termination_witness_rejects_live_processes_negative_control(self):
+        with ReadyTree(self.root) as tree:
+            process = subprocess.Popen(tree.command, start_new_session=os.name == 'posix')
+            try:
+                tree.assert_alive()
+                with self.assertRaisesRegex(AssertionError, 'still holding'):
+                    tree.assert_closed(timeout=.05)
+                tree.assert_alive()  # Negative control did not accidentally terminate them.
+            finally:
+                tree.close()
+                process.wait(timeout=5)
+
+    def test_never_started_fixture_cannot_pass_termination_check(self):
+        with ReadyTree(self.root) as tree:
+            with self.assertRaisesRegex(AssertionError, 'without readiness'):
+                tree.assert_closed()
 
     def test_output_limit_stops_without_retry(self):
         self.code('print("x"*50000)\ntime.sleep(2)\n')
         code, report = self.run_fixture(output_limit=1024)
         self.assertNotEqual(code, 0); self.assertEqual(len(report['attempts']), 1)
         self.assertEqual(report['attempts'][0]['reason'], 'output_limit')
-
-    def test_budget_prevents_sleep_and_next_attempt(self):
-        self.code('print("Connection reset by peer")\nsys.exit(69)\n')
-        code, report = retry.execute([sys.executable,str(self.script)],self.root,self.environment,
-            total_timeout=.5,delays=(5,),emit=self.lines.append)
-        self.assertEqual(code, 124); self.assertEqual(len(report['attempts']), 1)
-        self.assertLess(report['elapsed_seconds'], 2)
 
     def test_cleanup_failure_blocks_retry(self):
         self.code('print("Connection reset by peer")\nsys.exit(69)\n')
@@ -226,21 +342,25 @@ class ProcessTests(unittest.TestCase):
         for body in ['time.sleep(30)', 'print("Connection reset by peer",flush=True)\nsys.exit(69)']:
             with self.subTest(body=body):
                 self.code(body+'\n'); self.count.unlink(missing_ok=True)
+                phase=self.root/'phase'; phase.unlink(missing_ok=True)
                 launcher=self.root/'launch.py'
                 launcher.write_text('import importlib.util,sys,os,signal\nfrom pathlib import Path\n'
                     f'sys.path.insert(0,{str(ROOT/"tool")!r})\n'
                     f's=importlib.util.spec_from_file_location("retry",{str(ROOT/"tool/pub_get_retry.py")!r})\n'
                     'r=importlib.util.module_from_spec(s);s.loader.exec_module(r)\nc=[0]\n'
                     'signal.signal(signal.SIGTERM,lambda n,f:c.__setitem__(0,n))\n'
-                    f'code,report=r.execute([sys.executable,{str(self.script)!r}],Path({str(self.root)!r}),os.environ,cancelled=lambda:c[0],delays=(30,),emit=lambda s:print(s,flush=True))\n'
+                    f'phase=Path({str(phase)!r})\n'
+                    'def emit(line):\n if "retryable dependency failure" in line: phase.write_text("backoff")\n'
+                    f'code,report=r.execute([sys.executable,{str(self.script)!r}],Path({str(self.root)!r}),os.environ,cancelled=lambda:c[0],delays=(30,),emit=emit)\n'
                     f'r.write_report(Path({str(self.root/"cancel-report.json")!r}),report)\n'
                     'sys.exit(code)\n')
                 process=subprocess.Popen([sys.executable,str(launcher)],env=self.environment,stdout=subprocess.DEVNULL)
                 try:
-                    end=time.monotonic()+4
-                    while not self.count.exists() and time.monotonic()<end:time.sleep(.02)
-                    self.assertTrue(self.count.exists())
-                    time.sleep(.25); process.send_signal(signal.SIGTERM)
+                    marker=phase if "sys.exit(69)" in body else self.count
+                    end=time.monotonic()+STARTUP_TIMEOUT
+                    while not marker.exists() and time.monotonic()<end:time.sleep(.02)
+                    self.assertTrue(marker.exists(), "cancellation phase never became ready")
+                    process.send_signal(signal.SIGTERM)
                     actual=process.wait(timeout=8)
                     self.assertEqual(actual,143,(self.root/"cancel-report.json").read_text() if (self.root/"cancel-report.json").exists() else "no report")
                     self.assertEqual(self.count.read_text(),'1')

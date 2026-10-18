@@ -13,6 +13,7 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import owned_process_cleanup as cleanup
+from ready_process_tree import ReadyTree, STARTUP_TIMEOUT
 
 
 class InventoryTests(unittest.TestCase):
@@ -106,31 +107,46 @@ class BoundaryTests(unittest.TestCase):
             kill.assert_not_called()
 
     def test_real_short_lived_process_and_running_process(self):
-        for body in ('pass', 'import time; time.sleep(60)'):
-            process = subprocess.Popen([sys.executable, '-c', body], start_new_session=True)
+        process = subprocess.Popen([sys.executable, '-c', 'pass'], start_new_session=True)
+        try:
+            self.assertEqual(process.wait(timeout=STARTUP_TIMEOUT), 0)
+            self.assertEqual(cleanup.cleanup_owned_group(process)['outcome'], 'complete')
+        finally:
+            if process.poll() is None:
+                process.kill()
+            process.wait(timeout=5)
+        with tempfile.TemporaryDirectory() as directory, ReadyTree(directory) as tree:
+            process = subprocess.Popen(tree.command, start_new_session=True)
             try:
-                if body == 'pass':
-                    time.sleep(.1)  # Leave it unreaped, matching the Darwin race window.
+                tree.assert_alive()
                 result = cleanup.cleanup_owned_group(process)
                 self.assertEqual(result['outcome'], 'complete')
                 self.assertIsNotNone(process.returncode)
+                tree.assert_closed()
             finally:
+                tree.close()
                 if process.poll() is None:
                     process.kill()
-                process.wait(timeout=3)
+                process.wait(timeout=5)
 
     def test_real_leader_exited_but_descendant_holds_pipe(self):
-        process = subprocess.Popen([sys.executable, '-c',
-            'import subprocess,sys;subprocess.Popen([sys.executable,"-c","import time;time.sleep(60)"])'],
-            stdout=subprocess.PIPE, start_new_session=True)
-        try:
-            process.wait(timeout=3)
-            result = cleanup.cleanup_owned_group(process)
-            self.assertEqual(result['outcome'], 'complete')
-            self.assertIn(result['group_state'], ('gone', 'zombies_only'))
-            self.assertEqual(process.stdout.read(), b'')
-        finally:
-            process.stdout.close()
+        with tempfile.TemporaryDirectory() as directory, ReadyTree(directory) as tree:
+            process = subprocess.Popen(tree.command, stdout=subprocess.PIPE, start_new_session=True)
+            try:
+                tree.assert_alive()
+                tree.exit_parent()
+                process.wait(timeout=5)
+                result = cleanup.cleanup_owned_group(process)
+                self.assertEqual(result['outcome'], 'complete')
+                self.assertIn(result['group_state'], ('gone', 'zombies_only'))
+                tree.assert_closed()
+                self.assertEqual(process.stdout.read(), b'')
+            finally:
+                tree.close()
+                if process.poll() is None:
+                    process.kill()
+                process.wait(timeout=5)
+                process.stdout.close()
 
 
 if __name__ == '__main__':
