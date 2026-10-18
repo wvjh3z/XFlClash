@@ -78,7 +78,7 @@ class Output:
         self.tail = scan[-2048:]
         for part in text.splitlines(keepends=True):
             self.pending += part
-            if len(self.pending) > MAX_LINE:
+            if len(self.pending.encode('utf-8')) > MAX_LINE:
                 self.pending = ''
                 self.long_line = True
             if part.endswith(('\n', '\r')):

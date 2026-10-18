@@ -78,6 +78,8 @@ class ClassifierTests(unittest.TestCase):
         result, lines = self.classify('secret-prefix ' + 'x' * 100000 + ' version solving failed\n')
         self.assertIn('dependency_resolution', result.categories['permanent'])
         self.assertEqual(lines, ['[pub-get output] [oversized line omitted]'])
+        _, unicode_lines = self.classify('测' * 12000 + '\n')
+        self.assertEqual(unicode_lines, ['[pub-get output] [oversized line omitted]'])
 
     def test_environment_keeps_toolchain_and_proxy_but_removes_secrets(self):
         env = retry.clean_environment({'PATH':'fixture', 'PUB_CACHE':'cache', 'https_proxy':'proxy',
