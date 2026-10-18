@@ -123,11 +123,16 @@ class ReleaseWorkflowStructureTests(unittest.TestCase):
     def test_real_packager_checks_run_after_dependency_setup_and_activation(self):
         workflow = WORKFLOW.read_text(encoding="utf-8")
         for marker in ("name: Check Android package argument forwarding",
+                       "name: Check Android artifact pipeline with real APK maker",
                        "name: Check Linux AppImage packaging without compilation"):
             self.assertLess(workflow.index("name: Get Flutter dependency"), workflow.index(marker))
             self.assertLess(workflow.index("name: Activate flutter_distributor"), workflow.index(marker))
             self.assertLess(workflow.index(marker), workflow.index("name: Package (flutter_distributor)"))
         self.assertIn("LINUX_PACKAGER_REQUIRE_DART: '1'", workflow)
+        command = shlex.split(step_script("Check Android artifact pipeline with real APK maker"))
+        self.assertIn(command[0], ('python', 'python3'))
+        self.assertEqual(command[1], 'tool/test/android_artifact_pipeline_test.py')
+        self.assertTrue(all(arg in ('-v', '--verbose', '-q', '--quiet') for arg in command[2:]))
 
     def test_windows_checks_real_resource_checkout_before_brand_injection(self):
         workflow = WORKFLOW.read_text(encoding="utf-8")

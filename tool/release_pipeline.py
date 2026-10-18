@@ -110,7 +110,16 @@ def normalize(c, dist, manifest):
     plans = []
     for suffix, target in expected_artifacts(c):
         # Existing final names are accepted for idempotent postbuild verification.
-        matches = [p for p in packages if p.name.endswith(suffix)]
+        if c['platform'] == 'android':
+            # The pinned APK maker preserves the flavor after the ABI. Its
+            # input name uses the distributor app name and base build version;
+            # the public output uses the package prefix and product version.
+            abi = suffix.removesuffix('.apk')
+            original = (c['package_app_name']+'-'+c['base_version']+
+                        '-android-'+abi+'-'+c['flavor']+'.apk')
+            matches = [p for p in packages if p.name in (original, target)]
+        else:
+            matches = [p for p in packages if p.name.endswith(suffix)]
         if len(matches) != 1:
             raise PipelineError('missing_or_duplicate_artifact: '+suffix)
         source = matches[0]

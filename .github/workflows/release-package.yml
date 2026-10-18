@@ -470,6 +470,11 @@ jobs:
         if: matrix.platform == 'android'
         run: python3 tool/test/android_package_arguments_test.py
 
+      - name: Check Android artifact pipeline with real APK maker
+        if: matrix.platform == 'android'
+        timeout-minutes: 5
+        run: python3 tool/test/android_artifact_pipeline_test.py
+
       - name: Preflight both Windows installers with real ISCC
         if: matrix.platform == 'windows'
         run: python tool/test/windows_iscc_preflight.py

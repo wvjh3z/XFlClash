@@ -67,7 +67,10 @@ class PipelineTests(unittest.TestCase):
         for target,arch in [('windows','amd64'),('android',''),('linux','amd64'),('linux','arm64'),('macos','amd64'),('macos','arm64')]:
             c=context(target,arch)
             for p in self.dist.iterdir():p.unlink()
-            for suffix,_ in pipeline.expected_artifacts(c):(self.dist/('raw-'+suffix)).write_bytes(b'fixture')
+            names = (['OmoFly-0.8.93-android-armeabi-v7a-brand_a.apk',
+                      'OmoFly-0.8.93-android-arm64-v8a-brand_a.apk'] if target == 'android'
+                     else ['raw-'+suffix for suffix,_ in pipeline.expected_artifacts(c)])
+            for name in names:(self.dist/name).write_bytes(b'fixture')
             report=pipeline.normalize(c,self.dist,self.report)
             self.assertTrue(report['passed']);self.assertEqual(len(report['artifacts']),len(c['targets']) if target!='android' else 2)
             self.assertEqual({p.name for p in self.dist.iterdir()},{x['file'] for x in report['artifacts']})
@@ -86,6 +89,21 @@ class PipelineTests(unittest.TestCase):
         for p in self.dist.iterdir():p.unlink()
         (self.dist/'empty-setup.exe').touch()
         with self.assertRaises(pipeline.PipelineError):pipeline.normalize(context(),self.dist,self.report)
+
+    def test_android_raw_name_requires_current_brand_version_name_and_exact_abi(self):
+        c=context('android','')
+        arm32='OmoFly-0.8.93-android-armeabi-v7a-brand_a.apk'
+        arm64='OmoFly-0.8.93-android-arm64-v8a-brand_a.apk'
+        for invalid in [arm32.replace('brand_a','brand_b'), arm32.replace('0.8.93','0.8.92'),
+                        arm32.replace('OmoFly','omo'), arm32.replace('armeabi-v7a','x86_64'),
+                        'raw-armeabi-v7a.apk', 'prefix-'+arm32]:
+            for p in self.dist.iterdir():p.unlink()
+            for name in (invalid,arm64):(self.dist/name).write_bytes(b'keep')
+            before={p.name:p.read_bytes() for p in self.dist.iterdir()}
+            with self.subTest(invalid=invalid),mock.patch.object(Path,'rename') as rename:
+                with self.assertRaises(pipeline.PipelineError):pipeline.normalize(c,self.dist,self.report)
+                rename.assert_not_called()
+            self.assertEqual({p.name:p.read_bytes() for p in self.dist.iterdir()},before)
 
     @unittest.skipIf(os.name=='nt','Symlink fixture requires POSIX')
     def test_package_symlink_is_not_followed_or_renamed(self):
