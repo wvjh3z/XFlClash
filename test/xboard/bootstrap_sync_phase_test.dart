@@ -7,6 +7,8 @@
 /// - firstLaunch：无 token → true
 /// - bootstrap 永不抛（SDK initialize 抛异常时 bootstrapReady 保持 false）
 
+library;
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_xboard_sdk/flutter_xboard_sdk.dart';
@@ -16,6 +18,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:fl_clash/xboard/config/xboard_config.dart';
 import 'package:fl_clash/xboard/providers/xboard_providers.dart';
 import 'package:fl_clash/xboard/xboard_module.dart';
+import 'package:fl_clash/xboard/sdk/secure_storage_token_storage.dart';
 
 import '../_fixtures/fake_token_storage.dart';
 import '../_fixtures/fake_xboard_sdk.dart';
@@ -128,6 +131,45 @@ void main() {
     await XboardModule.bootstrap(container, tokenStorage: storage, sdk: sdk);
     expect(container.read(firstLaunchProvider), isFalse); // 用过 → 非首次
   });
+
+  for (final key in <List<int>?>[null, [1, 2], List.filled(32, 1)]) {
+    test('production storage injection stays non-null for key length ${key?.length}', () async {
+      final config = XboardConfig(
+        subscribeUserAgent: 'fixture flclash',
+        devApiEndpoint: 'https://fixture.invalid',
+        devSubscriptionEndpoint: 'https://fixture.invalid/sub',
+        debug: false,
+        kIsTest: false,
+        bootstrapAesKeyBytes: key,
+        flavorId: 'storage_fixture',
+      );
+      await XboardModule.bootstrap(container, sdk: sdk, config: config);
+      final storage = container.read(injectedTokenStorageProvider);
+      expect(storage, isNotNull);
+      verify(() => sdk.initialize(
+        any(),
+        panelType: any(named: 'panelType'),
+        customStorage: any(named: 'customStorage', that: same(storage)),
+        proxyUrl: any(named: 'proxyUrl'),
+        userAgent: any(named: 'userAgent'),
+        httpConfig: any(named: 'httpConfig'),
+        useMemoryStorage: false,
+        enableLogging: any(named: 'enableLogging'),
+        usePrintLogger: any(named: 'usePrintLogger'),
+        allowNonFlclashUa: any(named: 'allowNonFlclashUa'),
+      )).called(1);
+      if (key?.length == 32) {
+        // Test host has no native keychain: the actual factory uses AES fallback.
+        await storage!.writeToken('fixture-token');
+        expect(await storage.readToken(), 'fixture-token');
+        expect((await SharedPreferences.getInstance()).getKeys(),
+            contains('${kXbAccessTokenKey}_storage_fixture_record_v2'));
+      } else {
+        expect(storage, isA<UnavailableTokenStorage>());
+        await expectLater(storage!.writeToken('fixture-token'), throwsStateError);
+      }
+    });
+  }
 
   test('SDK initialize 抛异常 → bootstrap 不抛 + bootstrapReady 保持 false', () async {
     final storage = FakeTokenStorage();

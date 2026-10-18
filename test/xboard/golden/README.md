@@ -41,6 +41,8 @@ Theme、Widget 或运行时字体。原生窗口截图另用于确认系统字�
 首页未连接及1920×1080首页。其他页面 golden 未在本轮重新审阅或迁移。
 本机字体包版本、摘要和实际验证记录见 [STATUS](https://github.com/wvjh3z/proxy-suite-docs/blob/main/STATUS.md#linux-桌面界面验证2026-10-13)。
 
+桌面导航栏Logo读取构建期注入的`assets/images/icon.png`。截图夹具必须在真实异步区间预加载图片，单纯推进测试时钟可能截到空白。该套基线刻意使用源码中的未注入开发图标/默认名称；两品牌正式图像的复制一致性由`tool/test/inject_system_icons_cli_test.dart`核验，不用开发截图证明品牌成品已经构建。
+
 ## 重生成基线
 
 只在规范环境跑（否则会把本机的渲染差异写进基线、害别处失配）：
@@ -73,3 +75,5 @@ flutter test --no-pub test/xboard/golden/desktop_shell_golden_test.dart
   CI 锁 Flutter 版本 + 装 fonts-noto-cjk 确定化；新增本说明。
 - 2026-10-13：桌面复查发现原基线仍包含方块文字，且固定套餐日期已到期；
   修正截图字体、稳定套餐夹具，审阅并更新8张桌面基线，其他基线保持原状。
+
+- 2026-10-18：导航栏固定盾牌改为资产图片，补图片解码等待并更新8张桌面基线；与原图差异仅在左上角40×40区域。

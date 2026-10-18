@@ -713,7 +713,7 @@ packages:
       path: "../Xboard_sdk"
       relative: true
     source: path
-    version: "1.21.1+xfork"
+    version: "1.22.0+xfork"
   fractional_indexing:
     dependency: "direct main"
     description:

@@ -118,23 +118,14 @@ class _RailBrand extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(8, 8, 8, 2),
       child: Row(
         children: [
-          Container(
+          // 桌面构建由 inject_desktop_brand 注入当前品牌原图。
+          // 不加主题染色或裁切，保留两个品牌各自的轮廓与透明区域。
+          Image.asset(
+            'assets/images/icon.png',
             width: 40,
             height: 40,
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(12),
-              gradient: LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [
-                  Color.alphaBlend(
-                      Colors.white.withValues(alpha: 0.22), scheme.primary),
-                  scheme.primary,
-                ],
-              ),
-            ),
-            child: const Icon(Icons.shield, color: Colors.white, size: 23),
+            fit: BoxFit.contain,
+            excludeFromSemantics: true, // 相邻名称已表达品牌，避免重复朗读。
           ),
           const SizedBox(width: 12),
           Flexible(

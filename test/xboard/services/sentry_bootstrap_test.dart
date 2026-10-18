@@ -422,6 +422,42 @@ void main() {
   });
 
   group('SDK bridge', () {
+    test(
+      'business context retains original response without an Issue',
+      () async {
+        await SentryBootstrap.installEarly(
+          dsn: 'https://x@sentry.invalid/1',
+          release: 'fixture',
+        );
+        void record() => SentryBootstrap.recordBusinessRejection(
+          category: 'business_rule',
+          method: 'POST',
+          path: '/api/v1/user/coupon/check',
+          statusCode: 400,
+          message: 'Invalid coupon',
+          response: {'status': 'fail', 'message': 'Invalid coupon'},
+        );
+        record();
+        await pumpEventQueue();
+        expect(runtime.scope.breadcrumbs, hasLength(1));
+        expect(runtime.scope.breadcrumbs.single.data!['response'], {
+          'status': 'fail',
+          'message': 'Invalid coupon',
+        });
+        expect(runtime.messages, isEmpty);
+        expect(runtime.errors, isEmpty);
+        runtime.failReporting = true;
+        record();
+        await pumpEventQueue();
+        expect(runtime.reportingFailures, 1);
+        runtime.failReporting = false;
+        await SentryBootstrap.setUserOptOut(true);
+        record();
+        await pumpEventQueue();
+        expect(runtime.scope.breadcrumbs, hasLength(1));
+      },
+    );
+
     test('reporter Future 失败被隔离，不产生新未捕获异常或上报循环', () async {
       await SentryBootstrap.installEarly(
         dsn: 'https://x@sentry.invalid/1',

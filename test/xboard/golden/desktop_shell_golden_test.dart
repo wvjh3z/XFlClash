@@ -226,6 +226,15 @@ Future<void> pumpShell(
       ),
     ),
   );
+  // Asset decoding uses real asynchronous work; fake clock pumps alone can
+  // capture an empty logo. Keep the existing unbranded development asset here;
+  // the CLI tests verify each brand is injected into this same path.
+  await tester.runAsync(() async {
+    await precacheImage(
+      const AssetImage('assets/images/icon.png'),
+      tester.element(find.byType(XboardAppShell)),
+    );
+  });
   await tester.pump();
   await tester.pump(const Duration(milliseconds: 400));
 }

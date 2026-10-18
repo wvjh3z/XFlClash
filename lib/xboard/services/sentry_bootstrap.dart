@@ -442,6 +442,7 @@ class SentryBootstrap {
       setTag(SentryTagKeys.flavorId, flavorId);
 
   /// SDK 日志桥接（String 翻译，避免 import SDK LogLevel，第 4 轮 Property 2）。
+  /// 已分类的业务拒绝通过 [recordBusinessRejection] 保留上下文。
   /// warning/error/fatal → Sentry.captureMessage（debug/info 丢弃，减噪）。
   static void captureFromSdk(
     String levelStr,
@@ -469,6 +470,40 @@ class SentryBootstrap {
     } else {
       _bestEffort(() => _runtime.captureMessage(message, level));
     }
+  }
+
+  /// Only the SDK's structured, reviewed business classification enters here.
+  /// Does not change beforeSend, backend settings, or exception capture policy.
+  static void recordBusinessRejection({
+    required String category,
+    required String method,
+    required String path,
+    required int statusCode,
+    required String message,
+    required Map<String, dynamic> response,
+  }) {
+    if (!_enabled) return;
+    _bestEffort(
+      () => _runtime.configureScope((scope) {
+        _bestEffort(
+          () => scope.addBreadcrumb(
+            Breadcrumb(
+              category: 'sdk.http.business_rejection',
+              type: 'http',
+              level: SentryLevel.info,
+              message: message,
+              data: {
+                'reason': category,
+                'method': method,
+                'path': path,
+                'status_code': statusCode,
+                'response': response,
+              },
+            ),
+          ),
+        );
+      }),
+    );
   }
 
   static void _bestEffort(Future<void> Function() operation) {

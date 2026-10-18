@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
 
 import 'package:fl_clash/xboard/config/xboard_config.dart';
 import 'package:fl_clash/xboard/providers/sentry_reporting_preference_provider.dart';
@@ -62,10 +64,14 @@ void main() {
     }
     SentryBootstrap.resetForTest();
     SdkLogger.onLog = null;
+    SdkLogger.onBusinessRejection = null;
     XboardConfig.resetForTest();
   });
 
-  Future<void> bootstrap({SentryReportingPreferenceStore? store}) async {
+  Future<void> bootstrap({
+    SentryReportingPreferenceStore? store,
+    XboardConfig config = _config,
+  }) async {
     container = ProviderContainer(
       overrides: [
         if (store != null)
@@ -76,7 +82,7 @@ void main() {
       container!,
       sdk: sdk,
       tokenStorage: FakeTokenStorage(),
-      config: _config,
+      config: config,
     );
   }
 
@@ -124,6 +130,72 @@ void main() {
       expect(container!.read(bootstrapReadyProvider), isTrue);
     },
   );
+
+  for (final brand in ['brand_a', 'brand_b']) {
+    test(
+      '$brand real SDK rejection becomes breadcrumb through module wiring',
+      () async {
+        final config = XboardConfig(
+          subscribeUserAgent: 'fixture flclash',
+          devApiEndpoint: 'https://fixture.invalid',
+          devSubscriptionEndpoint: 'https://fixture.invalid',
+          sentryDsn: _config.sentryDsn,
+          debug: false,
+          kIsTest: true,
+          flavorId: brand,
+        );
+        await bootstrap(config: config);
+        runtime.messages.clear();
+        runtime.errors.clear();
+        final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+        addTearDown(() => server.close(force: true));
+        final subscription = server.listen((request) async {
+          await request.drain<void>();
+          request.response.statusCode = 400;
+          request.response.headers.contentType = ContentType.json;
+          request.response.write(
+            jsonEncode({
+              'status': 'fail',
+              'message': 'Incorrect email or password',
+              'data': null,
+              'error': null,
+            }),
+          );
+          await request.response.close();
+        });
+        addTearDown(subscription.cancel);
+        final realSdk = XBoardSDK.instance;
+        addTearDown(realSdk.dispose);
+        final result = await HttpOverrides.runWithHttpOverrides(() async {
+          await realSdk.initialize(
+            'http://127.0.0.1:${server.port}',
+            customStorage: FakeTokenStorage(),
+            enableLogging: false,
+          );
+          return realSdk.auth.loginResult(
+            'fixture@example.invalid',
+            'fixture-password',
+          );
+        }, _LoopbackHttpOverrides());
+        expect(result, isA<Failure<String>>());
+        await pumpEventQueue();
+        final crumbs = runtime.scope.breadcrumbs
+            .where((b) => b.category == 'sdk.http.business_rejection')
+            .toList();
+        expect(crumbs, hasLength(1));
+        expect(crumbs.single.message, 'Incorrect email or password');
+        expect(crumbs.single.data!['status_code'], 400);
+        expect(runtime.messages, isEmpty);
+        expect(runtime.errors, isEmpty);
+        final actualError = StateError('fixture unexpected error');
+        SdkLogger.e('unexpected', actualError, StackTrace.current);
+        SdkLogger.w('unknown warning');
+        await pumpEventQueue();
+        expect(runtime.errors.single.error, same(actualError));
+        expect(runtime.messages, ['unknown warning']);
+      },
+    );
+  }
 
   test('early main entry and module share one native initialization', () async {
     await XboardModule.initializeMonitoringEarly(config: _config);
@@ -304,6 +376,7 @@ class _RecordingRuntime implements SentryBootstrapRuntime {
   int closes = 0;
   SentryFlutterOptions? options;
   final scope = Scope(SentryOptions());
+  final messages = <String>[];
   final errors =
       <
         ({
@@ -347,7 +420,9 @@ class _RecordingRuntime implements SentryBootstrapRuntime {
   }
 
   @override
-  Future<void> captureMessage(String message, SentryLevel level) async {}
+  Future<void> captureMessage(String message, SentryLevel level) async {
+    messages.add(message);
+  }
 }
 
 class _FailingNativeRuntime extends _RecordingRuntime
@@ -364,4 +439,16 @@ class _FailingNativeRuntime extends _RecordingRuntime
     beforeFailure();
     throw StateError('controlled partial native initialization failure');
   }
+}
+
+class _LoopbackHttpOverrides extends HttpOverrides {
+  @override
+  HttpClient createHttpClient(SecurityContext? context) =>
+      super.createHttpClient(context)
+        ..findProxy = (uri) {
+          if (uri.host != '127.0.0.1') {
+            throw StateError('Fixture only permits loopback');
+          }
+          return 'DIRECT';
+        };
 }

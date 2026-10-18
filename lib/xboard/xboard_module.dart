@@ -278,9 +278,9 @@ class XboardModule {
   /// R4.6 step2a：解析生产 TokenStorage。
   /// - 显式注入（测试 fake / 调用方传）→ 原样用。
   /// - 测试环境（kIsTest）→ null（step4 走 useMemoryStorage）。
-  /// - 生产 → `SecureStorageTokenStorage.create`（fallback AES key = bootstrap key；
-  ///   Linux 不可用降级 AES-SharedPrefs，ζ1）。AES key 缺失（未注入）→ null（SDK 自带兜底）。
-  /// 永不抛（DD-2）：创建失败返 null（降级 SDK 自带存储，登录态不持久化但不崩）。
+  /// - 生产 → 按品牌隔离的恢复存储（系统安全存储 + AES-GCM回退）。
+  /// 配置无效仍注入拒绝写入的存储，避免SDK默认明文SharedPreferences。
+  /// 临时原生/Prefs故障由同一实例在后续操作重试，不替换SDK/provider引用。
   static Future<TokenStorage?> _resolveTokenStorage(
     TokenStorage? injected,
     XboardConfig config,
@@ -289,19 +289,20 @@ class XboardModule {
     if (config.kIsTest) return null;
     final keyBytes = config.bootstrapAesKeyBytes;
     if (keyBytes == null || keyBytes.length != 32) {
-      debugPrint('[XboardModule] no AES key → token storage 降级 SDK 自带（不持久化）');
-      return null;
+      debugPrint('[XboardModule] no AES key → persistent login unavailable');
+      return const UnavailableTokenStorage();
     }
     try {
       return await SecureStorageTokenStorage.create(
         fallbackAesKey: Uint8List.fromList(keyBytes),
+        namespace: config.flavorId,
         onDegraded: () => debugPrint(
           '[XboardModule] secure_storage 不可用 → 降级 AES-SharedPrefs（ζ1）',
         ),
       );
     } catch (e, s) {
       _reportSwallowed('token storage create failed', e, s);
-      return null;
+      return const UnavailableTokenStorage();
     }
   }
 
@@ -344,7 +345,7 @@ class XboardModule {
     // R4.6 step2a：解析 TokenStorage。
     // - 显式注入（测试 fake / 调用方传）→ 用注入的。
     // - 测试环境（kIsTest）→ null（step4 走 useMemoryStorage，SDK 自带）。
-    // - 生产 → SecureStorageTokenStorage.create（Linux 不可用降级 AES-SharedPrefs，ζ1）。
+    // - 生产 → 同一按品牌隔离的恢复存储，安全存储故障可转AES回退。
     final resolvedTokenStorage = await _resolveTokenStorage(
       tokenStorage,
       activeConfig,
@@ -420,6 +421,16 @@ class XboardModule {
           message,
           error: error,
           stackTrace: stackTrace,
+        );
+      };
+      SdkLogger.onBusinessRejection = (rejection) {
+        SentryBootstrap.recordBusinessRejection(
+          category: rejection.category,
+          method: rejection.method,
+          path: rejection.path,
+          statusCode: rejection.statusCode,
+          message: rejection.message,
+          response: rejection.response,
         );
       };
     } catch (e, s) {
