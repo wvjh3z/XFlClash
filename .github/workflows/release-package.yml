@@ -186,6 +186,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python tool/test/windows_vc_runtime_contract_test.py
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python tool/test/windows_iscc_preflight_test.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Fetch verified offline VC runtime
         if: matrix.platform == 'windows'
@@ -472,6 +474,10 @@ jobs:
         if: matrix.platform == 'android'
         run: python3 tool/test/android_package_arguments_test.py
 
+      - name: Preflight both Windows installers with real ISCC
+        if: matrix.platform == 'windows'
+        run: python tool/test/windows_iscc_preflight.py
+
       - name: Check Linux AppImage packaging without compilation
         if: matrix.platform == 'linux'
         env:
@@ -596,6 +602,7 @@ jobs:
             build/sentry-symbolication-probe.json
             build/sentry-package-resolution.json
             build/dependency-retries/
+            build/windows-iscc-preflight.json
             build/appimage-elf-audit.json
             build/macos/sentry-native-inventory.json
             build/macos/sentry-native-build.json

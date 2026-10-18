@@ -30,6 +30,8 @@ class RuntimeContractTest(unittest.TestCase):
         # Includes aren't processed by Liquid: do not leave template variables there.
         self.assertNotIn("{{", source)
         self.assertIn('AddBackslash(SourcePath) + XbBundle', source)
+        self.assertNotIn('ExpandFileName', source)
+        self.assertIn('ExtractFileDir(RemoveBackslashUnlessRoot(SourcePath))', source)
         self.assertIn('#error "VC runtime preparation failed', source)
 
     def test_prerequisites_are_embedded_not_installed_as_app_files(self):
@@ -75,6 +77,10 @@ class RuntimeContractTest(unittest.TestCase):
 
     def test_ci_preflight_and_mandatory_packaging_validation(self):
         source = self.read(".github/workflows/release-package.yml")
+        preflight = source.index("Preflight both Windows installers with real ISCC")
+        self.assertLess(source.index("Activate flutter_distributor"), preflight)
+        self.assertLess(preflight, source.index("Package (flutter_distributor)"))
+        self.assertIn("build/windows-iscc-preflight.json", source)
         self.assertLess(source.index("Fetch verified offline VC runtime"), source.index("Package (flutter_distributor)"))
         self.assertIn("tool/test/windows_vc_runtime_test.ps1", source)
         self.assertIn("tool/test/windows_vc_runtime_contract_test.py", source)

@@ -1,9 +1,9 @@
 ﻿; Included from the rendered dist/*.iss. No secrets, brand-specific IDs or DLL copies.
-#define XbRoot AddBackslash(ExpandFileName(AddBackslash(SourcePath) + ".."))
+#define XbRoot AddBackslash(ExtractFileDir(RemoveBackslashUnlessRoot(SourcePath)))
 #define XbRuntimeTools XbRoot + "tool\windows\"
 #define XbRuntimePayload XbRoot + "build\windows-prerequisites\vc_redist.x64.exe"
 #define XbPowerShell GetEnv("SystemRoot") + "\System32\WindowsPowerShell\v1.0\powershell.exe"
-#if Exec(XbPowerShell, "-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File """ + XbRuntimeTools + "prepare_vc_runtime.ps1"" -Root """ + XbRoot + "."" -Bundle """ + ExpandFileName(AddBackslash(SourcePath) + XbBundle) + """", XbRoot, 1, 0) != 0
+#if Exec(XbPowerShell, "-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File """ + XbRuntimeTools + "prepare_vc_runtime.ps1"" -Root """ + XbRoot + "."" -Bundle """ + (AddBackslash(SourcePath) + XbBundle) + """", XbRoot, 1, 0) != 0
   #error "VC runtime preparation failed; do not publish an installer without verified prerequisites"
 #endif
 
