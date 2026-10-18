@@ -304,16 +304,21 @@ jobs:
         if: matrix.platform != 'android'
         run: flutter config --enable-windows-desktop --enable-linux-desktop --enable-macos-desktop
 
+      - name: Check bounded dependency download retries
+        run: python tool/test/pub_get_retry_test.py
+
       - name: Get Flutter dependency
         run: |
+          set -euo pipefail
           flutter --version
-          flutter pub get
+          python tool/pub_get_retry.py --tool flutter --report build/dependency-retries/client.json
 
       # µ-8 顺序：SDK build_runner → client build_runner。
       - name: SDK build_runner
         working-directory: ../Xboard_sdk
         run: |
-          dart pub get
+          set -euo pipefail
+          python "$GITHUB_WORKSPACE/tool/pub_get_retry.py" --tool dart --report "$GITHUB_WORKSPACE/build/dependency-retries/sdk.json"
           dart run build_runner build
 
       - name: Client codegen
@@ -375,7 +380,7 @@ jobs:
         working-directory: plugins/setup/buildkit/build_tool
         run: |
           set -euo pipefail
-          dart pub get
+          python "$GITHUB_WORKSPACE/tool/pub_get_retry.py" --tool dart --report "$GITHUB_WORKSPACE/build/dependency-retries/windows-build-tool.json"
           dart run build_tool windows --root-dir "$GITHUB_WORKSPACE"
 
       # 合成 env.json（flavor_defines + APP_ENV + CORE_SHA256 + XB_FORM_A + 版本/构建号/tag）。
@@ -573,6 +578,7 @@ jobs:
             build/sentry-symbols-evidence.json
             build/sentry-symbolication-probe.json
             build/sentry-package-resolution.json
+            build/dependency-retries/
             build/appimage-elf-audit.json
             build/macos/sentry-native-inventory.json
             build/macos/sentry-native-build.json
