@@ -4,6 +4,8 @@ Dart's pub/CLI boundary is a harmless Python executable. Actual production
 preparation, graph checks, empty caches, stage ordering and cleanup still run.
 The separate cold CLI executes real Dart and platform tools in release CI.
 """
+from contextlib import contextmanager
+import errno
 import json
 import os
 from pathlib import Path
@@ -158,6 +160,44 @@ class ColdStartTests(unittest.TestCase):
             report=json.loads(self.report.read_text(encoding='utf-8'))
             self.assertEqual(report['passed'],expected==0)
             self.assertFalse(report['client_build'])
+
+    def test_final_cleanup_failure_cannot_report_success(self):
+        # Inject at our context-manager boundary, not at global os.unlink:
+        # stdlib callback/retry implementation changes between Python patches.
+        factory = tempfile.TemporaryDirectory
+        paths = []
+        commands = [('context', [sys.executable, 'tool/test/packager_context_test.py'], 30)]
+        for error_type in (None, PermissionError, OSError):
+            with self.subTest(cleanup_error=error_type):
+                @contextmanager
+                def temporary(*args, **kwargs):
+                    with factory(*args, **kwargs) as directory:
+                        if kwargs.get('prefix') == 'distributor-cold-':
+                            paths.append(Path(directory))
+                        yield directory
+                    if kwargs.get('prefix') == 'distributor-cold-' and error_type:
+                        raise error_type(errno.EACCES if error_type is PermissionError else errno.EIO,
+                                         'controlled final cleanup failure')
+
+                self.report.parent.mkdir(exist_ok=True)
+                self.report.write_text('{"passed":true,"temporary_workspace_removed":true}', encoding='utf-8')
+                with mock.patch.object(entry, 'ROOT', self.root), \
+                     mock.patch.object(entry, 'native_dart', return_value=sys.executable), \
+                     mock.patch.object(entry, 'platform_commands', return_value=commands), \
+                     mock.patch.object(entry, 'validate_host'), \
+                     mock.patch.object(entry.tempfile, 'TemporaryDirectory', side_effect=temporary), \
+                     mock.patch.dict(os.environ, {**self.env, 'FIXTURE_FAILURE': ''}):
+                    code = entry.main(['cold', '--platform', 'android', '--report', str(self.report)])
+                report = json.loads(self.report.read_text(encoding='utf-8'))
+                self.assertEqual(code, 1 if error_type else 0)
+                self.assertEqual(report['passed'], error_type is None)
+                self.assertEqual(report.get('temporary_workspace_removed', False), error_type is None)
+                self.assertEqual(report['steps'][-1]['name'], 'context')
+                self.assertEqual(report['steps'][-1]['exit_code'], 0)
+                self.assertEqual(report.get('error'), error_type.__name__ if error_type else None)
+                self.assertFalse(report['client_build'])
+                self.assertTrue(paths)
+                self.assertTrue(all(not path.exists() for path in paths), 'test workspace leaked')
 
     def test_same_entrypoint_with_crlf_checkout_is_accepted(self):
         path=self.root/'tool/distributor_preflight.py'

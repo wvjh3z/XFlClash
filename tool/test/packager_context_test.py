@@ -347,7 +347,7 @@ class TemporaryGitCleanupTests(unittest.TestCase):
         finally:
             temporary.cleanup()
 
-    def test_real_non_directory_error_is_not_ignored(self):
+    def test_real_cleanup_errors_are_not_ignored(self):
         temporary = tempfile.TemporaryDirectory(prefix='cleanup-error-')
         root = Path(temporary.name)
         root.rmdir(); root.write_bytes(b'not a directory')
@@ -357,13 +357,19 @@ class TemporaryGitCleanupTests(unittest.TestCase):
         finally:
             root.unlink(); temporary.cleanup()
 
-    def test_unrecoverable_permission_error_is_not_ignored(self):
-        temporary = tempfile.TemporaryDirectory(prefix='cleanup-denied-')
-        root = Path(temporary.name); file = root / 'held.txt'; file.write_bytes(b'held')
         if os.name == 'nt':
-            # Real Windows sharing violation: deny FILE_SHARE_DELETE until close.
-            import ctypes
-            from ctypes import wintypes
+            self.assert_windows_locked_file_cannot_be_removed()
+
+    def assert_windows_locked_file_cannot_be_removed(self):
+        # Real Windows sharing violation: deny FILE_SHARE_DELETE until close.
+        # POSIX uses the real non-directory error above; do not replace global
+        # os.unlink with a permanent denial inside tempfile/shutil internals.
+        import ctypes
+        from ctypes import wintypes
+        temporary = tempfile.TemporaryDirectory(prefix='cleanup-denied-')
+        self.addCleanup(temporary.cleanup)
+        with temporary as directory:
+            root = Path(directory); file = root / 'held.txt'; file.write_bytes(b'held')
             kernel = ctypes.WinDLL('kernel32', use_last_error=True)
             kernel.CreateFileW.argtypes = [wintypes.LPCWSTR,wintypes.DWORD,wintypes.DWORD,
                                           wintypes.LPVOID,wintypes.DWORD,wintypes.DWORD,wintypes.HANDLE]
@@ -373,24 +379,9 @@ class TemporaryGitCleanupTests(unittest.TestCase):
             self.assertNotEqual(handle, ctypes.c_void_p(-1).value, 'Cannot create native locked-file control')
             try:
                 with self.assertRaises(PermissionError): temporary.cleanup()
-                self.assertTrue(file.exists())
-            finally:
-                kernel.CloseHandle(handle)
-                temporary.cleanup()
-        else:
-            # Linux root can bypass chmod permissions; use a permanent error
-            # injection here instead of pretending it is a native ACL test.
-            unlink = os.unlink
-            def denied(path, *args, **kwargs):
-                if Path(path).name == file.name:
-                    raise PermissionError(errno.EACCES, 'fixture persistent denial', str(path))
-                return unlink(path, *args, **kwargs)
-            try:
-                with mock.patch.object(os, 'unlink', side_effect=denied):
-                    with self.assertRaises(PermissionError): temporary.cleanup()
                 self.assertEqual(file.read_bytes(), b'held')
             finally:
-                temporary.cleanup()
+                kernel.CloseHandle(handle)
         self.assertFalse(root.exists())
 
 
