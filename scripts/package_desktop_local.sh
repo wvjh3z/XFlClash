@@ -237,6 +237,7 @@ python3 tool/record_build_environment.py --platform "${PLATFORM}"
 python3 tool/release_pipeline.py package
 python3 tool/record_build_environment.py --platform "${PLATFORM}"
 python3 tool/release_pipeline.py normalize
+python3 tool/check_fallback_assets.py
 
 # ───────── Sentry：最终包匹配、伴随符号审计和上传，失败不报告完成 ─────────
 NATIVE_ARCH="${ARCH}"

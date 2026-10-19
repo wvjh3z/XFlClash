@@ -181,23 +181,26 @@ class XboardModule {
   static Future<void> bootstrapAsync(ProviderContainer container) async {
     if (_asyncStarted) return; // single-flight
     _asyncStarted = true;
+    final race = _raceController;
     try {
       await _bootstrapAsyncPhase(container);
     } catch (e, s) {
       // DD-2：异步阶段任何异常全吞——失败沿用同步阶段 endpoint，绝不波及已渲染 UI。
       _reportSwallowed('bootstrapAsync swallowed', e, s);
+    } finally {
+      race?.finishApiInitialization();
     }
   }
 
   static Future<void> _bootstrapAsyncPhase(ProviderContainer container) async {
     final config = XboardConfig.current;
     final race = _raceController;
+    // Start once now: check() waits for a probed API. Early resumed joins it.
+    // ignore: discarded_futures
+    XbUpdateService.autoCheck(container);
     if (race == null) {
       // 同步阶段 race controller 未就绪（如 bootstrap 失败）→ 无法竞速，沿用出厂 endpoint。
       debugPrint('[XboardModule] async: race controller 未就绪，跳过竞速');
-      // 仍尝试检查更新（SDK 同步阶段已 initialize，出厂 endpoint 可能可达）。
-      // ignore: discarded_futures
-      XbUpdateService.autoCheck(container);
       return;
     }
 
@@ -230,9 +233,6 @@ class XboardModule {
     payload ??= _localPayload;
     if (payload == null || !payload.isValid) {
       SentryBootstrap.tagBootstrap(stage: 'async_no_endpoints');
-      // 无 endpoint 候选 → 沿用同步阶段出厂 endpoint，但仍尝试检查更新（出厂 endpoint 可用）。
-      // ignore: discarded_futures
-      XbUpdateService.autoCheck(container);
       return;
     }
 
@@ -242,10 +242,6 @@ class XboardModule {
     await race.raceSubscription(payload.subscriptionEndpoints);
 
     SentryBootstrap.tagBootstrap(stage: 'async_done');
-
-    // 4. 冷启动自动检查更新（竞速完成后 endpoint 已就绪，fire-and-forget 不阻塞）。
-    // ignore: discarded_futures
-    XbUpdateService.autoCheck(container);
   }
 
   /// 「永不抛」层统一吞咽收口（§11 / #2 监测）：本地 debugPrint + Sentry 上报。
@@ -492,14 +488,24 @@ class XboardModule {
     // step 7：XboardLifecycleObserver（W5.3）—— 自挂 observer + endpoint 竞速控制器。
     // 各子步骤独立 try/catch：一个失败（如 test 无 WidgetsBinding）不阻断其余（含 seam #7）。
     try {
+      var hadApiSelection = false;
       _raceController = EndpointRaceController(
         probe: debugProbe, // 生产 null → 默认真实 Dio 探针；测试注入 fake。
         onApiSwitch: (ep) {
+          final firstSelection = !hadApiSelection;
+          hadApiSelection = true;
           try {
             instance.switchBaseUrl(ep);
           } catch (_) {}
           container.read(apiEndpointProvider.notifier).set(ep);
           SentryBootstrap.tagEndpoint(current: ep); // DD-23 endpoint.current
+          if (firstSelection &&
+              !(_raceController?.apiInitializationPending ?? true)) {
+            // Startup may have ended offline. A later successful race can
+            // resume update checks; the independent 24h throttle still applies.
+            // ignore: discarded_futures
+            XbUpdateService.autoCheckThrottled(container);
+          }
           // R4.6 T5（endpoint 切换）：API endpoint 竞速选中可达地址后触发订阅同步。
           // **关键修复**：冷启动 T2 sync 可能早于竞速完成 → 用初始(可能死的)endpoint 调
           // getSubscribeUrl 失败；竞速切到可达 endpoint 后在此重试。gate(authenticated)+
@@ -514,6 +520,7 @@ class XboardModule {
         onSubscriptionSwitch: (ep) =>
             container.read(subscriptionEndpointProvider.notifier).set(ep),
       );
+      _raceController!.beginApiInitialization();
       _raceController!.seedEndpoints(
         _localPayload?.apiEndpoints ?? const [],
         _localPayload?.subscriptionEndpoints ?? const [],

@@ -18,6 +18,7 @@ import 'package:flutter_xboard_sdk/flutter_xboard_sdk.dart'
     show AppUpdateModel, XBoardSDK;
 
 import '../providers/xboard_providers.dart';
+import 'endpoint_race_controller.dart';
 
 /// 更新检查结果。
 sealed class UpdateCheckResult {}
@@ -41,22 +42,61 @@ class UpdateCheckFailed extends UpdateCheckResult {
 class XbUpdateService {
   XbUpdateService._();
 
+  static var _inFlight = Expando<Future<UpdateCheckResult>>();
+  static var _startupFlight = Expando<Future<UpdateCheckResult>>();
+
   /// 执行一次更新检查。
   ///
   /// [sdk] — 已 initialize 的 SDK 实例。
-  /// [apiFailover] — 可选,域名故障转移函数(来自竞速控制器)。请求失败时
-  /// 自动切到备用域名重试一次。
+  /// [endpoints] waits for a probed API; retry only after an actual valid switch.
   /// 返回 sealed [UpdateCheckResult]。调用方决定如何展示（弹窗/toast/静默）。
-  static Future<UpdateCheckResult> check(XBoardSDK sdk, {
-    Future<void> Function()? apiFailover,
-  }) async {
+  static Future<UpdateCheckResult> check(
+    XBoardSDK sdk, {
+    required EndpointRaceController? endpoints,
+  }) {
+    if (endpoints == null) {
+      return Future.value(UpdateCheckFailed(StateError('API is not ready')));
+    }
+    if (endpoints.apiInitializationPending) {
+      final startup = _startupFlight[endpoints];
+      if (startup != null) return startup;
+    } else {
+      _startupFlight[endpoints] = null;
+    }
+    final running = _inFlight[endpoints];
+    if (running != null) return running;
+    final future = _checkReady(sdk, endpoints);
+    _inFlight[endpoints] = future;
+    if (endpoints.apiInitializationPending) _startupFlight[endpoints] = future;
+    return future.whenComplete(() {
+      if (identical(_inFlight[endpoints], future)) _inFlight[endpoints] = null;
+    });
+  }
+
+  static Future<UpdateCheckResult> _checkReady(
+    XBoardSDK sdk,
+    EndpointRaceController endpoints,
+  ) async {
     try {
+      if (!await endpoints.waitForApiReady() ||
+          !endpoints.isApiReadyFor(sdk.baseUrl)) {
+        return UpdateCheckFailed(StateError('API is not ready'));
+      }
       // 编译期注入的原始 build number（不受 ABI split 前缀影响）。
-      const buildNumber = int.fromEnvironment('XB_BUILD_NUMBER', defaultValue: 0);
+      const buildNumber = int.fromEnvironment(
+        'XB_BUILD_NUMBER',
+        defaultValue: 0,
+      );
       const currentCode = buildNumber;
-      debugPrint('[XbUpdateService] currentCode=$currentCode (dart-define XB_BUILD_NUMBER)');
+      debugPrint(
+        '[XbUpdateService] currentCode=$currentCode (dart-define XB_BUILD_NUMBER)',
+      );
       final abi = await _resolveAbi();
 
+      if (!endpoints.isApiReadyFor(sdk.baseUrl)) {
+        return UpdateCheckFailed(StateError('API is not ready'));
+      }
+      final attemptedBase = sdk.baseUrl;
       AppUpdateModel? info;
       try {
         info = await sdk.appUpdate.checkUpdate(
@@ -66,9 +106,15 @@ class XbUpdateService {
         );
       } catch (e) {
         // 首次请求失败 → 尝试 failover 切域名后重试一次。
-        if (apiFailover != null) {
-          debugPrint('[XbUpdateService] first attempt failed ($e), trying failover...');
-          await apiFailover();
+        if (endpoints.isApiReadyFor(sdk.baseUrl)) {
+          debugPrint(
+            '[XbUpdateService] first attempt failed ($e), trying failover...',
+          );
+          if (sdk.baseUrl == attemptedBase) await endpoints.failOverApi();
+          if (!endpoints.isApiReadyFor(sdk.baseUrl) ||
+              sdk.baseUrl == attemptedBase) {
+            return UpdateCheckFailed(e);
+          }
           info = await sdk.appUpdate.checkUpdate(
             platform: _platform,
             abi: abi,
@@ -79,12 +125,16 @@ class XbUpdateService {
         }
       }
 
-      debugPrint('[XbUpdateService] response: info=${info == null ? "null" : "versionCode=${info.versionCode}"}');
+      debugPrint(
+        '[XbUpdateService] response: info=${info == null ? "null" : "versionCode=${info.versionCode}"}',
+      );
 
       if (info == null) return UpdateNotAvailable();
 
       // 服务端 versionCode > 本地 → 有更新
-      debugPrint('[XbUpdateService] compare: ${info.versionCode} > $currentCode = ${info.versionCode > currentCode}');
+      debugPrint(
+        '[XbUpdateService] compare: ${info.versionCode} > $currentCode = ${info.versionCode > currentCode}',
+      );
       if (info.versionCode > currentCode) {
         return UpdateAvailable(info, currentCode);
       }
@@ -100,7 +150,12 @@ class XbUpdateService {
     final sdk = container.read(xboardSdkProvider);
     if (sdk == null) return;
     final race = container.read(injectedRaceControllerProvider);
-    final result = await check(sdk, apiFailover: race?.failOverApi);
+    final generation = _generation;
+    final result = await check(sdk, endpoints: race);
+    if (generation != _generation ||
+        !(race?.isApiReadyFor(sdk.baseUrl) ?? false)) {
+      return;
+    }
     if (result is UpdateAvailable) {
       container.read(availableUpdateProvider.notifier).set(result.info);
     }
@@ -122,6 +177,7 @@ class XbUpdateService {
 
   /// single-flight：检查进行中标志，避免并发请求。
   static bool _checking = false;
+  static int _generation = 0;
 
   /// 节流检查窗口（24h，与订阅同节奏）。
   static const Duration kCheckThrottle = Duration(hours: 24);
@@ -137,11 +193,16 @@ class XbUpdateService {
     if (sw != null && sw.elapsed < kCheckThrottle) return; // 节流窗口内
 
     _checking = true;
+    final generation = _generation;
     try {
       final sdk = container.read(xboardSdkProvider);
       if (sdk == null) return;
       final race = container.read(injectedRaceControllerProvider);
-      final result = await check(sdk, apiFailover: race?.failOverApi);
+      final result = await check(sdk, endpoints: race);
+      if (generation != _generation ||
+          !(race?.isApiReadyFor(sdk.baseUrl) ?? false)) {
+        return;
+      }
       if (result is UpdateAvailable) {
         container.read(availableUpdateProvider.notifier).set(result.info);
         _throttle = _createStopwatch()..start(); // 成功且有更新 → 重置节流时钟
@@ -150,12 +211,15 @@ class XbUpdateService {
       }
       // 检查失败（网络/被墙）→ 不重置时钟，下次触发仍可重试
     } finally {
-      _checking = false;
+      if (generation == _generation) _checking = false;
     }
   }
 
   /// 重置节流时钟（退出登录 / 测试 teardown）。
   static void resetThrottle() {
+    _generation++;
+    _inFlight = Expando<Future<UpdateCheckResult>>();
+    _startupFlight = Expando<Future<UpdateCheckResult>>();
     _throttle = null;
     _checking = false;
   }
@@ -177,8 +241,10 @@ class XbUpdateService {
   /// 否则 x64）。检测失败兜底 x64。
   static Future<String> _resolveAbi() async {
     if (Platform.isAndroid) {
-      return const String.fromEnvironment('XB_ANDROID_ABI',
-          defaultValue: 'arm64-v8a');
+      return const String.fromEnvironment(
+        'XB_ANDROID_ABI',
+        defaultValue: 'arm64-v8a',
+      );
     }
     if (Platform.isWindows) {
       final env = Platform.environment;

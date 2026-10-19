@@ -136,8 +136,10 @@ flutter:
     - assets/images/avatar/
     - assets/images/empty/
     - assets/images/icon/
-    # 出厂 fallback（flavors/<flavor>/assets/fallback.bin）按 flavor 打包，运行时 BootstrapLocalLoader 加载。
+    # xboard-fallback-assets:begin
+    # prepare_flavor replaces this development directory with ONE brand fallback file.
     - flavors/brand_a/assets/
+    # xboard-fallback-assets:end
   fonts:
     - family: JetBrainsMono
       fonts:

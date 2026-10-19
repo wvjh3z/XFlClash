@@ -365,6 +365,9 @@ jobs:
         timeout-minutes: 20
         run: dart run build_runner build
 
+      - name: Check fallback selection before brand injection
+        run: dart test tool/test/fallback_assets_test.dart
+
       # prepare_flavor 生成 flavor_defines.json（含真实 aesKey）。Android 额外 --android-signing
       # 落地 keystore.jks + local.properties。多 ABI 打包：删掉 prepare_flavor 写的 XB_TARGET_ABI，
       # 让 split-per-abi 出全部 ABI（versionCode 由 flutter 按 abi 偏移，FlClash 同款语义）。
@@ -508,6 +511,9 @@ jobs:
         timeout-minutes: 10
         run: python tool/release_pipeline.py normalize
 
+      - name: Verify selected fallback assets
+        run: python tool/check_fallback_assets.py
+
       # 与本机共用：核对生产配置、准备最终分发匹配符号，再上传并等服务器处理。
       # 所有正式平台均强制凭据；诊断跳过选项不暴露在正式工作流中。
       - name: Prepare, audit and upload matching Sentry symbols
@@ -567,6 +573,7 @@ jobs:
             build/windows-iscc-preflight.json
             build/release-context.json
             build/release-artifacts.json
+            build/fallback-assets-evidence.json
             build/toolchain-versions.json
             build/appimage-elf-audit.json
             build/macos/sentry-native-inventory.json

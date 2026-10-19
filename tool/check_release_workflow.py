@@ -20,6 +20,7 @@ MODULES = (
     "tool.test.sentry_release_workflow_test",
     "tool.test.release_preflight_test",
     "tool.test.release_pipeline_test",
+    "tool.test.fallback_assets_test",
 )
 
 

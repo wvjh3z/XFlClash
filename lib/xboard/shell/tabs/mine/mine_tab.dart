@@ -105,10 +105,7 @@ class _MineTabState extends ConsumerState<MineTab> with XbRefreshThrottleGuard {
     final sdk = ref.read(xboardSdkProvider);
     if (sdk == null) return;
     final race = ref.read(injectedRaceControllerProvider);
-    final result = await XbUpdateService.check(
-      sdk,
-      apiFailover: race?.failOverApi,
-    );
+    final result = await XbUpdateService.check(sdk, endpoints: race);
     if (!mounted) return;
     if (result is UpdateAvailable) {
       ref.read(availableUpdateProvider.notifier).set(result.info);

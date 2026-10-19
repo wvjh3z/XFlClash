@@ -97,6 +97,17 @@ def flutter_test_commands(script):
 
 
 class ReleaseWorkflowStructureTests(unittest.TestCase):
+    def test_fallback_checks_precede_compilation_and_symbol_upload(self):
+        workflow = WORKFLOW.read_text(encoding='utf-8')
+        before = workflow.index('name: Check fallback selection before brand injection')
+        self.assertLess(before, workflow.index('name: Prepare flavor'))
+        self.assertEqual(shlex.split(step_script('Check fallback selection before brand injection'))[:3],
+                         ['dart', 'test', 'tool/test/fallback_assets_test.dart'])
+        after = workflow.index('name: Verify selected fallback assets')
+        self.assertLess(workflow.index('name: Normalize artifact names'), after)
+        self.assertLess(after, workflow.index('name: Prepare, audit and upload matching Sentry symbols'))
+        self.assertIn('build/fallback-assets-evidence.json', workflow)
+
     def test_linux_and_macos_pin_python_before_packaging_tools(self):
         workflow = WORKFLOW.read_text(encoding="utf-8")
         name = "      - name: Setup Python for Linux and macOS tooling"

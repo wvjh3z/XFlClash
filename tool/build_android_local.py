@@ -164,7 +164,11 @@ def capture_sources(root: Path, sdk: Path, flavor: str) -> dict:
             if path.is_symlink():
                 tracked[name] = hashlib.sha256(os.readlink(path).encode("utf-8")).hexdigest()
             elif path.is_file():
-                tracked[name] = digest(path)
+                if label == 'client' and name == 'pubspec.yaml':
+                    from check_fallback_assets import canonical_pubspec
+                    tracked[name] = hashlib.sha256(canonical_pubspec(path.read_bytes())).hexdigest()
+                else:
+                    tracked[name] = digest(path)
             elif not path.is_dir():
                 # A deleted tracked input is still a meaningful working tree
                 # state; later changes must not silently enter this batch.
@@ -231,7 +235,7 @@ def retain_verified_apk(apk: Path, batch: Path, inputs: dict, verification: dict
 @contextlib.contextmanager
 def temporary_android_configuration(root: Path, gradle_home: Path):
     """Restore complete prior properties/keystore, including any user ABI."""
-    paths = [root / "android/local.properties", root / "android/app/keystore.jks"]
+    paths = [root / "android/local.properties", root / "android/app/keystore.jks", root / "pubspec.yaml"]
     original = {path: (path.read_bytes(), path.stat().st_mode & 0o777) if path.exists() else None
                 for path in paths}
     init_dir = gradle_home / "init.d"
@@ -356,6 +360,8 @@ def captured(arguments: list[str], environment: dict[str, str]) -> bytes:
 
 
 def verify_apk(root: Path, apk: Path, inputs: dict, tools: Path, environment: dict[str, str]) -> dict:
+    from check_fallback_assets import verify as verify_fallback
+    verify_fallback(root, inputs['flavor'], 'android', packages=[apk])
     badging = captured([str(tools / "aapt"), "dump", "badging", str(apk)], environment).decode("utf-8")
     package = re.search(r"^package: (.+)$", badging, re.M)
     if not package:

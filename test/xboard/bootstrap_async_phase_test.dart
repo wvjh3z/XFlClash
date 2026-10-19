@@ -22,6 +22,7 @@ import 'package:fl_clash/xboard/config/bootstrap_constants.dart';
 import 'package:fl_clash/xboard/config/xboard_config.dart';
 import 'package:fl_clash/xboard/providers/xboard_providers.dart';
 import 'package:fl_clash/xboard/xboard_module.dart';
+import 'package:fl_clash/xboard/models/bootstrap_payload.dart';
 import 'package:fl_clash/xboard/services/xb_update_service.dart';
 
 import '../_fixtures/fake_token_storage.dart';
@@ -56,7 +57,11 @@ void main() {
           usePrintLogger: any(named: 'usePrintLogger'),
           allowNonFlclashUa: any(named: 'allowNonFlclashUa'),
         )).thenAnswer((_) async {});
-    when(() => sdk.switchBaseUrl(any())).thenReturn(null);
+    String? base;
+    when(() => sdk.baseUrl).thenAnswer((_) => base);
+    when(() => sdk.switchBaseUrl(any())).thenAnswer((call) {
+      base = call.positionalArguments.first as String;
+    });
   });
 
   tearDown(() async {
@@ -191,6 +196,11 @@ void main() {
 
       binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
       binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await Future<void>.delayed(Duration.zero);
+      expect(checks, 0, reason: 'Early resumed must wait for a valid API');
+      await container.read(injectedRaceControllerProvider)!.raceApi([
+        const BootstrapEndpoint(url: _apiA),
+      ]);
       await requested.future.timeout(const Duration(seconds: 5));
       await Future<void>.delayed(Duration.zero);
       expect(checks, 1);
@@ -220,6 +230,30 @@ void main() {
     await XboardModule.bootstrapAsync(container);
     // 无 payload → 不竞速，endpoint 不变。
     expect(container.read(apiEndpointProvider), 'https://factory.example.com');
+    await Future<void>.delayed(Duration.zero);
+    verifyNever(() => sdk.appUpdate);
+    final updateApi = _MockAppUpdateApi();
+    final requested = Completer<void>();
+    var checks = 0;
+    when(() => sdk.appUpdate).thenReturn(updateApi);
+    when(() => updateApi.checkUpdate(
+      platform: any(named: 'platform'),
+      abi: any(named: 'abi'),
+      currentVersionCode: any(named: 'currentVersionCode'),
+    )).thenAnswer((_) async {
+      checks++;
+      if (!requested.isCompleted) requested.complete();
+      return null;
+    });
+    final race = container.read(injectedRaceControllerProvider)!;
+    await race.raceApi([const BootstrapEndpoint(url: _apiA)]);
+    await requested.future.timeout(const Duration(seconds: 5));
+    await Future<void>.delayed(Duration.zero);
+    expect(checks, 1, reason: 'First API availability recovers the deferred check');
+    XbUpdateService.resetThrottle();
+    await race.raceApi([const BootstrapEndpoint(url: _apiB)]);
+    await Future<void>.delayed(Duration.zero);
+    expect(checks, 1, reason: 'Ordinary failover must not create a separate automatic check');
   });
 }
 

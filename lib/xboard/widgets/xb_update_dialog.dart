@@ -83,10 +83,7 @@ class _UpdateDialogState extends ConsumerState<_UpdateDialog> {
     final sdk = ref.read(xboardSdkProvider);
     if (sdk != null) {
       final race = ref.read(injectedRaceControllerProvider);
-      final result = await XbUpdateService.check(
-        sdk,
-        apiFailover: race?.failOverApi,
-      );
+      final result = await XbUpdateService.check(sdk, endpoints: race);
       if (!mounted) return;
       if (result is UpdateAvailable) {
         _info = result.info;

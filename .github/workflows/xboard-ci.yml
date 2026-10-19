@@ -16,7 +16,7 @@ on:
         description: 'Current documentation commit'
         type: string
         required: true
-        default: '80ea90564eb0d59b7825745b381ad244cd58cfbd'
+        default: '0f1d31668a637d3f1e6b150773e7587443ed2ca9'
 
 permissions:
   contents: read
@@ -113,6 +113,9 @@ jobs:
 
       - name: Test desktop installer branding and version injection
         run: flutter test --no-pub tool/test/windows_installer_metadata_test.dart tool/test/inject_desktop_brand_test.dart tool/test/inject_system_icons_cli_test.dart tool/test/prepare_release_context_test.dart
+
+      - name: Test fallback asset selection
+        run: dart test tool/test/fallback_assets_test.dart
 
       - name: Preserve dependency retry diagnostics
         if: always()

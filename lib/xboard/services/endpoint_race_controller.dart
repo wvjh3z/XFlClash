@@ -58,6 +58,41 @@ class EndpointRaceController {
   String? _currentApi;
   String? _currentSub;
 
+  Completer<void>? _apiInitialization;
+  bool _apiStartupActive = false;
+
+  /// Hold early update checks until an API probe succeeds or startup finishes.
+  void beginApiInitialization() {
+    _apiStartupActive = true;
+    _apiInitialization ??= Completer<void>();
+  }
+
+  void finishApiInitialization() {
+    _apiStartupActive = false;
+    _releaseApiWaiters();
+  }
+
+  void _releaseApiWaiters() {
+    final pending = _apiInitialization;
+    if (pending != null && !pending.isCompleted) pending.complete();
+  }
+
+  bool get apiInitializationPending => _apiStartupActive;
+
+  Future<bool> waitForApiReady() async {
+    if (!_disposed && _currentApi == null) {
+      await _apiInitialization?.future;
+    }
+    return !_disposed && _currentApi != null;
+  }
+
+  bool isApiReadyFor(String? baseUrl) =>
+      !_disposed &&
+      _currentApi != null &&
+      baseUrl != null &&
+      BootstrapPayload.normalizeEndpoint(baseUrl) ==
+          BootstrapPayload.normalizeEndpoint(_currentApi!);
+
   /// 完整 endpoint 列表（含 region，failOver / 重竞速复用）。
   List<BootstrapEndpoint> _apiEndpoints = const [];
   List<BootstrapEndpoint> _subEndpoints = const [];
@@ -172,6 +207,7 @@ class EndpointRaceController {
     _raceAttempts++;
     SentryBootstrap.tagEndpoint(raceAttempts: _raceAttempts);
     final winner = await _raceRegionAware(apiEndpoints);
+    if (_disposed) return;
     if (winner != null && winner != _currentApi) {
       _currentApi = winner;
       onApiSwitch?.call(winner);
@@ -179,6 +215,7 @@ class EndpointRaceController {
       _currentApi = winner;
       onApiSwitch?.call(winner);
     }
+    if (_currentApi != null) _releaseApiWaiters();
   }
 
   /// Subscription endpoint 竞速（R15.C.23 + R4.9 地区感知）。
@@ -260,8 +297,10 @@ class EndpointRaceController {
   }
 
   void _switchApiTo(String endpoint) {
+    if (_disposed) return;
     _currentApi = endpoint;
     onApiSwitch?.call(endpoint);
+    _releaseApiWaiters();
     _recordSwitch();
   }
 
@@ -360,6 +399,7 @@ class EndpointRaceController {
 
   void dispose() {
     _disposed = true;
+    finishApiInitialization();
     _subGeneration++;
     _switchTimes.clear();
   }

@@ -19,6 +19,7 @@ import 'package:args/args.dart';
 import 'package:path/path.dart' as p;
 import 'package:yaml/yaml.dart';
 import 'package:fl_clash/xboard/util/tutorial_resource_base.dart';
+import 'fallback_assets.dart';
 
 // 🔴 W0.5 实施期 spec 订正：design §E 校验项写「调 SDK HttpConfig.hasSingleFlclashFlag」，
 // 但 SDK barrel 透传 import package:flutter（http_service.dart），纯 Dart CLI（dart run）
@@ -42,7 +43,7 @@ const _requiredStringKeys = <String>[
   'supportEmail',
 ];
 
-void main(List<String> argv) {
+Future<void> main(List<String> argv) async {
   final parser = ArgParser()
     ..addOption('flavor', help: 'flavor 名（对应 flavors/<flavor>/）', defaultsTo: 'brand_a')
     ..addOption('target', help: 'build target（test 注入 kIsTest=true）', defaultsTo: 'prod')
@@ -88,9 +89,19 @@ void main(List<String> argv) {
   //   用法：flutter build apk --flavor $flavor --dart-define-from-file=flavor_defines.json
   //   → XboardConfig.fromEnvironment() 编译期读入。committed 代码零 import 生成物（恒可编译）。
   final doc = loadYaml(File(yamlPath).readAsStringSync()) as YamlMap;
+  // Validate the complete edit before writing either generated input.
+  final pubspec = File('pubspec.yaml');
+  final selectedAssets = injectFallbackAsset(pubspec.readAsStringSync(), flavor);
+  if (!isTest) {
+    await verifyFallbackInput(
+      File(p.join(flavorDir, 'assets', 'fallback.bin')).readAsStringSync(),
+      base64Decode(doc['aesKey'] as String),
+    );
+  }
   const genPath = 'flavor_defines.json';
   File(genPath).writeAsStringSync(
       generateFlavorDefinesJson(doc, flavorId: flavor, isTest: isTest));
+  pubspec.writeAsStringSync(selectedAssets);
   stdout.writeln('[prepare_flavor] ✓ 已生成 $genPath'
       '（用 --dart-define-from-file=$genPath 注入构建）');
 

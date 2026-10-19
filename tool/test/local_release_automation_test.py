@@ -236,7 +236,7 @@ class AndroidLocalTests(unittest.TestCase):
         self.sdk = self.base / "Xboard_sdk"
         for directory in (self.root / "android/app", self.root / "flavors/brand_a/assets", self.root / "scripts", self.root / "lib", self.root / "core/Clash.Meta", self.sdk / "lib"):
             directory.mkdir(parents=True)
-        (self.root / "pubspec.yaml").write_text("version: 0.8.93+123\n")
+        (self.root / "pubspec.yaml").write_text("version: 0.8.93+123\n    # xboard-fallback-assets:begin\n    - flavors/brand_a/assets/\n    # xboard-fallback-assets:end\n")
         (self.root / "pubspec.lock").write_text("client lock")
         (self.sdk / "pubspec.lock").write_text("SDK lock")
         (self.root / "lib/source.dart").write_text("original client source")
@@ -272,6 +272,8 @@ class AndroidLocalTests(unittest.TestCase):
             if name == failure:
                 raise android.ReleaseError("fake failure at " + name)
             if name == "prepare-flavor":
+                spec = owner.root / "pubspec.yaml"
+                spec.write_text(spec.read_text().replace('flavors/brand_a/assets/', 'flavors/brand_a/assets/fallback.bin'))
                 owner.properties.write_text("sdk.dir=/original\nstorePassword=fake\nkeyAlias=fake\nXB_TARGET_ABI=arm64-v8a\n")
                 owner.keystore.write_bytes(b"selected-brand-keystore")
                 (owner.root / "flavor_defines.json").write_text(json.dumps({"XB_SENTRY_DSN": "configured"}))
@@ -296,6 +298,8 @@ class AndroidLocalTests(unittest.TestCase):
             return android.main(arguments or self.arguments)
 
     def assert_restored(self, ci_number="17"):
+        self.assertIn('- flavors/brand_a/assets/\n', (self.root / 'pubspec.yaml').read_text())
+        self.assertNotIn('assets/fallback.bin', (self.root / 'pubspec.yaml').read_text())
         self.assertEqual(self.ci_counter.read_text(), ci_number + "\n")
         self.assertEqual(self.properties.read_text(), "sdk.dir=/original\nXB_TARGET_ABI=x86_64\n")
         self.assertEqual(self.keystore.read_bytes(), b"original-keystore")
