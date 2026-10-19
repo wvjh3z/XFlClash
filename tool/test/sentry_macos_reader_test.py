@@ -3,6 +3,7 @@
 
 import contextlib
 import io
+import inspect
 import json
 import os
 from pathlib import Path
@@ -21,6 +22,7 @@ sys.path.insert(0, str(TOOL))
 sys.path.insert(0, str(TOOL / "test"))
 import prepare_sentry_macos_symbols as preparation
 import owned_process_cleanup as cleanup
+from ready_debug_reader import ReadyReader, OffsetClock, STARTUP_TIMEOUT
 from sentry_macos_inventory import write_inventory
 from sentry_macos_symbols_test import macho, universal
 
@@ -31,6 +33,7 @@ class RustReaderTests(unittest.TestCase):
         self.temporary = tempfile.TemporaryDirectory(prefix="sentry-reader-")
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name).resolve()
+        self.retained_diagnostics = os.environ.get("SENTRY_MACOS_DIAGNOSTICS_DIR")
         # Expected negative fixtures must not replace another CI test's evidence.
         patcher = mock.patch.dict(os.environ, {"SENTRY_MACOS_DIAGNOSTICS_DIR": str(self.root / "diagnostics")})
         patcher.start()
@@ -60,16 +63,157 @@ class RustReaderTests(unittest.TestCase):
                     self.assertEqual(diagnostic["cleanup"], "complete")
                     self.assertEqual(diagnostic["phase"], "complete")
 
-    def test_eof_before_exit_waits_with_deadline_and_reaps(self):
+    def retain_ready_failure(self, mode, diagnostic, readiness):
+        # Only unexpected test failures escape the isolated negative-fixture
+        # directory. Two fixed files survive cleanup via the existing artifact.
+        if not self.retained_diagnostics or mode not in {'eof', 'held'}:
+            return
+        try:
+            directory = Path(self.retained_diagnostics)
+            if directory.is_symlink():
+                return
+            directory.mkdir(parents=True, exist_ok=True)
+            value = {'schema_version': 1, 'case': mode,
+                     'diagnostic': preparation.safe_diagnostic(diagnostic),
+                     'readiness': {name: readiness.get(name) is True for name in
+                         ('parent_ready', 'child_ready', 'parent_exited', 'termination_witnessed')}}
+            fd = os.open(directory / ('reader-test-' + mode + '.json'),
+                         os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, 'O_NOFOLLOW', 0), 0o600)
+            with os.fdopen(fd, 'w', encoding='utf-8') as stream:
+                json.dump(value, stream, sort_keys=True)
+        except (OSError, ValueError, TypeError):
+            pass  # Optional evidence must not mask the failing assertion.
+
+    def ready_timeout(self, mode, *, startup_delay=0):
         diagnostic = {}
-        started = time.monotonic()
-        with self.assertRaisesRegex(preparation.PreparationError, "^macos_rust_dwarfdump_timeout$"):
-            self.scan("import os, time\nos.close(1)\ntime.sleep(60)\n", timeout=.15, diagnostic=diagnostic)
-        self.assertLess(time.monotonic() - started, 3)
-        self.assertEqual(diagnostic["phase"], "wait")
-        self.assertTrue(diagnostic["eof"])
-        self.assertTrue(diagnostic["reaped"])
-        self.assertTrue(diagnostic["pipe_closed"])
+        reader = ReadyReader(self.root, mode, startup_delay=startup_delay)
+        try:
+            self.check_ready_timeout(reader, diagnostic)
+        except BaseException:
+            self.retain_ready_failure(mode, diagnostic, reader.evidence())
+            raise
+
+    def check_ready_timeout(self, reader, diagnostic):
+        mode = reader.mode
+        clock = OffsetClock()
+        self.assertEqual(preparation.RUST_DWARFDUMP_TIMEOUT, 60)
+        self.assertEqual(inspect.signature(preparation.contains_rust_debug).parameters['timeout'].default, 60)
+        with reader:
+            if mode == 'held':
+                reader.exit_parent()  # Reaped leader, live descendant owns stdout.
+            original_read = preparation.read_debug_pipe
+            original_selector = preparation.selectors.DefaultSelector
+            observed = []
+
+            def read(descriptor, size):
+                chunk = original_read(descriptor, size)
+                if not chunk:
+                    reader.assert_alive(('parent',))
+                    observed.append('eof')
+                    clock.advance(61)  # Only after the real EOF reaches the reader.
+                return chunk
+
+            case = self
+            class Selector:
+                def __init__(self):
+                    self.inner = original_selector()
+                def __enter__(self):
+                    self.inner.__enter__()
+                    return self
+                def __exit__(self, *args):
+                    return self.inner.__exit__(*args)
+                def __getattr__(self, name):
+                    return getattr(self.inner, name)
+                def select(self, timeout):
+                    events = self.inner.select(0)
+                    case.assertEqual(events, [], 'Live descendant must still own stdout')
+                    reader.assert_alive(('child',))
+                    observed.append('held')
+                    clock.advance(61)
+                    return events
+
+            with contextlib.ExitStack() as stack:
+                stack.enter_context(mock.patch.object(preparation, 'time', clock))
+                self.assertIs(cleanup.time, time)  # Never freeze real cleanup deadlines.
+                stack.enter_context(mock.patch.object(preparation, 'launch_debug_reader', return_value=reader.process))
+                if mode == 'eof':
+                    stack.enter_context(mock.patch.object(preparation, 'read_debug_pipe', side_effect=read))
+                else:
+                    stack.enter_context(mock.patch.object(preparation.selectors, 'DefaultSelector', Selector))
+                kill = stack.enter_context(mock.patch.object(preparation.os, 'killpg', wraps=os.killpg))
+                wait = stack.enter_context(mock.patch.object(reader.process, 'wait', wraps=reader.process.wait))
+                with self.assertRaisesRegex(preparation.PreparationError, '^macos_rust_dwarfdump_timeout$'):
+                    preparation.contains_rust_debug('unused-fixture', self.root / 'private-input',
+                                                    architecture='x86_64', diagnostic=diagnostic)
+            if mode == 'eof':
+                self.assertEqual(wait.call_args_list[0].kwargs['timeout'], .001)
+            self.assertEqual(observed, ['eof' if mode == 'eof' else 'held'])
+            self.assertEqual(clock.offset, 61)
+            self.assertEqual(diagnostic['phase'], 'wait' if mode == 'eof' else 'read')
+            self.assertEqual(diagnostic['eof'], mode == 'eof')
+            self.assertTrue(diagnostic['reaped'])
+            self.assertTrue(diagnostic['pipe_closed'])
+            self.assertEqual(diagnostic['cleanup'], 'complete')
+            self.assertEqual([call.args[1] for call in kill.call_args_list], [signal.SIGTERM, signal.SIGKILL])
+            if mode == 'held':
+                self.assertEqual(diagnostic['returncode'], 0)
+            reader.assert_closed()
+
+    def test_eof_before_exit_waits_with_deadline_and_reaps(self):
+        self.ready_timeout('eof')
+
+    def test_slow_startup_cannot_consume_reader_phase_test_budget(self):
+        # Deliberately exceed both former 150/200ms assumptions, including the
+        # descendant's own startup. No scheduler speed is required for success.
+        for mode in ('eof', 'held'):
+            with self.subTest(mode=mode):
+                self.ready_timeout(mode, startup_delay=.35)
+
+    def test_readiness_deadline_and_missing_readiness_are_not_success(self):
+        self.assertEqual(STARTUP_TIMEOUT, 15)
+        fixture = ReadyReader(self.root, 'held', startup_timeout=0)
+        with self.assertRaisesRegex(AssertionError, 'readiness deadline'):
+            with fixture:
+                self.fail('Unready fixture entered test')
+        self.assertIsNotNone(fixture.process.returncode)
+        self.assertTrue(fixture.process.stdout.closed)
+        with self.assertRaisesRegex(AssertionError, 'without readiness'):
+            fixture.assert_closed()
+
+    def test_live_descendant_is_not_mistaken_for_successful_cleanup(self):
+        with ReadyReader(self.root, 'held') as reader:
+            reader.exit_parent()
+            with self.assertRaisesRegex(AssertionError, 'still alive'):
+                reader.assert_closed(timeout=.05)
+            cleanup.cleanup_owned_group(reader.process)
+            reader.assert_closed()
+
+    def test_only_unexpected_ready_failure_retains_bounded_safe_evidence(self):
+        self.retained_diagnostics = str(self.root / 'retained')
+        # A normal expected production timeout must not become a failure artifact.
+        self.ready_timeout('eof')
+        destination = Path(self.retained_diagnostics)
+        self.assertFalse(destination.exists())
+        original = self.check_ready_timeout
+        def failed(reader, diagnostic):
+            original(reader, diagnostic)  # Real cleanup completes before assertion failure.
+            diagnostic.update(message='private-token', path='/private/path')
+            raise AssertionError('private-token /private/path')
+        with mock.patch.object(self, 'check_ready_timeout', side_effect=failed):
+            with self.assertRaises(AssertionError):
+                self.ready_timeout('eof')
+        report = destination / 'reader-test-eof.json'
+        data = json.loads(report.read_text(encoding='utf-8'))
+        self.assertTrue(data['readiness']['termination_witnessed'])
+        self.assertEqual(data['diagnostic']['phase'], 'wait')
+        self.assertNotIn('private', report.read_text(encoding='utf-8'))
+        self.retain_ready_failure('eof', {}, {})
+        self.assertEqual(len(list(destination.iterdir())), 1)
+        report.unlink()
+        sentinel = self.root / 'sentinel'; sentinel.write_bytes(b'unchanged')
+        report.symlink_to(sentinel)
+        self.retain_ready_failure('eof', {}, {})
+        self.assertEqual(sentinel.read_bytes(), b'unchanged')
 
     def test_success_survives_darwin_permission_race_with_safe_evidence(self):
         # Read a real completed child's output, then inject Darwin's signaling
@@ -113,19 +257,7 @@ class RustReaderTests(unittest.TestCase):
         self.assertTrue(diagnostic["reaped"])
 
     def test_descendant_holding_pipe_is_bounded_even_after_leader_exit(self):
-        diagnostic = {}
-        source = ("import subprocess, sys\n"
-                  "subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'])\n")
-        started = time.monotonic()
-        with mock.patch.object(preparation.os, "killpg", wraps=os.killpg) as kill, \
-             self.assertRaisesRegex(preparation.PreparationError, "^macos_rust_dwarfdump_timeout$"):
-            self.scan(source, timeout=.2, diagnostic=diagnostic)
-        self.assertLess(time.monotonic() - started, 3)
-        self.assertEqual([call.args[1] for call in kill.call_args_list], [signal.SIGTERM, signal.SIGKILL])
-        self.assertEqual(diagnostic["phase"], "read")
-        self.assertTrue(diagnostic["reaped"])
-        self.assertTrue(diagnostic["pipe_closed"])
-        self.assertEqual(diagnostic["returncode"], 0)
+        self.ready_timeout('held')
 
     def test_launch_failure_is_sanitized_and_has_no_cleanup_resource(self):
         diagnostic = {}

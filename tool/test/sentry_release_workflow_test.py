@@ -395,7 +395,7 @@ class ReleaseWorkflowTests(unittest.TestCase):
         diagnostics = self.root / "build/sentry-diagnostics/macos"
         diagnostics.mkdir(parents=True)
         for name in ("failure-00.json", "failure-15.json", "unexpected.json", "reader-lifecycle.json",
-                     "reader-termination.json", "keep.json", "failure-extra.json", "failure-16.json", "failure-99.json"):
+                     "reader-termination.json", "reader-test-eof.json", "reader-test-held.json", "keep.json", "failure-extra.json", "failure-16.json", "failure-99.json"):
             (diagnostics / name).write_text("fixture")
         self.env["SENTRY_MACOS_DIAGNOSTICS_DIR"] = str(diagnostics)
         result = self.execute("Setup Sentry CLI and verify symbol tooling", "macos")

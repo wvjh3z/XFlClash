@@ -252,7 +252,9 @@ jobs:
               "$SENTRY_MACOS_DIAGNOSTICS_DIR"/failure-1[0-5].json
             rm -f "$SENTRY_MACOS_DIAGNOSTICS_DIR"/unexpected.json \
               "$SENTRY_MACOS_DIAGNOSTICS_DIR"/reader-lifecycle.json \
-              "$SENTRY_MACOS_DIAGNOSTICS_DIR"/reader-termination.json
+              "$SENTRY_MACOS_DIAGNOSTICS_DIR"/reader-termination.json \
+              "$SENTRY_MACOS_DIAGNOSTICS_DIR"/reader-test-eof.json \
+              "$SENTRY_MACOS_DIAGNOSTICS_DIR"/reader-test-held.json
           fi
           npm install -g @sentry/cli@2.58.4
           python tool/test/owned_process_cleanup_test.py
