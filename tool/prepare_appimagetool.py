@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import os
 import json
 from pathlib import Path
 import platform
@@ -18,7 +19,11 @@ import subprocess
 import sys
 import tempfile
 import urllib.error
-import urllib.request
+try:
+    from .fetch_build_asset import download_asset
+except ImportError:
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from fetch_build_asset import download_asset
 
 REPO = Path(__file__).resolve().parents[1]
 PIN = json.loads((REPO / "tool/appimagetool-version.json").read_text(encoding="utf-8"))
@@ -65,13 +70,13 @@ def verify_asset(path: Path, arch: str) -> bytes:
 
 def fetch_asset(destination: Path, arch: str) -> None:
     pin = PIN["assets"][arch]
-    request = urllib.request.Request(pin["url"], headers={
-        "Accept": "application/octet-stream", "User-Agent": "XFlclash-pinned-appimagetool",
-        "X-GitHub-Api-Version": "2022-11-28",
-    })
-    with urllib.request.urlopen(request, timeout=60) as response, destination.open("wb") as output:
-        shutil.copyfileobj(response, output)
-    verify_asset(destination, arch)
+    download_asset(destination, pin["url"], pin["size"],
+                   token=os.environ.get("APPIMAGETOOL_GITHUB_TOKEN", "").strip())
+    try:
+        verify_asset(destination, arch)
+    except Exception:
+        destination.unlink(missing_ok=True)
+        raise
 
 
 def check_version(tool: Path) -> str:

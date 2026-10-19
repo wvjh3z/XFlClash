@@ -20,7 +20,10 @@ import tarfile
 import tempfile
 import unittest
 from unittest import mock
-from urllib.parse import unquote, urljoin, urlparse
+try:
+    from .distributor_fixture import resolved_packages
+except ImportError:
+    from distributor_fixture import resolved_packages
 
 
 REPO = Path(__file__).resolve().parents[2]
@@ -36,52 +39,12 @@ def command(*args: str, **kwargs) -> subprocess.CompletedProcess:
 
 
 def package_configuration(output: Path, tools: Path) -> Path:
-    """Reuse resolved configs/cache, with absolute URIs; never resolve packages."""
-    cache = Path(os.environ.get("PUB_CACHE", str(Path.home() / ".pub-cache")))
-    configs = [
-        REPO / ".dart_tool/package_config.json",
-        tools / "packages/flutter_distributor/.dart_tool/package_config.json",
-        cache / "global_packages/flutter_distributor/.dart_tool/package_config.json",
-    ]
-    if os.environ.get("LINUX_PACKAGER_PACKAGE_CONFIG"):
-        configs.append(Path(os.environ["LINUX_PACKAGER_PACKAGE_CONFIG"]))
-    packages = {}
-    hosted = {cache / "hosted/pub.dev"}
-    for config in configs:
-        if not config.is_file():
-            continue
-        for entry in json.loads(config.read_text())["packages"]:
-            entry = dict(entry)
-            entry["rootUri"] = urljoin(config.as_uri(), entry["rootUri"])
-            packages[entry["name"]] = entry
-            local = Path(unquote(urlparse(entry["rootUri"]).path))
-            if local.parent.name == "pub.dev":
-                hosted.add(local.parent)
-    if not packages:
-        raise RuntimeError("No resolved Dart package_config found; prepare dependencies first")
-    # The application doesn't depend on mustache_template, but the real maker
-    # does. Global activation resolves it in CI; local runs can reuse its cache.
-    if "mustache_template" not in packages:
-        candidates = sorted(p for root in hosted for p in root.glob("mustache_template-2.*"))
-        if not candidates:
-            raise RuntimeError("mustache_template is absent from resolved configs and local cache")
-        packages["mustache_template"] = {
-            "name": "mustache_template", "rootUri": candidates[-1].as_uri(),
-            "packageUri": "lib/", "languageVersion": re.search(
-                r"sdk:\s*['\"]?[\^>= ]*(\d+\.\d+)",
-                (candidates[-1] / "pubspec.yaml").read_text(),
-            ).group(1),
-        }
-    for name in ("flutter_app_builder", "flutter_app_packager", "shell_executor"):
-        packages[name] = {
-            "name": name, "rootUri": (tools / "packages" / name).as_uri(),
-            "packageUri": "lib/", "languageVersion": "2.16",
-        }
-    for name in ("path", "pub_semver", "pubspec_parse", "yaml", "collection", "meta", "mustache_template"):
-        entry = packages.get(name)
-        if not entry or not Path(unquote(urlparse(entry["rootUri"]).path)).is_dir():
-            raise RuntimeError(f"Required cached Dart dependency unavailable: {name}")
-    output.write_text(json.dumps({"configVersion": 2, "packages": list(packages.values())}))
+    """Use the activated graph only, then let the fixture remap its isolated sources."""
+    prepared = tools / 'packages'
+    config = Path(os.environ.get('LINUX_PACKAGER_PACKAGE_CONFIG',
+                                str(prepared / 'flutter_distributor/.dart_tool/package_config.json')))
+    packages = resolved_packages(config, prepared=prepared)
+    output.write_text(json.dumps({'configVersion': 2, 'packages': list(packages.values())}), encoding='utf-8')
     return output
 
 

@@ -54,8 +54,11 @@ SOURCE_HASHES = {
 
 
 def git(source: Path, *arguments: str) -> bytes:
+    # Export bytes deterministically, but let status interpret the real checkout
+    # using its own settings (a legitimate Windows CRLF checkout is clean).
+    settings = ["-c", "core.autocrlf=false", "-c", "core.eol=lf"] if arguments[0] == "archive" else []
     result = subprocess.run(
-        ["git", "-C", str(source), *arguments], capture_output=True, check=False
+        ["git", *settings, "-C", str(source), *arguments], capture_output=True, check=False
     )
     if result.returncode:
         raise RuntimeError(f"git {' '.join(arguments[:2])} failed: {result.stderr.decode('utf-8', errors='replace').strip()}")

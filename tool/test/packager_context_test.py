@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import ast
+from contextlib import chdir
+import ntpath
 import hashlib
 import importlib.util
 import io
@@ -150,6 +152,37 @@ class PackagerContextTests(unittest.TestCase):
         with mock.patch(__name__ + '.SOURCE', shallow):
             self.test_real_cli_default_output_and_external_output_are_identical()
 
+    def test_real_archive_and_default_cli_ignore_host_line_endings(self):
+        tools = self.install_cli_fixture()
+        source = self.repo / 'plugins/flutter_distributor'
+        output = self.repo / 'build/packaging-tools/flutter_distributor'
+        for mode in ('false', 'input', 'true'):
+            with self.subTest(autocrlf=mode):
+                # Fresh checkout with settings applied before files/index exist;
+                # changing settings on a reused index is a different scenario.
+                shutil.rmtree(source)
+                command(['git', 'clone', '--quiet', '--shared', '--no-checkout', SOURCE, source])
+                command(['git', 'config', 'core.autocrlf', mode], cwd=source)
+                command(['git', 'config', 'core.eol', 'crlf'], cwd=source)
+                command(['git', 'checkout', '--quiet', '--detach', PACKAGER.PINNED_REVISION], cwd=source)
+                self.assertEqual(command(['git', 'status', '--porcelain'], cwd=source).stdout, b'')
+                if mode == 'true':
+                    self.assertIn(b'\r\n', (source / next(iter(PACKAGER.SOURCE_HASHES))).read_bytes())
+                command([sys.executable, tools / 'prepare_linux_packager.py'], cwd=self.repo)
+                self.assert_complete(output)
+        # Negative control uses real git archive with the former invocation.
+        old = command(['git', '-C', source, 'archive', PACKAGER.PINNED_REVISION,
+                       'packages', 'LICENSE', 'README.md']).stdout
+        stage = self.root / 'old-archive'
+        stage.mkdir()
+        PACKAGER.export_tool_archive(old, stage)
+        with self.assertRaisesRegex(RuntimeError, 'Upstream source drift'):
+            PACKAGER.verify_hashes(stage, 0)
+        name = next(iter(PACKAGER.SOURCE_HASHES))
+        self.assertIn(b'\r\n', (stage / name).read_bytes())
+        self.assertEqual(hashlib.sha256((stage / name).read_bytes().replace(b'\r\n', b'\n')).hexdigest(),
+                         PACKAGER.SOURCE_HASHES[name][0])
+
     def install_cli_fixture(self):
         # An actual enclosing repository, tracked gitlink and source checkout,
         # rather than calling prepare() in a repository-external temp directory.
@@ -282,10 +315,18 @@ class ArchiveAliasTests(unittest.TestCase):
                 with self.subTest(relative=relative, materialize=materialize):
                     stage = self.alias / f'{relative}-{materialize}'
                     stage.mkdir()
-                    argument = Path(os.path.relpath(stage, Path.cwd())) if relative else stage
-                    PACKAGER.export_tool_archive(archive, argument, materialize_links=materialize)
+                    # TEMP may be on C: while the checkout is on D:. Relative
+                    # paths must be formed and consumed on the same volume.
+                    with chdir(self.root):
+                        argument = stage.relative_to(self.root) if relative else stage
+                        PACKAGER.export_tool_archive(archive, argument, materialize_links=materialize)
                     self.assertEqual((stage / 'packages/tool/README.md').read_bytes(), b'content')
                     self.assertEqual((stage / 'packages/tool/README.md').is_symlink(), not materialize)
+
+    def test_windows_cross_volume_relative_path_is_not_a_valid_fixture(self):
+        with self.assertRaises(ValueError):
+            ntpath.relpath(r'C:\Temp\stage', r'D:\a\checkout')
+        self.assertEqual(ntpath.relpath(r'C:\Temp\stage', r'C:\Temp'), 'stage')
 
     def test_old_mixed_path_comparison_rejects_a_valid_alias(self):
         target = self.alias / 'README.md'

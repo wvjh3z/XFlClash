@@ -3,8 +3,8 @@
 
 No client compilation, pub resolution, global activation, or network is involved.
 Only package makers, publishers and terminal/Windows decoding helpers are replaced. CommandPackage,
-FlutterDistributor and FlutterAppBuilder execute directly from the submodule.
-Run after `flutter pub get`, with Dart on PATH.
+FlutterDistributor and FlutterAppBuilder execute from the activated prepared copy.
+Run after distributor preparation/activation, with Dart on PATH.
 """
 import json
 import os
@@ -15,7 +15,10 @@ import sys
 import subprocess
 import tempfile
 import unittest
-from urllib.parse import urljoin
+try:
+    from .distributor_fixture import PREPARED, PACKAGES, resolved_packages
+except ImportError:
+    from distributor_fixture import PREPARED, PACKAGES, resolved_packages
 
 try:
     from .sentry_release_workflow_test import step_script
@@ -24,7 +27,7 @@ except ImportError:
 
 
 ROOT = Path(__file__).resolve().parents[2]
-VENDORED = ROOT / "plugins/flutter_distributor/packages"
+VENDORED = PREPARED
 
 
 @unittest.skipUnless(os.name == "posix" and shutil.which("bash"), "POSIX shell fixture required")
@@ -38,20 +41,12 @@ class AndroidPackageArgumentsTests(unittest.TestCase):
         bundled_dart = Path(self.dart).resolve().parent / "cache/dart-sdk/bin/dart"
         if bundled_dart.is_file():
             self.dart = str(bundled_dart)
-        config_path = ROOT / ".dart_tool/package_config.json"
-        if not config_path.exists():
-            self.fail("Run flutter pub get before the distributor argv regression")
         self.temporary = tempfile.TemporaryDirectory(prefix="android-package-argv-")
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name)
         self.bin = self.root / "bin"
         self.bin.mkdir()
-        config = json.loads(config_path.read_text())
-        packages = {item["name"]: {**item, "rootUri": urljoin(config_path.as_uri(), item["rootUri"])}
-                    for item in config["packages"]}
-        for name in ("flutter_distributor", "flutter_app_builder", "shell_executor", "shell_uikit"):
-            packages[name] = {"name": name, "rootUri": (VENDORED / name).as_uri(),
-                              "packageUri": "lib/", "languageVersion": "2.16"}
+        packages = resolved_packages(PACKAGES)
         # Fake makers deliberately never execute appdmg/rpm/Gradle or inspect native files.
         self.fixture_package(packages, "flutter_app_packager", '''
 import 'dart:io';

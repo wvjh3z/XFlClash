@@ -474,7 +474,15 @@ jobs:
           if [ "${{ matrix.arch }}" = "amd64" ]; then
             sudo apt-get install -y rpm   # rpm 仅 amd64 出
           fi
-          # Pin official asset IDs, SHA256 and native CPU; use extracted tools without FUSE.
+
+      - name: Prepare pinned AppImage tool
+        if: matrix.platform == 'linux'
+        timeout-minutes: 15
+        env:
+          APPIMAGETOOL_GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # Token used only for GET to the pinned API; stripped on asset redirects.
           APPIMAGETOOL_BIN="$(python3 tool/prepare_appimagetool.py --target-arch "${{ matrix.arch }}" --print-bin-dir)"
           echo "$APPIMAGETOOL_BIN" >> "$GITHUB_PATH"
 

@@ -12,7 +12,8 @@ import re
 import subprocess
 import sys
 import tarfile
-import urllib.request
+import tempfile
+from fetch_build_asset import download_asset
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -44,11 +45,10 @@ def main(argv=None):
             if not archive.exists():
                 if not args.prepare:
                     raise ValueError('pinned_linter_missing_use_prepare')
-                req = urllib.request.Request(pin['url'],headers={'User-Agent':'XFlclash-static-preflight'})
-                with urllib.request.urlopen(req,timeout=60) as response:
-                    raw = response.read(30_000_001)
-                if len(raw) > 30_000_000:
-                    raise ValueError('lint_download_too_large')
+                with tempfile.TemporaryDirectory(prefix='lint-download-', dir=base) as temporary:
+                    downloaded = Path(temporary) / 'asset'
+                    download_asset(downloaded, pin['url'], 30_000_000)
+                    raw = downloaded.read_bytes()
                 binary = verified_binary(raw,pin['sha256'],name)
                 archive.write_bytes(raw)
             else:
@@ -66,7 +66,7 @@ def main(argv=None):
         passed = result.returncode == 0 and shell.returncode == 0
         if passed: print('Static checks passed: '+', '.join(n+' '+p['version'] for n,p in pins.items()))
         return 0 if passed else 1
-    except (OSError,ValueError,tarfile.TarError,subprocess.TimeoutExpired) as error:
+    except (OSError,ValueError,RuntimeError,tarfile.TarError,subprocess.TimeoutExpired) as error:
         print('Static tooling failed: '+type(error).__name__,file=sys.stderr)
         return 1
 

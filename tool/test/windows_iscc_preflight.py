@@ -16,27 +16,21 @@ import shutil
 import subprocess
 import tempfile
 
+try:
+    from .distributor_fixture import resolved_packages
+except ImportError:
+    from distributor_fixture import resolved_packages
+
 ROOT = Path(__file__).resolve().parents[2]
 FIXED_ROOT = 'AddBackslash(ExtractFileDir(RemoveBackslashUnlessRoot(SourcePath)))'
 FIXED_BUNDLE = '(AddBackslash(SourcePath) + XbBundle)'
 
 
 def find_packages(root=ROOT):
-    caches = [os.environ.get('PUB_CACHE')]
-    if os.name == 'nt':
-        caches.append(str(Path(os.environ.get('LOCALAPPDATA', '')) / 'Pub/Cache'))
-    else:
-        caches.append(str(Path.home() / '.pub-cache'))
-    # Prefer the activated graph used by formal dart pub global run packaging.
-    candidates = [Path(cache) / 'global_packages/flutter_distributor/.dart_tool/package_config.json'
-                  for cache in caches if cache]
-    candidates.append(root / 'plugins/flutter_distributor/packages/flutter_distributor/.dart_tool/package_config.json')
-    for path in candidates:
-        if path.is_file():
-            names = {p['name'] for p in json.loads(path.read_text(encoding='utf-8'))['packages']}
-            if {'flutter_app_packager', 'liquid_engine', 'yaml', 'args'} <= names:
-                return path
-    raise RuntimeError('Activate the existing flutter_distributor before ISCC preflight; package config missing')
+    prepared = root / 'build/packaging-tools/flutter_distributor/packages'
+    config = prepared / 'flutter_distributor/.dart_tool/package_config.json'
+    resolved_packages(config, prepared=prepared)
+    return config
 
 
 def windows_path(path, wine):
@@ -88,6 +82,7 @@ def compile_case(command, script, wine):
 
 def run(args):
     packages = args.packages or find_packages()
+    resolved_packages(Path(packages))
     compiler = args.iscc
     if not compiler and os.name == 'nt':
         # Match the vendored maker's compiler, even if PATH contains another Inno.

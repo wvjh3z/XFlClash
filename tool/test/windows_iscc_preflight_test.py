@@ -46,22 +46,6 @@ class PreflightTests(unittest.TestCase):
         self.assertEqual(run.call_args.kwargs['timeout'], 60)
         self.assertNotIn('shell', run.call_args.kwargs)
 
-    def test_distributor_local_and_global_package_config_discovery(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            local = root/'plugins/flutter_distributor/packages/flutter_distributor/.dart_tool/package_config.json'
-            global_config = root/'cache/global_packages/flutter_distributor/.dart_tool/package_config.json'
-            data = json.dumps({'packages': [{'name': n} for n in ['flutter_app_packager','liquid_engine','args','yaml']]})
-            with mock.patch.dict(os.environ, {'PUB_CACHE': str(root/'cache'), 'LOCALAPPDATA': str(root/'missing')}), \
-                 mock.patch.object(Path, 'home', return_value=root/'missing'):
-                with self.assertRaises(RuntimeError):
-                    preflight.find_packages(root)
-                global_config.parent.mkdir(parents=True);global_config.write_text(data)
-                self.assertEqual(preflight.find_packages(root), global_config)
-                local.parent.mkdir(parents=True);local.write_text(data)
-                self.assertEqual(preflight.find_packages(root), global_config)
-                global_config.unlink()
-                self.assertEqual(preflight.find_packages(root), local)
 
 
 if __name__ == '__main__':

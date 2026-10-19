@@ -15,11 +15,12 @@ import sys
 import tempfile
 import unittest
 from unittest import mock
-from urllib.parse import urljoin
+try:
+    from .distributor_fixture import PACKAGES, resolved_packages
+except ImportError:
+    from distributor_fixture import PACKAGES, resolved_packages
 
 ROOT = Path(__file__).resolve().parents[2]
-VENDORED = ROOT / 'plugins/flutter_distributor/packages'
-PACKAGES = VENDORED / 'flutter_distributor/.dart_tool/package_config.json'
 sys.path.insert(0, str(ROOT / 'tool'))
 import release_pipeline as pipeline
 
@@ -36,13 +37,7 @@ class AndroidArtifactPipelineTests(unittest.TestCase):
         cls.fixture = tempfile.TemporaryDirectory(prefix='real-apk-maker-')
         cls.addClassCleanup(cls.fixture.cleanup)
         cls.base = Path(cls.fixture.name)
-        config = json.loads(PACKAGES.read_text(encoding='utf-8'))
-        packages = {p['name']: {**p, 'rootUri': urljoin(PACKAGES.resolve().as_uri(), p['rootUri'])}
-                    for p in config['packages']}
-        # Always execute source from this checkout, never a globally substituted maker.
-        for name in ('flutter_app_packager', 'shell_executor'):
-            packages[name] = {'name': name, 'rootUri': (VENDORED / name).as_uri(),
-                              'packageUri': 'lib/', 'languageVersion': '2.16'}
+        packages = resolved_packages(PACKAGES)
         graph = cls.base / 'package_config.json'
         graph.write_text(json.dumps({'configVersion': 2, 'packages': list(packages.values())}), encoding='utf-8')
         env = {k:v for k,v in os.environ.items() if not any(x in k.upper() for x in ('TOKEN', 'PASSWORD', 'SECRET', 'DSN'))}
