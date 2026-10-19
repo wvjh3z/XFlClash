@@ -2,12 +2,14 @@
 from __future__ import annotations
 
 import ast
-from contextlib import chdir
+from contextlib import chdir, contextmanager
 import ntpath
 import hashlib
 import importlib.util
 import io
 import os
+import errno
+import stat
 from pathlib import Path
 import shutil
 import subprocess
@@ -153,50 +155,87 @@ class PackagerContextTests(unittest.TestCase):
             self.test_real_cli_default_output_and_external_output_are_identical()
 
     def test_real_archive_and_default_cli_ignore_host_line_endings(self):
-        tools = self.install_cli_fixture()
-        source = self.repo / 'plugins/flutter_distributor'
-        output = self.repo / 'build/packaging-tools/flutter_distributor'
+        git_dir = Path(command(['git', '-C', SOURCE, 'rev-parse', '--absolute-git-dir']).stdout.decode().strip())
+        originals = [git_dir / 'config', git_dir / 'index', *sorted((git_dir / 'objects/pack').glob('*'))]
+        def snapshot():
+            return {str(path): (path.stat().st_mode, getattr(path.stat(), 'st_file_attributes', 0),
+                               hashlib.sha256(path.read_bytes()).hexdigest())
+                    for path in originals if path.is_file()}
+        before = snapshot()
+        snapshots = []
         for mode in ('false', 'input', 'true'):
             with self.subTest(autocrlf=mode):
-                # Fresh checkout with settings applied before files/index exist;
-                # changing settings on a reused index is a different scenario.
-                shutil.rmtree(source)
-                command(['git', 'clone', '--quiet', '--shared', '--no-checkout', SOURCE, source])
-                command(['git', 'config', 'core.autocrlf', mode], cwd=source)
-                command(['git', 'config', 'core.eol', 'crlf'], cwd=source)
-                command(['git', 'checkout', '--quiet', '--detach', PACKAGER.PINNED_REVISION], cwd=source)
-                self.assertEqual(command(['git', 'status', '--porcelain'], cwd=source).stdout, b'')
-                if mode == 'true':
-                    self.assertIn(b'\r\n', (source / next(iter(PACKAGER.SOURCE_HASHES))).read_bytes())
-                command([sys.executable, tools / 'prepare_linux_packager.py'], cwd=self.repo)
-                self.assert_complete(output)
-        # Negative control uses real git archive with the former invocation.
-        old = command(['git', '-C', source, 'archive', PACKAGER.PINNED_REVISION,
-                       'packages', 'LICENSE', 'README.md']).stdout
-        stage = self.root / 'old-archive'
-        stage.mkdir()
-        PACKAGER.export_tool_archive(old, stage)
-        with self.assertRaisesRegex(RuntimeError, 'Upstream source drift'):
-            PACKAGER.verify_hashes(stage, 0)
-        name = next(iter(PACKAGER.SOURCE_HASHES))
-        self.assertIn(b'\r\n', (stage / name).read_bytes())
-        self.assertEqual(hashlib.sha256((stage / name).read_bytes().replace(b'\r\n', b'\n')).hexdigest(),
-                         PACKAGER.SOURCE_HASHES[name][0])
+                # Each case owns a complete fresh repository. No mid-test raw
+                # rmtree of Git's read-only objects, and no reused Git index.
+                with tempfile.TemporaryDirectory(prefix='packager-eol-') as temporary:
+                    case = Path(temporary).resolve()
+                    repo = case / 'checkout'
+                    command(['git', 'init', '--quiet', '--template=', repo])
+                    tools = self.install_cli_fixture(repo=repo, autocrlf=mode)
+                    source = repo / 'plugins/flutter_distributor'
+                    output = repo / 'build/packaging-tools/flutter_distributor'
+                    index = (repo / '.git/index').read_bytes()
+                    config = (repo / '.git/config').read_bytes()
+                    # File transport makes real pack files without sharing their
+                    # inode/attributes with SOURCE. Never chmod a shared object.
+                    self.assertFalse((source / '.git/objects/info/alternates').exists())
+                    indexes = list((source / '.git/objects/pack').glob('*.idx'))
+                    self.assertTrue(indexes, 'fixture must contain real Git pack indexes')
+                    for idx in indexes:
+                        command(['git', '-C', source, 'verify-pack', '-s', idx])
+                        for path in (idx, idx.with_suffix('.pack')):
+                            path.chmod(stat.S_IREAD)
+                            self.assertFalse(path.stat().st_mode & stat.S_IWUSR)
+                            if os.name == 'nt':
+                                self.assertTrue(path.stat().st_file_attributes & stat.FILE_ATTRIBUTE_READONLY)
+                    plain = case / 'ordinary-readonly.txt'
+                    plain.write_bytes(b'owned temporary fixture'); plain.chmod(stat.S_IREAD)
+                    self.assertEqual(command(['git', 'status', '--porcelain'], cwd=source).stdout, b'')
+                    if mode == 'true':
+                        self.assertIn(b'\r\n', (source / next(iter(PACKAGER.SOURCE_HASHES))).read_bytes())
+                    command([sys.executable, tools / 'prepare_linux_packager.py'], cwd=repo)
+                    self.assert_complete(output)
+                    self.assertEqual((repo / '.git/index').read_bytes(), index)
+                    self.assertEqual((repo / '.git/config').read_bytes(), config)
+                    snapshots.append({name: hashlib.sha256((output / name).read_bytes()).hexdigest()
+                                      for name in PACKAGER.SOURCE_HASHES})
+                    if mode == 'true':
+                        # The old archive invocation still fails exact hashes.
+                        old = command(['git', '-C', source, 'archive', PACKAGER.PINNED_REVISION,
+                                       'packages', 'LICENSE', 'README.md']).stdout
+                        stage = case / 'old-archive'; stage.mkdir()
+                        PACKAGER.export_tool_archive(old, stage)
+                        with self.assertRaisesRegex(RuntimeError, 'Upstream source drift'):
+                            PACKAGER.verify_hashes(stage, 0)
+                        name = next(iter(PACKAGER.SOURCE_HASHES))
+                        self.assertIn(b'\r\n', (stage / name).read_bytes())
+                        self.assertEqual(hashlib.sha256((stage / name).read_bytes().replace(b'\r\n', b'\n')).hexdigest(),
+                                         PACKAGER.SOURCE_HASHES[name][0])
+                self.assertFalse(case.exists(), 'TemporaryDirectory must remove read-only files')
+                self.assertEqual(snapshot(), before, 'SOURCE object bytes/permissions/index/config changed')
+        self.assertEqual(snapshots, [snapshots[0]] * 3)
 
-    def install_cli_fixture(self):
+    def install_cli_fixture(self, *, repo=None, autocrlf=None):
         # An actual enclosing repository, tracked gitlink and source checkout,
         # rather than calling prepare() in a repository-external temp directory.
-        tools = self.repo / 'tool'
+        repo = repo or self.repo
+        tools = repo / 'tool'
         (tools / 'patches').mkdir(parents=True)
         shutil.copyfile(ROOT / 'tool/prepare_linux_packager.py', tools / 'prepare_linux_packager.py')
         shutil.copyfile(PACKAGER.PATCH, tools / 'patches' / PACKAGER.PATCH.name)
-        source = self.repo / 'plugins/flutter_distributor'
+        source = repo / 'plugins/flutter_distributor'
         source.parent.mkdir()
-        command(['git', 'clone', '--quiet', '--shared', '--no-checkout', SOURCE, source])
+        if autocrlf is None:
+            command(['git', 'clone', '--quiet', '--shared', '--no-checkout', SOURCE, source])
+        else:
+            command(['git', 'clone', '--quiet', '--no-local', '--no-checkout', SOURCE.as_uri(), source])
+            command(['git', 'config', 'core.autocrlf', autocrlf], cwd=source)
+            command(['git', 'config', 'core.eol', 'crlf'], cwd=source)
         command(['git', 'checkout', '--quiet', '--detach', PACKAGER.PINNED_REVISION], cwd=source)
         command(['git', 'update-index', '--add', '--cacheinfo', '160000',
-                 PACKAGER.PINNED_REVISION, 'plugins/flutter_distributor'], cwd=self.repo)
-        self.index = (self.repo / '.git/index').read_bytes()
+                 PACKAGER.PINNED_REVISION, 'plugins/flutter_distributor'], cwd=repo)
+        if repo == self.repo:
+            self.index = (repo / '.git/index').read_bytes()
         return tools
 
     def test_real_cli_default_output_and_external_output_are_identical(self):
@@ -273,6 +312,86 @@ class PackagerContextTests(unittest.TestCase):
             self.assertIn(b'patch drift', result.stderr)
             self.assertNotIn(b'Prepared packager:', result.stdout)
             self.assert_complete(output)
+
+
+@contextmanager
+def windows_readonly_semantics():
+    """On POSIX replay only Windows' read-only unlink rule; native Windows is real."""
+    if os.name == 'nt':
+        yield
+        return
+    unlink = os.unlink
+    def checked(path, *args, **kwargs):
+        info = os.stat(path, dir_fd=kwargs.get('dir_fd'), follow_symlinks=False)
+        if not info.st_mode & stat.S_IWUSR:
+            raise PermissionError(errno.EACCES, 'fixture read-only file', str(path))
+        return unlink(path, *args, **kwargs)
+    with mock.patch.object(os, 'unlink', side_effect=checked):
+        yield
+
+
+class TemporaryGitCleanupTests(unittest.TestCase):
+    def test_raw_rmtree_negative_and_temporary_directory_positive(self):
+        temporary = tempfile.TemporaryDirectory(prefix='readonly-cleanup-')
+        root = Path(temporary.name)
+        file = root / 'ordinary-readonly.txt'
+        file.write_bytes(b'keep until controlled cleanup'); file.chmod(stat.S_IREAD)
+        try:
+            # Native Windows reproduces WinError 5. Linux exercises the same
+            # handler via an explicitly labelled unlink-rule control, not chmod alone.
+            with windows_readonly_semantics():
+                with self.assertRaises(PermissionError): shutil.rmtree(root)
+                self.assertEqual(file.read_bytes(), b'keep until controlled cleanup')
+                temporary.cleanup()
+            self.assertFalse(root.exists())
+        finally:
+            temporary.cleanup()
+
+    def test_real_non_directory_error_is_not_ignored(self):
+        temporary = tempfile.TemporaryDirectory(prefix='cleanup-error-')
+        root = Path(temporary.name)
+        root.rmdir(); root.write_bytes(b'not a directory')
+        try:
+            with self.assertRaises(OSError): temporary.cleanup()
+            self.assertEqual(root.read_bytes(), b'not a directory')
+        finally:
+            root.unlink(); temporary.cleanup()
+
+    def test_unrecoverable_permission_error_is_not_ignored(self):
+        temporary = tempfile.TemporaryDirectory(prefix='cleanup-denied-')
+        root = Path(temporary.name); file = root / 'held.txt'; file.write_bytes(b'held')
+        if os.name == 'nt':
+            # Real Windows sharing violation: deny FILE_SHARE_DELETE until close.
+            import ctypes
+            from ctypes import wintypes
+            kernel = ctypes.WinDLL('kernel32', use_last_error=True)
+            kernel.CreateFileW.argtypes = [wintypes.LPCWSTR,wintypes.DWORD,wintypes.DWORD,
+                                          wintypes.LPVOID,wintypes.DWORD,wintypes.DWORD,wintypes.HANDLE]
+            kernel.CreateFileW.restype = wintypes.HANDLE
+            kernel.CloseHandle.argtypes = [wintypes.HANDLE]; kernel.CloseHandle.restype = wintypes.BOOL
+            handle = kernel.CreateFileW(str(file), 0x80000000, 1, None, 3, 0x80, None)
+            self.assertNotEqual(handle, ctypes.c_void_p(-1).value, 'Cannot create native locked-file control')
+            try:
+                with self.assertRaises(PermissionError): temporary.cleanup()
+                self.assertTrue(file.exists())
+            finally:
+                kernel.CloseHandle(handle)
+                temporary.cleanup()
+        else:
+            # Linux root can bypass chmod permissions; use a permanent error
+            # injection here instead of pretending it is a native ACL test.
+            unlink = os.unlink
+            def denied(path, *args, **kwargs):
+                if Path(path).name == file.name:
+                    raise PermissionError(errno.EACCES, 'fixture persistent denial', str(path))
+                return unlink(path, *args, **kwargs)
+            try:
+                with mock.patch.object(os, 'unlink', side_effect=denied):
+                    with self.assertRaises(PermissionError): temporary.cleanup()
+                self.assertEqual(file.read_bytes(), b'held')
+            finally:
+                temporary.cleanup()
+        self.assertFalse(root.exists())
 
 
 class ArchiveAliasTests(unittest.TestCase):
