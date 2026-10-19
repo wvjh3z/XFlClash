@@ -9,7 +9,14 @@ function Resolve-Symlinks([string] $Path, [int] $Depth = 0) {
     $parts = $full.Substring($root.Length).Split([char[]]@('/', '\'), [StringSplitOptions]::RemoveEmptyEntries)
     foreach ($part in $parts) {
         $real = [IO.Path]::Combine($real, $part)
-        $item = Get-Item -LiteralPath $real -Force -ErrorAction Stop
+        # Windows PowerShell 5.1 may return no items (without an error) for
+        # a missing literal path below a directory containing brackets.
+        $items = @(Get-Item -LiteralPath $real -Force -ErrorAction Stop)
+        if ($items.Count -ne 1 -or !$items[0].PSIsContainer) {
+            throw 'Expected an existing directory'
+        }
+        $item = $items[0]
+        $real = $item.FullName
         if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
             # Target is the PowerShell provider property available in 5.1;
             # LinkTarget is the newer .NET property. Do not use wildcard lookup.
@@ -23,6 +30,7 @@ function Resolve-Symlinks([string] $Path, [int] $Depth = 0) {
             $real = Resolve-Symlinks $target ($Depth + 1)
         }
     }
+    if (![IO.Directory]::Exists($real)) { throw 'Resolved directory does not exist' }
     return $real
 }
 try {
