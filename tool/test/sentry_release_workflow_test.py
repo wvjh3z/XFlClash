@@ -374,8 +374,13 @@ class ReleaseWorkflowTests(unittest.TestCase):
         workflow = WORKFLOW.read_text(encoding="utf-8")
         init = "Prepare pinned distributor for shared checks"
         entry = "Check default packager preparation entrypoint"
-        self.assertEqual(shlex.split(step_script(init)),
-                         ["git", "submodule", "update", "--init", "--depth", "1", "--", "plugins/flutter_distributor"])
+        arguments = shlex.split(step_script(init))
+        self.assertEqual(arguments[:3], ["git", "-c",
+                         "submodule.plugins/flutter_distributor.url=https://github.com/chen08209/flutter_distributor.git"])
+        self.assertEqual(arguments[3:], ["submodule", "update", "--init", "--depth", "1", "--", "plugins/flutter_distributor"])
+        self.assertEqual(shlex.split(step_script("Check clean distributor initialization")),
+                         ["python3", "tool/test/distributor_checkout_test.py"])
+        self.assertLess(workflow.index("name: Check clean distributor initialization"), workflow.index("name: " + init))
         self.assertEqual(shlex.split(step_script(entry)), ["python3", "tool/prepare_linux_packager.py"])
         self.assertLess(workflow.index("name: " + init), workflow.index("name: " + entry))
         self.assertLess(workflow.index("name: " + entry), workflow.index("name: Check shared release contracts"))

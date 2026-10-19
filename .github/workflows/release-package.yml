@@ -122,9 +122,12 @@ jobs:
       - name: Static workflow and shell checks
         timeout-minutes: 5
         run: python3 tool/check_workflow_lints.py --prepare
+      - name: Check clean distributor initialization
+        timeout-minutes: 5
+        run: python3 tool/test/distributor_checkout_test.py
       - name: Prepare pinned distributor for shared checks
         timeout-minutes: 5
-        run: git submodule update --init --depth 1 -- plugins/flutter_distributor
+        run: git -c submodule.plugins/flutter_distributor.url=https://github.com/chen08209/flutter_distributor.git submodule update --init --depth 1 -- plugins/flutter_distributor
       - name: Check default packager preparation entrypoint
         run: python3 tool/prepare_linux_packager.py
       - name: Check shared release contracts
