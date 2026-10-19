@@ -10,6 +10,7 @@
 /// **依赖**: SDK `appUpdate` API + package_info_plus
 library;
 
+import 'dart:async';
 import 'dart:io' show Platform, Process;
 
 import 'package:flutter/foundation.dart';
@@ -39,11 +40,30 @@ class UpdateCheckFailed extends UpdateCheckResult {
   UpdateCheckFailed(this.error);
 }
 
+class _UpdateFlight {
+  late final Future<UpdateCheckResult> result;
+  String? requestedBase;
+}
+
+class _StartupSuccess {
+  _StartupSuccess(this.result, this.base);
+  final UpdateCheckResult result;
+  final String base;
+}
+
+class _AutomaticUpdateState {
+  int running = 0;
+  bool pendingRecovery = false;
+  bool throttledRecovery = false;
+  String? failedBase;
+  _StartupSuccess? startupSuccess;
+}
+
 class XbUpdateService {
   XbUpdateService._();
 
-  static var _inFlight = Expando<Future<UpdateCheckResult>>();
-  static var _startupFlight = Expando<Future<UpdateCheckResult>>();
+  static var _inFlight = Expando<_UpdateFlight>();
+  static var _automatic = Expando<_AutomaticUpdateState>();
 
   /// 执行一次更新检查。
   ///
@@ -57,25 +77,45 @@ class XbUpdateService {
     if (endpoints == null) {
       return Future.value(UpdateCheckFailed(StateError('API is not ready')));
     }
-    if (endpoints.apiInitializationPending) {
-      final startup = _startupFlight[endpoints];
-      if (startup != null) return startup;
-    } else {
-      _startupFlight[endpoints] = null;
-    }
+    // Manual and pre-download checks only join a request that is still running.
+    _automatic[endpoints]?.startupSuccess = null;
+    final generation = _generation;
+    final flight = _flight(sdk, endpoints);
+    return flight.result.then((result) {
+      if (generation == _generation &&
+          result is! UpdateCheckFailed &&
+          endpoints.isApiReadyFor(sdk.baseUrl) &&
+          flight.requestedBase == sdk.baseUrl) {
+        // A fresh manual success also resolves an old pending automatic failure,
+        // without creating or advancing the automatic throttle window.
+        final state = _automatic[endpoints];
+        if (state != null) {
+          state.pendingRecovery = false;
+          state.throttledRecovery = false;
+        }
+      }
+      return result;
+    });
+  }
+
+  static _UpdateFlight _flight(
+    XBoardSDK sdk,
+    EndpointRaceController endpoints,
+  ) {
     final running = _inFlight[endpoints];
     if (running != null) return running;
-    final future = _checkReady(sdk, endpoints);
-    _inFlight[endpoints] = future;
-    if (endpoints.apiInitializationPending) _startupFlight[endpoints] = future;
-    return future.whenComplete(() {
-      if (identical(_inFlight[endpoints], future)) _inFlight[endpoints] = null;
+    final flight = _UpdateFlight();
+    _inFlight[endpoints] = flight;
+    flight.result = _checkReady(sdk, endpoints, flight).whenComplete(() {
+      if (identical(_inFlight[endpoints], flight)) _inFlight[endpoints] = null;
     });
+    return flight;
   }
 
   static Future<UpdateCheckResult> _checkReady(
     XBoardSDK sdk,
     EndpointRaceController endpoints,
+    _UpdateFlight flight,
   ) async {
     try {
       if (!await endpoints.waitForApiReady() ||
@@ -99,6 +139,7 @@ class XbUpdateService {
       final attemptedBase = sdk.baseUrl;
       AppUpdateModel? info;
       try {
+        flight.requestedBase = sdk.baseUrl;
         info = await sdk.appUpdate.checkUpdate(
           platform: _platform,
           abi: abi,
@@ -115,6 +156,7 @@ class XbUpdateService {
               sdk.baseUrl == attemptedBase) {
             return UpdateCheckFailed(e);
           }
+          flight.requestedBase = sdk.baseUrl;
           info = await sdk.appUpdate.checkUpdate(
             platform: _platform,
             abi: abi,
@@ -145,19 +187,98 @@ class XbUpdateService {
     }
   }
 
-  /// 冷启动自动检查（fire-and-forget，静默写 provider）。
-  static Future<void> autoCheck(ProviderContainer container) async {
+  /// Cold startup retains its independent, unthrottled trigger.
+  static Future<void> autoCheck(ProviderContainer container) =>
+      _automaticCheck(container, throttled: false);
+
+  /// Called after the SDK has applied an API winner. Only a previously pending
+  /// automatic check may recover; ordinary manual failover creates no trigger.
+  static void onApiAvailable(ProviderContainer container) {
     final sdk = container.read(xboardSdkProvider);
-    if (sdk == null) return;
     final race = container.read(injectedRaceControllerProvider);
-    final generation = _generation;
-    final result = await check(sdk, endpoints: race);
-    if (generation != _generation ||
-        !(race?.isApiReadyFor(sdk.baseUrl) ?? false)) {
+    if (sdk == null || race == null) return;
+    final state = _automatic[race];
+    if (state != null) {
+      state.startupSuccess = null;
+      _recoverIfChanged(container, sdk, race, state);
+    }
+  }
+
+  static void _recoverIfChanged(
+    ProviderContainer container,
+    XBoardSDK sdk,
+    EndpointRaceController race,
+    _AutomaticUpdateState state,
+  ) {
+    if (!state.pendingRecovery ||
+        state.running != 0 ||
+        !race.isApiReadyFor(sdk.baseUrl) ||
+        sdk.baseUrl == state.failedBase) {
       return;
     }
-    if (result is UpdateAvailable) {
-      container.read(availableUpdateProvider.notifier).set(result.info);
+    // The async function registers itself before its first await. Simultaneous
+    // winner notifications cannot enqueue multiple recovery requests.
+    unawaited(_automaticCheck(container, throttled: state.throttledRecovery));
+  }
+
+  static Future<void> _automaticCheck(
+    ProviderContainer container, {
+    required bool throttled,
+  }) async {
+    if (throttled) {
+      if (container.read(availableUpdateProvider) != null || _checking) return;
+      final sw = _throttle;
+      if (sw != null && sw.elapsed < kCheckThrottle) return;
+    }
+    final sdk = container.read(xboardSdkProvider);
+    final race = container.read(injectedRaceControllerProvider);
+    if (sdk == null || race == null) return;
+    if (throttled) _checking = true;
+    final generation = _generation;
+    final state = _automatic[race] ??= _AutomaticUpdateState();
+    state.running++;
+    state.throttledRecovery |= throttled;
+    try {
+      final cached = state.startupSuccess;
+      UpdateCheckResult result;
+      String? requestedBase;
+      if (race.apiInitializationPending &&
+          cached != null &&
+          race.isApiReadyFor(sdk.baseUrl) &&
+          cached.base == sdk.baseUrl) {
+        result = cached.result;
+        requestedBase = cached.base;
+      } else {
+        state.startupSuccess = null;
+        final flight = _flight(sdk, race);
+        result = await flight.result;
+        requestedBase = flight.requestedBase;
+      }
+      if (generation != _generation) return;
+      final valid =
+          race.isApiReadyFor(sdk.baseUrl) && requestedBase == sdk.baseUrl;
+      if (result is UpdateCheckFailed || !valid) {
+        state.pendingRecovery = true;
+        state.throttledRecovery |= throttled;
+        state.failedBase = requestedBase;
+        state.startupSuccess = null;
+        return;
+      }
+      state.pendingRecovery = false;
+      state.throttledRecovery = false;
+      state.startupSuccess = race.apiInitializationPending
+          ? _StartupSuccess(result, requestedBase!)
+          : null;
+      if (result is UpdateAvailable) {
+        container.read(availableUpdateProvider.notifier).set(result.info);
+      }
+      if (throttled) _throttle = _createStopwatch()..start();
+    } finally {
+      state.running--;
+      if (generation == _generation) {
+        if (throttled) _checking = false;
+        _recoverIfChanged(container, sdk, race, state);
+      }
     }
   }
 
@@ -185,41 +306,14 @@ class XbUpdateService {
   /// 节流自动检查（onResume / VPN 连上触发）：距上次成功检查 ≥24h 才真请求。
   ///
   /// fire-and-forget，永不抛、永不阻塞。已有可用更新时跳过（已点亮徽章，无需重查）。
-  static Future<void> autoCheckThrottled(ProviderContainer container) async {
-    // 已检测到更新 → 无需重查（徽章已亮）。
-    if (container.read(availableUpdateProvider) != null) return;
-    if (_checking) return; // single-flight
-    final sw = _throttle;
-    if (sw != null && sw.elapsed < kCheckThrottle) return; // 节流窗口内
-
-    _checking = true;
-    final generation = _generation;
-    try {
-      final sdk = container.read(xboardSdkProvider);
-      if (sdk == null) return;
-      final race = container.read(injectedRaceControllerProvider);
-      final result = await check(sdk, endpoints: race);
-      if (generation != _generation ||
-          !(race?.isApiReadyFor(sdk.baseUrl) ?? false)) {
-        return;
-      }
-      if (result is UpdateAvailable) {
-        container.read(availableUpdateProvider.notifier).set(result.info);
-        _throttle = _createStopwatch()..start(); // 成功且有更新 → 重置节流时钟
-      } else if (result is UpdateNotAvailable) {
-        _throttle = _createStopwatch()..start(); // 成功但无更新 → 也重置（避免频繁查）
-      }
-      // 检查失败（网络/被墙）→ 不重置时钟，下次触发仍可重试
-    } finally {
-      if (generation == _generation) _checking = false;
-    }
-  }
+  static Future<void> autoCheckThrottled(ProviderContainer container) =>
+      _automaticCheck(container, throttled: true);
 
   /// 重置节流时钟（退出登录 / 测试 teardown）。
   static void resetThrottle() {
     _generation++;
-    _inFlight = Expando<Future<UpdateCheckResult>>();
-    _startupFlight = Expando<Future<UpdateCheckResult>>();
+    _inFlight = Expando<_UpdateFlight>();
+    _automatic = Expando<_AutomaticUpdateState>();
     _throttle = null;
     _checking = false;
   }

@@ -11,8 +11,7 @@ import re
 import zipfile
 
 
-def canonical_pubspec(data):
-    """Ignore ONLY the controlled brand entry when binding local build sources."""
+def _asset_block(data):
     pattern = rb'(?m)^    # xboard-fallback-assets:begin\r?\n(.*?)^    # xboard-fallback-assets:end'
     matches = list(re.finditer(pattern, data, re.S))
     if len(matches) != 1:
@@ -20,7 +19,35 @@ def canonical_pubspec(data):
     lines = [s.strip() for s in matches[0][1].splitlines() if s.strip() and not s.strip().startswith(b'#')]
     if len(lines) != 1 or not re.fullmatch(rb'- flavors/brand_[ab]/assets/(?:fallback\.bin)?', lines[0]):
         raise ValueError('fallback_asset_entry_invalid')
-    return data[:matches[0].start()] + b'    # selected-fallback-entry' + data[matches[0].end():]
+    return matches[0]
+
+
+def canonical_pubspec(data):
+    """Ignore ONLY the controlled brand entry when binding local build sources."""
+    block = _asset_block(data)
+    return data[:block.start()] + b'    # selected-fallback-entry' + data[block.end():]
+
+
+def restore_pubspec_asset_block(original, current, flavor):
+    """Undo our exact injected block, preserving every byte outside it.
+
+    A deleted/malformed/edited block is a conflict, never a reason to overwrite
+    the entire file. Caller preserves it and stops release promotion.
+    """
+    if current == original:
+        return current
+    if flavor not in ('brand_a', 'brand_b'):
+        raise ValueError('fallback_restore_brand_missing')
+    before, now = _asset_block(original), _asset_block(current)
+    if before[0] == now[0]:
+        return current
+    newline = b'\r\n' if b'\r\n' in original else b'\n'
+    injected = newline.join([b'    # xboard-fallback-assets:begin',
+        f'    - flavors/{flavor}/assets/fallback.bin'.encode(),
+        b'    # xboard-fallback-assets:end'])
+    if now[0] != injected:
+        raise ValueError('fallback_restore_conflict')
+    return current[:now.start()] + before[0] + current[now.end():]
 
 
 def verify(root, flavor, platform, *, packages=(), build_root=None):

@@ -233,11 +233,13 @@ def retain_verified_apk(apk: Path, batch: Path, inputs: dict, verification: dict
 
 
 @contextlib.contextmanager
-def temporary_android_configuration(root: Path, gradle_home: Path):
+def temporary_android_configuration(root: Path, gradle_home: Path, *, flavor: str | None = None):
     """Restore complete prior properties/keystore, including any user ABI."""
-    paths = [root / "android/local.properties", root / "android/app/keystore.jks", root / "pubspec.yaml"]
+    paths = [root / "android/local.properties", root / "android/app/keystore.jks"]
     original = {path: (path.read_bytes(), path.stat().st_mode & 0o777) if path.exists() else None
                 for path in paths}
+    pubspec = root / 'pubspec.yaml'
+    original_pubspec = pubspec.read_bytes() if pubspec.is_file() else None
     init_dir = gradle_home / "init.d"
     init_dir.mkdir(parents=True, exist_ok=True)
     descriptor, name = tempfile.mkstemp(prefix="xfl-local-no-crashlytics-", suffix=".gradle", dir=init_dir)
@@ -256,6 +258,30 @@ def temporary_android_configuration(root: Path, gradle_home: Path):
                 path.chmod(prior[1])
         if init.exists() and init.read_text(encoding="utf-8") == CRASHLYTICS_INIT:
             init.unlink()
+        if original_pubspec is not None:
+            from check_fallback_assets import restore_pubspec_asset_block
+            try:
+                if pubspec.is_symlink() or not pubspec.is_file():
+                    raise ValueError('pubspec_replaced_or_deleted')
+                current = pubspec.read_bytes()
+                restored = restore_pubspec_asset_block(original_pubspec, current, flavor)
+                if restored != current:
+                    fd, temporary_name = tempfile.mkstemp(prefix='.xfl-pubspec-', dir=pubspec.parent)
+                    temporary = Path(temporary_name)
+                    try:
+                        with os.fdopen(fd, 'wb') as stream:
+                            stream.write(restored)
+                        temporary.chmod(pubspec.stat().st_mode & 0o777)
+                        # Preserve edits observed after the merge input. Atomic
+                        # replacement also avoids truncating the user's file if
+                        # writing the merged result fails.
+                        if pubspec.is_symlink() or pubspec.read_bytes() != current:
+                            raise ValueError('pubspec_changed_during_restore')
+                        temporary.replace(pubspec)
+                    finally:
+                        temporary.unlink(missing_ok=True)
+            except (ValueError, OSError):
+                raise ReleaseError('pubspec asset restoration conflict; current file preserved, release not promoted') from None
 
 
 def set_abi(properties: Path, abi: str) -> None:
@@ -490,7 +516,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.no_sentry:
             symbol.append("--no-sentry")
         gradle_home = Path(environment.get("GRADLE_USER_HOME") or str(Path.home() / ".gradle"))
-        with temporary_android_configuration(root, gradle_home):
+        with temporary_android_configuration(root, gradle_home, flavor=args.flavor):
             builder.run(["flutter", "pub", "get", "--enforce-lockfile"], "sdk-pub-get", sdk)
             builder.run(["flutter", "clean"], "clean")
             builder.run(["flutter", "pub", "get", "--enforce-lockfile"], "pub-get")

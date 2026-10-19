@@ -90,7 +90,170 @@ void main() {
     return container;
   }
 
+  Future<void> whenUpdateAppears(ProviderContainer container) {
+    final done = Completer<void>();
+    final listener = container.listen(availableUpdateProvider, (_, next) {
+      if (next != null && !done.isCompleted) done.complete();
+    });
+    addTearDown(listener.close);
+    return done.future.timeout(const Duration(seconds: 5));
+  }
+
   group('API readiness and failover', () {
+    test(
+      'API round trip invalidates completed automatic startup success',
+      () async {
+        race.beginApiInitialization();
+        final container = makeContainer();
+        await XbUpdateService.autoCheck(container);
+        await XbUpdateService.autoCheck(container);
+        expect(requests, 1);
+        for (final url in ['https://other.test', 'https://api.test']) {
+          await race.raceApi([BootstrapEndpoint(url: url)]);
+          XbUpdateService.onApiAvailable(container);
+        }
+        await XbUpdateService.autoCheck(container);
+        expect(requests, 2);
+        expect(clocks, 0);
+      },
+    );
+
+    test(
+      'fresh manual success clears pending recovery without starting a 24h clock',
+      () async {
+        race.beginApiInitialization();
+        final container = makeContainer();
+        respond = () async => throw StateError('temporary 404');
+        await XbUpdateService.autoCheckThrottled(container);
+        respond = () async => null;
+        expect(
+          await XbUpdateService.check(sdk, endpoints: race),
+          isA<UpdateNotAvailable>(),
+        );
+        expect(requests, 2);
+        expect(clocks, 0);
+        await race.raceApi([
+          const BootstrapEndpoint(url: 'https://new-api.test'),
+        ]);
+        XbUpdateService.onApiAvailable(container);
+        // Flush the notification's async scheduling; a request would already
+        // register its flight synchronously if stale recovery were still pending.
+        await XbUpdateService.check(sdk, endpoints: race);
+        expect(requests, 3);
+        expect(clocks, 0);
+      },
+    );
+
+    test(
+      'manual and download checks ignore completed automatic startup cache',
+      () async {
+        race.beginApiInitialization();
+        final container = makeContainer();
+        respond = () async => update;
+        await XbUpdateService.autoCheck(container);
+        const fresh = AppUpdateModel(
+          versionCode: 9999,
+          versionName: 'fresh',
+          region: 'unknown',
+          downloads: [],
+          sha256: 'new-hash',
+          changelog: '',
+          force: false,
+        );
+        respond = () async => fresh;
+        final checked =
+            await XbUpdateService.check(sdk, endpoints: race)
+                as UpdateAvailable;
+        expect(checked.info, same(fresh));
+        expect(requests, 2);
+        expect(clocks, 0);
+        // A subsequent automatic startup callback must not restore the stale cache.
+        await XbUpdateService.autoCheck(container);
+        expect(container.read(availableUpdateProvider), same(fresh));
+      },
+    );
+
+    for (final throttled in [false, true]) {
+      test(
+        'failed ${throttled ? "foreground" : "cold"} check recovers on new API during startup',
+        () async {
+          race.beginApiInitialization();
+          final container = makeContainer();
+          respond = () async => throw StateError('old API 404');
+          if (throttled) {
+            await XbUpdateService.autoCheckThrottled(container);
+          } else {
+            await XbUpdateService.autoCheck(container);
+          }
+          expect(requests, 1);
+          expect(clocks, 0);
+          final recovered = whenUpdateAppears(container);
+          respond = () async => update;
+          await race.raceApi([
+            const BootstrapEndpoint(url: 'https://new-api.test'),
+          ]);
+          XbUpdateService.onApiAvailable(container);
+          XbUpdateService.onApiAvailable(container);
+          await recovered;
+          expect(requests, 2);
+          expect(container.read(availableUpdateProvider), same(update));
+          expect(clocks, throttled ? 1 : 0);
+          race.finishApiInitialization();
+        },
+      );
+    }
+
+    test(
+      'API changes while old request is running recover after its completion',
+      () async {
+        race.beginApiInitialization();
+        final container = makeContainer();
+        final entered = Completer<void>();
+        final old = Completer<AppUpdateModel?>();
+        respond = () {
+          entered.complete();
+          return old.future;
+        };
+        final pending = XbUpdateService.autoCheck(container);
+        await entered.future;
+        await race.raceApi([
+          const BootstrapEndpoint(url: 'https://new-api.test'),
+        ]);
+        XbUpdateService.onApiAvailable(container);
+        expect(requests, 1);
+        final recovered = whenUpdateAppears(container);
+        respond = () async => update;
+        old.complete(null);
+        await pending;
+        await recovered;
+        expect(requests, 2);
+        expect(container.read(availableUpdateProvider), same(update));
+        expect(clocks, 0);
+      },
+    );
+
+    test(
+      'manual and automatic requests still share a genuinely running GET',
+      () async {
+        race.beginApiInitialization();
+        final container = makeContainer();
+        final entered = Completer<void>();
+        final response = Completer<AppUpdateModel?>();
+        respond = () {
+          entered.complete();
+          return response.future;
+        };
+        final automatic = XbUpdateService.autoCheck(container);
+        await entered.future;
+        final manual = XbUpdateService.check(sdk, endpoints: race);
+        response.complete(update);
+        await automatic;
+        expect((await manual as UpdateAvailable).info, same(update));
+        expect(requests, 1);
+        expect(clocks, 0);
+      },
+    );
+
     for (final platform in ['android', 'windows', 'macos', 'linux']) {
       test(
         '$platform early lifecycle resumes wait and coalesce with startup',

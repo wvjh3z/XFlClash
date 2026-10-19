@@ -74,5 +74,24 @@ class FallbackAssetsTests(unittest.TestCase):
         for bad in (a+a,a.replace(b'brand_a',b'brand_c'),a.replace(b'- flavors/',b'- private/'),b'no markers'):
             with self.assertRaises(ValueError):checker.canonical_pubspec(bad)
 
+    def test_restore_only_injected_block_preserves_other_edits_and_newlines(self):
+        for brand in ('brand_a','brand_b'):
+            for newline in (b'\n',b'\r\n'):
+                original=newline.join([b'version: 1',b'    # xboard-fallback-assets:begin',
+                    b'    # original comment',b'    - flavors/brand_a/assets/',
+                    b'    # xboard-fallback-assets:end',b'description: before',b''])
+                current=original.replace(b'    # original comment'+newline,b'').replace(
+                    b'    - flavors/brand_a/assets/',f'    - flavors/{brand}/assets/fallback.bin'.encode())
+                current=current.replace(b'version: 1',b'version: 2').replace(b'description: before',b'description: user edit')
+                restored=checker.restore_pubspec_asset_block(original,current,brand)
+                self.assertEqual(restored,original.replace(b'version: 1',b'version: 2').replace(b'description: before',b'description: user edit'))
+                self.assertEqual(checker.restore_pubspec_asset_block(original,restored,brand),restored)
+
+    def test_restore_conflicts_never_supply_a_whole_file_fallback(self):
+        original=b'version: 1\n    # xboard-fallback-assets:begin\n    - flavors/brand_a/assets/\n    # xboard-fallback-assets:end\n'
+        for current in (b'user replacement',original.replace(b'brand_a',b'brand_b'),original+original,
+                        original.replace(b'assets/',b'assets/fallback.bin # user comment')):
+            with self.assertRaises(ValueError):checker.restore_pubspec_asset_block(original,current,'brand_a')
+
 
 if __name__=='__main__':unittest.main()

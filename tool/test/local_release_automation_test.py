@@ -259,7 +259,7 @@ class AndroidLocalTests(unittest.TestCase):
         self.calls = []
         self.arguments = ["release", "arm64", "brand_a", "--project-root", str(self.root), "--batch-dir", str(self.batch), "--build-tag", "202610152300"]
 
-    def run_fake(self, failure=None, arguments=None, change_source_at=None, change_head_at=None, invalid_evidence=False):
+    def run_fake(self, failure=None, arguments=None, change_source_at=None, change_head_at=None, invalid_evidence=False, change_pubspec_at=None):
         owner = self
         head = "a" * 40
         def run(builder, command, name, cwd=None):
@@ -269,6 +269,9 @@ class AndroidLocalTests(unittest.TestCase):
                 head = "b" * 40
             if name == change_source_at:
                 (owner.root / "lib/source.dart").write_text("changed during build")
+            if name == change_pubspec_at:
+                spec=owner.root/'pubspec.yaml'
+                spec.write_text(spec.read_text().replace('0.8.93+123','0.9.0+456'))
             if name == failure:
                 raise android.ReleaseError("fake failure at " + name)
             if name == "prepare-flavor":
@@ -414,8 +417,8 @@ class AndroidLocalTests(unittest.TestCase):
     def test_restoration_failure_cannot_promote_or_advance_release(self):
         original = android.temporary_android_configuration
         @contextlib.contextmanager
-        def failing_restore(root, gradle_home):
-            with original(root, gradle_home):
+        def failing_restore(root, gradle_home, **kwargs):
+            with original(root, gradle_home, **kwargs):
                 yield
             raise OSError("fake restore failure")
         previous = self.root / "dist/test-0.0.1-android-arm64-v8a.apk"
@@ -486,6 +489,54 @@ class AndroidLocalTests(unittest.TestCase):
                 raise RuntimeError("fake failure")
         self.assertFalse(self.properties.exists())
         self.assertFalse(self.keystore.exists())
+
+    def test_pubspec_user_edit_is_kept_while_release_promotion_is_blocked(self):
+        previous=self.root/'dist/test-0.0.1-android-arm64-v8a.apk'
+        previous.parent.mkdir();previous.write_bytes(b'trusted previous release')
+        self.assertEqual(self.run_fake(change_pubspec_at='sentry-symbols'),1)
+        self.assertIn('0.9.0+456',(self.root/'pubspec.yaml').read_text())
+        self.assertIn('- flavors/brand_a/assets/\n',(self.root/'pubspec.yaml').read_text())
+        self.assertEqual(previous.read_bytes(),b'trusted previous release')
+        self.assertEqual(self.counter.read_text(),'17\n')
+
+    def test_pubspec_non_asset_edits_survive_success_and_failure_cleanup(self):
+        spec=self.root/'pubspec.yaml'
+        original=spec.read_bytes()
+        for fail in (False,True):
+            spec.write_bytes(original)
+            try:
+                with android.temporary_android_configuration(self.root,self.gradle_home,flavor='brand_a'):
+                    spec.write_bytes(original.replace(b'brand_a/assets/',b'brand_a/assets/fallback.bin').replace(b'0.8.93+123',b'0.9.0+456'))
+                    if fail:raise RuntimeError('build failed')
+            except RuntimeError as error:
+                if not fail:raise
+                self.assertEqual(str(error),'build failed')
+            self.assertEqual(spec.read_bytes(),original.replace(b'0.8.93+123',b'0.9.0+456'))
+
+    def test_pubspec_block_conflict_or_deletion_is_preserved_and_cleanup_still_runs(self):
+        spec=self.root/'pubspec.yaml';original=spec.read_bytes()
+        for deleted in (False,True):
+            spec.write_bytes(original)
+            with self.assertRaises(android.ReleaseError):
+                with android.temporary_android_configuration(self.root,self.gradle_home,flavor='brand_a'):
+                    self.properties.write_text('temporary signing')
+                    if deleted:spec.unlink()
+                    else:spec.write_text('user replaced the entire file')
+            if deleted:self.assertFalse(spec.exists())
+            else:self.assertEqual(spec.read_text(),'user replaced the entire file')
+            self.assertEqual(self.properties.read_text(),'sdk.dir=/original\nXB_TARGET_ABI=x86_64\n')
+            self.assertEqual(list((self.gradle_home/'init.d').iterdir()),[self.existing_init])
+
+    def test_failed_atomic_pubspec_restore_preserves_current_bytes(self):
+        spec=self.root/'pubspec.yaml'
+        current=spec.read_bytes().replace(b'brand_a/assets/',b'brand_a/assets/fallback.bin').replace(b'0.8.93+123',b'0.9.0+456')
+        with self.assertRaises(android.ReleaseError):
+            with mock.patch.object(Path,'replace',side_effect=OSError('write failure')):
+                with android.temporary_android_configuration(self.root,self.gradle_home,flavor='brand_a'):
+                    spec.write_bytes(current)
+        self.assertEqual(spec.read_bytes(),current)
+        self.assertEqual(list(self.root.glob('.xfl-pubspec-*')),[])
+        self.assertEqual(list((self.gradle_home/'init.d').iterdir()),[self.existing_init])
 
     def test_single_abi_override_preserves_other_properties(self):
         android.set_abi(self.properties, "arm64-v8a")

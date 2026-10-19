@@ -488,24 +488,15 @@ class XboardModule {
     // step 7：XboardLifecycleObserver（W5.3）—— 自挂 observer + endpoint 竞速控制器。
     // 各子步骤独立 try/catch：一个失败（如 test 无 WidgetsBinding）不阻断其余（含 seam #7）。
     try {
-      var hadApiSelection = false;
       _raceController = EndpointRaceController(
         probe: debugProbe, // 生产 null → 默认真实 Dio 探针；测试注入 fake。
         onApiSwitch: (ep) {
-          final firstSelection = !hadApiSelection;
-          hadApiSelection = true;
           try {
             instance.switchBaseUrl(ep);
           } catch (_) {}
           container.read(apiEndpointProvider.notifier).set(ep);
           SentryBootstrap.tagEndpoint(current: ep); // DD-23 endpoint.current
-          if (firstSelection &&
-              !(_raceController?.apiInitializationPending ?? true)) {
-            // Startup may have ended offline. A later successful race can
-            // resume update checks; the independent 24h throttle still applies.
-            // ignore: discarded_futures
-            XbUpdateService.autoCheckThrottled(container);
-          }
+          XbUpdateService.onApiAvailable(container);
           // R4.6 T5（endpoint 切换）：API endpoint 竞速选中可达地址后触发订阅同步。
           // **关键修复**：冷启动 T2 sync 可能早于竞速完成 → 用初始(可能死的)endpoint 调
           // getSubscribeUrl 失败；竞速切到可达 endpoint 后在此重试。gate(authenticated)+
