@@ -174,6 +174,43 @@ set(CMAKE_CXX_COMPILER "$($fixture.Replace('\','/'))/VS/VC/Tools/MSVC/14.44.3520
     Case 'missing compiler inventory blocks packaging' {
         Assert-Throws { Test-XbCompilerPolicy $fixture $config }
     }
+    Case 'UTF8 CMake inventory preserves Chinese paths with BOM and LF or CRLF' {
+        # Keep this .ps1 ASCII for Windows PowerShell 5.1 source decoding.
+        $label = -join ([char[]]@(0x6d4b, 0x8bd5, 0x5de5, 0x5177))
+        $buildDir = Join-Path $fixture ($label + ' build')
+        $dir = Join-Path $buildDir 'CMakeFiles/3.31'
+        [IO.Directory]::CreateDirectory($dir) | Out-Null
+        $inventory = Join-Path $dir 'CMakeCXXCompiler.cmake'
+        $vcRoot = Join-Path $fixture ($label + ' Visual Studio/VC')
+        $redist = Join-Path $vcRoot 'Redist/MSVC/14.44.35211/x64/Microsoft.VC143.CRT'
+        [IO.Directory]::CreateDirectory($redist) | Out-Null
+        $expectedEncodingDll = Join-Path $redist 'msvcp140.dll'
+        [IO.File]::WriteAllText($expectedEncodingDll, 'fixture')
+        # Traverse the real derived directory; only file-version lookup is fake.
+        function Get-XbFileVersion([string]$Path) {
+            Assert-Equal ([IO.Path]::GetFullPath($Path)) ([IO.Path]::GetFullPath($expectedEncodingDll))
+            return $minimum
+        }
+        $compilerPath = $vcRoot.Replace('\','/') + '/Tools/MSVC/14.44.35207/bin/Hostx64/x64/cl.exe'
+        foreach ($bom in @($false, $true)) {
+            foreach ($newline in @("`n", "`r`n")) {
+                $text = @('set(CMAKE_CXX_COMPILER_ID "MSVC")',
+                    'set(CMAKE_CXX_COMPILER_VERSION "19.44.35222.0")',
+                    ('set(CMAKE_CXX_COMPILER "' + $compilerPath + '")')) -join $newline
+                [IO.File]::WriteAllText($inventory, $text, (New-Object Text.UTF8Encoding($bom)))
+                Test-XbCompilerPolicy $buildDir $config
+            }
+        }
+        # Simulate the old ANSI misread even on hosts where Default is UTF-8.
+        $utf8 = New-Object Text.UTF8Encoding($false)
+        $wrong = [Text.Encoding]::GetEncoding(1252).GetString($utf8.GetBytes($text))
+        if ($wrong -ceq $text) { throw 'negative control did not corrupt the Chinese path' }
+        [IO.File]::WriteAllText($inventory, $wrong, $utf8)
+        Assert-Throws { Test-XbCompilerPolicy $buildDir $config }
+        # Compiler policy is still enforced after an encoding-correct read.
+        [IO.File]::WriteAllText($inventory, $text.Replace('19.44.35222.0','19.50.10000.0'), $utf8)
+        Assert-Throws { Test-XbCompilerPolicy $buildDir $config }
+    }
     Case 'PE architecture guard accepts x64 and rejects x86 ARM64 and corrupt files' {
         $data = New-Object byte[] 128
         $data[0] = 0x4d; $data[1] = 0x5a; $data[60] = 64

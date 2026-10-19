@@ -99,6 +99,63 @@ class LocalCounterTests(unittest.TestCase):
         subprocess.run(["git", "check-ignore", "--quiet", ".local-build/build_number.brand_a.txt"], cwd=self.root, check=True)
 
 
+class CliOutputEncodingTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory(prefix="cli-encoding-")
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name) / "\u6d4b\u8bd5 \u5de5\u5177"
+        self.root.mkdir()
+        self.cli = self.root / "sentry \u7248\u672c.py"
+        self.environment = dict(os.environ)
+        self.real_run = subprocess.run
+
+    def write_cli(self, stdout, stderr, code=0):
+        # ASCII source, explicit raw UTF-8/invalid-byte output: unaffected by
+        # PYTHONIOENCODING and the child's locale. No real CLI/token/upload.
+        self.cli.write_text(
+            'import sys\nassert sys.argv[1:] == ["--version"]\n'
+            f'sys.stdout.buffer.write({stdout!r})\n'
+            f'sys.stderr.buffer.write({stderr!r})\n'
+            f'sys.exit({code})\n', encoding="utf-8")
+
+    def launch(self, argv, **kwargs):
+        self.assertEqual(argv, [str(self.cli), "--version"])
+        self.assertEqual(kwargs.get("timeout"), 30)
+        # Replace only the executable boundary with Python, then use real pipes
+        # and real decoding. Model the Windows default when encoding is omitted.
+        kwargs.setdefault("encoding", "cp1252")
+        return self.real_run([sys.executable, *argv], **kwargs)
+
+    def resolve(self):
+        with mock.patch.object(postbuild.shutil, "which", return_value=str(self.cli)), \
+                mock.patch.object(postbuild.subprocess, "run", side_effect=self.launch):
+            return postbuild.resolve_cli(str(self.cli), self.environment)
+
+    def test_real_child_under_chinese_path_accepts_utf8_diagnostics_and_crlf(self):
+        diagnostic = "\u5de5\u5177\u8def\u5f84\u63d0\u793a\uff1a\u6d4b\u8bd5\u0081\n".encode("utf-8")
+        self.write_cli(b"sentry-cli 2.58.4\r\n", diagnostic)
+        # This reproduces the previous locale-dependent failure using real
+        # subprocess output rather than a fabricated CompletedProcess.
+        with self.assertRaises(UnicodeDecodeError):
+            self.launch([str(self.cli), "--version"], capture_output=True,
+                        text=True, env=self.environment, timeout=30)
+        self.assertEqual(self.resolve(), str(self.cli))
+
+    def test_non_utf8_stderr_does_not_hide_valid_ascii_version(self):
+        self.write_cli(b"sentry-cli 2.58.4\n", b"\xff\x81")
+        self.assertEqual(self.resolve(), str(self.cli))
+
+    def test_bad_version_invalid_stdout_and_nonzero_exit_remain_rejected(self):
+        for stdout, code in ((b"sentry-cli 2.99.0\n", 0),
+                             (b"sentry-cli 2.58.4\xff\n", 0),
+                             (b"sentry-cli 2.58.4\n", 7)):
+            with self.subTest(stdout=stdout, exit=code):
+                self.write_cli(stdout, b"\xff\x81", code)
+                with self.assertRaises(postbuild.ReleaseError) as failure:
+                    self.resolve()
+                self.assertNotIn(str(self.root), str(failure.exception))
+
+
 class PostbuildTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()

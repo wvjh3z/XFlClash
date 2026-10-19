@@ -29,7 +29,11 @@ def resolve_cli(value: str | None, environment: dict[str, str]) -> str:
                        path=environment.get("PATH"))
     if not cli:
         raise ReleaseError(f"Install sentry-cli {CLI_VERSION} or set SENTRY_CLI to its executable")
+    # CLI output is UTF-8 regardless of the Windows ANSI code page. Diagnostics
+    # must not raise a locale decode error before exit/version checks run.
+    # Replacement characters in stdout cannot match the required ASCII version.
     result = subprocess.run([cli, "--version"], capture_output=True, text=True,
+                            encoding="utf-8", errors="replace",
                             env=environment, timeout=30)
     if result.returncode or result.stdout.strip() != f"sentry-cli {CLI_VERSION}":
         raise ReleaseError(f"Release symbols require sentry-cli {CLI_VERSION}")

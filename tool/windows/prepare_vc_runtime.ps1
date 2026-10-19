@@ -8,7 +8,9 @@ $ErrorActionPreference = 'Stop'
 function Test-XbCompilerPolicy([string]$BuildDirectory, $Config) {
     $files = @(Get-ChildItem -LiteralPath (Join-Path $BuildDirectory 'CMakeFiles') -Filter CMakeCXXCompiler.cmake -Recurse -File)
     if ($files.Count -ne 1) { throw 'Missing or ambiguous CMake compiler inventory; use a clean Windows build directory' }
-    $text = Get-Content -LiteralPath $files[0].FullName -Raw
+    # CMake writes UTF-8. PowerShell 5.1 otherwise assumes ANSI without a BOM,
+    # corrupting non-ASCII compiler paths before deriving the Redist directory.
+    $text = Get-Content -LiteralPath $files[0].FullName -Raw -Encoding UTF8
     if ($text -notmatch 'set\(CMAKE_CXX_COMPILER_ID "MSVC"\)' -or
         $text -notmatch 'set\(CMAKE_CXX_COMPILER_VERSION "(\d+\.\d+)\.\d+(?:\.\d+)?"\)') {
         throw 'Unrecognized Windows compiler; review VC runtime policy before packaging'
