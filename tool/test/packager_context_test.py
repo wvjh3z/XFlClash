@@ -1,6 +1,7 @@
 """Real Git/CLI regressions for #105, with no Dart, network or app build."""
 from __future__ import annotations
 
+import ast
 import hashlib
 import importlib.util
 import io
@@ -62,8 +63,37 @@ class PackagerContextTests(unittest.TestCase):
                 lines.append(f'diff --git a/{name} b/{name}\n')
             lines.append(line)
         patch = self.root / 'git-format.patch'
-        patch.write_text(''.join(lines), encoding='utf-8')
+        # A temporary patch is not protected by checkout .gitattributes.
+        # Write exact UTF-8/LF bytes on Windows as well as POSIX.
+        patch.write_bytes(''.join(lines).encode('utf-8'))
         return patch
+
+    def test_generated_patch_ignores_windows_text_newline_default(self):
+        write_text = Path.write_text
+        def windows_write(path, data, *args, **kwargs):
+            kwargs.setdefault('newline', '\r\n')
+            return write_text(path, data, *args, **kwargs)
+        with mock.patch.object(Path, 'write_text', windows_write):
+            patch = self.mixed_patch()
+        self.assertNotIn(b'\r', patch.read_bytes())
+        for parent in (self.root / 'outside', self.repo / 'build'):
+            with self.subTest(parent=parent):
+                stage = self.stage(parent, 'fixed-newlines')
+                PACKAGER.apply_tool_patch(stage, patch)
+                self.assert_complete(stage)
+
+    def test_old_crlf_patch_is_rejected_without_relaxing_checks(self):
+        correct = self.mixed_patch().read_bytes()
+        old = self.root / 'old-windows.patch'
+        old.write_text(correct.decode('utf-8'), encoding='utf-8', newline='\r\n')
+        self.assertIn(b'\r\n', old.read_bytes())
+        for parent in (self.root / 'outside', self.repo / 'build'):
+            with self.subTest(parent=parent):
+                stage = self.stage(parent, 'old-newlines')
+                with self.assertRaisesRegex(RuntimeError, 'patch rejected'):
+                    PACKAGER.apply_tool_patch(stage, old)
+                PACKAGER.verify_hashes(stage, 0)
+                self.assertFalse((stage / '.git').exists())
 
     def assert_complete(self, path):
         PACKAGER.verify_hashes(path, 1)
@@ -120,7 +150,7 @@ class PackagerContextTests(unittest.TestCase):
         with mock.patch(__name__ + '.SOURCE', shallow):
             self.test_real_cli_default_output_and_external_output_are_identical()
 
-    def test_real_cli_default_output_and_external_output_are_identical(self):
+    def install_cli_fixture(self):
         # An actual enclosing repository, tracked gitlink and source checkout,
         # rather than calling prepare() in a repository-external temp directory.
         tools = self.repo / 'tool'
@@ -134,6 +164,10 @@ class PackagerContextTests(unittest.TestCase):
         command(['git', 'update-index', '--add', '--cacheinfo', '160000',
                  PACKAGER.PINNED_REVISION, 'plugins/flutter_distributor'], cwd=self.repo)
         self.index = (self.repo / '.git/index').read_bytes()
+        return tools
+
+    def test_real_cli_default_output_and_external_output_are_identical(self):
+        tools = self.install_cli_fixture()
         snapshots = []
         for extra, output in (([], self.repo / 'build/packaging-tools/flutter_distributor'),
                               (['--output', str(self.root / 'external')], self.root / 'external')):
@@ -155,6 +189,57 @@ class PackagerContextTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn(b'patch drift', result.stderr)
         self.assert_complete(default)
+
+    def test_real_cli_success_log_is_ascii_safe_without_hiding_failure(self):
+        tools = self.install_cli_fixture()
+        for path_kind in ('ascii', 'chinese'):
+            if path_kind == 'chinese':
+                destination = self.root / '中文 工作区'
+                self.repo.rename(destination)
+                self.repo = destination
+                tools = self.repo / 'tool'
+            output = self.repo / 'build/packaging-tools/flutter_distributor'
+            for encoding in ('utf-8', 'cp1252'):
+                with self.subTest(path_kind=path_kind, encoding=encoding):
+                    env = {**os.environ, 'PYTHONIOENCODING': encoding + ':strict'}
+                    result = command([sys.executable, tools / 'prepare_linux_packager.py'],
+                                     cwd=self.repo, env=env)
+                    # Real captured stdout, not a fake print/TextIO wrapper.
+                    line = result.stdout.decode('ascii').strip()
+                    self.assertTrue(line.startswith('Prepared packager: '), line)
+                    logged_path = ast.literal_eval(line.removeprefix('Prepared packager: '))
+                    self.assertEqual(logged_path, str(output.resolve() / 'packages/flutter_distributor'))
+                    self.assert_complete(output)
+
+        # Retain the previous implementation in a temporary copy as a negative
+        # control. Only its final diagnostic changes; all real preparation runs.
+        source = (tools / 'prepare_linux_packager.py').read_text(encoding='utf-8')
+        current = 'print(f"Prepared packager: {str(output / \'packages/flutter_distributor\')!a}")'
+        legacy = 'print(f"Prepared packager: {output / \'packages/flutter_distributor\'}")'
+        self.assertEqual(source.count(current), 1)
+        old_cli = tools / 'legacy_prepare.py'
+        old_cli.write_text(source.replace(current, legacy), encoding='utf-8', newline='\n')
+        for encoding in ('utf-8', 'cp1252'):
+            env = {**os.environ, 'PYTHONIOENCODING': encoding + ':strict'}
+            result = subprocess.run([sys.executable, str(old_cli)], cwd=self.repo,
+                                    env=env, capture_output=True, timeout=60)
+            self.assertEqual(result.returncode == 0, encoding == 'utf-8')
+            if encoding == 'cp1252':
+                self.assertIn(b'UnicodeEncodeError', result.stderr)
+            self.assert_complete(output)
+
+        # A real bad patch must still fail, print no success, and leave the
+        # previous verified output intact under either output codepage.
+        patch = tools / 'patches' / PACKAGER.PATCH.name
+        patch.write_bytes(patch.read_bytes() + b'\ninvalid\n')
+        for encoding in ('utf-8', 'cp1252'):
+            env = {**os.environ, 'PYTHONIOENCODING': encoding + ':strict'}
+            result = subprocess.run([sys.executable, str(tools / 'prepare_linux_packager.py')],
+                                    cwd=self.repo, env=env, capture_output=True, timeout=60)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn(b'patch drift', result.stderr)
+            self.assertNotIn(b'Prepared packager:', result.stdout)
+            self.assert_complete(output)
 
 
 class ArchiveAliasTests(unittest.TestCase):

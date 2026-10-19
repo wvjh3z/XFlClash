@@ -226,7 +226,9 @@ def main() -> int:
         output = prepare(REPO / "plugins/flutter_distributor", args.output)
     except (OSError, RuntimeError, tarfile.TarError) as error:
         parser.exit(1, f"Packager preparation failed: {error}\n")
-    print(f"Prepared packager: {output / 'packages/flutter_distributor'}")
+    # Human diagnostic only: ASCII escaping preserves the path without making
+    # a verified preparation fail on Windows ANSI-codepage stdout pipes.
+    print(f"Prepared packager: {str(output / 'packages/flutter_distributor')!a}")
     return 0
 
 
