@@ -26,6 +26,7 @@ import '../util/html_link.dart';
 import '../util/html_text.dart' show wrapEmojiForHtml, kXbEmojiClass;
 import '../util/period_label.dart';
 import '../widgets/xb_ui_kit.dart';
+import '../widgets/xb_emoji_text.dart';
 import 'order_payment_page.dart';
 import 'pending_order_section.dart';
 import 'plan_list_page.dart';
@@ -822,7 +823,7 @@ class _SwapCol extends StatelessWidget {
         children: [
           Text(label, style: TextStyle(fontSize: 11, color: labelColor)),
           const SizedBox(height: 3),
-          EmojiText(
+          XbEmojiText(
             name,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,

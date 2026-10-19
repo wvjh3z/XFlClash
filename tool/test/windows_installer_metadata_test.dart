@@ -28,6 +28,20 @@ Map<String, String?> _links(WindowsInstallerMetadata metadata) => {
 };
 
 void main() {
+  test('both brands inject publisher into the tracked config without a dummy default', () {
+    final source = File('windows/packaging/exe/make_config.yaml').readAsStringSync();
+    expect((loadYaml(source) as YamlMap).containsKey('publisher_name'), isFalse);
+    expect(source, isNot(contains('MyClient')));
+    for (final brand in {'brand_a': 'Omofly', 'brand_b': 'Daishu'}.entries) {
+      final metadata = WindowsInstallerMetadata.fromYaml(
+        loadYaml(File('flavors/${brand.key}/windows_installer.yaml').readAsStringSync()),
+        defaultPublisher: brand.value,
+      );
+      final injected = injectWindowsInstallerConfig(source, metadata);
+      expect((loadYaml(injected) as YamlMap)['publisher_name'], brand.value);
+      expect(injectWindowsInstallerConfig(injected, metadata), injected);
+    }
+  });
   group('Installer product version and actual build', () {
     final template = File(
       'windows/packaging/exe/inno_setup.iss',

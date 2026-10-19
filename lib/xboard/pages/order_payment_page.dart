@@ -36,6 +36,7 @@ import '../widgets/xb_submit_guard.dart';
 import '../widgets/xb_theme.dart' show xbShowDialog, XbTokens;
 import '../widgets/xb_async_view.dart';
 import '../widgets/xb_ui_kit.dart';
+import '../widgets/xb_emoji_text.dart';
 
 /// 轮询间隔（pending/processing 时）。
 const _kPollInterval = Duration(seconds: 5);
@@ -1057,7 +1058,7 @@ class _InfoRow extends StatelessWidget {
               style: text.bodyMedium?.copyWith(color: scheme.onSurfaceVariant)),
           const SizedBox(width: 12),
           Expanded(
-            child: EmojiText(value,
+            child: XbEmojiText(value,
                 textAlign: TextAlign.right,
                 // 长值（如套餐名）单行省略，防折行 + 右对齐错乱 + 整行变形（与订单号同源修复）。
                 maxLines: 1,

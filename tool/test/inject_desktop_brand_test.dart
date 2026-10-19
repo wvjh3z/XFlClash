@@ -5,6 +5,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
+import 'package:yaml/yaml.dart';
 
 import 'package:test/test.dart';
 
@@ -192,6 +193,50 @@ void main() {
     expect(out, contains('publisher: chen08209')); // 不动
     expect(out, contains('app_id: ABC-123')); // 不动
     expect(injectMakeConfigNames(out, app), out);
+  });
+
+  group('AppImage brand keyword injection', () {
+    final source = File('linux/packaging/appimage/make_config.yaml').readAsStringSync();
+    for (final brand in ['OmoFly', '袋鼠加速']) {
+      for (final crlf in [false, true]) {
+        test('$brand actual template, CRLF=$crlf and repeated injection', () {
+          final input = crlf ? source.replaceAll('\n', '\r\n') : source;
+          final result = injectAppImageBrand(input, brand);
+          final doc = loadYaml(result) as YamlMap;
+          final original = loadYaml(source) as YamlMap;
+          expect(doc['keywords'], [brand, 'Clash', 'ClashMeta', 'Proxy']);
+          expect(doc['display_name'], brand);
+          expect(doc['generic_name'], brand);
+          for (final key in original.keys.where((k) => !['keywords', 'display_name', 'generic_name'].contains(k))) {
+            expect(doc[key], original[key]);
+          }
+          expect(injectAppImageBrand(result, brand), result);
+          expect(result, isNot(contains('MyClient')));
+        });
+      }
+    }
+    test('switching brands replaces the brand slot without accumulating old names', () {
+      final a = injectAppImageBrand(source, 'OmoFly');
+      final b = injectAppImageBrand(a, '袋鼠加速');
+      expect((loadYaml(b) as YamlMap)['keywords'], ['袋鼠加速', 'Clash', 'ClashMeta', 'Proxy']);
+      expect(injectAppImageBrand(b, 'OmoFly'), a);
+    });
+    test('inline, empty and missing keywords are valid; non-string values fail', () {
+      for (final value in ['keywords: [MyClient, Proxy]\n', 'keywords: []\n', '']) {
+        final result = injectAppImageBrand('display_name: FlClash\n$value', 'Brand "quoted"');
+        expect((loadYaml(result) as YamlMap)['keywords'].first, 'Brand "quoted"');
+      }
+      for (final value in ['keywords: 123\n', 'keywords: [123]\n']) {
+        expect(() => injectAppImageBrand('display_name: FlClash\n$value', 'OmoFly'), throwsFormatException);
+      }
+    });
+    test('blank lines and comments inside the keyword block cannot leave stale list entries', () {
+      final result = injectAppImageBrand(
+        'display_name: FlClash\nkeywords:\n  - MyClient\n\n  # search term\n  - Proxy\ngeneric_name: FlClash\n',
+        '袋鼠加速',
+      );
+      expect((loadYaml(result) as YamlMap)['keywords'], ['袋鼠加速', 'Proxy']);
+    });
   });
 
   test('flutter_launcher_icons.yaml 生成（image_path 指向品牌 png / 仅桌面）', () {

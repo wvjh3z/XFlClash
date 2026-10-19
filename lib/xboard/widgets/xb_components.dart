@@ -16,6 +16,7 @@ import 'package:flutter/material.dart';
 
 import '../shell/widgets/xb_responsive.dart' show xbIsDesktopWidth;
 import 'xb_theme.dart';
+import 'xb_emoji_text.dart';
 import 'xb_ui_kit.dart' show XbIconBadge;
 
 /// 细环转圈（原型 `.spin`）：淡色整环 + 一段实色弧，匀速旋转。比 Material
@@ -1519,7 +1520,7 @@ class XbFitText extends StatelessWidget {
     final Widget child = span != null
         ? Text.rich(span!,
             maxLines: 1, softWrap: false, textAlign: textAlign)
-        : EmojiText(text!,
+        : XbEmojiText(text!,
             maxLines: 1, style: style, textAlign: textAlign);
     return FittedBox(
       fit: BoxFit.scaleDown,

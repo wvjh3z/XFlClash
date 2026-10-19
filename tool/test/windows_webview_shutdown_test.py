@@ -14,6 +14,9 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
+import io
+import ast
 
 try:
     from .windows_loader_install_test import find_cmake, write_file
@@ -157,7 +160,7 @@ class WebViewShutdownTests(unittest.TestCase):
     def fixture(self, *, patched=True, crlf=False, brand='brand_a', drift=None):
         plugin = self.source / 'plugin'
         for name in ('in_app_webview_manager.h', 'in_app_webview_manager.cpp'):
-            data = (FIXTURE / name).read_text()
+            data = (FIXTURE / name).read_text(encoding='utf-8')
             if drift == name:
                 data += '\n// upstream changed\n'
             write_file(plugin / 'in_app_webview' / name,
@@ -172,7 +175,7 @@ class WebViewShutdownTests(unittest.TestCase):
                      'types/new_window_requested_args.h', 'windows.ui.composition.h'):
             write_file(plugin / name, '#pragma once\n#include <fake_api.h>\n')
         # Reuse the actual unmodified per-view cleanup implementation.
-        cpp = (FIXTURE / 'in_app_webview_manager.cpp').read_text()
+        cpp = (FIXTURE / 'in_app_webview_manager.cpp').read_text(encoding='utf-8')
         destructor = cpp[cpp.index('  InAppWebViewManager::~'):cpp.rfind('\n}')]
         write_file(plugin / 'main.cpp', MAIN + destructor + END_MAIN)
         write_file(plugin / 'other.cpp', OTHER)
@@ -203,7 +206,7 @@ file(GENERATE OUTPUT "${{CMAKE_BINARY_DIR}}/sources-$<CONFIG>.txt"
 
     def compile(self):
         self.run_command([self.cmake, '--build', str(self.build), '--config', 'Release'])
-        return (self.build / 'program-Release.txt').read_text()
+        return (self.build / 'program-Release.txt').read_text(encoding='utf-8')
 
     def assert_source_unchanged(self):
         for relative, data in self.original.items():
@@ -219,7 +222,7 @@ file(GENERATE OUTPUT "${{CMAKE_BINARY_DIR}}/sources-$<CONFIG>.txt"
                     for mode in ([], ['direct-exit']):
                         self.run_command([program, str(resources), *mode])
                 self.assert_source_unchanged()
-                rows = (self.build / 'sources-Release.txt').read_text().splitlines()
+                rows = (self.build / 'sources-Release.txt').read_text(encoding='utf-8').splitlines()
                 self.assertTrue(rows)
                 self.assertTrue(all('xboard_webview_shutdown/' in p.replace('\\', '/') for p in rows))
                 shutil.rmtree(self.build)
@@ -263,7 +266,7 @@ include("{HELPER.as_posix()}")
         header.write_bytes(self.original[Path('in_app_webview/in_app_webview_manager.h')])
         write_file(self.source / 'outside.cpp', 'int outside() { return 0; }\n')
         cmake = self.source / 'plugin/CMakeLists.txt'
-        cmake.write_text(cmake.read_text() + '\ntarget_sources(flutter_inappwebview_windows_plugin PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../outside.cpp")\n')
+        cmake.write_text(cmake.read_text(encoding='utf-8') + '\ntarget_sources(flutter_inappwebview_windows_plugin PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../outside.cpp")\n', encoding='utf-8')
         self.assertIn('source outside copied tree', self.configure(expected=1).stderr)
 
     def test_ci_runs_offline_checks_before_matrix_and_windows_compile(self):
@@ -275,11 +278,35 @@ include("{HELPER.as_posix()}")
         name = 'Check Windows WebView shutdown ownership with MSVC'
         self.assertEqual(shlex.split(step_script(name)),
                          ['python', 'tool/test/windows_webview_shutdown_test.py'])
-        workflow = WORKFLOW.read_text()
+        workflow = WORKFLOW.read_text(encoding='utf-8')
         self.assertLess(workflow.index('name: ' + name), workflow.index('name: Package (flutter_distributor)'))
         section = workflow.split('name: ' + name, 1)[1].split('\n      - ', 1)[0]
         self.assertIn("if: matrix.platform == 'windows'", section)
         self.assertNotIn('continue-on-error', section)
+
+    def test_workflow_check_works_with_windows_cp1252_default(self):
+        from tool.test.sentry_release_workflow_test import WORKFLOW
+        # Exercise the actual check under a non-UTF-8 default on every host.
+        # No environment-wide UTF-8 override that could hide an omitted argument.
+        def windows_encoding(encoding, *args):
+            return 'cp1252' if encoding is None else encoding
+        with mock.patch.object(io, 'text_encoding', side_effect=windows_encoding):
+            with self.assertRaises(UnicodeDecodeError):
+                WORKFLOW.read_text()  # intentional old-code negative control
+            self.test_ci_runs_offline_checks_before_matrix_and_windows_compile()
+
+    def test_fixture_file_io_always_declares_encoding(self):
+        source = Path(__file__).read_text(encoding='utf-8')
+        tree = ast.parse(source)
+        for method in (node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef)):
+            if method.name == 'test_workflow_check_works_with_windows_cp1252_default':
+                continue  # this one deliberately executes the old bug
+            for node in ast.walk(method):
+                if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                        and node.func.attr in ('read_text', 'write_text')):
+                    self.assertTrue(any(k.arg == 'encoding' and isinstance(k.value, ast.Constant)
+                                        and k.value.value == 'utf-8' for k in node.keywords),
+                                    f'{method.name}:{node.lineno}: file encoding is implicit')
 
     def test_incremental_reconfigure_keeps_output_and_does_not_mutate_cache(self):
         self.fixture()
@@ -298,16 +325,16 @@ include("{HELPER.as_posix()}")
         self.configure()
         self.compile()
         path = self.source / 'plugin/in_app_webview/in_app_webview_manager.h'
-        path.write_text(path.read_text() + '\n// changed after configure\n')
+        path.write_text(path.read_text(encoding='utf-8') + '\n// changed after configure\n', encoding='utf-8')
         result = subprocess.run([self.cmake, '--build', str(self.build), '--config', 'Release'],
-                                capture_output=True, text=True, timeout=120)
+                                capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=120)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn('source drift', result.stderr)
 
     def test_real_upstream_cmake_graph_retargets_every_translation_unit(self):
         # Configure the real pinned plugin build graph, not a handwritten source
         # inventory. No NuGet invocation or actual Windows compilation here.
-        upstream = (FIXTURE / 'CMakeLists.txt').read_text()
+        upstream = (FIXTURE / 'CMakeLists.txt').read_text(encoding='utf-8')
         for fallback in ('OFF', 'ON'):
             with self.subTest(texture_fallback=fallback):
                 plugin = self.source / 'plugin'
@@ -339,8 +366,8 @@ file(GENERATE OUTPUT "${{CMAKE_BINARY_DIR}}/sources-$<CONFIG>.txt"
   CONTENT "$<JOIN:$<TARGET_PROPERTY:flutter_inappwebview_windows_plugin,SOURCES>,\\n>")
 ''')
                 self.configure()
-                self.assertGreater(int((self.build / 'source_count.txt').read_text()), 90)
-                rows = (self.build / 'sources-Release.txt').read_text().splitlines()
+                self.assertGreater(int((self.build / 'source_count.txt').read_text(encoding='utf-8')), 90)
+                rows = (self.build / 'sources-Release.txt').read_text(encoding='utf-8').splitlines()
                 self.assertTrue(all('xboard_webview_shutdown/' in p.replace('\\', '/') for p in rows))
                 self.assertTrue(any(p.endswith('texture_bridge_fallback.cc' if fallback == 'ON' else 'texture_bridge_gpu.cc') for p in rows))
                 shutil.rmtree(self.build)

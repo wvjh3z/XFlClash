@@ -230,7 +230,7 @@ XbAsyncView(
 各自手写 `FittedBox(scaleDown)+Text` 修（invite 余额 / plan_detail 价格…），散写易漏易飘。
 
 **框架**：`XbFitText(text, {style, textAlign, alignment})` / `XbFitText.rich(span, {...})` —— 一行内
-**永不省略**：够位原字号、超宽整体等比缩（`FittedBox(BoxFit.scaleDown)`）。emoji 走 `EmojiText` 同源。
+**永不省略**：够位原字号、超宽整体等比缩（`FittedBox(BoxFit.scaleDown)`）。emoji 走 Xboard 自有 `XbEmojiText`，保留与上游相同的Twemoji分段策略。
 
 ```dart
 XbFitText(summary, style: TextStyle(fontSize: 12, color: t.onv));          // 套餐摘要行
@@ -242,7 +242,7 @@ XbFitText(xbYuan(p.amountYuan), alignment: Alignment.center, ...);          // �
 用户/数据字符串**（节点名 / 套餐名 / 订单号 / 邮箱）—— 那些过长应保留 `ellipsis`（scaleDown 会
 缩成蚂蚁字）。判断法：内容会不会长到「缩到看不清也放不下」？会 → `ellipsis`；不会 → `XbFitText`。
 
-**注意**：`XbFitText`（plain）基于 `EmojiText`（`RichText`），**不继承 `DefaultTextStyle`**，
+**注意**：`XbFitText`（plain）基于 `XbEmojiText`（`RichText`），**不继承 `DefaultTextStyle`**，
 颜色须显式传 `style`（依赖按钮 `foregroundColor` 等继承色的场景仍用 `Text`，故 update 弹窗
 「浏览器下载」按钮保留手写 `FittedBox+Text`）。
 
@@ -303,3 +303,7 @@ XbFitText(xbYuan(p.amountYuan), alignment: Alignment.center, ...);          // �
 | `test/xboard/golden/a11y_golden_test.dart` | 套餐详情/支付页 × light/dark × 1.0/1.5/2.0 + 对比度 |
 
 > 正常回归不带 `--update-goldens`；像素失配先核对字体、Flutter 环境和实际界面变化。需要刷新时限定测试范围并审阅图片，随后不带 update 复测。像素匹配证明该夹具和环境下与基线一致，不代替真实设备或全部业务流程验收。
+
+### Xboard 对齐文本
+
+需要段落对齐的Emoji文本使用 `lib/xboard/widgets/xb_emoji_text.dart` 的 `XbEmojiText`，当前消费者为套餐详情摘要、订单支付信息行和XbFitText。它保留系统文字缩放、maxLines/overflow与仅Emoji片段使用Twemoji的规则；普通数字使用原文本字体。底座 `EmojiText` 已恢复上游，不再向其传textAlign；其他无需扩展对齐的既有调用保持原状。

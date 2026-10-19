@@ -1,7 +1,6 @@
 script_template: inno_setup.iss
 app_id: 9F3A1C2E-7B4D-4E6A-9C12-A1B2C3D4E5F6
 # Injected from flavors/<flavor>/windows_installer.yaml before packaging.
-publisher_name: MyClient
 display_name: FlClash
 executable_name: FlClash.exe
 setup_icon_file: ..\windows\runner\resources\app_icon.ico

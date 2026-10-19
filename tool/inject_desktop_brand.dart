@@ -33,6 +33,7 @@
 // 退出码：0 成功；1 flavor.yaml 缺失/无 appName / 品牌图标缺失；2 用法错误。
 
 import 'dart:io';
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:args/args.dart';
@@ -149,7 +150,7 @@ Future<void> main(List<String> argv) async {
     'macos/Runner/Configs/AppInfo.xcconfig': injectMacProductName,
     'macos/Runner/Info.plist': injectMacInfoPlist,
     'macos/packaging/dmg/make_config.yaml': injectDmgMakeConfig,
-    'linux/packaging/appimage/make_config.yaml': injectMakeConfigNames,
+    'linux/packaging/appimage/make_config.yaml': injectAppImageBrand,
     'linux/packaging/rpm/make_config.yaml': injectMakeConfigNames,
     'linux/packaging/deb/make_config.yaml': injectMakeConfigNames,
     'windows/packaging/exe/make_config.yaml': (src, app) =>
@@ -341,4 +342,35 @@ String injectMakeConfigNames(String src, String appName) {
     );
   }
   return s;
+}
+
+/// The first AppImage keyword is the brand slot; preserve the remaining search
+/// terms. Replacing that slot also handles switching brands in one checkout.
+String injectAppImageBrand(String src, String appName) {
+  final text = injectMakeConfigNames(src, appName).replaceAll('\r\n', '\n');
+  final doc = loadYaml(text);
+  if (doc is! YamlMap) {
+    throw const FormatException('AppImage config must be a YAML map');
+  }
+  final existing = doc['keywords'];
+  if (existing != null &&
+      (existing is! YamlList || existing.any((value) => value is! String))) {
+    throw const FormatException('AppImage keywords must be a list of strings');
+  }
+  final keywords = <String>{
+    appName,
+    if (existing is YamlList) ...existing.skip(1).cast<String>(),
+  };
+  final block = 'keywords:\n${keywords.map((v) => '  - ${jsonEncode(v)}').join('\n')}';
+  final pattern = RegExp(
+    r'^keywords:[^\n]*(?:\n(?:[ \t]+[^\n]*|[ \t]*|#[^\n]*))*',
+    multiLine: true,
+  );
+  if (pattern.hasMatch(text)) {
+    return text.replaceFirstMapped(
+      pattern,
+      (match) => '$block${match[0]!.endsWith('\n') ? '\n' : ''}',
+    );
+  }
+  return '${text.trimRight()}\n\n$block\n';
 }
