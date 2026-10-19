@@ -197,10 +197,16 @@ void main() {
 
   group('AppImage brand keyword injection', () {
     final source = File('linux/packaging/appimage/make_config.yaml').readAsStringSync();
+    late _RunnerCheckoutFixture fixture;
+    setUpAll(() {
+      fixture = _RunnerCheckoutFixture(sourcePath: _appImageConfig);
+      addTearDown(() => fixture.root.deleteSync(recursive: true));
+      fixture.initialize();
+    });
     for (final brand in ['OmoFly', '袋鼠加速']) {
       for (final crlf in [false, true]) {
         test('$brand actual template, CRLF=$crlf and repeated injection', () {
-          final input = crlf ? source.replaceAll('\n', '\r\n') : source;
+          final input = _fixtureLineEndings(source, crlf: crlf);
           final result = injectAppImageBrand(input, brand);
           final doc = loadYaml(result) as YamlMap;
           final original = loadYaml(source) as YamlMap;
@@ -215,6 +221,47 @@ void main() {
         });
       }
     }
+    for (final mode in ['false', 'input', 'true']) {
+      test('real AppImage Git checkout autocrlf=$mode supports both brands and fixture line endings', () {
+        final checkout = fixture.checkout(mode);
+        final file = File(p.join(checkout.path, _appImageConfig));
+        final bytes = file.readAsBytesSync();
+        final checkedOut = utf8.decode(bytes);
+        expect(checkedOut.contains('\r\n'), mode == 'true');
+        expect(checkedOut.replaceAll('\r\n', '\n'), fixture.canonical);
+        for (final brand in ['OmoFly', '袋鼠加速']) {
+          // Pass actual checkout bytes directly to production too. Fixing the
+          // test input must not conceal lack of support for legitimate CRLF.
+          final direct = injectAppImageBrand(checkedOut, brand);
+          expect(injectAppImageBrand(direct, brand), direct);
+          for (final crlf in [false, true]) {
+            final input = _fixtureLineEndings(checkedOut, crlf: crlf);
+            expect(input.contains('\r\n'), crlf);
+            expect(input, isNot(contains('\r\r\n')));
+            final result = injectAppImageBrand(input, brand);
+            expect(result, direct);
+            expect(injectAppImageBrand(result, brand), result);
+            expect((loadYaml(result) as YamlMap)['keywords'],
+                [brand, 'Clash', 'ClashMeta', 'Proxy']);
+          }
+        }
+        expect(file.readAsBytesSync(), bytes, reason: 'Do not rewrite checkout files');
+        expect(fixture.git(checkout, ['status', '--porcelain']), isEmpty);
+      });
+    }
+    test('old double conversion reproduces #103 from an actual CRLF checkout', () {
+      final checkout = fixture.checkout('true');
+      final checkedOut = File(p.join(checkout.path, _appImageConfig)).readAsStringSync();
+      expect(checkedOut, contains('\r\n'));
+      final malformed = checkedOut.replaceAll('\n', '\r\n');
+      expect(malformed, contains('\r\r\n'));
+      for (final brand in ['OmoFly', '袋鼠加速']) {
+        final first = injectAppImageBrand(malformed, brand);
+        expect(injectAppImageBrand(first, brand), isNot(first));
+        final fixed = injectAppImageBrand(_fixtureLineEndings(checkedOut, crlf: true), brand);
+        expect(injectAppImageBrand(fixed, brand), fixed);
+      }
+    });
     test('switching brands replaces the brand slot without accumulating old names', () {
       final a = injectAppImageBrand(source, 'OmoFly');
       final b = injectAppImageBrand(a, '袋鼠加速');
@@ -275,8 +322,20 @@ void _expectRunnerBrandConfiguration(String project) {
 }
 
 const _runnerProject = 'macos/Runner.xcodeproj/project.pbxproj';
+const _appImageConfig = 'linux/packaging/appimage/make_config.yaml';
+
+String _fixtureLineEndings(String source, {required bool crlf}) {
+  // Source may already be CRLF after a Windows Git checkout. Canonicalize
+  // before expanding LF; never manufacture CRCRLF from legitimate input.
+  final lf = source.replaceAll('\r\n', '\n');
+  expect(lf, isNot(contains('\r')));
+  return crlf ? lf.replaceAll('\n', '\r\n') : lf;
+}
 
 class _RunnerCheckoutFixture {
+  _RunnerCheckoutFixture({this.sourcePath = _runnerProject});
+
+  final String sourcePath;
   final root = Directory.systemTemp.createTempSync('runner checkout ');
   late final seed = Directory(p.join(root.path, 'seed'));
   late final emptyConfig = p.join(root.path, 'empty-config');
@@ -288,9 +347,9 @@ class _RunnerCheckoutFixture {
     Directory(p.join(root.path, 'hooks')).createSync();
     seed.createSync();
     canonical = File(
-      _runnerProject,
+      sourcePath,
     ).readAsStringSync().replaceAll('\r\n', '\n');
-    final project = File(p.join(seed.path, _runnerProject));
+    final project = File(p.join(seed.path, sourcePath));
     project.parent.createSync(recursive: true);
     project.writeAsStringSync(canonical);
     File('.gitattributes').copySync(p.join(seed.path, '.gitattributes'));
