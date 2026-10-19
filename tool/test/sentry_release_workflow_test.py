@@ -370,6 +370,19 @@ class ReleaseWorkflowTests(unittest.TestCase):
                     self.assertEqual(arguments[arguments.index("--description") + 1], architecture)
                     self.assertFalse(any(arg.startswith("--build-target-platform") for arg in arguments))
 
+    def test_shared_preparation_is_pinned_and_precedes_matrix_dispatch(self):
+        workflow = WORKFLOW.read_text(encoding="utf-8")
+        init = "Prepare pinned distributor for shared checks"
+        entry = "Check default packager preparation entrypoint"
+        self.assertEqual(shlex.split(step_script(init)),
+                         ["git", "submodule", "update", "--init", "--depth", "1", "--", "plugins/flutter_distributor"])
+        self.assertEqual(shlex.split(step_script(entry)), ["python3", "tool/prepare_linux_packager.py"])
+        self.assertLess(workflow.index("name: " + init), workflow.index("name: " + entry))
+        self.assertLess(workflow.index("name: " + entry), workflow.index("name: Check shared release contracts"))
+        self.assertLess(workflow.index("name: Check shared release contracts"), workflow.index("      - id: r"))
+        self.assertEqual(shlex.split(step_script("Check platform packager context")),
+                         ["python", "tool/test/packager_context_test.py"])
+
     def test_all_platforms_activate_the_verified_prepared_copy(self):
         for name in ("python3", "dart"):
             path = self.bin / name

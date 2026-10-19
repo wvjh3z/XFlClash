@@ -122,6 +122,11 @@ jobs:
       - name: Static workflow and shell checks
         timeout-minutes: 5
         run: python3 tool/check_workflow_lints.py --prepare
+      - name: Prepare pinned distributor for shared checks
+        timeout-minutes: 5
+        run: git submodule update --init --depth 1 -- plugins/flutter_distributor
+      - name: Check default packager preparation entrypoint
+        run: python3 tool/prepare_linux_packager.py
       - name: Check shared release contracts
         timeout-minutes: 5
         run: python3 tool/check_release_workflow.py
@@ -355,6 +360,10 @@ jobs:
           set -euo pipefail
           flutter --version
           python tool/pub_get_retry.py --tool flutter --report build/dependency-retries/client.json
+
+      - name: Check platform packager context
+        timeout-minutes: 5
+        run: python tool/test/packager_context_test.py
 
       - name: Check build tool encoding and launchers
         timeout-minutes: 5

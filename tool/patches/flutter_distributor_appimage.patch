@@ -373,7 +373,6 @@
            };
            MakeResult makeResult = await _packager.package(
              platform,
-diff --git a/packages/shell_executor/lib/src/shell_executor.dart b/packages/shell_executor/lib/src/shell_executor.dart
 --- a/packages/shell_executor/lib/src/shell_executor.dart
 +++ b/packages/shell_executor/lib/src/shell_executor.dart
 @@ -31,21 +31,17 @@
@@ -418,7 +417,6 @@ diff --git a/packages/shell_executor/lib/src/shell_executor.dart b/packages/shel
      );
      return processResult;
    }
-diff --git a/packages/flutter_distributor/lib/src/utils/default_shell_executor.dart b/packages/flutter_distributor/lib/src/utils/default_shell_executor.dart
 --- a/packages/flutter_distributor/lib/src/utils/default_shell_executor.dart
 +++ b/packages/flutter_distributor/lib/src/utils/default_shell_executor.dart
 @@ -1,21 +1,9 @@
@@ -475,7 +473,6 @@ diff --git a/packages/flutter_distributor/lib/src/utils/default_shell_executor.d
 +        stdoutText.toString(), stderrText.toString());
    }
  }
-diff --git a/packages/flutter_distributor/pubspec.yaml b/packages/flutter_distributor/pubspec.yaml
 --- a/packages/flutter_distributor/pubspec.yaml
 +++ b/packages/flutter_distributor/pubspec.yaml
 @@ -37,3 +37,8 @@

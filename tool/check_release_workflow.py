@@ -22,6 +22,8 @@ MODULES = (
     "tool.test.release_pipeline_test",
     "tool.test.fallback_assets_test",
     "tool.test.windows_webview_shutdown_test",
+    "tool.test.packager_context_test",
+    "tool.test.local_release_automation_test.CliOutputEncodingTests",
 )
 
 

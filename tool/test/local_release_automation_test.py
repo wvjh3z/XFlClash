@@ -134,11 +134,17 @@ class CliOutputEncodingTests(unittest.TestCase):
     def test_real_child_under_chinese_path_accepts_utf8_diagnostics_and_crlf(self):
         diagnostic = "\u5de5\u5177\u8def\u5f84\u63d0\u793a\uff1a\u6d4b\u8bd5\u0081\n".encode("utf-8")
         self.write_cli(b"sentry-cli 2.58.4\r\n", diagnostic)
-        # This reproduces the previous locale-dependent failure using real
-        # subprocess output rather than a fabricated CompletedProcess.
+        # Capture real bytes, then reproduce the wrong codec in this thread.
+        # Windows Popen decodes pipes in reader threads; assertRaises around
+        # subprocess.run would not see a reader-thread UnicodeDecodeError.
+        raw = self.real_run([sys.executable, str(self.cli), "--version"],
+                            capture_output=True, env=self.environment, timeout=30)
+        self.assertEqual(raw.returncode, 0)
+        self.assertEqual(raw.stdout, b"sentry-cli 2.58.4\r\n")
+        self.assertEqual(raw.stderr, diagnostic)
+        self.assertEqual(raw.stderr.decode("utf-8").encode("utf-8"), diagnostic)
         with self.assertRaises(UnicodeDecodeError):
-            self.launch([str(self.cli), "--version"], capture_output=True,
-                        text=True, env=self.environment, timeout=30)
+            raw.stderr.decode("cp1252")
         self.assertEqual(self.resolve(), str(self.cli))
 
     def test_non_utf8_stderr_does_not_hide_valid_ascii_version(self):

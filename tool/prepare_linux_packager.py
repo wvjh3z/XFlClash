@@ -21,7 +21,7 @@ import tempfile
 REPO = Path(__file__).resolve().parents[1]
 PINNED_REVISION = "cdeeef2d8f8325bb6ae0bc86b39f56e4325d1a58"
 PATCH = REPO / "tool/patches/flutter_distributor_appimage.patch"
-PATCH_SHA256 = "56ebc0eff9779bea84c0db2c033889c6827ea4b28d0fe814bc7fcab0a838cf1d"
+PATCH_SHA256 = "454be6d30c8d9f95a6a905f89f43ecdbe967b534206e8a2b10afba23ce518116"
 OUTPUT = REPO / "build/packaging-tools/flutter_distributor"
 # Both sides are intentional: reject changed upstream input and changed patch
 # output, including an accidentally partial or already applied patch.
@@ -76,6 +76,9 @@ def export_tool_archive(archive: bytes, staged: Path, *, materialize_links: bool
     Write files before creating links so no archive entry can write through a
     symlink. This also avoids the data_filter relative-link bug in Python 3.10.12.
     """
+    # Compare physical paths on both sides, including macOS /var aliases and
+    # callers that pass a relative directory. The destination must already exist.
+    staged = staged.resolve(strict=True)
     with tarfile.open(fileobj=io.BytesIO(archive)) as contents:
         members = {}
         for member in contents.getmembers():
@@ -139,6 +142,41 @@ def export_tool_archive(archive: bytes, staged: Path, *, materialize_links: bool
                     raise RuntimeError(f"Unsafe tool archive link: {name}")
 
 
+def apply_tool_patch(staged: Path, patch: Path) -> None:
+    """Apply within a disposable Git root, never the caller's repository/index.
+
+    git apply can silently skip Git-format headers when cwd is below a different
+    worktree. An explicit temporary repository makes both patch formats behave
+    the same inside/outside the checkout. No commit or global config is written.
+    """
+    staged = staged.resolve(strict=True)
+    patch = patch.resolve(strict=True)
+    metadata = staged / ".git"
+    if metadata.exists() or metadata.is_symlink():
+        raise RuntimeError("Tool staging directory already contains Git metadata")
+    environment = {key: value for key, value in os.environ.items()
+                   if not key.upper().startswith("GIT_")}
+    try:
+        result = subprocess.run(
+            ["git", "init", "--quiet", "--template=", str(staged)],
+            cwd=staged, env=environment, capture_output=True, check=False,
+        )
+        if result.returncode:
+            raise RuntimeError("Cannot initialize isolated tool patch context")
+        for arguments in (("--check",), ()):
+            result = subprocess.run(
+                ["git", "--git-dir=" + str(metadata), "--work-tree=" + str(staged),
+                 "-c", "core.autocrlf=false", "apply", "--whitespace=error-all",
+                 *arguments, str(patch)],
+                cwd=staged, env=environment, capture_output=True, check=False,
+            )
+            if result.returncode:
+                raise RuntimeError(f"Distributor patch rejected: {result.stderr.decode('utf-8', errors='replace').strip()}")
+    finally:
+        if metadata.is_dir():
+            shutil.rmtree(metadata)
+
+
 def prepare(source: Path, output: Path, patch: Path = PATCH) -> Path:
     source, output, patch = source.resolve(), output.absolute(), patch.resolve()
     if output.is_symlink():
@@ -161,13 +199,7 @@ def prepare(source: Path, output: Path, patch: Path = PATCH) -> Path:
         staged.mkdir()
         export_tool_archive(archive, staged)
         verify_hashes(staged, 0)
-        for arguments in (("--check",), ()):
-            result = subprocess.run(
-                ["git", "-c", "core.autocrlf=false", "apply", "--whitespace=error-all", *arguments, str(patch)],
-                cwd=staged, capture_output=True, check=False,
-            )
-            if result.returncode:
-                raise RuntimeError(f"Distributor patch rejected: {result.stderr.decode('utf-8', errors='replace').strip()}")
+        apply_tool_patch(staged, patch)
         verify_hashes(staged, 1)
         # The previous complete output is kept until validation succeeds. The
         # rename keeps partially prepared tools invisible to activation.
