@@ -122,6 +122,16 @@ class WindowsLoaderInstallTest(unittest.TestCase):
             WINDOWS_CMAKE.with_name("xboard_sentry_symbols.cmake"),
             source / "xboard_sentry_symbols.cmake",
         )
+        shutil.copyfile(
+            WINDOWS_CMAKE.with_name("xboard_webview_shutdown.cmake"),
+            source / "xboard_webview_shutdown.cmake",
+        )
+        # Supply the immutable ownership inputs consumed by the real overlay.
+        # Target sources below stay small compiler/loader fixtures.
+        ownership_fixture = Path(__file__).parent / "fixtures/inappwebview_windows_0_6_0"
+        for name in ("in_app_webview_manager.h", "in_app_webview_manager.cpp"):
+            write_file(source / "in_app_webview" / name,
+                       (ownership_fixture / name).read_bytes())
         write_file(
             source / "flutter" / "CMakeLists.txt",
             """set(FLUTTER_ICU_DATA_FILE "${CMAKE_CURRENT_LIST_DIR}/icudtl.dat" PARENT_SCOPE)

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Shared, offline release gate used locally and before the platform matrix.
 
-Requires POSIX + Bash/Git; no Flutter, SDK, brand secrets or client builds.
+Requires POSIX + Bash/Git/CMake/C++; no Flutter, SDK, brand secrets or client builds.
 Pure structure checks can independently run on any supported Python host.
 """
 from __future__ import annotations
@@ -21,11 +21,12 @@ MODULES = (
     "tool.test.release_preflight_test",
     "tool.test.release_pipeline_test",
     "tool.test.fallback_assets_test",
+    "tool.test.windows_webview_shutdown_test",
 )
 
 
 def requirements():
-    missing = [name for name in ("bash", "git") if not shutil.which(name)]
+    missing = [name for name in ("bash", "git", "cmake", "c++") if not shutil.which(name)]
     if os.name != "posix":
         missing.insert(0, "POSIX host (use Linux/WSL/macOS for the complete gate)")
     return missing

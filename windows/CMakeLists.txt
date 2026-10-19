@@ -57,6 +57,9 @@ add_subdirectory("runner")
 # them to the application.
 include(flutter/generated_plugins.cmake)
 
+# Both brands: prevent static WinRT destruction during process/DLL teardown.
+include("xboard_webview_shutdown.cmake")
+
 # Xboard tutorials lock std::mutex in the embedded WebView texture bridge.
 # Restore MSVC's older mutex initialization for machines with older VC runtimes.
 # Apply consistently to this plugin's sources without exporting it to consumers.

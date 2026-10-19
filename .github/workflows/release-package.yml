@@ -193,6 +193,10 @@ jobs:
         if: matrix.platform == 'windows'
         run: python tool/test/windows_loader_install_test.py
 
+      - name: Check Windows WebView shutdown ownership with MSVC
+        if: matrix.platform == 'windows'
+        run: python tool/test/windows_webview_shutdown_test.py
+
       - name: Check Windows runtime prerequisite rules
         if: matrix.platform == 'windows'
         shell: powershell
