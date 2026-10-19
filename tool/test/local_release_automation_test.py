@@ -348,7 +348,9 @@ class AndroidLocalTests(unittest.TestCase):
                 if invalid_evidence:
                     evidence["build_number"] = "17"
                 (owner.batch / "sentry-symbols-evidence.json").write_text(json.dumps(evidence))
-        def git_output(command, cwd=None, text=False):
+        def git_output(command, cwd=None, text=False, encoding=None):
+            if text:
+                self.assertEqual(encoding, "utf-8")
             if command[1] == "rev-parse":
                 return head
             repository = Path(cwd)

@@ -152,7 +152,7 @@ def stale_prefetches(ps_output: str, cache: Path, uid: int) -> tuple[list[int], 
 def cleanup_stale(cache: Path, environment: dict[str, str]) -> dict:
     try:
         result = subprocess.run(["/bin/ps", "-axo", "pid=,ppid=,uid=,command="],
-            env=environment, stdin=subprocess.DEVNULL, capture_output=True, timeout=10, text=True)
+            env=environment, stdin=subprocess.DEVNULL, capture_output=True, timeout=10, text=True, encoding="utf-8", errors="replace")
         if result.returncode:
             raise DiagnosticError("prefetch_process_inventory_failed")
         matched, tree = stale_prefetches(result.stdout, cache, os.getuid())
@@ -220,7 +220,7 @@ def safe_process_tree(output: str, root_pid: int, uid: int) -> dict:
 def process_snapshot(root_pid: int, environment: dict[str, str]) -> dict:
     try:
         result = subprocess.run(["/bin/ps", "-axo", "pid=,ppid=,uid=,%cpu=,rss=,comm="],
-            env=environment, stdin=subprocess.DEVNULL, capture_output=True, timeout=5, text=True)
+            env=environment, stdin=subprocess.DEVNULL, capture_output=True, timeout=5, text=True, encoding="utf-8", errors="replace")
         if result.returncode:
             return {"status": "failed", "reason": "process_inventory_failed"}
         return safe_process_tree(result.stdout, root_pid, os.getuid())
@@ -392,7 +392,7 @@ def timeout_sample(process, environment: dict[str, str]) -> dict:
         return {**unavailable, "reason": "sample_target_exited"}
     try:
         owner = subprocess.run(["/bin/ps", "-p", str(process.pid), "-o", "uid="],
-            env=environment, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=1)
+            env=environment, stdin=subprocess.DEVNULL, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=1)
         if owner.returncode or not owner.stdout.strip().isdigit() or int(owner.stdout.strip()) != os.getuid():
             return {**unavailable, "reason": "sample_target_uid_unconfirmed"}
         if process.poll() is not None:

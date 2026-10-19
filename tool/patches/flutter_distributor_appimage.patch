@@ -373,3 +373,117 @@
            };
            MakeResult makeResult = await _packager.package(
              platform,
+diff --git a/packages/shell_executor/lib/src/shell_executor.dart b/packages/shell_executor/lib/src/shell_executor.dart
+--- a/packages/shell_executor/lib/src/shell_executor.dart
++++ b/packages/shell_executor/lib/src/shell_executor.dart
+@@ -31,21 +31,17 @@
+       environment: environment,
+     );
+
+-    String? stdoutStr;
+-    String? stderrStr;
+-
+-    process.stdout.listen((event) {
+-      String msg = utf8.decoder.convert(event);
+-      stdoutStr = '${stdoutStr ?? ''}$msg';
+-      stdout.write(msg);
+-    });
+-    process.stderr.listen((event) {
+-      String msg = utf8.decoder.convert(event);
+-      stderrStr = '${stderrStr ?? ''}$msg';
+-      stderr.write(msg);
+-    });
+-    int exitCode = await process.exitCode;
+-    return ProcessResult(process.pid, exitCode, stdoutStr, stderrStr);
++    final stdoutText = StringBuffer();
++    final stderrText = StringBuffer();
++    final out = process.stdout
++        .transform(const Utf8Decoder(allowMalformed: true))
++        .forEach((msg) { stdoutText.write(msg); stdout.write(msg); });
++    final err = process.stderr
++        .transform(const Utf8Decoder(allowMalformed: true))
++        .forEach((msg) { stderrText.write(msg); stderr.write(msg); });
++    final results = await Future.wait<Object?>([process.exitCode, out, err]);
++    return ProcessResult(process.pid, results.first as int,
++        stdoutText.toString(), stderrText.toString());
+   }
+
+   ProcessResult execSync(
+@@ -61,6 +57,8 @@
+       workingDirectory: workingDirectory,
+       environment: environment,
+       runInShell: runInShell,
++      stdoutEncoding: utf8,
++      stderrEncoding: const Utf8Codec(allowMalformed: true),
+     );
+     return processResult;
+   }
+diff --git a/packages/flutter_distributor/lib/src/utils/default_shell_executor.dart b/packages/flutter_distributor/lib/src/utils/default_shell_executor.dart
+--- a/packages/flutter_distributor/lib/src/utils/default_shell_executor.dart
++++ b/packages/flutter_distributor/lib/src/utils/default_shell_executor.dart
+@@ -1,21 +1,9 @@
+ import 'dart:convert';
+ import 'dart:io';
+
+-import 'package:charset/charset.dart';
+ import 'package:flutter_distributor/src/extensions/string.dart';
+ import 'package:flutter_distributor/src/utils/logger.dart';
+ import 'package:shell_executor/shell_executor.dart';
+-
+-/// Convert bytes to string (UTF-8 or detected charset)
+-String convertToString(List<int> bytes) {
+-  if (Platform.isWindows) {
+-    final charset = Charset.detect(bytes);
+-    if (charset != null) {
+-      return charset.decode(bytes);
+-    }
+-  }
+-  return utf8.decode(bytes, allowMalformed: true);
+-}
+
+ class DefaultShellExecutor extends ShellExecutor {
+   @override
+@@ -35,20 +23,16 @@
+
+     logger.info('\$ $executable ${arguments.join(' ')}'.brightBlack());
+
+-    String? stdoutStr;
+-    String? stderrStr;
+-
+-    process.stdout.listen((data) {
+-      String msg = convertToString(data);
+-      stdoutStr = '${stdoutStr ?? ''}$msg';
+-      stdout.write(msg.brightBlack());
+-    });
+-    process.stderr.listen((data) {
+-      String msg = convertToString(data);
+-      stderrStr = '${stderrStr ?? ''}$msg';
+-      stderr.write(msg.brightRed());
+-    });
+-    int exitCode = await process.exitCode;
+-    return ProcessResult(process.pid, exitCode, stdoutStr, stderrStr);
++    final stdoutText = StringBuffer();
++    final stderrText = StringBuffer();
++    final out = process.stdout
++        .transform(const Utf8Decoder(allowMalformed: true))
++        .forEach((msg) { stdoutText.write(msg); stdout.write(msg.brightBlack()); });
++    final err = process.stderr
++        .transform(const Utf8Decoder(allowMalformed: true))
++        .forEach((msg) { stderrText.write(msg); stderr.write(msg.brightRed()); });
++    final results = await Future.wait<Object?>([process.exitCode, out, err]);
++    return ProcessResult(process.pid, results.first as int,
++        stdoutText.toString(), stderrText.toString());
+   }
+ }
+diff --git a/packages/flutter_distributor/pubspec.yaml b/packages/flutter_distributor/pubspec.yaml
+--- a/packages/flutter_distributor/pubspec.yaml
++++ b/packages/flutter_distributor/pubspec.yaml
+@@ -37,3 +37,8 @@
+
+ executables:
+   flutter_distributor: main
++
++# Use the reviewed local executor for all transitive packagers too.
++dependency_overrides:
++  shell_executor:
++    path: ../shell_executor

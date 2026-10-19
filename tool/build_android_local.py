@@ -148,7 +148,7 @@ def capture_sources(root: Path, sdk: Path, flavor: str) -> dict:
         if (root / "plugins" / name).is_dir():
             repositories.append((name, root / "plugins" / name, ()))
     for label, repository, pathspec in repositories:
-        head = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=repository, text=True).strip()
+        head = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=repository, text=True, encoding="utf-8").strip()
         if not re.fullmatch(r"[a-fA-F0-9]{40,64}", head):
             raise ReleaseError("Cannot bind a valid source revision for " + label)
         raw = subprocess.check_output(["git", "ls-files", "-z", "--", *pathspec], cwd=repository)
@@ -398,7 +398,7 @@ def verify_apk(root: Path, apk: Path, inputs: dict, tools: Path, environment: di
         raise ReleaseError("APK package/version does not match the fixed release inputs")
     if "application-debuggable" in badging or "application-label:'" + inputs["displayName"] + "'" not in badging:
         raise ReleaseError("APK brand label or release/debug mode is incorrect")
-    properties = dict(line.split("=", 1) for line in (root / "android/local.properties").read_text().splitlines() if "=" in line)
+    properties = dict(line.split("=", 1) for line in (root / "android/local.properties").read_text(encoding="utf-8").splitlines() if "=" in line)
     signing_environment = {**environment, "XFL_KEYSTORE_PASSWORD": properties.get("storePassword", "")}
     certificate = captured(["keytool", "-exportcert", "-keystore", str(root / "android/app/keystore.jks"),
                             "-alias", properties.get("keyAlias", ""), "-storepass:env", "XFL_KEYSTORE_PASSWORD"], signing_environment)
@@ -466,7 +466,7 @@ def main(argv: list[str] | None = None) -> int:
         lock_owned = True
         flavor_yaml = root / f"flavors/{args.flavor}/flavor.yaml"
         current = read_local_build_number(root, args.flavor)
-        revision = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip()
+        revision = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True, encoding="utf-8").strip()
         tag = args.build_tag or datetime.datetime.now().strftime("%Y%m%d%H%M")
         base, prefix = scalar(root / "pubspec.yaml", "version").split("+", 1)[0], scalar(flavor_yaml, "updatePackageName")
         if not re.fullmatch(r"[A-Za-z0-9_.-]+", prefix) or not re.fullmatch(r"[0-9]{12}", tag):
@@ -475,7 +475,7 @@ def main(argv: list[str] | None = None) -> int:
         batch.mkdir(parents=True, exist_ok=True, mode=0o700)
         batch.chmod(0o700)
         previous_inputs = batch / "build-inputs.json"
-        previous = json.loads(previous_inputs.read_text()) if previous_inputs.exists() else None
+        previous = json.loads(previous_inputs.read_text(encoding="utf-8")) if previous_inputs.exists() else None
         if previous is not None and not isinstance(previous, dict):
             raise ReleaseError("The existing batch inputs are invalid")
         number = (args.build_number if args.build_number is not None else previous.get("buildNumber")

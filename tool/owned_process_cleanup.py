@@ -65,7 +65,7 @@ def error_row(phase, error):
 def group_state(pgid, timeout):
     # Separate -o fields work with both BSD/macOS and GNU ps. No argv is queried.
     result = subprocess.run(['/bin/ps', '-A', '-o', 'pgid=', '-o', 'stat='],
-                            capture_output=True, text=True, timeout=timeout, check=True,
+                            capture_output=True, text=True, encoding="utf-8", timeout=timeout, check=True,
                             env={**os.environ, 'LC_ALL': 'C'})
     if len(result.stdout) > 4 * 1024 * 1024 or not result.stdout.strip():
         raise ValueError('invalid_process_inventory')

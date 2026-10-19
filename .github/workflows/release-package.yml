@@ -356,6 +356,14 @@ jobs:
           flutter --version
           python tool/pub_get_retry.py --tool flutter --report build/dependency-retries/client.json
 
+      - name: Check build tool encoding and launchers
+        timeout-minutes: 5
+        run: python tool/test/build_encoding_test.py
+
+      - name: Check Windows Cargokit path protocol
+        if: matrix.platform == 'windows'
+        run: python tool/test/cargokit_path_test.py
+
       # µ-8 顺序：SDK build_runner → client build_runner。
       - name: SDK build_runner
         timeout-minutes: 20
@@ -463,11 +471,8 @@ jobs:
         timeout-minutes: 10
         run: |
           set -euo pipefail
-          DISTRIBUTOR_PATH=plugins/flutter_distributor/packages/flutter_distributor
-          if [ "${{ matrix.platform }}" = 'linux' ]; then
-            python3 tool/prepare_linux_packager.py
-            DISTRIBUTOR_PATH=build/packaging-tools/flutter_distributor/packages/flutter_distributor
-          fi
+          python3 tool/prepare_linux_packager.py
+          DISTRIBUTOR_PATH=build/packaging-tools/flutter_distributor/packages/flutter_distributor
           dart pub global activate -s path "$DISTRIBUTOR_PATH"
           echo "$HOME/.pub-cache/bin" >> "$GITHUB_PATH"
           # Windows pub-cache bin 路径不同。

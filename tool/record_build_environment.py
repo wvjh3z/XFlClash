@@ -62,7 +62,7 @@ def collect(target, root=ROOT):
     if target=='android':
         ndk=Path(os.environ.get('ANDROID_NDK_HOME',os.environ.get('ANDROID_NDK_ROOT','')))/'source.properties'
         if ndk.is_file():
-            value=re.search(r'^Pkg.Revision\s*=\s*([0-9.]+)',ndk.read_text(),re.M)
+            value=re.search(r'^Pkg.Revision\s*=\s*([0-9.]+)',ndk.read_text(encoding="utf-8"),re.M)
             if value:data['ndk']=value[1]
     return data
 
@@ -73,7 +73,7 @@ def main(argv=None):
     p.add_argument('--output',default='build/toolchain-versions.json')
     p.add_argument('--print-appdmg-pin',action='store_true')
     a=p.parse_args(argv)
-    pin=json.loads((ROOT/'tool/build-tools.json').read_text())['appdmg']
+    pin=json.loads((ROOT/'tool/build-tools.json').read_text(encoding="utf-8"))['appdmg']
     if not re.fullmatch(r'[0-9]+\.[0-9]+\.[0-9]+',pin):return 1
     if a.print_appdmg_pin:
         print(pin);return 0

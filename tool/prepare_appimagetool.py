@@ -21,7 +21,7 @@ import urllib.error
 import urllib.request
 
 REPO = Path(__file__).resolve().parents[1]
-PIN = json.loads((REPO / "tool/appimagetool-version.json").read_text())
+PIN = json.loads((REPO / "tool/appimagetool-version.json").read_text(encoding="utf-8"))
 OUTPUT = REPO / ".local-build/packaging-tools/appimagetool"
 
 
@@ -75,7 +75,7 @@ def fetch_asset(destination: Path, arch: str) -> None:
 
 
 def check_version(tool: Path) -> str:
-    result = subprocess.run([str(tool), "--version"], capture_output=True, text=True, timeout=30)
+    result = subprocess.run([str(tool), "--version"], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30)
     version = (result.stdout + result.stderr).strip()
     if result.returncode or f"(commit {PIN['version_commit']})" not in version:
         raise RuntimeError(f"Unexpected pinned AppImage tool version: {version}")
@@ -128,7 +128,8 @@ def prepare(output: Path = OUTPUT, asset_directory: Path | None = None, target_a
         (binary_dir / "appimagetool").write_text(
             '#!/bin/sh\nset -eu\n'
             'XFL_APPIMAGETOOL_ROOT="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"\n'
-            'exec "$XFL_APPIMAGETOOL_ROOT/squashfs-root/AppRun" "$@"\n'
+            'exec "$XFL_APPIMAGETOOL_ROOT/squashfs-root/AppRun" "$@"\n',
+            encoding="utf-8",
         )
         (binary_dir / "appimagetool").chmod(0o755)
         for name in ("squashfs-root", "bin", "runtime-aarch64"):

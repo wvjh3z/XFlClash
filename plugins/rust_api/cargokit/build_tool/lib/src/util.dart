@@ -85,8 +85,8 @@ ProcessResult runCommand(
   Map<String, String>? environment,
   bool includeParentEnvironment = true,
   bool runInShell = false,
-  Encoding? stdoutEncoding = systemEncoding,
-  Encoding? stderrEncoding = systemEncoding,
+  Encoding? stdoutEncoding = utf8,
+  Encoding? stderrEncoding = const Utf8Codec(allowMalformed: true),
 }) {
   if (testRunCommandOverride != null) {
     final result = testRunCommandOverride!(TestRunCommandArgs(

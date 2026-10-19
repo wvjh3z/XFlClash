@@ -2,3 +2,9 @@
 # Do not let core.autocrlf change SVG source or generated resource checksums.
 flavors/*/system_icons/** -text
 flavors/*/assets/icons/*.png -text
+
+# Executable POSIX entrypoints are also used from Git Bash on Windows.
+*.sh text eol=lf
+
+# Pinned tool patch checksums refer to exact committed bytes.
+tool/patches/*.patch -text

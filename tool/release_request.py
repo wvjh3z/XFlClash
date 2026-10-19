@@ -80,7 +80,7 @@ def check_source_checkout(root, expected):
     expected = source_sha(expected)
     try:
         result = subprocess.run(["git", "rev-parse", "HEAD"], cwd=root, check=True,
-                                capture_output=True, text=True, timeout=10)
+                                capture_output=True, text=True, encoding="utf-8", timeout=10)
     except (OSError, subprocess.SubprocessError):
         raise RequestError("Release source checkout is unavailable") from None
     if result.stdout.strip() != expected:

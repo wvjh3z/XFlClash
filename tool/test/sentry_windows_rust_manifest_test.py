@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Configure a tiny CMake graph; do not build a Windows client or Rust crate."""
 import os
+import io
+from unittest import mock
 from pathlib import Path
 import shutil
 import subprocess
@@ -15,10 +17,10 @@ HELPER = Path(__file__).resolve().parents[2] / "windows/xboard_sentry_symbols.cm
                      "CMake fixture compiler unavailable")
 class RustManifestTests(unittest.TestCase):
     def configure(self, mode="Release", rust=True, outputs=1):
-        temporary = tempfile.TemporaryDirectory(prefix="sentry-rust-pdb-")
+        temporary = tempfile.TemporaryDirectory(prefix="sentry-rust-pdb-中文-")
         self.addCleanup(temporary.cleanup)
         root = Path(temporary.name).resolve()
-        (root / "fixture.cpp").write_text("int main() { return 0; }\n")
+        (root / "fixture.cpp").write_text("int main() { return 0; }\n", encoding="utf-8")
         # Exercise the real generator expressions and manifest construction on
         # Linux too. This is a configuration test, not an MSVC compilation claim.
         project = ["cmake_minimum_required(VERSION 3.20)", "project(Fixture CXX)",
@@ -38,10 +40,12 @@ class RustManifestTests(unittest.TestCase):
             binaries = [f'"${{CMAKE_BINARY_DIR}}/rust{index}/$<CONFIG>/rust_api.dll"'
                         for index in range(outputs)]
             project.append("set(rust_api_bundled_libraries " + " ".join(binaries) + ")")
-        project.append('include("' + HELPER.as_posix() + '")')
-        (root / "CMakeLists.txt").write_text("\n".join(project) + "\n")
+        helper = root / '中文 helper.cmake'
+        shutil.copyfile(HELPER, helper)
+        project.append('include("' + helper.as_posix() + '")')
+        (root / "CMakeLists.txt").write_text("\n".join(project) + "\n", encoding="utf-8")
         result = subprocess.run(["cmake", "-S", str(root), "-B", str(root / "build")],
-                                capture_output=True, text=True)
+                                capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60)
         return root, result
 
     def test_local_rust_dll_is_paired_with_its_pdb_for_both_configs(self):
@@ -49,11 +53,18 @@ class RustManifestTests(unittest.TestCase):
             with self.subTest(mode=mode):
                 root, result = self.configure(mode=mode)
                 self.assertEqual(result.returncode, 0, result.stderr)
-                rows = (root / f"build/sentry-symbols/{mode}/targets.tsv").read_text().splitlines()
+                rows = (root / f"build/sentry-symbols/{mode}/targets.tsv").read_text(encoding="utf-8").splitlines()
                 rust = [row.split("\t") for row in rows if row.startswith("rust_api\t")]
                 self.assertEqual(len(rust), 1)
                 self.assertEqual(Path(rust[0][1]), root / f"build/rust0/{mode}/rust_api.dll")
                 self.assertEqual(Path(rust[0][2]), root / f"build/rust0/{mode}/rust_api.pdb")
+
+    def test_actual_chinese_fixture_ignores_cp1252_default(self):
+        with mock.patch.object(io, 'text_encoding', side_effect=lambda encoding, *a: encoding or 'cp1252'):
+            root, result = self.configure()
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn('中文', str(root))
+            self.assertIn('rust_api', (root / 'build/sentry-symbols/Release/targets.tsv').read_text(encoding='utf-8'))
 
     def test_missing_rust_output_is_a_configuration_failure(self):
         _, result = self.configure(outputs=0)
@@ -68,7 +79,7 @@ class RustManifestTests(unittest.TestCase):
     def test_graph_without_rust_has_no_phantom_rust_requirement(self):
         root, result = self.configure(rust=False)
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertNotIn("rust_api", (root / "build/sentry-symbols/Release/targets.tsv").read_text())
+        self.assertNotIn("rust_api", (root / "build/sentry-symbols/Release/targets.tsv").read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":

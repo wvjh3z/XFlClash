@@ -26,8 +26,8 @@ ProcessResult runCommand(
     workingDirectory: workingDirectory,
     environment: environment,
     includeParentEnvironment: includeParentEnvironment,
-    stdoutEncoding: systemEncoding,
-    stderrEncoding: systemEncoding,
+    stdoutEncoding: utf8,
+    stderrEncoding: const Utf8Codec(allowMalformed: true),
   );
   final out = (result.stdout as String).trim();
   final err = (result.stderr as String).trim();
@@ -60,17 +60,23 @@ Future<void> runCommandStream(
     includeParentEnvironment: true,
     runInShell: Platform.isWindows,
   );
-  process.stdout.transform(utf8.decoder).listen((data) {
-    for (final line in data.split('\n')) {
-      if (line.isNotEmpty) _log.info(line);
-    }
-  });
-  process.stderr.transform(utf8.decoder).listen((data) {
-    for (final line in data.split('\n')) {
-      if (line.isNotEmpty) _log.warning(line);
-    }
-  });
-  final exitCode = await process.exitCode;
+  // Logs are diagnostic text, not a machine protocol. Decode continuously so
+  // UTF-8 characters may span pipe chunks; malformed legacy bytes cannot abort
+  // a successful compiler. Drain both pipes before reporting child completion.
+  final out = process.stdout
+      .transform(const Utf8Decoder(allowMalformed: true))
+      .transform(const LineSplitter())
+      .forEach((line) {
+        if (line.isNotEmpty) _log.info(line);
+      });
+  final err = process.stderr
+      .transform(const Utf8Decoder(allowMalformed: true))
+      .transform(const LineSplitter())
+      .forEach((line) {
+        if (line.isNotEmpty) _log.warning(line);
+      });
+  final results = await Future.wait<Object?>([process.exitCode, out, err]);
+  final exitCode = results.first as int;
   if (exitCode != 0) {
     throw CommandFailedException(
       executable: executable,
@@ -109,7 +115,6 @@ void copyFile(String source, String destination) {
   _log.fine('Copied $source -> $destination');
 }
 
-String joinPath(String part1,
-    [String? part2, String? part3, String? part4]) {
+String joinPath(String part1, [String? part2, String? part3, String? part4]) {
   return p.join(part1, part2, part3, part4);
 }

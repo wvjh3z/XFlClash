@@ -43,7 +43,7 @@ def sha256(path: Path) -> str:
 def resolve_objcopy(platform: str, repo: Path) -> str:
     if platform == "android":
         version_file = repo / "android/gradle/libs.versions.toml"
-        version = re.search(r'(?m)^ndkVersion\s*=\s*"([0-9.]+)"', version_file.read_text())
+        version = re.search(r'(?m)^ndkVersion\s*=\s*"([0-9.]+)"', version_file.read_text(encoding="utf-8"))
         ndks = [Path(os.environ[key]) for key in ("ANDROID_NDK", "ANDROID_NDK_HOME")
                 if os.environ.get(key)]
         if version:
@@ -260,7 +260,7 @@ class Preparer:
                                         artifacts=self.artifacts, limitations=self.limitations,
                                         required=[dict(target=target, architecture=architecture)
                                                   for target, architecture in sorted(self.required)]),
-                                   indent=2) + "\n")
+                                   indent=2) + "\n", encoding="utf-8")
         return path
 
 

@@ -370,7 +370,7 @@ class ReleaseWorkflowTests(unittest.TestCase):
                     self.assertEqual(arguments[arguments.index("--description") + 1], architecture)
                     self.assertFalse(any(arg.startswith("--build-target-platform") for arg in arguments))
 
-    def test_linux_activation_uses_the_prepared_copy_and_other_platforms_keep_the_submodule(self):
+    def test_all_platforms_activate_the_verified_prepared_copy(self):
         for name in ("python3", "dart"):
             path = self.bin / name
             path.write_text(f"#!{sys.executable}\nimport json,os,sys\n"
@@ -386,13 +386,9 @@ class ReleaseWorkflowTests(unittest.TestCase):
                 result = self.execute("Activate flutter_distributor", platform)
                 self.assertEqual(result.returncode, 0, result.stderr)
                 calls = [json.loads(line) for line in output.read_text().splitlines()]
-                if platform == "linux":
-                    self.assertEqual(calls[0], ["python3", "tool/prepare_linux_packager.py"])
-                    expected = "build/packaging-tools/flutter_distributor/packages/flutter_distributor"
-                    self.assertEqual(len(calls), 2)
-                else:
-                    expected = "plugins/flutter_distributor/packages/flutter_distributor"
-                    self.assertEqual(len(calls), 1)
+                self.assertEqual(calls[0], ["python3", "tool/prepare_linux_packager.py"])
+                expected = "build/packaging-tools/flutter_distributor/packages/flutter_distributor"
+                self.assertEqual(len(calls), 2)
                 self.assertEqual(calls[-1], ["dart", "pub", "global", "activate", "-s", "path", expected])
 
     def test_macos_tool_checks_clear_only_managed_diagnostic_slots(self):

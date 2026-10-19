@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Prepare the pinned, locally patched Linux distributor without building apps.
+"""Prepare the pinned, locally patched cross-platform distributor without building apps.
 
 Only tracked tool sources and their license are exported. The submodule and all
 application/flavor inputs remain untouched. Callers must stop on a nonzero exit
@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import io
+import os
 from pathlib import Path, PurePosixPath
 import shutil
 import subprocess
@@ -20,7 +21,7 @@ import tempfile
 REPO = Path(__file__).resolve().parents[1]
 PINNED_REVISION = "cdeeef2d8f8325bb6ae0bc86b39f56e4325d1a58"
 PATCH = REPO / "tool/patches/flutter_distributor_appimage.patch"
-PATCH_SHA256 = "a13987c59fc6660312dcbfa9c0332a337084ed9ee1a39d8153d60b9cd03f7f71"
+PATCH_SHA256 = "56ebc0eff9779bea84c0db2c033889c6827ea4b28d0fe814bc7fcab0a838cf1d"
 OUTPUT = REPO / "build/packaging-tools/flutter_distributor"
 # Both sides are intentional: reject changed upstream input and changed patch
 # output, including an accidentally partial or already applied patch.
@@ -37,6 +38,18 @@ SOURCE_HASHES = {
         "02f826c354adf53c4026d4172640d5d2b7c70fb151fd2ae9ca079bc8e1815b25",
         "b18e39fcf75e907254db661276fd19ed910536e0931ae2008873984800827dc5",
     ),
+    'packages/shell_executor/lib/src/shell_executor.dart': (
+        "698185a991c2c1d87f0a3ec82f3aec68771cbccf176ec972c008ded90ca9782c",
+        "b648774899064b65850683dab99abd95a2b78a66a80fa205dc28500614bdad72",
+    ),
+    'packages/flutter_distributor/lib/src/utils/default_shell_executor.dart': (
+        "b87021fd0fe2efdd8ba5df39fd9d19d35e14bad67d23e3a25d3a07ff1e862366",
+        "925b77f4d3304f5239820051c4f33bed540a86619ace62ed0fe468bbfa2605bb",
+    ),
+    'packages/flutter_distributor/pubspec.yaml': (
+        "3e4b81d10fbc920795871510c3d34f442c2173a6d376d678cc5ca039d5a3666b",
+        "d35e99715ff0982b433977baf2eae1adeb3719cdbd411eb5b621ff70b239dcce",
+    ),
 }
 
 
@@ -45,7 +58,7 @@ def git(source: Path, *arguments: str) -> bytes:
         ["git", "-C", str(source), *arguments], capture_output=True, check=False
     )
     if result.returncode:
-        raise RuntimeError(f"git {' '.join(arguments[:2])} failed: {result.stderr.decode().strip()}")
+        raise RuntimeError(f"git {' '.join(arguments[:2])} failed: {result.stderr.decode('utf-8', errors='replace').strip()}")
     return result.stdout
 
 
@@ -56,7 +69,7 @@ def verify_hashes(directory: Path, side: int) -> None:
             raise RuntimeError(f"{'Patched' if side else 'Upstream'} source drift: {name}")
 
 
-def export_tool_archive(archive: bytes, staged: Path) -> None:
+def export_tool_archive(archive: bytes, staged: Path, *, materialize_links: bool | None = None) -> None:
     """Export the pinned Git tree into a fresh directory, then check its links.
 
     Git archives need only directories, regular files and relative symlinks.
@@ -68,11 +81,11 @@ def export_tool_archive(archive: bytes, staged: Path) -> None:
         for member in contents.getmembers():
             name = PurePosixPath(member.name)
             if (name.is_absolute() or not name.parts or ".." in name.parts
-                    or "\\" in member.name or member.name.rstrip("/") != name.as_posix()
+                    or "\\" in member.name or ":" in member.name or member.name.rstrip("/") != name.as_posix()
                     or name in members
                     or not (member.isdir() or member.isfile() or member.issym())):
                 raise RuntimeError(f"Unsafe tool archive member: {member.name}")
-            if member.issym() and (not member.linkname or "\\" in member.linkname
+            if member.issym() and (not member.linkname or "\\" in member.linkname or ":" in member.linkname
                                   or PurePosixPath(member.linkname).is_absolute()):
                 raise RuntimeError(f"Unsafe tool archive link: {member.name}")
             members[name] = member
@@ -91,6 +104,24 @@ def export_tool_archive(archive: bytes, staged: Path) -> None:
                 # Git tracks only the executable bit. Do not restore owners,
                 # setuid/setgid, or archive-supplied writable permission bits.
                 target.chmod(0o755 if member.mode & 0o100 else 0o644)
+
+        if materialize_links is None:
+            materialize_links = os.name == "nt"
+        if materialize_links:
+            # Windows does not need symlink privileges just to export README.
+            # Only regular-file targets are accepted in this mode; future
+            # upstream directory/link chains need explicit review.
+            for name, member in members.items():
+                if not member.issym():
+                    continue
+                target = staged.joinpath(*name.parent.parts, member.linkname).resolve()
+                if not target.is_relative_to(staged) or not target.is_file():
+                    raise RuntimeError(f"Unsafe tool archive link: {name}")
+                relative = PurePosixPath(target.relative_to(staged).as_posix())
+                if relative not in members or not members[relative].isfile():
+                    raise RuntimeError(f"Unsafe tool archive link: {name}")
+                shutil.copyfile(target, staged.joinpath(*name.parts))
+            return
 
         for name, member in members.items():
             if member.issym():
@@ -132,11 +163,11 @@ def prepare(source: Path, output: Path, patch: Path = PATCH) -> Path:
         verify_hashes(staged, 0)
         for arguments in (("--check",), ()):
             result = subprocess.run(
-                ["git", "apply", "--whitespace=error-all", *arguments, str(patch)],
+                ["git", "-c", "core.autocrlf=false", "apply", "--whitespace=error-all", *arguments, str(patch)],
                 cwd=staged, capture_output=True, check=False,
             )
             if result.returncode:
-                raise RuntimeError(f"Distributor patch rejected: {result.stderr.decode().strip()}")
+                raise RuntimeError(f"Distributor patch rejected: {result.stderr.decode('utf-8', errors='replace').strip()}")
         verify_hashes(staged, 1)
         # The previous complete output is kept until validation succeeds. The
         # rename keeps partially prepared tools invisible to activation.
@@ -162,8 +193,8 @@ def main() -> int:
             raise RuntimeError("Parent repository distributor gitlink changed; review the pinned patch")
         output = prepare(REPO / "plugins/flutter_distributor", args.output)
     except (OSError, RuntimeError, tarfile.TarError) as error:
-        parser.exit(1, f"Linux packager preparation failed: {error}\n")
-    print(f"Prepared Linux packager: {output / 'packages/flutter_distributor'}")
+        parser.exit(1, f"Packager preparation failed: {error}\n")
+    print(f"Prepared packager: {output / 'packages/flutter_distributor'}")
     return 0
 
 

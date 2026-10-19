@@ -546,7 +546,7 @@ def write_manifest_report(build_root, report):
     if destination.is_symlink() or not destination.resolve().is_relative_to(root):
         raise InventoryError("unsafe_macos_manifest_report_destination")
     destination.parent.mkdir(parents=True, exist_ok=True)
-    destination.write_text(json.dumps(report, sort_keys=True, indent=2) + "\n")
+    destination.write_text(json.dumps(report, sort_keys=True, indent=2) + "\n", encoding="utf-8")
 
 
 def source_line_limitations(source_targets, host_architectures):
@@ -736,7 +736,7 @@ class PackageGraph:
 
     def workspace_state(self):
         try:
-            value = json.loads((self.cache / "workspace-state.json").read_text())
+            value = json.loads((self.cache / "workspace-state.json").read_text(encoding="utf-8"))
         except (OSError, ValueError):
             raise InventoryError("macos_resolved_package_state_unavailable") from None
         if (not isinstance(value, dict) or value.get("version") not in {4, 5, 6, 7}
@@ -1160,7 +1160,7 @@ def linked_packages(project: Path):
     try:
         result = subprocess.run(["plutil", "-convert", "json", "-o", "-",
                                  str(project / "macos/Runner.xcodeproj/project.pbxproj")],
-                                capture_output=True, text=True, timeout=30)
+                                capture_output=True, text=True, encoding="utf-8", timeout=30)
     except subprocess.TimeoutExpired:
         raise InventoryError("macos_xcode_project_metadata_timeout") from None
     if result.returncode:
@@ -1246,7 +1246,7 @@ def diagnose_manifests(project: Path, build_root: Path, *, environment=None,
 def _collect_inventory(project: Path, build_root: Path, app: Path, configuration="Release", *,
                        pods_root=None, swift=None, diagnostic):
     diagnostic["stage"] = "dependency_manager_metadata"
-    plugins = json.loads((project / ".flutter-plugins-dependencies").read_text())
+    plugins = json.loads((project / ".flutter-plugins-dependencies").read_text(encoding="utf-8"))
     enabled = plugins["swift_package_manager_enabled"]["macos"]
     if not isinstance(enabled, bool):
         raise InventoryError("macos_dependency_manager_metadata_missing")
@@ -1281,7 +1281,7 @@ def _collect_inventory(project: Path, build_root: Path, app: Path, configuration
         filelist = Path(value)
         if "$" in value or not filelist.is_file():
             raise InventoryError("macos_pods_embedding_graph_missing")
-        for line in filelist.read_text().splitlines():
+        for line in filelist.read_text(encoding="utf-8").splitlines():
             line = line.strip().strip('"')
             if line.endswith((".framework", ".dylib")):
                 product = label(Path(line).name)
@@ -1292,7 +1292,7 @@ def _collect_inventory(project: Path, build_root: Path, app: Path, configuration
     if embedded & distributed.keys() or not linked:
         managers.append("pods")
         pods_path = build_root / "macos/sentry-native-owned.json"
-        pods = json.loads(pods_path.read_text()) if pods_path.is_file() else {"schema_version": 1, "products": []}
+        pods = json.loads(pods_path.read_text(encoding="utf-8")) if pods_path.is_file() else {"schema_version": 1, "products": []}
         if pods.get("schema_version") != 1 or not isinstance(pods.get("products"), list):
             raise InventoryError("macos_pods_inventory_missing")
         spm_owned = {item["product"] for item in products}

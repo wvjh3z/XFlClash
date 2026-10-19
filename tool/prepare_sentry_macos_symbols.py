@@ -451,7 +451,7 @@ def resolve_apple_tool(name: str, *, timeout=30) -> str:
     if explicit:
         return explicit
     try:
-        result = subprocess.run(["xcrun", "--find", name], capture_output=True, text=True, timeout=timeout)
+        result = subprocess.run(["xcrun", "--find", name], capture_output=True, text=True, encoding="utf-8", timeout=timeout)
     except subprocess.TimeoutExpired:
         raise PreparationError("apple_debug_tool_lookup_timeout") from None
     if result.returncode or not Path(result.stdout.strip()).is_file():
@@ -856,7 +856,7 @@ class Preparer:
                       artifacts=self.artifacts, required=self.required, limitations=self.limitations)
         manifest = self.output / "manifest.json"
         self.phase = "manifest"
-        manifest.write_text(json.dumps(result, indent=2) + "\n")
+        manifest.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
         return manifest
 
 
