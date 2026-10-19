@@ -2,13 +2,14 @@
 import json
 from pathlib import Path
 import tempfile
+import sys
 import unittest
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+import distributor_graph as fixture
 try:
-    from . import distributor_fixture as fixture
     from . import windows_iscc_preflight as iscc
 except ImportError:
-    import distributor_fixture as fixture
     import windows_iscc_preflight as iscc
 
 NAMES = ('flutter_distributor', 'flutter_app_builder', 'flutter_app_packager', 'flutter_app_publisher', 'parse_app_package', 'shell_executor')

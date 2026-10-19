@@ -15,10 +15,8 @@ import sys
 import tempfile
 import unittest
 from unittest import mock
-try:
-    from .distributor_fixture import PACKAGES, resolved_packages
-except ImportError:
-    from distributor_fixture import PACKAGES, resolved_packages
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from distributor_graph import PACKAGES, resolved_packages
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'tool'))

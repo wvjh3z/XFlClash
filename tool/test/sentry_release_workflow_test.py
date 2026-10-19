@@ -128,22 +128,18 @@ class ReleaseWorkflowStructureTests(unittest.TestCase):
         for marker in ("name: Setup Sentry CLI and verify symbol tooling",
                        "name: Install Linux package deps",
                        "name: Activate flutter_distributor",
-                       "name: Check Linux AppImage packaging without compilation"):
+                       "name: Check distributor cold-start entrypoint"):
             self.assertLess(verify, workflow.index(marker))
 
     def test_real_packager_checks_run_after_dependency_setup_and_activation(self):
         workflow = WORKFLOW.read_text(encoding="utf-8")
-        for marker in ("name: Check Android package argument forwarding",
-                       "name: Check Android artifact pipeline with real APK maker",
-                       "name: Check Linux AppImage packaging without compilation"):
-            self.assertLess(workflow.index("name: Get Flutter dependency"), workflow.index(marker))
-            self.assertLess(workflow.index("name: Activate flutter_distributor"), workflow.index(marker))
-            self.assertLess(workflow.index(marker), workflow.index("name: Package (flutter_distributor)"))
-        self.assertIn("LINUX_PACKAGER_REQUIRE_DART: '1'", workflow)
-        command = shlex.split(step_script("Check Android artifact pipeline with real APK maker"))
-        self.assertIn(command[0], ('python', 'python3'))
-        self.assertEqual(command[1], 'tool/test/android_artifact_pipeline_test.py')
-        self.assertTrue(all(arg in ('-v', '--verbose', '-q', '--quiet') for arg in command[2:]))
+        marker = "name: Check distributor cold-start entrypoint"
+        self.assertLess(workflow.index("name: Get Flutter dependency"), workflow.index(marker))
+        self.assertLess(workflow.index("name: Activate flutter_distributor"), workflow.index(marker))
+        self.assertLess(workflow.index(marker), workflow.index("name: Package (flutter_distributor)"))
+        command = shlex.split(step_script("Check distributor cold-start entrypoint").replace("${{ matrix.platform }}", "linux"))
+        self.assertEqual(command, ['python', 'tool/distributor_preflight.py', 'cold', '--platform', 'linux'])
+        self.assertIn('build/distributor-preflight/', workflow)
 
     def test_windows_checks_real_resource_checkout_before_brand_injection(self):
         workflow = WORKFLOW.read_text(encoding="utf-8")
@@ -389,25 +385,9 @@ class ReleaseWorkflowTests(unittest.TestCase):
                          ["python", "tool/test/packager_context_test.py"])
 
     def test_all_platforms_activate_the_verified_prepared_copy(self):
-        for name in ("python3", "dart"):
-            path = self.bin / name
-            path.write_text(f"#!{sys.executable}\nimport json,os,sys\n"
-                            "with open(os.environ['RECORDED_ARGS'],'a') as stream: "
-                            f"stream.write(json.dumps([{name!r}, *sys.argv[1:]])+'\\n')\n")
-            path.chmod(0o755)
-        self.env.update(HOME=str(self.root / "home"), LOCALAPPDATA=str(self.root / "local"),
-                        GITHUB_PATH=str(self.root / "github-path"))
-        output = self.root / "arguments.json"
-        for platform in ("android", "linux", "macos", "windows"):
-            with self.subTest(platform=platform):
-                output.unlink(missing_ok=True)
-                result = self.execute("Activate flutter_distributor", platform)
-                self.assertEqual(result.returncode, 0, result.stderr)
-                calls = [json.loads(line) for line in output.read_text().splitlines()]
-                self.assertEqual(calls[0], ["python3", "tool/prepare_linux_packager.py"])
-                expected = "build/packaging-tools/flutter_distributor/packages/flutter_distributor"
-                self.assertEqual(len(calls), 2)
-                self.assertEqual(calls[-1], ["dart", "pub", "global", "activate", "-s", "path", expected])
+        # The actual Python command graph is covered by distributor_preflight_test.
+        self.assertEqual(shlex.split(step_script("Activate flutter_distributor")),
+                         ['python', 'tool/distributor_preflight.py', 'activate'])
 
     def test_macos_tool_checks_clear_only_managed_diagnostic_slots(self):
         self.stub("npm")

@@ -486,39 +486,14 @@ jobs:
           APPIMAGETOOL_BIN="$(python3 tool/prepare_appimagetool.py --target-arch "${{ matrix.arch }}" --print-bin-dir)"
           echo "$APPIMAGETOOL_BIN" >> "$GITHUB_PATH"
 
-      # 激活 vendored flutter_distributor，加到 PATH。
+      # Formal activation and isolated cold checks share one command implementation.
       - name: Activate flutter_distributor
-        timeout-minutes: 10
-        run: |
-          set -euo pipefail
-          python3 tool/prepare_linux_packager.py
-          DISTRIBUTOR_PATH=build/packaging-tools/flutter_distributor/packages/flutter_distributor
-          dart pub global activate -s path "$DISTRIBUTOR_PATH"
-          echo "$HOME/.pub-cache/bin" >> "$GITHUB_PATH"
-          # Windows pub-cache bin 路径不同。
-          if [ "${{ matrix.platform }}" = "windows" ]; then echo "$LOCALAPPDATA/Pub/Cache/bin" >> "$GITHUB_PATH"; fi
+        timeout-minutes: 12
+        run: python tool/distributor_preflight.py activate
 
-      - name: Check Android package argument forwarding
-        if: matrix.platform == 'android'
-        run: python3 tool/test/android_package_arguments_test.py
-
-      - name: Check Android artifact pipeline with real APK maker
-        if: matrix.platform == 'android'
-        timeout-minutes: 5
-        run: python3 tool/test/android_artifact_pipeline_test.py
-
-      - name: Preflight both Windows installers with real ISCC
-        if: matrix.platform == 'windows'
-        run: python tool/test/windows_iscc_preflight.py
-
-      - name: Check Linux AppImage packaging without compilation
-        if: matrix.platform == 'linux'
-        env:
-          LINUX_PACKAGER_REQUIRE_DART: '1'
-          APPIMAGETOOL_REQUIRE_REAL: '1'
-        run: |
-          python3 -m unittest tool.test.appimagetool_contract_test
-          python3 -m unittest tool.test.linux_appimage_packaging_test
+      - name: Check distributor cold-start entrypoint
+        timeout-minutes: 25
+        run: python tool/distributor_preflight.py cold --platform "${{ matrix.platform }}"
 
       # 打包：按平台选 targets，喂我们的 env.json + split-debug-info（Sentry 符号）。
       # android 加 split-per-abi 出 ARM32/ARM64 两个包；逗号值走独立参数。
@@ -600,6 +575,7 @@ jobs:
             build/sentry-package-resolution.json
             build/dependency-retries/
             build/windows-iscc-preflight.json
+            build/distributor-preflight/
             build/release-context.json
             build/release-artifacts.json
             build/fallback-assets-evidence.json

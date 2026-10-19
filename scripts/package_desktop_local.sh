@@ -225,9 +225,7 @@ APP_ENV=stable python3 tool/release_pipeline.py compose
 
 # ───────── 激活 vendored flutter_distributor（经验 #4：不靠 PATH）─────────
 echo "=== activate flutter_distributor ==="
-python3 tool/prepare_linux_packager.py
-PACKAGER_PATH="build/packaging-tools/flutter_distributor/packages/flutter_distributor"
-dart pub global activate -s path "${PACKAGER_PATH}" >/dev/null
+python3 tool/distributor_preflight.py activate
 
 # Shared target arguments and strict final package inventory.
 python3 tool/record_build_environment.py --platform "${PLATFORM}"

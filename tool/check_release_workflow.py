@@ -24,6 +24,7 @@ MODULES = (
     "tool.test.windows_webview_shutdown_test",
     "tool.test.packager_context_test",
     "tool.test.distributor_fixture_test",
+    "tool.test.distributor_preflight_test",
     "tool.test.build_asset_download_test",
     "tool.test.local_release_automation_test.CliOutputEncodingTests",
 )

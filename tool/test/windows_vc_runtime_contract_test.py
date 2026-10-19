@@ -106,7 +106,7 @@ class RuntimeContractTest(unittest.TestCase):
 
     def test_ci_preflight_and_mandatory_packaging_validation(self):
         source = self.read(".github/workflows/release-package.yml")
-        preflight = source.index("Preflight both Windows installers with real ISCC")
+        preflight = source.index("Check distributor cold-start entrypoint")
         self.assertLess(source.index("Activate flutter_distributor"), preflight)
         self.assertLess(preflight, source.index("Package (flutter_distributor)"))
         self.assertIn("build/windows-iscc-preflight.json", source)

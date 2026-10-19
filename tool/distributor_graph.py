@@ -3,7 +3,7 @@ import json
 from pathlib import Path
 from urllib.parse import urljoin
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(__file__).resolve().parents[1]
 PREPARED = ROOT / 'build/packaging-tools/flutter_distributor/packages'
 PACKAGES = PREPARED / 'flutter_distributor/.dart_tool/package_config.json'
 

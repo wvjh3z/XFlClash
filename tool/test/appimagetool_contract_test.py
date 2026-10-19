@@ -57,8 +57,13 @@ class PreparationSafetyTest(unittest.TestCase):
                 self.assertIn("tool/prepare_appimagetool.py", source)
                 self.assertIn("--target-arch", source)
                 self.assertIn("--print-bin-dir", source)
-                self.assertIn("APPIMAGETOOL_REQUIRE_REAL", source)
-                self.assertIn("tool.test.appimagetool_contract_test", source)
+                if relative.endswith('.yml'):
+                    self.assertIn('tool/distributor_preflight.py cold', source)
+                    entry = (REPO / 'tool/distributor_preflight.py').read_text(encoding='utf-8')
+                else:
+                    entry = source
+                self.assertIn("APPIMAGETOOL_REQUIRE_REAL", entry)
+                self.assertIn("tool.test.appimagetool_contract_test", entry)
                 self.assertNotIn("releases/download/continuous/appimagetool", source)
         self.assertIn(".local-build", str(TOOL.OUTPUT))
 

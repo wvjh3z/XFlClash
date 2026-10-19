@@ -14,12 +14,11 @@ from pathlib import Path
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 
-try:
-    from .distributor_fixture import resolved_packages
-except ImportError:
-    from distributor_fixture import resolved_packages
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from distributor_graph import resolved_packages
 
 ROOT = Path(__file__).resolve().parents[2]
 FIXED_ROOT = 'AddBackslash(ExtractFileDir(RemoveBackslashUnlessRoot(SourcePath)))'

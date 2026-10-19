@@ -15,10 +15,8 @@ import sys
 import subprocess
 import tempfile
 import unittest
-try:
-    from .distributor_fixture import PREPARED, PACKAGES, resolved_packages
-except ImportError:
-    from distributor_fixture import PREPARED, PACKAGES, resolved_packages
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from distributor_graph import PREPARED, PACKAGES, resolved_packages
 
 try:
     from .sentry_release_workflow_test import step_script

@@ -20,10 +20,8 @@ import tarfile
 import tempfile
 import unittest
 from unittest import mock
-try:
-    from .distributor_fixture import resolved_packages
-except ImportError:
-    from distributor_fixture import resolved_packages
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from distributor_graph import resolved_packages
 
 
 REPO = Path(__file__).resolve().parents[2]
