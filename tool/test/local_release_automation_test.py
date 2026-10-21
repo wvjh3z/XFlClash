@@ -383,6 +383,7 @@ class AndroidLocalTests(unittest.TestCase):
         prepare = next(command for name, command, _ in self.calls if name == "prepare-flavor")
         self.assertIn("prod", prepare)
         self.assertIn("--android-signing", prepare)
+        self.assertIn("--android-identity", prepare)
         build = next(command for name, command, _ in self.calls if name == "flutter-apk")
         self.assertIn("--dart-define=XB_ANDROID_ABI=arm64-v8a", build)
         self.assertIn("--split-debug-info=build/debug-info", build)

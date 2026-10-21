@@ -202,6 +202,26 @@ void main() {
     expect(f.notices, 0);
   });
 
+  test('异步清理失败仍共享同一结束链，完成后允许新会话清理', () async {
+    await f.signInA();
+    f.cleanup = Completer<void>();
+    final first = f.auth.logout();
+    final joined = f.auth.logout();
+    expect(identical(first, joined), isTrue);
+    f.cleanup!.completeError(StateError('controlled late cleanup failure'));
+    await Future.wait([first, joined]);
+    await _flush();
+    expect(f.state, AuthState.unauthenticated);
+    f.cleanup = null;
+    f.saveB();
+    expect(await f.auth.completeAuthentication(), isTrue);
+    final second = f.auth.logout();
+    expect(identical(second, first), isFalse);
+    await second;
+    expect(f.service.endings, hasLength(2));
+    expect(f.cleanedOwners, hasLength(2));
+  });
+
   test('清理失败不复活登录，仍尝试凭据缓存清理', () async {
     await f.signInA();
     when(

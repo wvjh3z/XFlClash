@@ -81,14 +81,23 @@ class _PlanRenewLoaderState extends ConsumerState<PlanRenewLoader> {
     };
   }
 
-  void _reload() {
+  Future<void> _reload() async {
+    if (!mounted) return;
+    final request = _load();
     setState(() {
       _retrying = true;
-      _future = _load();
+      _future = request;
     });
-    _future.whenComplete(() {
-      if (mounted) setState(() => _retrying = false);
-    });
+    try {
+      await request;
+    } catch (_) {
+      // FutureBuilder retains the original error for the page's retry UI.
+      // This completion Future only drives refresh state; it must not leak it.
+    } finally {
+      if (mounted && identical(_future, request)) {
+        setState(() => _retrying = false);
+      }
+    }
   }
 
   @override

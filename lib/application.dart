@@ -168,7 +168,7 @@ class ApplicationState extends ConsumerState<Application> {
             );
           },
           scrollBehavior: BaseScrollBehavior(),
-          title: appName,
+          title: XboardConfig.current.applicationTitle(fallback: appName),
           locale: utils.getLocaleForString(locale),
           supportedLocales: AppLocalizations.delegate.supportedLocales,
           themeMode: themeProps.themeMode,

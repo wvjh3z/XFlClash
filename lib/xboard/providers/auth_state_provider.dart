@@ -233,20 +233,19 @@ class AuthStateNotifier extends _$AuthStateNotifier {
     ref.invalidate(withdrawConfigProvider);
     SubscriptionTriggers.resetResumeThrottle();
     if (expired) ref.read(authExpiryNoticeProvider.notifier).notifyExpired();
-    final future = Future.wait<void>([profiles, credentials]).then<void>((_) {
+    late final Future<void> future;
+    future = Future.wait<void>([profiles, credentials]).then<void>((_) {
       // 旧 port 的 Ref 在 owned Profile 停用/删除期间必须存活。
       // 新登录等待此 Future，重建后才能开启新一代订阅同步。
       if (ref.mounted) {
         ref.invalidate(subscriptionServiceProvider);
         ref.invalidate(xboardServiceProvider);
       }
+    }).whenComplete(() {
+      if (identical(_ending, future)) _ending = null;
     });
+    // Callers share the full cleanup Future, including release of _ending.
     _ending = future;
-    unawaited(
-      future.whenComplete(() {
-        if (identical(_ending, future)) _ending = null;
-      }),
-    );
     return future;
   }
 

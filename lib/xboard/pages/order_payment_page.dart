@@ -186,7 +186,8 @@ class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage>
     final readVersion = _readVersion;
     final tradeNo = widget.tradeNo;
     final service = ref.read(xboardServiceProvider);
-    final request = () async {
+    late final Future<_OrderRead> request;
+    request = (() async {
       XbResult<OrderDetail?> result;
       try {
         result = await service.getOrder(tradeNo);
@@ -209,13 +210,11 @@ class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage>
         tradeNo: tradeNo,
         service: service,
       );
-    }();
+    })().whenComplete(() {
+      if (identical(_orderRead, request)) _orderRead = null;
+    });
+    // Store and return the cleanup chain itself; do not fork an unobserved Future.
     _orderRead = request;
-    unawaited(
-      request.whenComplete(() {
-        if (identical(_orderRead, request)) _orderRead = null;
-      }),
-    );
     return request;
   }
 

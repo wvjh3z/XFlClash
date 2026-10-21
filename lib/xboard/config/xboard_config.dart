@@ -48,6 +48,9 @@ class XboardConfig {
   /// app 内 UI（首页标题 / 登录 sheet / 导航栏 / 关于页）显示用；原生 android:label 另由 gradle 注入。
   final String appName;
 
+  /// MaterialApp/Android recent-task identity; retain the upstream shell title.
+  String applicationTitle({required String fallback}) => formA ? appName : fallback;
+
   /// 订阅 UA（含且仅含一个 `flclash` 子串，F202/F203）。
   final String subscribeUserAgent;
 

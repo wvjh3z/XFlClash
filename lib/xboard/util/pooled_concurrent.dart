@@ -22,7 +22,11 @@ Future<void> runPooledConcurrent<T>(
   void spawn() {
     final i = next++;
     late final Future<void> f;
-    f = task(items[i]).whenComplete(() => active.remove(f));
+    // Attach the pool's listeners before invoking user code. A synchronous throw
+    // or SynchronousFuture must not bypass observation or use f before assignment.
+    f = Future<void>.value()
+        .then((_) => task(items[i]))
+        .whenComplete(() => active.remove(f));
     active.add(f);
   }
 

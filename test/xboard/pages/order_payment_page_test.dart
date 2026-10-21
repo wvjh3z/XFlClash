@@ -532,6 +532,34 @@ void main() {
     expect(t.takeException(), isNull);
   });
 
+  _paymentTest('asynchronous query rejection releases the shared request for retry', (t, h) async {
+    await h.mount(t);
+    final response = Completer<XbResult<OrderDetail?>>();
+    h.service.onRead = (_) => response.future;
+    await tap(t, '检测支付状态');
+    response.completeError(StateError('controlled asynchronous failure'));
+    await t.pump();
+    await t.pump(const Duration(milliseconds: 350));
+    expect(text('重新检测'), findsOneWidget);
+    expect(t.takeException(), isNull);
+    final previous = h.service.reads;
+    h.service.onRead = (_) async => XbResult.success(order(XbOrderStatus.pending));
+    await tap(t, '重新检测');
+    expect(h.service.reads, previous + 1);
+    expect(t.takeException(), isNull);
+  });
+
+  _paymentTest('disposed payment query consumes a late rejection', (t, h) async {
+    await h.mount(t);
+    final response = Completer<XbResult<OrderDetail?>>();
+    h.service.onRead = (_) => response.future;
+    await tap(t, '检测支付状态');
+    await h.unmount(t);
+    response.completeError(StateError('controlled disposed query failure'));
+    await t.pump();
+    expect(t.takeException(), isNull);
+  });
+
   _paymentTest(
     'disposed page ignores late completion and removes its feedback',
     (t, h) async {

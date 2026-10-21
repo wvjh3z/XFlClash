@@ -523,7 +523,7 @@ def main(argv: list[str] | None = None) -> int:
             if any(digest(path) != expected for path, expected in locks.items()):
                 raise ReleaseError("Strict dependency resolution changed a lockfile; stop before compiling")
             assert_sources(root, sdk, args.flavor, sources)
-            prepare = ["dart", "run", "tool/prepare_flavor.dart", "--flavor", args.flavor, "--target", "prod"]
+            prepare = ["dart", "run", "tool/prepare_flavor.dart", "--flavor", args.flavor, "--target", "prod", "--android-identity"]
             if args.mode == "release":
                 prepare.append("--android-signing")
             builder.run(prepare, "prepare-flavor")

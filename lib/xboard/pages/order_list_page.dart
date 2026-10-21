@@ -50,14 +50,23 @@ class _OrderListPageState extends ConsumerState<OrderListPage> {
     };
   }
 
-  void _reload() {
+  Future<void> _reload() async {
+    if (!mounted) return;
+    final request = _loadOrders();
     setState(() {
       _retrying = true;
-      _ordersFuture = _loadOrders();
+      _ordersFuture = request;
     });
-    _ordersFuture.whenComplete(() {
-      if (mounted) setState(() => _retrying = false);
-    });
+    try {
+      await request;
+    } catch (_) {
+      // FutureBuilder retains the original error for the page's retry UI.
+      // This completion Future only drives refresh state; it must not leak it.
+    } finally {
+      if (mounted && identical(_ordersFuture, request)) {
+        setState(() => _retrying = false);
+      }
+    }
   }
 
   @override
@@ -67,7 +76,7 @@ class _OrderListPageState extends ConsumerState<OrderListPage> {
       // 桌面订单页用更宽（双列网格，原型屏7）；移动端 <1000 不受影响。
       maxContentWidth: 1000,
       body: RefreshIndicator(
-        onRefresh: () async => _reload(),
+        onRefresh: _reload,
         child: FutureBuilder<List<OrderSummary>>(
           future: _ordersFuture,
           builder: (context, snap) {

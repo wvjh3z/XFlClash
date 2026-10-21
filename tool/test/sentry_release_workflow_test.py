@@ -158,6 +158,22 @@ class ReleaseWorkflowStructureTests(unittest.TestCase):
         self.assertLess(start, workflow.index("name: Package (flutter_distributor)"))
         self.assertTrue((WORKFLOW.parents[2] / "tool/test/system_icon_git_checkout_test.dart").is_file())
 
+    def test_android_brand_gate_precedes_prepare_and_packaging(self):
+        workflow = WORKFLOW.read_text(encoding="utf-8")
+        marker = "      - name: Check Android brand identity and task title"
+        start = workflow.index(marker)
+        end = workflow.index("      - name:", start + len(marker))
+        block = workflow[start:end]
+        self.assertIn("if: matrix.platform == 'android'", block)
+        self.assertNotIn("continue-on-error:", block)
+        script = step_script("Check Android brand identity and task title")
+        commands = [shlex.split(line) for line in script.splitlines() if line.strip()]
+        self.assertIn(["flutter", "test", "--no-pub", "tool/test/android_brand_identity_test.dart", "test/xboard/config/application_title_test.dart"], commands)
+        self.assertIn(["python", "tool/test/android_brand_identity_gradle_test.py"], commands)
+        self.assertLess(workflow.index("name: Client codegen"), start)
+        self.assertLess(start, workflow.index("name: Prepare flavor"))
+        self.assertLess(start, workflow.index("name: Package (flutter_distributor)"))
+
     def test_windows_compiled_title_gate_precedes_brand_injection(self):
         workflow = WORKFLOW.read_text(encoding="utf-8")
         marker = "      - name: Check Windows compiled title"
@@ -356,6 +372,18 @@ class ReleaseWorkflowTests(unittest.TestCase):
                                  env={**self.env, "TARGET": "unsupported", "GITHUB_OUTPUT": str(output)})
         self.assertNotEqual(invalid.returncode, 0)
         self.assertFalse(output.exists())
+
+    def test_prepare_flavor_passes_android_identity_only_to_android(self):
+        self.stub("dart")
+        (self.root / "android").mkdir()
+        (self.root / "android/local.properties").write_text("XB_TARGET_ABI=arm64-v8a\n")
+        for platform in ("android", "windows", "linux", "macos"):
+            result = self.execute("Prepare flavor", platform)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            arguments = json.loads((self.root / "arguments.json").read_text())
+            self.assertEqual("--android-identity" in arguments, platform == "android")
+            self.assertEqual("--android-signing" in arguments, platform == "android")
+            self.assertNotIn("", arguments)
 
     def test_every_packaging_target_receives_dart_split_debug_information(self):
         self.stub("dart")

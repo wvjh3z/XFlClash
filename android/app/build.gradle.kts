@@ -1,5 +1,7 @@
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import java.util.Properties
+import java.security.MessageDigest
+import groovy.json.JsonSlurper
 
 plugins {
     id("com.android.application")
@@ -23,16 +25,32 @@ val mKeyPassword: String? = localProperties.getProperty("keyPassword")
 val isRelease =
     mStoreFile.exists() && mStorePassword != null && mKeyAlias != null && mKeyPassword != null
 
-// ── Xboard 多品牌（接缝点 #4）：从 flavors/<name>/flavor.yaml 读品牌身份（appId/appName）──
-// flavor.yaml 是品牌配置 SSoT（gitignored；本地存值 / CI 还原）。gradle 配置期直读，避免把品牌
-// 值硬编码进 build.gradle 或塞进 dart-define（NFR-2）。appId/appName 是单行字符串，逐行正则即可。
-// rootProject.projectDir = android/；其 parentFile = 仓库根（XFlClash/），flavors 在仓库根下。
-fun flavorYamlValue(flavor: String, key: String): String? {
-    val f = File(rootProject.projectDir.parentFile, "flavors/$flavor/flavor.yaml")
-    if (!f.exists()) return null
-    val re = Regex("^\\s*$key\\s*:\\s*\"?([^\"#]+?)\"?\\s*(?:#.*)?$")
-    return f.readLines().firstNotNullOfOrNull { re.find(it)?.groupValues?.get(1)?.trim() }
+// ── Xboard 多品牌（既有接缝 #4）：prepare_flavor 解码 YAML，Gradle 消费公开 JSON。──
+// XBOARD_ANDROID_IDENTITY_BEGIN
+fun androidBrandIdentity(flavor: String): Map<String, String>? {
+    val root = rootProject.projectDir.parentFile
+    val source = File(root, "flavors/$flavor/flavor.yaml")
+    if (!source.exists()) return null // Unconfigured upstream/other-brand variant.
+    val generated = File(root, ".dart_tool/xboard/android_brand_identity.json")
+    fun invalid(): Nothing = throw GradleException(
+        "Android brand identity missing, invalid or stale for $flavor; run dart run tool/prepare_flavor.dart --flavor $flavor --android-identity"
+    )
+    val document = try {
+        JsonSlurper().parseText(generated.readText(Charsets.UTF_8)) as? Map<*, *>
+    } catch (_: Exception) { invalid() }
+    if (document == null || document["schemaVersion"] != 1) invalid()
+    val identities = document["brands"] as? Map<*, *> ?: invalid()
+    val identity = identities[flavor] as? Map<*, *> ?: invalid()
+    val name = identity["appName"] as? String ?: invalid()
+    val id = identity["appId"] as? String ?: invalid()
+    val digest = MessageDigest.getInstance("SHA-256").digest(source.readBytes())
+        .joinToString("") { "%02x".format(it.toInt() and 0xff) }
+    if (identity["sourceSha256"] != digest || name.isBlank() ||
+        name.any { it.code < 0x20 || it.code in 0x7f..0x9f } ||
+        !Regex("[A-Za-z][A-Za-z0-9_]*(\\.[A-Za-z][A-Za-z0-9_]*)+").matches(id)) invalid()
+    return mapOf("appName" to name, "appId" to id)
 }
+// XBOARD_ANDROID_IDENTITY_END
 
 
 android {
@@ -107,22 +125,22 @@ android {
         }
     }
 
-    // ── 接缝点 #4（W8.4 / D36 / θ-10）：Xboard 多租户 flavor ──
-    // applicationId + appName 由各 flavor 从 flavors/<name>/flavor.yaml 读入注入（flavorYamlValue）：
-    //   - applicationId：品牌包名（debug / unsigned-release 再叠加 buildType 的 .dev 后缀）。
-    //   - manifestPlaceholders["appName"]：品牌显示名，main manifest 的 android:label="${appName}" 消费。
-    // 缺字段/缺 flavor.yaml 时回退 upstream com.follow.clash / FlClash（不崩，但应保证 yaml 齐全）。
+    // Both identities are decoded by prepare_flavor's full YAML parser.
+    // Missing YAML retains the unconfigured upstream variant; existing YAML with
+    // missing/stale generated identity fails before Android compilation.
     flavorDimensions += "brand"
     productFlavors {
         create("brand_a") {
             dimension = "brand"
-            applicationId = flavorYamlValue("brand_a", "appId") ?: "com.follow.clash"
-            manifestPlaceholders["appName"] = flavorYamlValue("brand_a", "appName") ?: "FlClash"
+            val identity = androidBrandIdentity("brand_a")
+            applicationId = identity?.get("appId") ?: "com.follow.clash"
+            manifestPlaceholders["appName"] = identity?.get("appName") ?: "FlClash"
         }
         create("brand_b") {
             dimension = "brand"
-            applicationId = flavorYamlValue("brand_b", "appId") ?: "com.follow.clash"
-            manifestPlaceholders["appName"] = flavorYamlValue("brand_b", "appName") ?: "FlClash"
+            val identity = androidBrandIdentity("brand_b")
+            applicationId = identity?.get("appId") ?: "com.follow.clash"
+            manifestPlaceholders["appName"] = identity?.get("appName") ?: "FlClash"
         }
     }
 }

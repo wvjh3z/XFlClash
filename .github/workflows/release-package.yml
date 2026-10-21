@@ -391,6 +391,14 @@ jobs:
         timeout-minutes: 20
         run: dart run build_runner build
 
+      - name: Check Android brand identity and task title
+        if: matrix.platform == 'android'
+        timeout-minutes: 10
+        run: |
+          set -euo pipefail
+          flutter test --no-pub tool/test/android_brand_identity_test.dart test/xboard/config/application_title_test.dart
+          python tool/test/android_brand_identity_gradle_test.py
+
       - name: Check fallback selection before brand injection
         run: dart test tool/test/fallback_assets_test.dart
 
@@ -400,9 +408,9 @@ jobs:
       - name: Prepare flavor
         run: |
           set -euo pipefail
-          EXTRA=""
-          [ "${{ matrix.platform }}" = "android" ] && EXTRA="--android-signing"
-          dart run tool/prepare_flavor.dart --flavor "$FLAVOR" --target prod $EXTRA
+          EXTRA=()
+          [ "${{ matrix.platform }}" = "android" ] && EXTRA=(--android-signing --android-identity)
+          dart run tool/prepare_flavor.dart --flavor "$FLAVOR" --target prod "${EXTRA[@]}"
           if [ "${{ matrix.platform }}" = "android" ]; then
             sed -i '/^XB_TARGET_ABI=/d' android/local.properties || true
             echo "✓ 已移除 XB_TARGET_ABI（split-per-abi 出全部 ABI）"

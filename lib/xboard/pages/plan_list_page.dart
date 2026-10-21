@@ -49,14 +49,23 @@ class _PlanListPageState extends ConsumerState<PlanListPage> {
     };
   }
 
-  void _reload() {
+  Future<void> _reload() async {
+    if (!mounted) return;
+    final request = _loadPlans();
     setState(() {
       _retrying = true;
-      _plansFuture = _loadPlans();
+      _plansFuture = request;
     });
-    _plansFuture.whenComplete(() {
-      if (mounted) setState(() => _retrying = false);
-    });
+    try {
+      await request;
+    } catch (_) {
+      // FutureBuilder retains the original error for the page's retry UI.
+      // This completion Future only drives refresh state; it must not leak it.
+    } finally {
+      if (mounted && identical(_plansFuture, request)) {
+        setState(() => _retrying = false);
+      }
+    }
   }
 
   @override
