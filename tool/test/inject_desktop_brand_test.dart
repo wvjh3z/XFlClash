@@ -122,6 +122,41 @@ void main() {
         );
       }
     });
+    test('complete argument accepts whitespace and preserves reinjection', () {
+      for (final separator in [' ', '\t', '\n  ', '\r\n  ']) {
+        final original = source.replaceFirst('",', '"$separator,');
+        final injected = injectWindowsTitle(original, '袋鼠加速');
+        expect(injected, contains('"$separator,'));
+        expect(injectWindowsTitle(injected, '袋鼠加速'), injected);
+        expect(
+          injectWindowsTitle(injected, app),
+          original.replaceFirst('FlClash', app),
+        );
+      }
+    });
+    test('partial literals and mixed valid/invalid calls are rejected', () {
+      for (final argument in [
+        'L"Fl" L"Clash"',
+        'L"Fl" "Clash"',
+        'L"Fl"\nL"Clash"',
+        'L"Fl"\r\nL"Clash"',
+        'L"FlClash" + suffix',
+        'L"FlClash"s.c_str()',
+      ]) {
+        final invalid = source.replaceFirst('L"FlClash"', argument);
+        for (final text in [invalid, '$source\n$invalid', '$invalid\n$source']) {
+          expect(
+            () => injectWindowsTitle(text, app),
+            throwsFormatException,
+            reason: argument,
+          );
+        }
+      }
+      expect(
+        () => injectWindowsTitle('window.Create(L"FlClash")', app),
+        throwsFormatException,
+      );
+    });
     test('invalid names and ambiguous source fail before writing', () {
       for (final name in [
         '',

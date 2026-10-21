@@ -74,6 +74,38 @@ void main() {
     if (check) '--check',
   ], workingDirectory: project.path);
 
+  for (final brand in ['brand_a', 'brand_b']) {
+    test(
+      '$brand rejects adjacent title literals before any CLI writes',
+      () async {
+        final runner = File(p.join(project.path, 'windows/runner/main.cpp'));
+        final original = runner.readAsStringSync();
+        expect(original, contains('L"FlClash"'));
+        runner.writeAsStringSync(
+          original.replaceFirst('L"FlClash"', 'L"Fl" L"Clash"'),
+        );
+        Map<String, String> snapshot() => {
+          for (final file
+              in project.listSync(recursive: true).whereType<File>())
+            p.relative(file.path, from: project.path): sha256
+                .convert(file.readAsBytesSync())
+                .toString(),
+        };
+        final before = snapshot();
+        for (final check in [true, false]) {
+          final result = await inject(brand, 'windows', check: check);
+          expect(
+            result.exitCode,
+            1,
+            reason: '${result.stdout} ${result.stderr}',
+          );
+          expect(result.stderr, contains('single wide string argument'));
+          expect(snapshot(), before);
+        }
+      },
+    );
+  }
+
   test('Windows actual build number is required before any mutation', () async {
     final before = File(
       p.join(project.path, 'windows/packaging/exe/inno_setup.iss'),

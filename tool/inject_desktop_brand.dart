@@ -305,10 +305,15 @@ String injectWindowsTitle(String src, String appName) {
     }
   }
   final pattern = RegExp(
-    r'(\bwindow\.Create\(\s*L")(?:[^"\\\r\n]|\\[^\r\n])*(")',
+    r'(\bwindow\.Create\(\s*L")(?:[^"\\\r\n]|\\[^\r\n])*(")(?=\s*,)',
   );
-  if (pattern.allMatches(src).length != 1) {
-    throw const FormatException('Expected exactly one Windows window title');
+  // Accept only the known runner shape: one call, one complete literal argument.
+  // Matching just a prefix would leave adjacent literals or expressions behind.
+  if (RegExp(r'\bwindow\.Create\s*\(').allMatches(src).length != 1 ||
+      pattern.allMatches(src).length != 1) {
+    throw const FormatException(
+      'Expected exactly one Windows window title as a single wide string argument',
+    );
   }
   return src.replaceAllMapped(pattern, (m) => '${m[1]}$escaped${m[2]}');
 }

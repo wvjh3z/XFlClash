@@ -43,6 +43,27 @@ void main(List<String> args) {
     multiLine: true,
   ).allMatches(legacy).single.group(0)!;
   File('${root.path}/legacy.cpp').writeAsStringSync(_program(call));
+  // A valid C++ concatenation must fail injection, not retain the second literal.
+  const adjacent = 'if (!window.Create(L"Fl" L"Clash", origin, size)) {';
+  var rejected = false;
+  try {
+    injectWindowsTitle(adjacent, names['brand_b']!);
+  } on FormatException {
+    rejected = true;
+  }
+  if (!rejected) {
+    throw StateError('Adjacent title literals must be rejected');
+  }
+  // Reproduce the previous prefix-only replacement using an ASCII encoded name.
+  final encoded = injectWindowsTitle(
+    'if (!window.Create(L"FlClash", origin, size)) {',
+    names['brand_b']!,
+  );
+  final literal = RegExp(r'L"[^"\r\n]*"').firstMatch(encoded)!.group(0)!;
+  final prefixOnly = adjacent.replaceFirst('L"Fl"', literal);
+  File(
+    '${root.path}/legacy_adjacent.cpp',
+  ).writeAsStringSync(_program(prefixOnly));
   File('${root.path}/manifest.json').writeAsStringSync(jsonEncode(rows));
 }
 

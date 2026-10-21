@@ -73,7 +73,7 @@ class CompiledTitleTests(unittest.TestCase):
             cmake.append('set(CMAKE_RUNTIME_OUTPUT_DIRECTORY' + config +
                          ' [==[' + (cls.build / 'bin').as_posix() + ']==])')
         targets = [(case['id'], codec) for case in cls.cases for codec in cls.codepages]
-        targets += [('legacy', 'utf8'), ('legacy', 'cp1252')]
+        targets += [('legacy', 'utf8'), ('legacy', 'cp1252'), ('legacy_adjacent', 'utf8')]
         for case, codec in targets:
             target = case + '_' + codec
             msvc, gnu = cls.codepages[codec]
@@ -109,6 +109,11 @@ class CompiledTitleTests(unittest.TestCase):
                     self.assertEqual(self.results[case['id'] + '_' + codec], case['utf16'])
                     self.assertTrue((self.root / (case['id'] + '.cpp')).read_bytes().isascii())
 
+    def test_prefix_only_replacement_leaves_an_unwanted_adjacent_literal(self):
+        expected = next(case['utf16'] for case in self.cases if case['id'] == 'brand_b')
+        self.assertEqual(self.results['legacy_adjacent_utf8'], expected + [ord(c) for c in 'Clash'])
+        self.assertNotEqual(self.results['legacy_adjacent_utf8'], expected)
+
     def test_legacy_utf8_title_reproduces_the_reported_cp1252_mojibake(self):
         expected = next(case['utf16'] for case in self.cases if case['id'] == 'brand_b')
         self.assertEqual(self.results['legacy_utf8'], expected)
@@ -120,7 +125,7 @@ class CompiledTitleTests(unittest.TestCase):
 if __name__ == '__main__':
     result = unittest.TextTestRunner(verbosity=2).run(
         unittest.defaultTestLoader.loadTestsFromTestCase(CompiledTitleTests))
-    passed = result.wasSuccessful() and result.testsRun == 2 and not result.skipped
+    passed = result.wasSuccessful() and result.testsRun == 3 and not result.skipped
     report = ROOT / 'build/windows-title-preflight.json'
     report.parent.mkdir(parents=True, exist_ok=True)
     report.write_text(json.dumps({
