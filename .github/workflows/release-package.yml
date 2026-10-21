@@ -414,6 +414,11 @@ jobs:
         run: |
           flutter test --no-pub tool/test/system_icon_git_checkout_test.dart tool/test/windows_installer_metadata_test.dart tool/test/inject_desktop_brand_test.dart tool/test/prepare_release_context_test.dart
 
+      - name: Check Windows compiled title
+        if: matrix.platform == 'windows'
+        timeout-minutes: 5
+        run: python tool/test/windows_title_encoding_test.py
+
       # 桌面品牌注入（appName → 窗口标题 / 打包 make_config display_name 等）+ 图标重生成。
       - name: Inject desktop branding
         if: matrix.platform != 'android'
@@ -577,6 +582,7 @@ jobs:
             build/sentry-package-resolution.json
             build/dependency-retries/
             build/windows-iscc-preflight.json
+            build/windows-title-preflight.json
             build/distributor-preflight/
             build/release-context.json
             build/release-artifacts.json

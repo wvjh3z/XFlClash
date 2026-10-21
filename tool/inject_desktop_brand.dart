@@ -280,11 +280,38 @@ flutter_launcher_icons:
 
 // ───────── 纯变换（可单测；幂等：再跑一次结果不变）─────────
 
-/// Windows 窗口标题：`window.Create(L"<旧>"` → `L"<appName>"`。
-String injectWindowsTitle(String src, String appName) => src.replaceAllMapped(
-  RegExp(r'(\.Create\(\s*L")[^"]*(")'),
-  (m) => '${m[1]}$appName${m[2]}',
-);
+/// Windows 窗口标题使用 ASCII 源码的 Unicode 宽字符串，独立于 MSVC 代码页。
+String injectWindowsTitle(String src, String appName) {
+  if (appName.trim().isEmpty) {
+    throw const FormatException('Windows window title must not be empty');
+  }
+  final escaped = StringBuffer();
+  for (final rune in appName.runes) {
+    if (rune < 0x20 ||
+        (rune >= 0x7f && rune <= 0x9f) ||
+        (rune >= 0xd800 && rune <= 0xdfff)) {
+      throw const FormatException('Invalid Windows window title character');
+    }
+    if (rune == 0x22) {
+      escaped.write(r'\"');
+    } else if (rune == 0x5c) {
+      escaped.write(r'\\');
+    } else if (rune <= 0x7e) {
+      escaped.writeCharCode(rune);
+    } else {
+      final width = rune <= 0xffff ? 4 : 8;
+      escaped.write(rune <= 0xffff ? r'\u' : r'\U');
+      escaped.write(rune.toRadixString(16).padLeft(width, '0').toUpperCase());
+    }
+  }
+  final pattern = RegExp(
+    r'(\bwindow\.Create\(\s*L")(?:[^"\\\r\n]|\\[^\r\n])*(")',
+  );
+  if (pattern.allMatches(src).length != 1) {
+    throw const FormatException('Expected exactly one Windows window title');
+  }
+  return src.replaceAllMapped(pattern, (m) => '${m[1]}$escaped${m[2]}');
+}
 
 /// Windows Runner.rc：FileDescription 值 → appName（不动 InternalName/ProductName=clash）。
 String injectWindowsRc(String src, String appName) => src.replaceAllMapped(
@@ -361,7 +388,8 @@ String injectAppImageBrand(String src, String appName) {
     appName,
     if (existing is YamlList) ...existing.skip(1).cast<String>(),
   };
-  final block = 'keywords:\n${keywords.map((v) => '  - ${jsonEncode(v)}').join('\n')}';
+  final block =
+      'keywords:\n${keywords.map((v) => '  - ${jsonEncode(v)}').join('\n')}';
   final pattern = RegExp(
     r'^keywords:[^\n]*(?:\n(?:[ \t]+[^\n]*|[ \t]*|#[^\n]*))*',
     multiLine: true,

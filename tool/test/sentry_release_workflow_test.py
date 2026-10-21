@@ -158,6 +158,21 @@ class ReleaseWorkflowStructureTests(unittest.TestCase):
         self.assertLess(start, workflow.index("name: Package (flutter_distributor)"))
         self.assertTrue((WORKFLOW.parents[2] / "tool/test/system_icon_git_checkout_test.dart").is_file())
 
+    def test_windows_compiled_title_gate_precedes_brand_injection(self):
+        workflow = WORKFLOW.read_text(encoding="utf-8")
+        marker = "      - name: Check Windows compiled title"
+        start = workflow.index(marker)
+        end = workflow.index("      - name:", start + len(marker))
+        block = workflow[start:end]
+        self.assertIn("if: matrix.platform == 'windows'", block)
+        self.assertNotIn("continue-on-error:", block)
+        self.assertEqual(shlex.split(step_script("Check Windows compiled title")),
+                         ["python", "tool/test/windows_title_encoding_test.py"])
+        self.assertLess(workflow.index("name: Get Flutter dependency"), start)
+        self.assertLess(start, workflow.index("name: Inject desktop branding"))
+        self.assertLess(start, workflow.index("name: Package (flutter_distributor)"))
+        self.assertIn("            build/windows-title-preflight.json", workflow)
+
     def test_command_semantics_accept_additions_reordering_and_line_endings(self):
         paths = sorted(REQUIRED_BRAND_TESTS)
         samples = [

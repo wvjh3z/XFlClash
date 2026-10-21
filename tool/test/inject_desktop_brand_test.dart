@@ -88,6 +88,61 @@ void main() {
     expect(injectWindowsTitle(out, app), out); // 幂等
   });
 
+  group('Windows Unicode title injection', () {
+    const source = 'if (!window.Create(L"FlClash", origin, size)) {';
+    test('Chinese and supplementary characters become fixed-width escapes', () {
+      final chinese = injectWindowsTitle(source, '袋鼠加速');
+      expect(chinese, contains(r'L"\u888B\u9F20\u52A0\u901F"'));
+      expect(chinese.codeUnits.every((unit) => unit < 128), isTrue);
+      expect(injectWindowsTitle(chinese, '袋鼠加速'), chinese);
+      expect(injectWindowsTitle(source, '袋鼠 🦘'), contains(r'\U0001F998'));
+    });
+    test(
+      'quotes and literal Unicode-looking backslashes survive reinjection',
+      () {
+        const name = r'袋鼠 "Pro" \u888B\path';
+        final injected = injectWindowsTitle(source, name);
+        expect(injected, contains(r'\"Pro\" \\u888B\\path'));
+        expect(injectWindowsTitle(injected, name), injected);
+        expect(
+          injectWindowsTitle(injected, app),
+          'if (!window.Create(L"OmoFly", origin, size)) {',
+        );
+      },
+    );
+    test('LF/CRLF and brand switching preserve surrounding source', () {
+      for (final newline in ['\n', '\r\n']) {
+        final original = '// header$newline$source$newline// tail';
+        final b = injectWindowsTitle(original, '袋鼠加速');
+        expect(b, startsWith('// header$newline'));
+        expect(b, endsWith('$newline// tail'));
+        expect(
+          injectWindowsTitle(b, app),
+          original.replaceFirst('FlClash', app),
+        );
+      }
+    });
+    test('invalid names and ambiguous source fail before writing', () {
+      for (final name in [
+        '',
+        ' ',
+        'bad\nname',
+        'bad\u0000name',
+        'bad\u007fname',
+        String.fromCharCode(0xd800),
+      ]) {
+        expect(() => injectWindowsTitle(source, name), throwsFormatException);
+      }
+      for (final text in [
+        '',
+        source + source,
+        r'if (!window.Create("FlClash", origin, size)) {',
+      ]) {
+        expect(() => injectWindowsTitle(text, app), throwsFormatException);
+      }
+    });
+  });
+
   test('Windows Runner.rc FileDescription（不动 ProductName/InternalName）', () {
     const src =
         '            VALUE "FileDescription", "FlClash" "\\0"\n'
