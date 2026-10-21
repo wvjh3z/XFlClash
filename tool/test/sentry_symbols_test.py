@@ -53,6 +53,11 @@ def elf_fixture(*, architecture="x86_64", debug=True, executable=False, build_id
 
 class SymbolAuditTest(unittest.TestCase):
     def setUp(self):
+        # Upload protocol/GET behavior is covered by the real confirmation suite;
+        # these tests isolate local symbol inventory and staging.
+        self.confirm = mock.patch.object(symbols, "confirm_symbol_inventory", return_value=None)
+        self.confirmation = self.confirm.start()
+        self.addCleanup(self.confirm.stop)
         self.temporary = tempfile.TemporaryDirectory(prefix="xflclash-symbol-audit-")
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name).resolve()
@@ -111,9 +116,9 @@ class SymbolAuditTest(unittest.TestCase):
         self.assertNotIn("--include-sources", arguments)
         return "> File processing complete:\n"
 
-    def run_main(self, *, token="", platform="windows", audit_only=False):
+    def run_main(self, *, token="", platform="windows", audit_only=False, flavor="brand_a"):
         evidence = self.build / "evidence.json"
-        argv = ["--platform", platform, "--flavor", "brand_a", "--build-root", str(self.build),
+        argv = ["--platform", platform, "--flavor", flavor, "--build-root", str(self.build),
                 "--evidence", str(evidence)]
         if audit_only:
             argv.append("--audit-only")
@@ -265,6 +270,40 @@ class SymbolAuditTest(unittest.TestCase):
             result, evidence = self.run_main(token="fixture-token")
         return result, evidence, process
 
+    def test_pending_cli_exit_is_recovered_only_by_exact_confirmation(self):
+        result, evidence, _ = self.run_existing_server_response(
+            1, "Error: some symbols did not process correctly",
+            "> File upload complete:\nThe file is still processing and not ready yet\n")
+        self.assertEqual(result, 0)
+        self.assertEqual(evidence["upload"]["category"], "processing_incomplete")
+        self.confirmation.assert_called_once()
+
+    def test_cli_success_cannot_override_missing_server_symbols(self):
+        self.confirmation.side_effect = symbols.UploadError("symbols_unconfirmed_before_deadline", phase="confirmation")
+        result, evidence, _ = self.run_existing_server_response()
+        self.assertEqual(result, 1)
+        self.assertEqual(evidence["status"], "failed")
+        self.assertIn("symbols_unconfirmed", evidence["error"])
+
+    def test_both_brands_confirm_their_own_project(self):
+        for brand, project in (("brand_a", "omofly"), ("brand_b", "daishu")):
+            self.confirmation.reset_mock()
+            result, evidence = self.run_main(token="fixture-token", flavor=brand)
+            self.assertEqual(result, 0)
+            self.assertEqual(self.confirmation.call_args.args[0], project)
+
+    def test_cli_timeout_has_safe_phase_diagnostics(self):
+        original, real = self.cli, symbols.run_cli
+        def cli(executable, arguments):
+            if arguments[:2] == ["debug-files", "upload"]: return real(executable, arguments)
+            return original(executable, arguments)
+        self.cli = cli
+        with mock.patch.object(symbols.subprocess, "run", side_effect=subprocess.TimeoutExpired("private-token", 900)):
+            result, evidence = self.run_main(token="private-token")
+        self.assertEqual(result, 1)
+        self.assertEqual(evidence["upload"]["category"], "cli_timeout")
+        self.confirmation.assert_not_called()
+
     def test_already_processed_server_files_complete_idempotently(self):
         result, evidence, process = self.run_existing_server_response()
         self.assertEqual(result, 0)
@@ -355,7 +394,7 @@ class CliMetadataTest(unittest.TestCase):
     def test_cli_failure_does_not_echo_raw_stderr_or_credentials(self):
         response = subprocess.CompletedProcess([], 1, stdout="", stderr="DSN secret-token C:/sensitive/env.json")
         with mock.patch.object(symbols.subprocess, "run", return_value=response), \
-             self.assertRaises(symbols.SymbolError) as caught:
+             self.assertRaises(symbols.UploadError) as caught:
             symbols.run_cli("sentry-cli", ["debug-files", "upload", "/safe/stage"])
         self.assertNotIn("secret-token", str(caught.exception))
         self.assertNotIn("env.json", str(caught.exception))
@@ -367,6 +406,11 @@ class NativeElfSymbolsTest(unittest.TestCase):
     """Exercise actual ELF files, strip operations and companion identifiers."""
 
     def setUp(self):
+        # Upload protocol/GET behavior is covered by the real confirmation suite;
+        # these tests isolate local symbol inventory and staging.
+        self.confirm = mock.patch.object(symbols, "confirm_symbol_inventory", return_value=None)
+        self.confirmation = self.confirm.start()
+        self.addCleanup(self.confirm.stop)
         self.temporary = tempfile.TemporaryDirectory(prefix="xflclash-native-elf-")
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name).resolve()

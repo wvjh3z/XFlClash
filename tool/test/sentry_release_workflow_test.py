@@ -294,7 +294,7 @@ class ReleaseWorkflowTests(unittest.TestCase):
             self.pipeline_context(platform, architecture)
         script = step_script(name).replace("${{ matrix.platform }}", platform).replace(
             "${{ matrix.arch }}", architecture)
-        return subprocess.run(["bash", "-c", script], cwd=self.root, capture_output=True,
+        return subprocess.run([os.environ.get("XFLCLASH_TEST_BASH", "/bin/bash" if sys.platform == "darwin" else "bash"), "-c", script], cwd=self.root, capture_output=True,
                               text=True, env={**self.env, "SENTRY_AUTH_TOKEN": token})
 
     def stub_python_version(self, version):
@@ -377,13 +377,25 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.stub("dart")
         (self.root / "android").mkdir()
         (self.root / "android/local.properties").write_text("XB_TARGET_ABI=arm64-v8a\n")
-        for platform in ("android", "windows", "linux", "macos"):
-            result = self.execute("Prepare flavor", platform)
-            self.assertEqual(result.returncode, 0, result.stderr)
-            arguments = json.loads((self.root / "arguments.json").read_text())
-            self.assertEqual("--android-identity" in arguments, platform == "android")
-            self.assertEqual("--android-signing" in arguments, platform == "android")
-            self.assertNotIn("", arguments)
+        for brand in ("brand_a", "brand_b"):
+            self.env["FLAVOR"] = brand
+            for platform in ("android", "windows", "linux", "macos"):
+                result = self.execute("Prepare flavor", platform)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                arguments = json.loads((self.root / "arguments.json").read_text())
+                self.assertEqual("--android-identity" in arguments, platform == "android")
+                self.assertEqual("--android-signing" in arguments, platform == "android")
+                self.assertNotIn("", arguments)
+                self.assertEqual(arguments[arguments.index("--flavor") + 1], brand)
+
+    def test_empty_array_negative_control(self):
+        shell = os.environ.get("XFLCLASH_TEST_BASH", "/bin/bash" if sys.platform == "darwin" else "bash")
+        version = subprocess.check_output([shell, "-c", 'printf "%s.%s" "${BASH_VERSINFO[0]}" "${BASH_VERSINFO[1]}"'], text=True)
+        legacy = tuple(map(int, version.split('.'))) < (4, 4)
+        bad = subprocess.run([shell, "-c", 'set -eu; EXTRA=(); printf "%s" "${EXTRA[@]}"'], capture_output=True, text=True)
+        self.assertEqual(bad.returncode != 0, legacy)
+        if legacy:
+            self.assertIn("unbound variable", bad.stderr)
 
     def test_every_packaging_target_receives_dart_split_debug_information(self):
         self.stub("dart")

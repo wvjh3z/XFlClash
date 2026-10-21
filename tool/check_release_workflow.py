@@ -26,6 +26,8 @@ MODULES = (
     "tool.test.distributor_fixture_test",
     "tool.test.distributor_preflight_test",
     "tool.test.build_asset_download_test",
+    "tool.test.prepare_test_gradle_test",
+    "tool.test.sentry_upload_confirmation_test",
     "tool.test.local_release_automation_test.CliOutputEncodingTests",
 )
 

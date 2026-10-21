@@ -2,8 +2,8 @@
 """Real prepare_flavor CLI -> Gradle Kotlin DSL identity regression.
 
 Runs only an isolated Gradle check task, without AGP or Android compilation.
-Needs prepared Dart packages and Gradle 8.13 (XFLCLASH_TEST_GRADLE override or
-repository wrapper). Public fixtures only; never reads real flavor secrets.
+Needs prepared Dart packages and Java 17. Prepares checksum-pinned Gradle 8.13
+in a private fixture; public inputs only, never reads real flavor secrets.
 """
 import hashlib
 import json
@@ -18,13 +18,14 @@ import unittest
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'tool'))
 from pub_get_retry import execute
+from prepare_test_gradle import prepare, VERSION
 sys.path.insert(0, str(Path(__file__).parent))
 from windows_title_encoding_test import dart_executable
 
 
-def run(command, cwd, timeout=180):
+def run(command, cwd, timeout=180, environment=None):
     lines = []
-    code, _ = execute(list(map(str, command)), cwd, os.environ, attempts=1,
+    code, _ = execute(list(map(str, command)), cwd, environment or os.environ, attempts=1,
                       attempt_timeout=timeout, total_timeout=timeout, emit=lines.append)
     if code:
         raise AssertionError('\n'.join(lines))
@@ -44,6 +45,19 @@ def block(source, name):
             if depth == 0:
                 return source[start:start + match.end()]
     raise AssertionError('Unclosed flavor DSL')
+
+
+def check_gradle_identity(project, root):
+    # Same default in CI and locally; never rely on an ignored wrapper or a
+    # manually installed distribution. Always start with an empty user cache.
+    gradle = prepare(root / 'verified-gradle')
+    environment = {**os.environ, 'GRADLE_USER_HOME': str(root / 'empty-gradle-home')}
+    version = run([gradle, '--version'], project, environment=environment)
+    if not re.search(r'(?m)^(?:\[pub-get output\]\s*)?Gradle ' + re.escape(VERSION) + r'\s*$', version):
+        raise RuntimeError('Unexpected Gradle version')
+    return run([gradle, '--offline', '--no-daemon', '--console=plain',
+                '-p', project, 'checkBrandIdentity'], project,
+               timeout=240, environment=environment)
 
 
 class AndroidIdentityGradleTests(unittest.TestCase):
@@ -190,14 +204,7 @@ tasks.register("checkBrandIdentity") {
 }
 '''
             (project / 'build.gradle.kts').write_text(script, encoding='utf-8')
-            gradle = os.environ.get('XFLCLASH_TEST_GRADLE')
-            if gradle:
-                command = [gradle]
-            elif os.name == 'nt':
-                raise RuntimeError('Set XFLCLASH_TEST_GRADLE to a native Gradle launcher on Windows')
-            else:
-                command = ['bash', str(ROOT / 'android/gradlew')]
-            result = run(command + ['--offline', '--no-daemon', '--console=plain', '-p', project, 'checkBrandIdentity'], project, timeout=240)
+            result = check_gradle_identity(project, root)
             self.assertIn('ANDROID_BRAND_IDENTITY_OK cases=12', result)
 
 

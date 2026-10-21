@@ -19,6 +19,9 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
+
+from sentry_upload_confirmation import UploadError, cli_failure, confirm_symbol_inventory
 
 from sentry_elf import ElfError, inspect_elf
 from sentry_android_prefab import SENTRY_ANDROID_TARGETS
@@ -45,15 +48,16 @@ def run_cli(cli: str, arguments: list[str]) -> str:
     result = subprocess.run(
         [cli, *arguments], capture_output=True, text=True, encoding="utf-8",
         errors="replace", timeout=900,
-        env={**os.environ, "SENTRY_LOG_LEVEL": "warn"},
+        env={**os.environ, "SENTRY_LOG_LEVEL": "warn", "SENTRY_URL": "https://us.sentry.io/"},
     )
     # `check --json` returns 1 for a PE with a valid debug ID but no embedded
     # unwind/debug sections. Its matching PDB can still be fully usable.
     check_metadata = arguments[:3] == ["debug-files", "check", "--json"]
     if result.returncode and not (check_metadata and result.returncode == 1 and result.stdout.lstrip().startswith("{")):
+        if arguments[:2] == ["debug-files", "upload"]:
+            raise cli_failure(result.returncode, result.stdout, result.stderr)
         raise SymbolError(
-            f"sentry-cli {' '.join(arguments[:2])} failed (exit {result.returncode}); "
-            "check authentication, project permissions, network and symbol validity"
+            f"sentry-cli {' '.join(arguments[:2])} failed (exit {result.returncode})"
         )
     return result.stdout
 
@@ -833,20 +837,39 @@ def main(argv: list[str] | None = None) -> int:
                 }):
                     upload_arguments.extend(["--id", debug_id])
                 upload_arguments.append(str(stage))
-                output = run_cli(cli, upload_arguments)
-                # A zero exit also covers empty scans and --no-upload. Require
-                # a pinned CLI server completion message, never just Found N
-                # or an upload that is still pending server processing.
-                lines = {line.strip() for line in output.splitlines()}
-                if not lines.intersection({"> Nothing to upload, all files are on the server",
-                                           "> File processing complete:"}):
-                    raise SymbolError("Sentry CLI did not confirm server symbol processing completion")
+                upload_started = time.monotonic()
+                try:
+                    output = run_cli(cli, upload_arguments)
+                except UploadError as error:
+                    evidence["upload"] = error.diagnostic
+                    # Only a processing-stage failure may be reconciled by GET.
+                    # Auth, transport, invalid input and unknown failures remain fatal.
+                    if error.category != "processing_incomplete":
+                        raise
+                except subprocess.TimeoutExpired:
+                    error = UploadError("cli_timeout", phase="upload")
+                    evidence["upload"] = error.diagnostic
+                    raise error from None
+                else:
+                    evidence["upload"] = {"phase": "upload", "category": "cli_success", "exit_code": 0}
+                    lines = {line.strip() for line in output.splitlines()}
+                    if not lines.intersection({"> Nothing to upload, all files are on the server",
+                                               "> File processing complete:"}):
+                        raise SymbolError("Sentry CLI did not confirm server symbol processing completion")
+                finally:
+                    if "upload" in evidence:
+                        evidence["upload"]["elapsed_seconds"] = round(time.monotonic() - upload_started, 3)
+                evidence["confirmation"] = {}
+                confirm_symbol_inventory(
+                    PROJECTS[args.flavor], native_evidence + dart_evidence,
+                    os.environ["SENTRY_AUTH_TOKEN"], evidence["confirmation"], emit=print,
+                )
             evidence["status"] = "uploaded_and_processed"
             print(f"Sentry accepted and processed {len(files)} debug companions")
-    except (SymbolError, OSError, subprocess.TimeoutExpired) as error:
+    except (SymbolError, UploadError, OSError, subprocess.TimeoutExpired) as error:
         evidence["status"] = "failed"
         # Error strings are constructed locally; no raw CLI stderr or tokens.
-        evidence["error"] = str(error) if isinstance(error, SymbolError) else type(error).__name__
+        evidence["error"] = str(error) if isinstance(error, (SymbolError, UploadError)) else type(error).__name__
         print(f"Sentry symbols failed: {evidence['error']}", file=sys.stderr)
         return_code = 1
     else:

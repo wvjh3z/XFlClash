@@ -393,7 +393,7 @@ jobs:
 
       - name: Check Android brand identity and task title
         if: matrix.platform == 'android'
-        timeout-minutes: 10
+        timeout-minutes: 15
         run: |
           set -euo pipefail
           flutter test --no-pub tool/test/android_brand_identity_test.dart test/xboard/config/application_title_test.dart
@@ -405,12 +405,18 @@ jobs:
       # prepare_flavor 生成 flavor_defines.json（含真实 aesKey）。Android 额外 --android-signing
       # 落地 keystore.jks + local.properties。多 ABI 打包：删掉 prepare_flavor 写的 XB_TARGET_ABI，
       # 让 split-per-abi 出全部 ABI（versionCode 由 flutter 按 abi 偏移，FlClash 同款语义）。
+      - name: Check prepare flavor with runner Bash
+        if: matrix.platform == 'macos'
+        run: python tool/test/sentry_release_workflow_test.py ReleaseWorkflowTests.test_prepare_flavor_passes_android_identity_only_to_android ReleaseWorkflowTests.test_empty_array_negative_control
+
       - name: Prepare flavor
         run: |
           set -euo pipefail
-          EXTRA=()
-          [ "${{ matrix.platform }}" = "android" ] && EXTRA=(--android-signing --android-identity)
-          dart run tool/prepare_flavor.dart --flavor "$FLAVOR" --target prod "${EXTRA[@]}"
+          FLAVOR_ARGS=(--flavor "$FLAVOR" --target prod)
+          if [ "${{ matrix.platform }}" = "android" ]; then
+            FLAVOR_ARGS+=(--android-signing --android-identity)
+          fi
+          dart run tool/prepare_flavor.dart "${FLAVOR_ARGS[@]}"
           if [ "${{ matrix.platform }}" = "android" ]; then
             sed -i '/^XB_TARGET_ABI=/d' android/local.properties || true
             echo "✓ 已移除 XB_TARGET_ABI（split-per-abi 出全部 ABI）"

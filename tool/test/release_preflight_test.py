@@ -12,6 +12,8 @@ from tool import check_release_workflow as gate
 class PreflightResultTests(unittest.TestCase):
     def test_shared_gate_includes_real_packager_context_and_encoding_negative_control(self):
         self.assertIn("tool.test.packager_context_test", gate.MODULES)
+        self.assertIn("tool.test.prepare_test_gradle_test", gate.MODULES)
+        self.assertIn("tool.test.sentry_upload_confirmation_test", gate.MODULES)
         self.assertIn("tool.test.local_release_automation_test.CliOutputEncodingTests", gate.MODULES)
 
     def test_success_requires_executed_tests_and_zero_skips(self):

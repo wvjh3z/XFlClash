@@ -73,6 +73,9 @@ def universal(slices):
 
 class MacosSymbolsTest(unittest.TestCase):
     def setUp(self):
+        patcher = mock.patch.object(symbols, "confirm_symbol_inventory", return_value=None)
+        patcher.start()
+        self.addCleanup(patcher.stop)
         self.temporary = tempfile.TemporaryDirectory(prefix="sentry-macos-audit-")
         self.addCleanup(self.temporary.cleanup)
         self.root = (Path(self.temporary.name).resolve() / "build").resolve()
