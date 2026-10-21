@@ -4,10 +4,25 @@
 /// 任一仓改 SDK 公共表面 → 本测试 fail → 触发 design 复扫（决策 #1）。
 /// **跨仓共享**（ξ-DD-20）：客户端 + SDK 双仓 CI 都应跑等价断言。
 
+library;
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_xboard_sdk/flutter_xboard_sdk.dart';
 
 void main() {
+  test('订单公共模型使用 surplus_credit，金额保持分且不读取旧字段', () {
+    final order = OrderModel.fromJson({
+      'total_amount': 2500,
+      'surplus_credit': 1234,
+      'refund_amount': 9999,
+    });
+    expect(order.refundAmount, 1234);
+    expect(order.totalAmountInYuan, 25);
+    expect(order.toJson(), containsPair('surplus_credit', 1234));
+    expect(order.toJson(), isNot(contains('refund_amount')));
+    expect(OrderModel.fromJson({'refund_amount': 9999}).refundAmount, isNull);
+  });
+
   group('SDK 枚举数量契约（DD-20）', () {
     test('BusinessErrorKind = 22 子类', () {
       expect(BusinessErrorKind.values.length, 22);
@@ -59,7 +74,7 @@ void main() {
         const NetworkError('d', kind: NetworkErrorKind.timeout),
         const ServerError('e', httpStatusCode: 500),
         const SecurityError('f'),
-        UnexpectedError('g', cause: 'x', stackTrace: StackTrace.empty, operation: 'op'),
+        const UnexpectedError('g', cause: 'x', stackTrace: StackTrace.empty, operation: 'op'),
       ];
       for (final e in errors) {
         final label = switch (e) {
