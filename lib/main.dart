@@ -13,6 +13,10 @@ import 'package:rust_api/rust_api.dart';
 import 'application.dart';
 import 'common/common.dart';
 
+final singleInstanceLock = SingleInstanceLock(
+  lockFilePath: () => appPath.lockFilePath,
+);
+
 Future<void> main(List<String> args) async {
   try {
     WidgetsFlutterBinding.ensureInitialized();
@@ -24,6 +28,12 @@ Future<void> main(List<String> args) async {
     // 尽量靠前调用（crisp_chat README 要求）。非桌面 / 非该子进程 → false，正常启动。
     if (system.isDesktop && runWebViewTitleBarWidget(args)) {
       return;
+    }
+
+    // Main desktop processes must own the data directory before monitoring,
+    // Rust or globalState can touch it. WebView title-bar children return above.
+    if (system.isDesktop && !await singleInstanceLock.acquire()) {
+      exit(0);
     }
 
     // Read the saved opt-out before native capture, then install Sentry before

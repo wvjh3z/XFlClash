@@ -8,7 +8,7 @@
 /// **R4.1 文件化订阅**（`putFileProfile`）：SDK 自拉密文 → 解密 → 明文 YAML 字节经
 /// `Profile.saveFile(bytes)`（现成公开方法：validateConfig 校验 + 写 `$id.yaml`）写 file 型
 /// profile（url=''）；入库 → 设 currentProfileId → **仅在 initProvider==true 时** apply
-/// （核心未就绪时靠 initStatus 的 force:true 自然加载）。**零改上游**。
+/// （核心未就绪时靠 initStatus 的 force:true 自然加载）。
 ///
 /// **错误形态**（R7.9 / F278）：`Profile.update()` 失败抛本地化中文字符串（非结构化异常），
 /// 调用方（XboardSubscriptionService）catch 后归一为 XbSyncOutcome.failed。
@@ -29,6 +29,7 @@ import 'package:fl_clash/providers/action.dart'
     show profilesActionProvider, setupActionProvider;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../storage/profile_database_access.dart';
 import 'profile_sync_port.dart';
 
 class RiverpodProfileSyncPort implements ProfileSyncPort {
@@ -36,10 +37,14 @@ class RiverpodProfileSyncPort implements ProfileSyncPort {
     this._ref, {
     Database? profileDatabase,
     Future<String> Function(int profileId)? profilePath,
-  }) : _database = profileDatabase ?? database,
+    Future<Profile> Function(Profile profile, Uint8List bytes)? saveProfile,
+  }) : _saveProfile =
+           saveProfile ?? ((profile, bytes) => profile.saveFile(bytes)),
+       _database = profileDatabase ?? database,
        _profilePath =
            profilePath ?? ((id) => appPath.getProfilePath(id.toString()));
 
+  final Future<Profile> Function(Profile, Uint8List) _saveProfile;
   final Ref _ref;
   final Database _database;
   final Future<String> Function(int profileId) _profilePath;
@@ -99,7 +104,7 @@ class RiverpodProfileSyncPort implements ProfileSyncPort {
 
     final pending =
         existing?.copyWith(label: label) ?? Profile.normal(label: label);
-    final saved = await pending.saveFile(yamlBytes);
+    final saved = await _saveProfile(pending, yamlBytes);
     if (!sessionIsCurrent()) {
       // saveFile 的校验可能跨越会话退出；只删本次旧归属 ID 的文件，不激活它。
       await _deleteFile(saved.id);
@@ -108,7 +113,17 @@ class RiverpodProfileSyncPort implements ProfileSyncPort {
 
     // Profiles.put 是乐观状态 + 异步数据库写入。这里等待已有公开 DB API 提交，
     // 才能在退出跨越提交时准确撤销；保留原标签去重规则，不改底座 schema/provider。
-    await _database.profiles.put(profiles.optimizeLabel(saved).toCompanion());
+    final row = profiles.optimizeLabel(saved).toCompanion();
+    try {
+      await retryProfileDatabaseWrite(
+        () => _database.profiles.put(row),
+        ensureCurrent: ensureCurrent,
+      );
+    } on ProfileSyncCancelled {
+      // Cancellation between busy attempts must not leave an old-session file.
+      await _deleteFile(saved.id);
+      rethrow;
+    }
     if (!sessionIsCurrent()) {
       await deleteProfile(saved.id);
       throw const ProfileSyncCancelled();

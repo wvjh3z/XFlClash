@@ -1,30 +1,48 @@
 import 'dart:io';
 
-import 'package:fl_clash/common/common.dart';
-
+/// Process-lifetime, non-blocking OS lock. The file must never be unlinked:
+/// replacing its inode would allow a second process to lock a different file.
 class SingleInstanceLock {
-  static SingleInstanceLock? _instance;
+  SingleInstanceLock({required Future<String> Function() lockFilePath})
+    : _lockFilePath = lockFilePath;
+
+  final Future<String> Function() _lockFilePath;
   RandomAccessFile? _accessFile;
+  Future<bool>? _pending;
 
-  SingleInstanceLock._internal();
-
-  factory SingleInstanceLock() {
-    _instance ??= SingleInstanceLock._internal();
-    return _instance!;
+  Future<bool> acquire() {
+    if (_accessFile != null) return Future.value(true);
+    return _pending ??= _acquire().whenComplete(() => _pending = null);
   }
 
-  Future<bool> acquire() async {
+  Future<bool> _acquire() async {
+    // Opening/path failures are real startup failures, not proof of a duplicate.
+    final file = await File(await _lockFilePath()).open(mode: FileMode.append);
     try {
-      final lockFilePath = await appPath.lockFilePath;
-      final lockFile = File(lockFilePath);
-      await lockFile.create();
-      _accessFile = await lockFile.open(mode: FileMode.write);
-      await _accessFile?.lock();
-      return true;
+      await file.lock(FileLock.exclusive);
+    } on FileSystemException catch (error) {
+      await file.close();
+      final code = error.osError?.errorCode;
+      // Windows ERROR_LOCK_VIOLATION; POSIX EAGAIN (or EACCES from fcntl).
+      final busyCode = Platform.isWindows ? 33 : (Platform.isMacOS ? 35 : 11);
+      final occupied = code == busyCode || (!Platform.isWindows && code == 13);
+      if (occupied) return false;
+      rethrow;
     } catch (_) {
-      return false;
+      await file.close();
+      rethrow;
     }
+    _accessFile = file;
+    return true;
+  }
+
+  /// Only call after all work using the protected data has stopped.
+  /// Production keeps the handle until process exit; tests release explicitly.
+  Future<void> release() async {
+    await _pending;
+    final file = _accessFile;
+    if (file == null) return;
+    await file.close();
+    _accessFile = null;
   }
 }
-
-final singleInstanceLock = SingleInstanceLock();
