@@ -16,6 +16,7 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 MODULES = (
     "tool.test.release_request_test",
+    "tool.test.release_entry_contract_test",
     "tool.test.release_build_number_test",
     "tool.test.sentry_release_workflow_test",
     "tool.test.release_preflight_test",

@@ -26,7 +26,9 @@ Future<void> main(List<String> args) async {
     final data = jsonDecode(File(args[1]).readAsStringSync()) as Map;
     await record.updateHashes(
       (data['dependencies'] as List).cast<String>().map(Uri.parse).toList(),
-      DateTime.now().add(const Duration(seconds: 10)),
+      data['started_us'] is int
+          ? DateTime.fromMicrosecondsSinceEpoch(data['started_us'] as int, isUtc: true)
+          : DateTime.now().add(const Duration(seconds: 10)),
       {},
     );
   } else {

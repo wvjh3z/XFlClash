@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """CMake declarations plus Native Assets handoff; no Windows client compilation."""
 import io
+import contextlib
 import json
 import os
 from pathlib import Path
@@ -13,6 +14,8 @@ from unittest import mock
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from prepare_sentry_windows_assets import prepare_windows_assets
 from upload_sentry_symbols import SymbolError
+from sentry_hook_inputs import rust_inputs
+import postbuild_sentry_symbols as postbuild
 
 HELPER = Path(__file__).resolve().parents[2] / 'windows/xboard_sentry_symbols.cmake'
 
@@ -65,6 +68,54 @@ class RustManifestTests(unittest.TestCase):
         with mock.patch('prepare_sentry_windows_assets.check_symbol',side_effect=wrong_arch),self.assertRaisesRegex(SymbolError,'architecture'):
             prepare_windows_assets(build,'fixture-cli')
 
+    def test_real_prepare_reports_malformed_manifests_for_both_brands(self):
+        valid={'schema_version':1,'platform':'windows','architecture':'x64','binary':'rust_api.dll','companions':['rust_api.pdb']}
+        bad=[None, [], True, 23, 'SENSITIVE_FIXTURE_VALUE',
+             {**valid,'schema_version':True}, {**valid,'architecture':[]},
+             {**valid,'binary':{'private':'SENSITIVE_FIXTURE_VALUE'}},
+             {**valid,'companions':42}, {**valid,'companions':None},
+             {**valid,'companions':'rust_api.pdb'}, {**valid,'companions':{}},
+             {**valid,'companions':[None]}, {**valid,'companions':[[]]},
+             {**valid,'companions':['rust_api.pdb','rust_api.pdb']},
+             {**valid,'companions':['../SENSITIVE_FIXTURE_VALUE']}]
+        for brand in ('brand_a','brand_b'):
+            for value in bad:
+                with self.subTest(brand=brand,value_type=type(value).__name__):
+                    build,bundle,hook,manifest=self.fixture();before=manifest.read_bytes()
+                    root=build.parent
+                    (root/'flavor_defines.json').write_text(json.dumps({'XB_FLAVOR_ID':brand,'XB_DEBUG':'false','XB_SENTRY_DSN':'fixture'}),encoding='utf-8')
+                    (hook/'manifest.json').write_text(json.dumps(value),encoding='utf-8')
+                    evidence=build/'sentry-symbols-evidence.json';evidence.write_text('{"status":"uploaded_and_processed"}',encoding='utf-8')
+                    error=io.StringIO()
+                    with mock.patch.object(postbuild,'resolve_cli',return_value='fixture'), \
+                         mock.patch('prepare_sentry_windows_assets.check_symbol') as symbol, \
+                         mock.patch.object(postbuild,'run_checked') as upload, contextlib.redirect_stderr(error):
+                        code=postbuild.main(['--project-root',str(root),'--platform','windows','--flavor',brand,'--audit-only'])
+                    self.assertEqual(code,1)
+                    data=json.loads(evidence.read_text(encoding='utf-8'))
+                    self.assertEqual((data['status'],data['postbuild_stage']),('failed','prepare'))
+                    self.assertEqual(data['postbuild_error'],'ValueError')
+                    self.assertEqual(manifest.read_bytes(),before)
+                    self.assertNotIn('SENSITIVE_FIXTURE_VALUE',error.getvalue()+evidence.read_text())
+                    self.assertNotIn('Traceback',error.getvalue())
+                    symbol.assert_not_called();upload.assert_not_called()
+
+    def test_valid_prepare_reaches_offline_audit_for_both_brands(self):
+        for brand in ('brand_a','brand_b'):
+            build,_,_,manifest=self.fixture();root=build.parent
+            (root/'flavor_defines.json').write_text(json.dumps({'XB_FLAVOR_ID':brand,'XB_DEBUG':'false','XB_SENTRY_DSN':'fixture'}),encoding='utf-8')
+            def audit(command, **kwargs):
+                self.assertTrue(command[1].endswith('upload_sentry_symbols.py'))
+                self.assertIn('--audit-only',command)
+                self.assertNotIn('SENTRY_AUTH_TOKEN',kwargs['environment'])
+                evidence=Path(command[command.index('--evidence')+1])
+                evidence.write_text(json.dumps({'status':'audited','platform':'windows','flavor':brand}),encoding='utf-8')
+            with mock.patch.object(postbuild,'resolve_cli',return_value='fixture'), \
+                 mock.patch('prepare_sentry_windows_assets.check_symbol',side_effect=self.check), \
+                 mock.patch.object(postbuild,'run_checked',side_effect=audit):
+                self.assertEqual(postbuild.main(['--project-root',str(root),'--platform','windows','--flavor',brand,'--audit-only']),0)
+            self.assertIn('FlClashHelperService',manifest.read_text())
+
     @unittest.skipUnless(shutil.which('cmake') and (os.name=='nt' or shutil.which('c++')), 'CMake compiler unavailable')
     def test_cmake_owns_native_targets_but_has_no_deleted_cargokit_target(self):
         for mode in ('Release','Profile'):
@@ -86,6 +137,26 @@ include("{HELPER.as_posix()}")
             self.assertEqual(result.returncode,0,result.stderr)
             rows=(root/f'build/sentry-symbols/{mode}/targets.tsv').read_text(encoding='utf-8')
             self.assertIn('FlClash\t',rows);self.assertNotIn('rust_api\t',rows)
+
+
+class HookInputSchemaTests(unittest.TestCase):
+    def test_common_reader_types_for_every_platform(self):
+        for platform in ('android','windows','linux','macos'):
+            with tempfile.TemporaryDirectory() as folder:
+                root=Path(folder);hook=root/'sentry-hook-inputs'/platform/'x64';hook.mkdir(parents=True)
+                (hook/'native').write_bytes(b'runtime')
+                valid={'schema_version':1,'platform':platform,'architecture':'x64','binary':'native','companions':[]}
+                manifest=hook/'manifest.json';manifest.write_text(json.dumps(valid),encoding='utf-8')
+                self.assertEqual(len(rust_inputs(root,platform)),1)
+                for value in ([],False,{**valid,'companions':{}},{**valid,'companions':[[1]]},{**valid,'binary':None}):
+                    manifest.write_text(json.dumps(value),encoding='utf-8')
+                    with self.assertRaises(ValueError):rust_inputs(root,platform)
+                manifest.write_bytes(b'\xff')
+                with self.assertRaisesRegex(ValueError,'invalid_hook_manifest_json'):rust_inputs(root,platform)
+                manifest.write_text('{broken',encoding='utf-8')
+                with self.assertRaisesRegex(ValueError,'invalid_hook_manifest_json'):rust_inputs(root,platform)
+                (hook/'native').unlink();(hook/'native').mkdir();manifest.write_text(json.dumps(valid),encoding='utf-8')
+                with self.assertRaisesRegex(ValueError,'invalid_hook_input_type'):rust_inputs(root,platform)
 
 
 if __name__=='__main__':unittest.main()

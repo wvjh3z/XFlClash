@@ -6,6 +6,8 @@ import 'dart:io';
 import 'package:code_assets/code_assets.dart';
 import 'package:flutter_rust_bridge_hooks/flutter_rust_bridge_hooks.dart';
 import 'package:setup_hooks/src/build_cache.dart';
+import 'package:setup_hooks/src/build.dart';
+import 'package:setup_hooks/src/core_builder.dart';
 import 'package:setup_hooks/src/options.dart' as setup;
 import 'package:setup_hooks/src/rust_builder.dart';
 import 'package:setup_hooks/src/target.dart';
@@ -29,6 +31,63 @@ Future<void> main(List<String> args) async {
           targetTriple: args[2],
         );
     stdout.writeln(jsonEncode({'toolchain': value.toolchainChannel}));
+    return;
+  }
+  if (args.first == 'go') {
+    void put(String name, String data) {
+      final file = File('${root.path}/$name');
+      if (!file.existsSync()) {
+        file.parent.createSync(recursive: true);
+        file.writeAsStringSync(data);
+      }
+    }
+
+    put('core/go.mod', 'module fixture\ngo 1.27\n');
+    put('core/cmd/core/main.go', 'package main\nfunc main() {}\n');
+    put('pubspec.yaml', 'name: fixture\n');
+    final package = Directory('${root.path}/plugins/setup')
+      ..createSync(recursive: true);
+    final os = {
+      'windows': OS.windows,
+      'linux': OS.linux,
+      'macos': OS.macOS,
+    }[args[2]]!;
+    final arch = args[3] == 'arm64' ? Architecture.arm64 : Architecture.x64;
+    final input = BuildInputBuilder()
+      ..setupShared(
+        packageRoot: package.uri,
+        packageName: 'setup',
+        outputDirectoryShared: root.uri.resolve('hook/'),
+        outputFile: root.uri.resolve('hook/output.json'),
+      )
+      ..setupBuildInput()
+      ..config.setupBuild(linkingEnabled: false);
+    CodeAssetExtension(
+      targetOS: os,
+      targetArchitecture: arch,
+      linkModePreference: LinkModePreference.dynamic,
+      macOS: os == OS.macOS ? MacOSCodeConfig(targetVersion: 12) : null,
+    ).setupBuildInput(input);
+    BuildReport? report;
+    final output = BuildOutputBuilder();
+    await CoreBuilder(
+      hostArchitecture: arch,
+      build: (request) async {
+        report = await buildPlatform(request);
+        return report!;
+      },
+    ).run(input: input.build(), output: output);
+    File('${root.path}/go-result.json').writeAsStringSync(
+      jsonEncode({
+        'rebuilt': report!.rebuilt,
+        'outputs': report!.outputs,
+        'dependencies': output
+            .build()
+            .dependencies
+            .map((uri) => uri.toString())
+            .toList(),
+      }),
+    );
     return;
   }
   if (args.first == 'helper') {

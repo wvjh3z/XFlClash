@@ -496,11 +496,9 @@ class InterfaceTests(unittest.TestCase):
     def test_workflows_bound_explicit_downloads_not_builds(self):
         release=(ROOT/'.github/workflows/release-package.yml').read_text(encoding='utf-8')
         ci=(ROOT/'.github/workflows/xboard-ci.yml').read_text(encoding='utf-8')
-        self.assertEqual(release.count('pub_get_retry.py --tool')+release.count('pub_get_retry.py" --tool'),3)
-        self.assertEqual(ci.count('pub_get_retry.py" --tool')+ci.count('pub_get_retry.py --tool'),2)
-        self.assertNotIn('          flutter pub get',release)
-        self.assertNotIn('          dart pub get',release)
-        self.assertIn('          dart run build_runner build',release)
+        from release_entry_contract_test import validate_download_and_codegen
+        validate_download_and_codegen(release)
+        validate_download_and_codegen(ci)
         self.assertIn('build/dependency-retries/',release)
         self.assertIn('if: always()',ci)
 

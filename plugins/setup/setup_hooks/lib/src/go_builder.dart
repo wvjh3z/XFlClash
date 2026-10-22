@@ -40,11 +40,12 @@ class GoBuilder {
     final fileName = '${config.coreName}${target.executableExtension}';
     final outFile = p.join(outDir, fileName);
 
-    return cache.run(
+    final result = await cache.run(
       key: '${target.platformDir}-${target.goarch}-core',
       fingerprint: () => _calculateFingerprint(target),
       primaryOutput: outFile,
       notice: notice,
+      verifyOutputContent: true,
       build: () async {
         final env = _buildEnvironment(target);
         _log.info('Building Go core: $target');
@@ -77,6 +78,14 @@ class GoBuilder {
           }
         }
       },
+    );
+    // Outer hook hashes must observe the runtime and private symbol bytes, not
+    // just directory entries. The inner cache separately verifies SHA256.
+    return BuildExecution(
+      primaryOutput: result.primaryOutput,
+      rebuilt: result.rebuilt,
+      inputs: {...result.inputs, ...result.outputs}.toList(),
+      outputs: result.outputs,
     );
   }
 

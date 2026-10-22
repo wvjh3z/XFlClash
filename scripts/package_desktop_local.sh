@@ -214,7 +214,7 @@ echo "=== inject_desktop_brand（窗口标题 / 打包 display_name / 图标）=
 dart --packages=.dart_tool/package_config.json tool/inject_desktop_brand.dart --flavor "${FLAVOR}" --platform "${PLATFORM}" --build-number "${BUILD_NUMBER}"
 
 echo "=== generate desktop icons ==="
-python tool/dart_package.py flutter_launcher_icons -f flutter_launcher_icons.yaml
+python3 tool/dart_package.py flutter_launcher_icons -f flutter_launcher_icons.yaml
 
 # Native Assets builds Core before Helper and binds the final runtime hash.
 

@@ -8,6 +8,59 @@ import 'dart:io';
 import 'package:code_assets/code_assets.dart';
 import 'package:flutter_rust_bridge_hooks/flutter_rust_bridge_hooks.dart';
 
+Future<bool> _sameFile(File left, File right) async {
+  final a = await left.open();
+  RandomAccessFile? b;
+  try {
+    b = await right.open();
+    if (await a.length() != await b.length()) return false;
+    while (true) {
+      final first = await a.read(64 * 1024);
+      final second = await b.read(64 * 1024);
+      if (first.length != second.length) return false;
+      if (first.isEmpty) return true;
+      for (var i = 0; i < first.length; i++) {
+        if (first[i] != second[i]) return false;
+      }
+    }
+  } finally {
+    await a.close();
+    await b?.close();
+  }
+}
+
+Future<bool> _sameCapture(Directory staged, Directory destination) async {
+  if (FileSystemEntity.typeSync(destination.path, followLinks: false) !=
+      FileSystemEntityType.directory) {
+    return false;
+  }
+  Map<String, FileSystemEntity> entries(Directory directory) {
+    final prefix = directory.path.replaceFirst(RegExp(r'[/\\]+$'), '');
+    return {
+      for (final entry in directory.listSync(
+        recursive: true,
+        followLinks: false,
+      ))
+        entry.path.substring(prefix.length + 1): entry,
+    };
+  }
+
+  final expected = entries(staged);
+  final actual = entries(destination);
+  if (expected.length != actual.length) return false;
+  for (final key in expected.keys) {
+    final source = expected[key];
+    final current = actual[key];
+    if (source is Directory && current is Directory) continue;
+    if (source is! File ||
+        current is! File ||
+        !await _sameFile(source, current)) {
+      return false;
+    }
+  }
+  return true;
+}
+
 Future<void> captureXboardNativeSymbols(
   BuildInput input,
   BuildOutputBuilder output,
@@ -84,10 +137,14 @@ Future<void> captureXboardNativeSymbols(
         'companions': companions,
       }),
     );
-    // Per-target hook builds are serialized by flutter_rust_bridge_hooks.
-    // Invalidate stale output before promotion; failure must not look current.
-    if (await destination.exists()) await destination.delete(recursive: true);
-    await staged.rename(destination.path);
+    // Publish a complete staged capture.
+    // A newly generated dependency may need one conservative hook recheck.
+    // Keep identical captures untouched so that recheck can settle; rewriting
+    // their mtimes on every run otherwise invalidates the cache forever.
+    if (!await _sameCapture(staged, destination)) {
+      if (await destination.exists()) await destination.delete(recursive: true);
+      await staged.rename(destination.path);
+    }
     output.dependencies.add(destination.uri);
     // A directory dependency hashes only immediate names. Register files too,
     // including nested dSYM contents, so deletion or damage reruns the hook.

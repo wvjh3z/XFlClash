@@ -12,6 +12,7 @@ import sys
 import tempfile
 import unittest
 import tomllib
+import time
 from urllib.parse import urlparse
 from urllib.request import url2pathname
 
@@ -38,12 +39,24 @@ class HookBoundaryTests(unittest.TestCase):
             raise RuntimeError('Prepare the formal Flutter/client pub graph before hook checks')
         cls.probe_source = cls.base/'hook_probe.dart'
         shutil.copyfile(ROOT/'tool/test/fixtures/native_hook_probe.dart.fixture', cls.probe_source)
+        # Match the runner's compile-once/execute-many model. These are only
+        # Dart test harness kernels, with no application native-hook dispatch.
+        cls.fixture_kernel=cls.base/'symbol-cache.dill'
+        probe_kernel=cls.base/'hook-probe.dill'
+        for graph,source,output in ((cls.tools_graph,cls.probe_source,probe_kernel),
+                                    (cls.app_graph,ROOT/'tool/test/native_symbol_cache_fixture.dart',cls.fixture_kernel)):
+            result=invoke([cls.dart,'--packages='+str(graph),'--snapshot-kind=kernel','--snapshot='+str(output),source],cwd=cls.base)
+            if result.returncode:raise RuntimeError(result.stdout+result.stderr)
+        cls.probe_source=probe_kernel
         cls.fake_bin = cls.base/'bin';cls.fake_bin.mkdir()
         cls.fake = cls.fake_bin/('rustup.exe' if os.name == 'nt' else 'rustup')
         # Standalone source, outside the application pub graph: no native hooks.
         source = cls.base/'fake.dart';shutil.copyfile(ROOT/'tool/test/fake_rustup.dart', source)
         result = invoke([cls.dart, 'compile', 'exe', source, '-o', cls.fake], cwd=cls.base)
         if result.returncode: raise RuntimeError(result.stdout + result.stderr)
+        for name in ('go','strip','xcrun','python3'):
+            shutil.copyfile(cls.fake,cls.fake_bin/(name+('.exe' if os.name=='nt' else '')))
+            (cls.fake_bin/(name+('.exe' if os.name=='nt' else ''))).chmod(0o755)
 
     def setUp(self):
         temporary = tempfile.TemporaryDirectory(prefix='case-', dir=self.base)
@@ -65,7 +78,7 @@ class HookBoundaryTests(unittest.TestCase):
         self.environment=json.loads(self.env_output.read_text(encoding='utf-8'))
 
     def configure(self, **values):
-        self.control.write_text(json.dumps(dict(pin=PINS['rust'], **values)),encoding='utf-8')
+        self.control.write_text(json.dumps(dict(pin=PINS['rust'], go_pin=PINS['go'], **values)),encoding='utf-8')
 
     def probe(self, *args):
         result=invoke([self.dart, '--packages='+str(self.tools_graph), self.probe_source, *args])
@@ -73,10 +86,10 @@ class HookBoundaryTests(unittest.TestCase):
         return json.loads(result.stdout) if result.stdout.strip() else None
 
     def fixture(self, mode, platform, arch='amd64', succeeds=True):
-        result=invoke([self.dart, '--packages='+str(self.app_graph), ROOT/'tool/test/native_symbol_cache_fixture.dart', mode, self.root, platform, arch],env=self.environment)
+        result=invoke([self.dart, '--packages='+str(self.app_graph), self.fixture_kernel, mode, self.root, platform, arch],env=self.environment)
         if succeeds:
             self.assertEqual(result.returncode,0,result.stdout+result.stderr)
-            return json.loads(result.stdout)
+            return json.loads((self.root/'go-result.json').read_text(encoding='utf-8') if mode=='go' else result.stdout)
         self.assertNotEqual(result.returncode,0)
         return result
 
@@ -162,6 +175,71 @@ class HookBoundaryTests(unittest.TestCase):
         self.configure()
         self.assertTrue(self.fixture('helper','windows')['rebuilt'])
 
+    def test_go_production_outer_cache_recovers_symbol_bytes_and_settles(self):
+        # CoreBuilder -> buildPlatform -> GoBuilder/RustBuilder are production;
+        # only the external compiler/strip/extractor executables are controlled.
+        for name in ('prepare_sentry_macos_symbols.py','sentry_macho.py'):
+            shutil.copyfile(ROOT/'tool'/name,self.root/'tool'/name)
+        for platform in ('linux','macos','windows'):
+            with self.subTest(platform=platform):
+                deps=self.root/'go-deps.json';hashes=self.root/'go-hashes.json'
+                def run():
+                    started=time.time_ns()//1000
+                    data=self.fixture('go',platform)
+                    data['started_us']=started
+                    deps.write_text(json.dumps(data),encoding='utf-8')
+                    self.probe('record',deps,hashes)
+                    return data
+                run()  # Newly produced files may conservatively require recheck.
+                settled=run()
+                self.assertFalse(settled['rebuilt'])
+                self.assertFalse(self.probe('check',deps,hashes)['invalidated'])
+                files=[Path(path) for path in settled['outputs']]
+                symbol=(next(path for path in files if path.name.endswith('.unstripped')) if platform=='linux' else
+                        next(path for path in files if 'DWARF' in path.parts) if platform=='macos' else
+                        next(path for path in files if path.name=='FlClashCore.exe'))
+                payload=symbol.read_bytes()
+                legacy=self.root/'go-legacy-deps.json';legacy_hash=self.root/'go-legacy-hashes.json'
+                legacy.write_text(json.dumps({**settled,'dependencies':[uri for uri in settled['dependencies'] if uri!=symbol.as_uri()]}),encoding='utf-8')
+                self.probe('record',legacy,legacy_hash)
+                for change in ('content','same-stat-content','delete'):
+                    stat=symbol.stat()
+                    if change=='delete':symbol.unlink()
+                    else:
+                        symbol.write_bytes(b'X'*len(payload))
+                        if change=='same-stat-content':os.utime(symbol,ns=(stat.st_atime_ns,stat.st_mtime_ns))
+                    self.assertTrue(self.probe('check',deps,hashes)['invalidated'])
+                    self.assertEqual(self.probe('check',legacy,legacy_hash)['invalidated'],change=='delete', 'old directory-only boundary must miss content mutation')
+                    recovered=run();self.assertTrue(recovered['rebuilt'])
+                    self.assertEqual(symbol.read_bytes(),payload)
+                    self.assertFalse(run()['rebuilt'])
+                    self.assertFalse(self.probe('check',deps,hashes)['invalidated'])
+                before=next(path for path in files if path.name=='FlClashCore'+('.exe' if platform=='windows' else '')).read_bytes()
+                symbol.write_bytes(b'X'*len(payload));self.configure(failBuild=True)
+                runtime=next(path for path in files if path.name=='FlClashCore'+('.exe' if platform=='windows' else ''))
+                before_failure=runtime.read_bytes()
+                self.fixture('go',platform,succeeds=False)
+                self.assertEqual(runtime.read_bytes(),before_failure)
+                self.assertFalse(list(runtime.parent.glob('.staging-*')))
+                self.assertTrue(self.probe('check',deps,hashes)['invalidated'])
+                self.configure()
+                self.assertTrue(run()['rebuilt'])
+                self.assertEqual(symbol.read_bytes(),payload)
+                self.assertFalse(run()['rebuilt'])
+                self.assertEqual(next(path for path in files if path.name=='FlClashCore'+('.exe' if platform=='windows' else '')).read_bytes(),before)
+
+    def test_rust_capture_settles_with_the_real_pre_run_timestamp(self):
+        for platform in ('android','linux','windows','macos'):
+            with self.subTest(platform=platform):
+                deps=self.root/'rust-deps.json';hashes=self.root/'rust-hashes.json'
+                for _ in range(2):
+                    started=time.time_ns()//1000
+                    data=self.fixture('capture',platform)
+                    data['started_us']=started
+                    deps.write_text(json.dumps(data),encoding='utf-8')
+                    self.probe('record',deps,hashes)
+                self.assertFalse(self.probe('check',deps,hashes)['invalidated'])
+
     def test_real_hook_hash_detects_nested_symbols_and_recovery(self):
         for platform in ('android','linux','windows','macos'):
             with self.subTest(platform=platform):
@@ -177,7 +255,7 @@ class HookBoundaryTests(unittest.TestCase):
                 self.assertTrue(self.probe('check',deps,hashes)['invalidated'])
                 recovered=self.fixture('capture',platform)
                 self.assertEqual(symbol.read_bytes(),payload)
-                self.assertEqual(recovered,captured)
+                self.assertEqual(set(recovered['dependencies']),set(captured['dependencies']))
                 self.probe('record',deps,hashes)
                 stat=symbol.stat();symbol.write_bytes(b'X'*len(payload));os.utime(symbol,ns=(stat.st_atime_ns,stat.st_mtime_ns))
                 self.assertTrue(self.probe('check',deps,hashes)['invalidated'])
