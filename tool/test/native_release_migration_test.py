@@ -115,6 +115,48 @@ class NativeInputTests(unittest.TestCase):
 
 @unittest.skipUnless(sys.platform=='linux' and shutil.which('cargo') and shutil.which('objcopy'), 'Linux Rust/ELF fixture tools required')
 class RealRustProfileTests(unittest.TestCase):
+    @unittest.skipUnless(os.environ.get('ANDROID_NDK') and os.environ.get('FLUTTER_ROOT'), 'Android NDK and Flutter graph required')
+    def test_android_rust_actual_ndk_build_ids_match_stripped_runtime_and_debug(self):
+        with tempfile.TemporaryDirectory(prefix='android-rust-id-') as folder:
+            root=Path(folder);crate=root/'crate';(crate/'src').mkdir(parents=True)
+            probe=root/'environment.dart'
+            probe.write_text("import 'dart:convert';\nimport 'package:code_assets/code_assets.dart';\n"
+                +f"import '{(ROOT/'plugins/rust_api/hook/xboard_symbols.dart').as_uri()}';\n"
+                +'void main() { print(jsonEncode({for(final os in [OS.android,OS.linux,OS.windows,OS.macOS]) os.name:xboardRustSymbolEnvironment(os)})); }\n')
+            result=subprocess.run([str(Path(os.environ['FLUTTER_ROOT'])/'bin/cache/dart-sdk/bin/dart'),
+                '--packages='+str(ROOT/'.dart_tool/package_config.json'),str(probe)],capture_output=True,text=True,timeout=30)
+            self.assertEqual(result.returncode,0,result.stderr)
+            environments=json.loads(result.stdout)
+            self.assertEqual(environments['linux'],{});self.assertEqual(environments['windows'],{})
+            self.assertEqual(environments['macos'],{'CARGO_PROFILE_RELEASE_SPLIT_DEBUGINFO':'packed'})
+            profile=(ROOT/'plugins/rust_api/rust/Cargo.toml').read_text().split('[profile.release]',1)[1].split('[profile.dev]',1)[0]
+            (crate/'Cargo.toml').write_text('[package]\nname="fixture"\nversion="0.0.1"\nedition="2021"\n[lib]\ncrate-type=["cdylib"]\n[profile.release]\n'+profile)
+            (crate/'src/lib.rs').write_text('#[no_mangle]\npub extern "C" fn native_fixture(x:i32)->i32 {x+42}\n')
+            ndk=next((Path(os.environ['ANDROID_NDK'])/'toolchains/llvm/prebuilt').glob('*/bin'))
+            for target,clang,abi in [('aarch64-linux-android','aarch64-linux-android','arm64-v8a'),
+                                     ('armv7-linux-androideabi','armv7a-linux-androideabi','armeabi-v7a'),
+                                     ('x86_64-linux-android','x86_64-linux-android','x86_64')]:
+                with self.subTest(abi=abi):
+                    env={k:v for k,v in os.environ.items() if k not in ('RUSTFLAGS','CARGO_ENCODED_RUSTFLAGS')}
+                    env['CARGO_TARGET_'+target.replace('-','_').upper()+'_LINKER']=str(ndk/(clang+'35-clang'))
+                    command=['cargo','build','--release','--offline','--target',target]
+                    result=subprocess.run(command,cwd=crate,env=env,capture_output=True,text=True,timeout=120)
+                    self.assertEqual(result.returncode,0,result.stderr)
+                    binary=crate/f'target/{target}/release/libfixture.so'
+                    self.assertFalse(inspect_elf(binary)['build_id'], 'negative control must reproduce NDK default without Build ID')
+                    result=subprocess.run(command,cwd=crate,env={**env,**environments['android']},capture_output=True,text=True,timeout=120)
+                    self.assertEqual(result.returncode,0,result.stderr)
+                    original=inspect_elf(binary);self.assertTrue(original['build_id'])
+                    build=root/abi/'build';runtime=build/'runtime/librust_api.so';runtime.parent.mkdir(parents=True)
+                    shutil.copyfile(binary,runtime)
+                    subprocess.run([str(ndk/'llvm-objcopy'),'--strip-debug',str(runtime)],check=True)
+                    preparer=Preparer(build,'android',str(ndk/'llvm-objcopy'))
+                    preparer.add('librust_api.so',abi,runtime,[binary],'rust',True)
+                    debug=build/preparer.artifacts[0]['debug_file']
+                    self.assertEqual(inspect_elf(runtime)['build_id'],original['build_id'])
+                    self.assertEqual(inspect_elf(debug)['build_id'],original['build_id'])
+                    self.assertFalse(inspect_elf(debug)['has_executable_text'])
+
     def test_release_profile_retains_line_info_for_native_assets_and_matching_debug_only(self):
         with tempfile.TemporaryDirectory(prefix='rust-symbol-') as folder:
             root=Path(folder);crate=root/'crate';(crate/'src').mkdir(parents=True)

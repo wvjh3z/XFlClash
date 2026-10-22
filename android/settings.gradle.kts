@@ -27,3 +27,6 @@ include(":app")
 include(":core")
 include(":service")
 include(":common")
+
+// Locked tutorial plugin compatibility; private copy, shared Pub cache untouched.
+apply(from = file("../tool/gradle/android_plugin_compat.gradle"))

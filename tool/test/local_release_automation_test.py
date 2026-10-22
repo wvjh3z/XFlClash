@@ -705,7 +705,7 @@ class AndroidLocalTests(unittest.TestCase):
 
     def test_final_apk_checks_original_certificate_aot_and_fallback(self):
         apk = self.root / "test.apk"
-        fresh = self.root / "build/app/intermediates/flutter/brand_aRelease/jniLibs/arm64-v8a/libapp.so"
+        fresh = self.root / "build/app/intermediates/flutter/brand_aRelease/arm64-v8a/app.so"
         fresh.parent.mkdir(parents=True)
         fresh.write_bytes(minimal_aot())
         self.properties.write_text("storePassword=fake\nkeyAlias=fake\n")
@@ -721,6 +721,12 @@ class AndroidLocalTests(unittest.TestCase):
             report = android.verify_apk(self.root, apk, inputs, self.base, {})
         self.assertTrue(report["signatureVerified"])
         self.assertTrue(report["aotCodeMatchesFlutterOutput"])
+        legacy = self.root / "build/app/intermediates/flutter/brand_aRelease/jniLibs/arm64-v8a/libapp.so"
+        legacy.parent.mkdir(parents=True)
+        fresh.rename(legacy)
+        with mock.patch.object(android, "captured", side_effect=outputs), self.assertRaisesRegex(android.ReleaseError, 'compiler output is missing'):
+            android.verify_apk(self.root, apk, inputs, self.base, {})
+        legacy.rename(fresh)
         fresh.write_bytes(minimal_aot(text=b"wrong"))
         with mock.patch.object(android, "captured", side_effect=outputs), self.assertRaises(android.ReleaseError):
             android.verify_apk(self.root, apk, inputs, self.base, {})
@@ -758,7 +764,7 @@ elif name == 'flutter' and args == ['clean']:
     shutil.rmtree(root / 'build', ignore_errors=True)
 elif name == 'flutter' and args[:2] == ['build', 'apk']:
     data = bytes.fromhex(os.environ['FAKE_AOT_HEX'])
-    fresh = root / 'build/app/intermediates/flutter/brand_aRelease/jniLibs/arm64-v8a/libapp.so'
+    fresh = root / 'build/app/intermediates/flutter/brand_aRelease/arm64-v8a/app.so'
     fresh.parent.mkdir(parents=True)
     fresh.write_bytes(data)
     apk = root / 'build/app/outputs/flutter-apk/app-brand_a-release.apk'

@@ -1,0 +1,84 @@
+// AGP 9 compatibility for the locked tutorial plugin. No shared Pub cache edits.
+import java.nio.file.Files
+import java.nio.file.LinkOption
+import java.nio.file.StandardCopyOption
+import java.security.MessageDigest
+
+// The upstream root script sets every Java/Kotlin task to 17 after evaluation.
+// AGP must see the same value while it configures Android's system classpath.
+// In particular, legacy Java-8 plugins otherwise lose android.* under AGP 9.
+// XBOARD_ANDROID_JVM_DSL_BEGIN
+gradle.beforeProject { target ->
+    ['com.android.application', 'com.android.library'].each { pluginId ->
+        target.pluginManager.withPlugin(pluginId) {
+            target.extensions.getByName('androidComponents').finalizeDsl { android ->
+                android.compileOptions.sourceCompatibility = JavaVersion.VERSION_17
+                android.compileOptions.targetCompatibility = JavaVersion.VERSION_17
+            }
+        }
+    }
+}
+// XBOARD_ANDROID_JVM_DSL_END
+
+final pluginName = 'flutter_inappwebview_android'
+final descriptor = findProject(":${pluginName}")
+if (descriptor == null) {
+    throw new GradleException('Expected locked Android tutorial plugin is missing')
+}
+final source = descriptor.projectDir.toPath().toAbsolutePath().normalize()
+final script = source.resolve('build.gradle')
+final original = Files.readAllBytes(script)
+final checksum = MessageDigest.getInstance('SHA-256').digest(original).encodeHex().toString()
+if (checksum != '82b483da0a2885adb5b5a5601bdad16289a0a68631b596ffb1001b6016fc0690') {
+    throw new GradleException('Android tutorial plugin build input changed; review the pinned AGP compatibility patch')
+}
+final oldRule = "getDefaultProguardFile('proguard-android.txt')"
+final newRule = "getDefaultProguardFile('proguard-android-optimize.txt')"
+final text = new String(original, java.nio.charset.StandardCharsets.UTF_8)
+if (text.count(oldRule) != 2) {
+    throw new GradleException('Unexpected tutorial plugin ProGuard configuration')
+}
+final patched = text.replace(oldRule, newRule).getBytes(java.nio.charset.StandardCharsets.UTF_8)
+final destination = rootProject.projectDir.parentFile.toPath()
+    .resolve('.dart_tool/xboard/android-plugins/flutter_inappwebview_android-1.1.3/android')
+    .toAbsolutePath().normalize()
+// Refuse symlink traversal in the generated destination, including its parents.
+for (def parent = destination; parent != null; parent = parent.parent) {
+    if (Files.isSymbolicLink(parent)) throw new GradleException('Unsafe Android plugin staging directory')
+}
+Files.createDirectories(destination)
+final expected = new HashSet<String>()
+Files.walk(source).withCloseable { paths ->
+    paths.forEach { input ->
+        def relative = source.relativize(input)
+        if (relative.toString().isEmpty() || relative.getName(0).toString() in ['build', '.gradle']) return
+        if (Files.isSymbolicLink(input)) throw new GradleException('Unexpected symlink in Android tutorial plugin')
+        if (!Files.isRegularFile(input, LinkOption.NOFOLLOW_LINKS)) return
+        def output = destination.resolve(relative)
+        for (def parent = output; parent != destination; parent = parent.parent) {
+            if (Files.isSymbolicLink(parent)) throw new GradleException('Unsafe Android plugin staged input')
+        }
+        expected.add(relative.toString())
+        Files.createDirectories(output.parent)
+        def bytes = input == script ? patched : Files.readAllBytes(input)
+        if (!Files.isRegularFile(output) || !Arrays.equals(Files.readAllBytes(output), bytes)) {
+            def temporary = Files.createTempFile(output.parent, '.compat-', '.tmp')
+            try {
+                Files.write(temporary, bytes)
+                Files.move(temporary, output, StandardCopyOption.REPLACE_EXISTING)
+            } finally {
+                Files.deleteIfExists(temporary)
+            }
+        }
+    }
+}
+// Remove stale source files from our private overlay; leave generated Gradle dirs.
+Files.walk(destination).withCloseable { paths ->
+    paths.forEach { path ->
+        def relative = destination.relativize(path)
+        if (relative.toString().isEmpty() || relative.getName(0).toString() in ['build', '.gradle']) return
+        if (Files.isSymbolicLink(path)) throw new GradleException('Unsafe Android plugin staged input')
+        if (Files.isRegularFile(path) && !expected.contains(relative.toString())) Files.delete(path)
+    }
+}
+descriptor.projectDir = destination.toFile()

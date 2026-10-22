@@ -8,6 +8,12 @@ import 'dart:io';
 import 'package:code_assets/code_assets.dart';
 import 'package:flutter_rust_bridge_hooks/flutter_rust_bridge_hooks.dart';
 
+/// Link-time identifiers must survive AGP stripping and match private DWARF.
+Map<String, String> xboardRustSymbolEnvironment(OS target) => {
+  if (target == OS.android) 'RUSTFLAGS': '-Clink-arg=-Wl,--build-id=sha1',
+  if (target == OS.macOS) 'CARGO_PROFILE_RELEASE_SPLIT_DEBUGINFO': 'packed',
+};
+
 Future<bool> _sameFile(File left, File right) async {
   final a = await left.open();
   RandomAccessFile? b;

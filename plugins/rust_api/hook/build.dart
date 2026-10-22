@@ -15,9 +15,8 @@ void main(List<String> args) async {
       cratePath: 'rust',
       extraCargoEnvironmentVariables: {
         ..._bindgenEnvironment(input),
-        if (input.config.buildCodeAssets &&
-            input.config.code.targetOS == OS.macOS)
-          'CARGO_PROFILE_RELEASE_SPLIT_DEBUGINFO': 'packed',
+        if (input.config.buildCodeAssets)
+          ...xboardRustSymbolEnvironment(input.config.code.targetOS),
       },
     ).run(input: input, output: output);
     await captureXboardNativeSymbols(input, output);

@@ -406,7 +406,12 @@ def verify_apk(root: Path, apk: Path, inputs: dict, tools: Path, environment: di
         raise ReleaseError("APK certificate does not match the selected original brand keystore")
     captured([str(tools / "zipalign"), "-c", "-P", "16", "4", str(apk)], environment)
     abi, _, _, machine = ARCHES[inputs["arch"]]
-    fresh = root / f"build/app/intermediates/flutter/{inputs['flavor']}Release/jniLibs/{abi}/libapp.so"
+    # Flutter 3.47's CopyFlutterJniLibsTask stages this app.so through AGP's
+    # generated source directory. Compare with the compiler output directly;
+    # the former intermediates/.../jniLibs/libapp.so may be absent or stale.
+    fresh = root / f"build/app/intermediates/flutter/{inputs['flavor']}Release/{abi}/app.so"
+    if not fresh.is_file():
+        raise ReleaseError("This build's Flutter AOT compiler output is missing")
     with zipfile.ZipFile(apk) as archive:
         names = archive.namelist()
         packaged_abis = {name.split("/")[1] for name in names if name.startswith("lib/") and name.endswith(".so")}

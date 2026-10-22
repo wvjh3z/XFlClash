@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Real prepare_flavor CLI -> Gradle Kotlin DSL identity regression.
 
-Runs only an isolated Gradle check task, without AGP or Android compilation.
+Runs isolated Gradle identity checks and actual AGP resource generation;
+does not compile Flutter, native code or an APK.
 Needs prepared Dart packages and Java 17. Prepares checksum-pinned Gradle matching the tracked wrapper
 in a private fixture; public inputs only, never reads real flavor secrets.
 """
@@ -14,6 +15,8 @@ import shutil
 import sys
 import tempfile
 import unittest
+import xml.etree.ElementTree as ET
+from urllib.parse import urljoin, urlparse, unquote
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'tool'))
@@ -61,6 +64,142 @@ def check_gradle_identity(project, root):
 
 
 class AndroidIdentityGradleTests(unittest.TestCase):
+    def test_java8_plugin_with_upstream_java17_tasks_needs_early_dsl(self):
+        settings = (ROOT / 'android/settings.gradle.kts').read_text()
+        agp = re.search(r'id\("com.android.application"\) version "([^"]+)"', settings)[1]
+        helper = (ROOT / 'tool/gradle/android_plugin_compat.gradle').read_text()
+        early = helper.split('// XBOARD_ANDROID_JVM_DSL_BEGIN\n')[1].split('// XBOARD_ANDROID_JVM_DSL_END')[0]
+        with tempfile.TemporaryDirectory(prefix='android-jvm-dsl-') as temporary:
+            root = Path(temporary)
+            gradle = prepare(root / 'verified-gradle')
+            project = root / 'project'; project.mkdir()
+            base_settings = ('pluginManagement { repositories { google(); mavenCentral(); gradlePluginPortal() } }\n'
+                             'rootProject.name = "java8-plugin"\n')
+            (project / 'settings.gradle').write_text(base_settings)
+            (project / 'early.gradle').write_text(early)
+            (project / 'gradle.properties').write_text('android.builtInKotlin=false\nandroid.newDsl=false\n')
+            (project / 'build.gradle').write_text(f'''plugins {{ id 'com.android.library' version '{agp}' }}
+android {{
+ namespace 'com.example.java8'
+ compileSdk 36
+ defaultConfig {{ minSdk 24 }}
+ compileOptions {{ sourceCompatibility JavaVersion.VERSION_1_8; targetCompatibility JavaVersion.VERSION_1_8 }}
+}}
+gradle.projectsEvaluated {{
+ tasks.withType(JavaCompile).configureEach {{ sourceCompatibility = '17'; targetCompatibility = '17' }}
+}}
+''')
+            java = project / 'src/main/java/com/example/java8/Probe.java'
+            java.parent.mkdir(parents=True)
+            java.write_text('package com.example.java8; public class Probe { public void log() { android.util.Log.i("test", "ok"); } }')
+            command = [gradle, '--no-daemon', '--console=plain', '-p', project, 'compileReleaseJavaWithJavac']
+            with self.assertRaisesRegex(AssertionError, 'package android.util does not exist'):
+                run(command, project, timeout=300)
+            (project / 'settings.gradle').write_text(base_settings + 'apply from: "early.gradle"\n')
+            run(command, project, timeout=180)
+            classes = list((project / 'build').rglob('Probe.class'))
+            self.assertEqual(len(classes), 1)
+            self.assertEqual(int.from_bytes(classes[0].read_bytes()[6:8], 'big'), 61)
+
+    def test_locked_tutorial_plugin_overlay_with_actual_agp(self):
+        config = ROOT / '.dart_tool/package_config.json'
+        package = next(p for p in json.loads(config.read_text())['packages']
+                       if p['name'] == 'flutter_inappwebview_android')
+        uri = urljoin(config.as_uri(), package['rootUri'])
+        self.assertEqual(urlparse(uri).scheme, 'file')
+        plugin = Path(unquote(urlparse(uri).path)) / 'android'
+        source_hash = hashlib.sha256((plugin / 'build.gradle').read_bytes()).hexdigest()
+        source = (ROOT / 'android/settings.gradle.kts').read_text()
+        agp = re.search(r'id\("com.android.application"\) version "([^"]+)"', source)[1]
+        with tempfile.TemporaryDirectory(prefix='android-webview-') as temporary:
+            root = Path(temporary)
+            gradle = prepare(root / 'verified-gradle')
+            project = root / 'android'; project.mkdir()
+            original = root / 'public-plugin'
+            shutil.copytree(plugin, original, ignore=shutil.ignore_patterns('build', '.gradle'))
+            helper = root / 'tool/gradle/android_plugin_compat.gradle'
+            helper.parent.mkdir(parents=True)
+            shutil.copyfile(ROOT / 'tool/gradle/android_plugin_compat.gradle', helper)
+            settings = '''pluginManagement { repositories { google(); mavenCentral(); gradlePluginPortal() } }
+rootProject.name = "tutorial-agp-regression"
+include(":flutter_inappwebview_android")
+project(":flutter_inappwebview_android").projectDir = file("../public-plugin")
+'''
+            entry = 'apply(from = file("../tool/gradle/android_plugin_compat.gradle"))\n'
+            self.assertIn(entry.strip(), source)
+            (project / 'settings.gradle.kts').write_text(settings + entry)
+            (project / 'build.gradle.kts').write_text(
+                f'plugins {{ id("com.android.library") version "{agp}" apply false }}\n')
+            (project / 'gradle.properties').write_text('android.builtInKotlin=false\nandroid.newDsl=false\n')
+            command = [gradle, '--no-daemon', '--console=plain', '-p', project, 'help']
+            run(command, project, timeout=300)
+            staged = root / '.dart_tool/xboard/android-plugins/flutter_inappwebview_android-1.1.3/android'
+            self.assertEqual((staged / 'build.gradle').read_text().count("getDefaultProguardFile('proguard-android-optimize.txt')"), 2)
+            timestamp = (staged / 'build.gradle').stat().st_mtime_ns
+            (staged / 'proguard-rules.pro').unlink()
+            (staged / 'stale.txt').write_text('stale')
+            run(command, project, timeout=180)
+            self.assertEqual((staged / 'build.gradle').stat().st_mtime_ns, timestamp)
+            self.assertEqual((staged / 'proguard-rules.pro').read_bytes(), (original / 'proguard-rules.pro').read_bytes())
+            self.assertFalse((staged / 'stale.txt').exists())
+            self.assertEqual(hashlib.sha256((original / 'build.gradle').read_bytes()).hexdigest(), source_hash)
+            self.assertEqual(hashlib.sha256((plugin / 'build.gradle').read_bytes()).hexdigest(), source_hash)
+            (project / 'settings.gradle.kts').write_text(settings)
+            with self.assertRaisesRegex(AssertionError, 'proguard-android.txt.*no longer supported'):
+                run(command, project, timeout=180)
+            (project / 'settings.gradle.kts').write_text(settings + entry)
+            with (original / 'build.gradle').open('a') as stream:
+                stream.write('\n// changed upstream input\n')
+            with self.assertRaisesRegex(AssertionError, 'plugin build input changed'):
+                run(command, project, timeout=180)
+
+    def test_actual_agp_generates_both_brand_names_and_rejects_disabled_feature(self):
+        source = (ROOT / 'android/app/build.gradle.kts').read_text(encoding='utf-8')
+        features = block(source, 'buildFeatures')
+        flavors = block(source, 'productFlavors')
+        settings = (ROOT / 'android/settings.gradle.kts').read_text(encoding='utf-8')
+        agp = re.search(r'id\("com.android.application"\) version "([^"]+)"', settings)[1]
+        versions = (ROOT / 'android/gradle/libs.versions.toml').read_text(encoding='utf-8')
+        sdk = re.search(r'compileSdk = "(\d+)"', versions)[1]
+        with tempfile.TemporaryDirectory(prefix='android-resvalues-') as temporary:
+            root = Path(temporary)
+            gradle = prepare(root / 'verified-gradle')
+            project = root / 'project'; project.mkdir()
+            (project / 'settings.gradle.kts').write_text(
+                'pluginManagement { repositories { google(); mavenCentral(); gradlePluginPortal() } }\n'
+                'dependencyResolutionManagement { repositories { google(); mavenCentral() } }\n'
+                'rootProject.name = "brand-resource-regression"\n', encoding='utf-8')
+            (project / 'gradle.properties').write_text(
+                'android.builtInKotlin=false\nandroid.newDsl=false\n', encoding='utf-8')
+            script = f'''plugins {{ id("com.android.application") version "{agp}" }}
+fun androidBrandIdentity(flavor: String): Map<String, String> = mapOf(
+    "appName" to if (flavor == "brand_a") "OmoFly" else "袋鼠加速",
+    "appId" to "com.example.$flavor")
+android {{
+    namespace = "com.example.regression"
+    compileSdk = {sdk}
+    defaultConfig {{ minSdk = 24 }}
+    {features}
+    flavorDimensions += "brand"
+    {flavors}
+}}
+'''
+            build = project / 'build.gradle.kts'
+            build.write_text(script, encoding='utf-8')
+            command = [gradle, '--no-daemon', '--console=plain', '-p', project,
+                       'generateBrand_aReleaseResValues', 'generateBrand_bReleaseResValues']
+            run(command, project, timeout=300)
+            for brand, name in [('brand_a', 'OmoFly'), ('brand_b', '袋鼠加速')]:
+                files = list((project / 'build/generated/res/resValues' / (brand + '/release')).rglob('*.xml'))
+                self.assertEqual(len(files), 1)
+                values = {e.attrib.get('name'): e.text for e in ET.parse(files[0]).getroot()}
+                self.assertEqual(values['app_name'], name)
+            # Run the real AGP failure rather than simulating its default.
+            for broken in (features.replace('true', 'false'), ''):
+                build.write_text(script.replace(features, broken), encoding='utf-8')
+                with self.assertRaisesRegex(AssertionError, 'custom resource values, but the feature is disabled'):
+                    run(command, project, timeout=180)
+
     def test_real_prepare_cli_and_actual_gradle_identity_and_flavor_dsl(self):
         with tempfile.TemporaryDirectory(prefix='android-brand-') as temporary:
             root = Path(temporary)

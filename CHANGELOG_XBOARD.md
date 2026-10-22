@@ -12,7 +12,7 @@
 ## [Unreleased]
 
 > 开发中累积（尚无正式 release）；首个真实用户 release 时切走为 `## [x.y.z] — YYYY-MM-DD`。
-> 升级目标：**FlClash v0.9.1**（upstream `8d4f974`），正式发行代码与预检已迁移，真实各平台成品仍待验收。
+> 升级目标：**FlClash v0.9.1**（upstream `8d4f974`），正式发行代码与预检已迁移，品牌A Android ARM64构建26已完成本地出包与符号上传，设备及其他平台仍待验收。
 > 注：早期按形态 B（v0.1）规划，实际已演进到**形态 A 商业 UI**（唯一 UI）+ v0.2 加密订阅 / Crisp + v0.3 自更新，均累积于此 [Unreleased]。下方历史批次编号用于追溯，发布完成度和设备验证以 [STATUS](https://github.com/wvjh3z/proxy-suite-docs/blob/main/STATUS.md) 为准。
 
 > 当前维护决策：D03 订阅孤儿/重复索引暂缓；D06 校验空值行为跟随上游、暂不修复；D04 续费后账号和节点恢复已获用户实测正常，隔离状态边界与设备行为的差异仍待查。本记录不将这些事项列为已修复。
@@ -26,6 +26,8 @@
 - 本地Linux品牌A原生业务冒烟与非golden业务回归通过；品牌B独立原生验收按用户决定跳过。平台发行、Native Assets符号采集、真实设备升级仍在进行，未发布新安装包。
 
 ### Fixed
+- 修复升级后的Android打包：显式开启两品牌resValues，用受摘要校验的项目副本兼容教程插件AGP 9配置，并在DSL收尾前统一Java 17以保留Android系统类路径。
+- 修复Flutter 3.47的AOT成品校验路径，并为Android Rust桥接库生成Build ID；补齐真实AGP、三ABI NDK和发布失败保护回归。品牌A构建26原签名/fallback/AOT核验通过，7份必需符号已获Sentry服务端确认。
 - 补齐Go符号的外层文件依赖与内容校验，修复增量恢复；相同Rust符号捕获保留时间戳。Windows坏交接清单统一生成失败报告，本机桌面统一python3，CI入口改用命令语义回归。
 - 两品牌共用的品牌主题保留 FlClash/Material 平台字体继承；首页速度、套餐价格与 Emoji 混排补齐默认文字样式，按钮/弹窗沿完整主题派生。移动速度在窄屏放大文字时完整缩放显示，不新增字体资源或底座接缝；用户 Windows 换字体后的缺字反馈仍待同机验收。
 - 修复干净Runner缺Gradle wrapper导致Android品牌预检失败，以及macOS旧Bash空数组展开错误；固定Gradle工具校验与冷缓存回归。Sentry收尾增加准确阶段诊断、有限处理等待和逐项服务端符号确认，保持真实失败阻断发布。
