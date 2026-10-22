@@ -4,7 +4,6 @@
 /// 提交订单成功 → 跳 [OrderPaymentPage]（选支付方式 + 立即支付）。
 library;
 
-import 'package:fl_clash/widgets/widgets.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_html/flutter_html.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -354,7 +353,7 @@ class _PlanDetailPageState extends ConsumerState<PlanDetailPage> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  EmojiText('${plan.name} · ${plan.transferEnableGb} GB',
+                  XbEmojiText('${plan.name} · ${plan.transferEnableGb} GB',
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
@@ -379,7 +378,7 @@ class _PlanDetailPageState extends ConsumerState<PlanDetailPage> {
           Row(
             children: [
               Expanded(
-                child: EmojiText(plan.name,
+                child: XbEmojiText(plan.name,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(

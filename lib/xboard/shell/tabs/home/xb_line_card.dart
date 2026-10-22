@@ -8,10 +8,10 @@
 /// （当前选中节点 + 分组）读取，不直接碰 FlClash provider。
 library;
 
+import 'package:fl_clash/xboard/widgets/xb_emoji_text.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import 'package:fl_clash/widgets/widgets.dart';
 import 'package:fl_clash/xboard/widgets/xb_theme.dart' show XbTokens;
 import '../../adapters/xb_nodes_adapter.dart';
 
@@ -90,7 +90,7 @@ class XbLineCard extends ConsumerWidget {
                     width: 40,
                     height: 40,
                     child: Center(
-                      child: EmojiText(flag, style: const TextStyle(fontSize: 24)),
+                      child: XbEmojiText(flag, style: const TextStyle(fontSize: 24)),
                     ),
                   )
                 : Container(
@@ -154,7 +154,7 @@ class XbLineCard extends ConsumerWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              EmojiText(
+              XbEmojiText(
                 title,
                 style: TextStyle(
                   fontSize: 15,

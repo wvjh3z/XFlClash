@@ -3,6 +3,7 @@
 /// **数据源**：反腐层 `getPlans()`。卡片只显示概要；周期选择 / 优惠码 / 提交在 [PlanDetailPage]。
 library;
 
+import 'package:fl_clash/xboard/widgets/xb_emoji_text.dart';
 import 'package:fl_clash/widgets/widgets.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -208,7 +209,7 @@ class _PlanOptCard extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  EmojiText(plan.name,
+                  XbEmojiText(plan.name,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
@@ -219,7 +220,7 @@ class _PlanOptCard extends StatelessWidget {
                   for (final f in features)
                     Padding(
                       padding: const EdgeInsets.only(bottom: 2),
-                      child: EmojiText(f,
+                      child: XbEmojiText(f,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
@@ -233,7 +234,9 @@ class _PlanOptCard extends StatelessWidget {
               // 价格（原型 .pr）：品牌色大字 + 周期单位小字（底部对齐，无「起」）。
               RichText(
                 textAlign: TextAlign.right,
+                textScaler: MediaQuery.textScalerOf(context),
                 text: TextSpan(
+                  style: DefaultTextStyle.of(context).style,
                   children: [
                     TextSpan(
                       text: xbYuan(min.amountYuan),

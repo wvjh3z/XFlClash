@@ -3,6 +3,7 @@
 /// **数据源**：反腐层 `getOrders()` / `getOrder()`。永不抛（XbResult）。
 library;
 
+import 'package:fl_clash/xboard/widgets/xb_emoji_text.dart';
 import 'package:fl_clash/widgets/widgets.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -205,7 +206,7 @@ class _OrderTile extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    EmojiText(
+                    XbEmojiText(
                       order.planName ?? '套餐订单',
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,

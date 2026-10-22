@@ -196,11 +196,12 @@ ThemeData buildXbTheme({required Color brandColor, required Brightness brightnes
         borderSide: w == 0 ? BorderSide.none : BorderSide(color: c, width: w),
       );
 
-  // 集中排版（原型字号/字重映射 M3 TextTheme）：页面/组件用 textTheme.* 取，不再手写魔法字号。
+  // 保留 FlClash/Material 的平台字体与排版属性，只叠加品牌字号/字重/颜色。
+  // TextTheme.copyWith 会整项替换，导致新 TextStyle 丢失默认 fontFamily。
   final textTheme = base.textTheme.apply(
     bodyColor: t.on,
     displayColor: t.on,
-  ).copyWith(
+  ).merge(TextTheme(
     // 大标题（原型 .abar .t / .backbar .t）：字号 20（24→20 更克制），字重 w700。
     headlineSmall: TextStyle(
         fontSize: 20, fontWeight: FontWeight.w700, letterSpacing: -0.4, color: t.on),
@@ -212,7 +213,7 @@ ThemeData buildXbTheme({required Color brandColor, required Brightness brightnes
     bodySmall: TextStyle(fontSize: 12.5, color: t.onv),
     labelLarge: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: t.on),
     labelMedium: TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: t.onv),
-  );
+  ));
 
   return base.copyWith(
     scaffoldBackgroundColor: t.sf,
@@ -228,7 +229,7 @@ ThemeData buildXbTheme({required Color brandColor, required Brightness brightnes
         // 不用 Size.fromHeight 以免最小宽=∞ 在无界 Row 里崩）。
         minimumSize: const Size(0, XbTokens.hButton),
         shape: rrect(XbTokens.rButton),
-        textStyle: const TextStyle(fontSize: 15.5, fontWeight: FontWeight.w600),
+        textStyle: textTheme.labelLarge?.copyWith(fontSize: 15.5),
         elevation: 0,
       ),
     ),
@@ -240,14 +241,14 @@ ThemeData buildXbTheme({required Color brandColor, required Brightness brightnes
         minimumSize: const Size(0, XbTokens.hButton),
         side: BorderSide(color: brandColor.withValues(alpha: 0.40), width: 1.6),
         shape: rrect(XbTokens.rButton),
-        textStyle: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
+        textStyle: textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w700),
       ),
     ),
     // 链接/文字按钮（.alt b）：品牌色，w700 同理（小号红字需粗体满足对比）。
     textButtonTheme: TextButtonThemeData(
       style: TextButton.styleFrom(
         foregroundColor: brandColor,
-        textStyle: const TextStyle(fontWeight: FontWeight.w700),
+        textStyle: textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w700),
       ),
     ),
     // 卡片（.card）：白底 + 圆角24 + sd1 阴影（用 surfaceTint 关掉 M3 染色）。
@@ -295,8 +296,7 @@ ThemeData buildXbTheme({required Color brandColor, required Brightness brightnes
       elevation: 0,
       scrolledUnderElevation: 0,
       centerTitle: false,
-      titleTextStyle: TextStyle(
-          color: t.on, fontSize: 20, fontWeight: FontWeight.w700, letterSpacing: -0.4),
+      titleTextStyle: textTheme.titleLarge,
     ),
     // 对话框（.dialog）：白面 + 圆角 + 不叠色。
     dialogTheme: DialogThemeData(
@@ -304,9 +304,8 @@ ThemeData buildXbTheme({required Color brandColor, required Brightness brightnes
       surfaceTintColor: Colors.transparent,
       elevation: 0,
       shape: rrect(20),
-      titleTextStyle: TextStyle(
-          color: t.on, fontSize: 18, fontWeight: FontWeight.w700),
-      contentTextStyle: TextStyle(color: t.onv, fontSize: 14, height: 1.5),
+      titleTextStyle: textTheme.headlineSmall?.copyWith(fontSize: 18, letterSpacing: 0),
+      contentTextStyle: textTheme.bodyMedium?.copyWith(color: t.onv, height: 1.5),
     ),
     dividerTheme: DividerThemeData(color: t.hair, thickness: 1, space: 1),
     progressIndicatorTheme: ProgressIndicatorThemeData(
@@ -317,7 +316,7 @@ ThemeData buildXbTheme({required Color brandColor, required Brightness brightnes
     listTileTheme: ListTileThemeData(
       iconColor: t.onv,
       textColor: t.on,
-      titleTextStyle: TextStyle(color: t.on, fontSize: 15),
+      titleTextStyle: textTheme.bodyLarge?.copyWith(color: t.on, fontSize: 15),
     ),
     chipTheme: base.chipTheme.copyWith(
       backgroundColor: t.sfc,

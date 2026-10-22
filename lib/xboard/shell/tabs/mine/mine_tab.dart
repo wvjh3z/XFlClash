@@ -10,6 +10,7 @@ library;
 
 import 'dart:async';
 
+import 'package:fl_clash/xboard/widgets/xb_emoji_text.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -500,7 +501,7 @@ class _AccountCardState extends State<_AccountCard>
             children: [
               Flexible(
                 flex: 0,
-                child: EmojiText(
+                child: XbEmojiText(
                   sub.planName ?? '未订阅套餐',
                   style: TextStyle(
                     fontSize: large ? 17 : 15,

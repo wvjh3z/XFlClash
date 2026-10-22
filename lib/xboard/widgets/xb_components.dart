@@ -11,7 +11,6 @@ library;
 
 import 'dart:math' as math;
 
-import 'package:fl_clash/widgets/widgets.dart' show EmojiText;
 import 'package:flutter/material.dart';
 
 import '../shell/widgets/xb_responsive.dart' show xbIsDesktopWidth;
@@ -771,7 +770,7 @@ class XbInfoCard extends StatelessWidget {
           Expanded(
             child: Padding(
               padding: const EdgeInsets.only(top: 1),
-              child: EmojiText(text,
+              child: XbEmojiText(text,
                   style: TextStyle(fontSize: 13, height: 1.55, color: t.on)),
             ),
           ),
@@ -1485,7 +1484,7 @@ class _XbInfoItemCard extends StatelessWidget {
 /// 那些过长时应保留 `ellipsis`（scaleDown 会把它们缩成蚂蚁字）。判断法：内容会不会长到「缩到
 /// 看不清也放不下」？会 → 用 ellipsis；不会（最多稍超一点）→ 用本组件。
 ///
-/// emoji 走 [EmojiText] 同源渲染（Twemoji 仅套 emoji，不吃数字，见 `html_text.dart`）。
+/// emoji 走 [XbEmojiText] 同源渲染（Twemoji 仅套 emoji，不吃数字，见 `html_text.dart`）。
 class XbFitText extends StatelessWidget {
   /// 纯文本（emoji-aware）。
   const XbFitText(

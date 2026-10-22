@@ -13,6 +13,7 @@ library;
 
 import 'dart:async';
 
+import 'package:fl_clash/xboard/widgets/xb_emoji_text.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart' show RenderAbstractViewport;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -456,7 +457,7 @@ class _NodeRow extends ConsumerWidget {
                   children: [
                     // 节点名占据剩余空间（Expanded，单独 ellipsis），右侧依次「自动」/延迟/勾。
                     Expanded(
-                      child: EmojiText(
+                      child: XbEmojiText(
                         node.name,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,

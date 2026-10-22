@@ -12,6 +12,7 @@
 /// **适配层铁律**：纯 UI + xboard 自有 provider，不 import `lib/views/**` / FlClash internal provider。
 library;
 
+import 'package:fl_clash/xboard/widgets/xb_emoji_text.dart';
 import 'package:fl_clash/widgets/widgets.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -284,7 +285,7 @@ class _AccountChipBody extends StatelessWidget {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  EmojiText(
+                  XbEmojiText(
                     title,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,

@@ -6,6 +6,7 @@
 /// **适配层铁律**：全部内核交互经 adapters；游客态读形态 B `authStateProvider`（◇）。
 library;
 
+import 'package:fl_clash/xboard/widgets/xb_emoji_text.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -18,7 +19,6 @@ import 'package:fl_clash/xboard/widgets/xb_theme.dart' show XbTokens;
 import 'package:fl_clash/xboard/widgets/xb_announcement.dart';
 import 'package:fl_clash/xboard/widgets/xb_ui_kit.dart' show XbIconBadge;
 import 'package:fl_clash/xboard/widgets/xb_update_dialog.dart';
-import 'package:fl_clash/widgets/widgets.dart' show EmojiText;
 
 import '../../adapters/xb_mode_adapter.dart';
 import '../../adapters/xb_nodes_adapter.dart';
@@ -384,7 +384,7 @@ class _HomeUpdatePill extends StatelessWidget {
             border: Border.all(color: const Color(0x382E8B57), width: 1),
             borderRadius: BorderRadius.circular(20),
           ),
-          child: EmojiText(
+          child: XbEmojiText(
             '🎉 有新版本啦',
             style: TextStyle(
               fontSize: large ? 13 : 11,
@@ -677,9 +677,10 @@ class _SpeedTile extends StatelessWidget {
           ),
           const SizedBox(height: 9),
           RichText(
+            textScaler: MediaQuery.textScalerOf(context),
             text: TextSpan(
               text: value,
-              style: TextStyle(
+              style: DefaultTextStyle.of(context).style.copyWith(
                 fontSize: 20,
                 fontWeight: FontWeight.w700,
                 color: scheme.onSurface,

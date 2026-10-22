@@ -38,6 +38,7 @@ Future<ProviderContainer> pumpDesktopHome(
   WidgetTester tester, {
   required AuthState auth,
   int? rawLatency,
+  double scale = 1,
 }) async {
   // 桌面宽窗视口（1280×800）。
   await tester.binding.setSurfaceSize(const Size(1280, 800));
@@ -85,7 +86,13 @@ Future<ProviderContainer> pumpDesktopHome(
   await tester.pumpWidget(
     UncontrolledProviderScope(
       container: container,
-      child: const MaterialApp(home: Scaffold(body: HomeTab())),
+      child: MaterialApp(home: Scaffold(body: MediaQuery(
+        data: MediaQueryData(textScaler: TextScaler.linear(scale)),
+        child: const DefaultTextStyle(
+          style: TextStyle(fontFamily: 'FixtureBody', fontSize: 14),
+          child: HomeTab(),
+        ),
+      ))),
     ),
   );
   await tester.pump();
@@ -93,6 +100,13 @@ Future<ProviderContainer> pumpDesktopHome(
 }
 
 void main() {
+  testWidgets('desktop speed and latency inherit surrounding font and scale', (tester) async {
+    await pumpDesktopHome(tester, auth: AuthState.authenticated, rawLatency: 121, scale: 1.4);
+    final value = tester.widget<RichText>(find.text('60 ms', findRichText: true));
+    expect(value.text.style!.fontFamily, 'FixtureBody');
+    expect(value.textScaler.scale(10), 14);
+    expect(tester.takeException(), isNull);
+  });
   testWidgets('桌面已登录：左栏连接球/速率 + 右栏线路/模式/出口，左右分栏', (tester) async {
     final container = await pumpDesktopHome(
       tester,

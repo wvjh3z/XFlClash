@@ -15,6 +15,7 @@ Future<void> pumpCard(
   required num up,
   required num down,
   int? latencyMs,
+  double scale = 1,
 }) async {
   final container = ProviderContainer(
     overrides: [
@@ -28,7 +29,13 @@ Future<void> pumpCard(
     UncontrolledProviderScope(
       container: container,
       child: MaterialApp(
-        home: Scaffold(body: XbSpeedCard(latencyMs: latencyMs)),
+        home: Scaffold(body: MediaQuery(
+          data: MediaQueryData(textScaler: TextScaler.linear(scale)),
+          child: DefaultTextStyle(
+            style: const TextStyle(fontFamily: 'FixtureBody', fontSize: 14),
+            child: XbSpeedCard(latencyMs: latencyMs),
+          ),
+        )),
       ),
     ),
   );
@@ -79,5 +86,25 @@ void main() {
       root.style?.fontFeatures,
       contains(const FontFeature.tabularFigures()),
     );
+  });
+
+  testWidgets('speed and latency inherit text family and accessibility scale', (tester) async {
+    await pumpCard(tester, down: 1000000, up: 500000, latencyMs: 38, scale: 1.4);
+    for (final value in ['8.0 Mbps', '4.0 Mbps', '19 ms']) {
+      final rich = tester.widget<RichText>(find.text(value, findRichText: true));
+      expect(rich.text.style!.fontFamily, 'FixtureBody');
+      expect(rich.textScaler.scale(10), 14);
+    }
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('narrow mobile metrics keep complete numbers at large text scale', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(360, 800));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await pumpCard(tester, down: 100000000, up: 50000000, latencyMs: 1998, scale: 1.4);
+    expect(find.text('800 Mbps', findRichText: true), findsOneWidget);
+    expect(find.text('400 Mbps', findRichText: true), findsOneWidget);
+    expect(find.text('999 ms', findRichText: true), findsOneWidget);
+    expect(tester.takeException(), isNull);
   });
 }

@@ -121,28 +121,37 @@ class _Metric extends StatelessWidget {
           Icon(icon, size: 15, color: iconColor),
           const SizedBox(width: 6),
           // 数值（单位内联，小一号灰色）；等宽数字（R8.4）。
-          RichText(
-            text: TextSpan(
-              text: value,
-              style: TextStyle(
-                fontSize: 15,
-                fontWeight: FontWeight.w600,
-                // 上传不标绿（R2.7）：数值统一 onSurface。
-                color: scheme.onSurface,
-                fontFeatures: const [FontFeature.tabularFigures()],
+          Flexible(
+            // 系统放大字体时短数值整体缩入剩余空间，不截断数字或单位。
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              child: RichText(
+                textScaler: MediaQuery.textScalerOf(context),
+                maxLines: 1,
+                softWrap: false,
+                text: TextSpan(
+                  text: value,
+                  style: DefaultTextStyle.of(context).style.copyWith(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w600,
+                    // 上传不标绿（R2.7）：数值统一 onSurface。
+                    color: scheme.onSurface,
+                    fontFeatures: const [FontFeature.tabularFigures()],
+                  ),
+                  children: unit.isEmpty
+                      ? null
+                      : [
+                          TextSpan(
+                            text: ' $unit',
+                            style: TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.w500,
+                              color: scheme.onSurfaceVariant,
+                            ),
+                          ),
+                        ],
+                ),
               ),
-              children: unit.isEmpty
-                  ? null
-                  : [
-                      TextSpan(
-                        text: ' $unit',
-                        style: TextStyle(
-                          fontSize: 10,
-                          fontWeight: FontWeight.w500,
-                          color: scheme.onSurfaceVariant,
-                        ),
-                      ),
-                    ],
             ),
           ),
         ],

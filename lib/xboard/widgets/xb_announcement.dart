@@ -6,7 +6,7 @@
 ///   与套餐/教程同一条渲染管线（markdown 由后端/编辑器侧统一存 HTML，客户端只渲 HTML）。
 library;
 
-import 'package:fl_clash/widgets/widgets.dart' show EmojiText;
+import 'package:fl_clash/xboard/widgets/xb_emoji_text.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_html/flutter_html.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -136,7 +136,7 @@ class _NoticeItem extends ConsumerWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Expanded(
-                child: EmojiText(notice.title,
+                child: XbEmojiText(notice.title,
                     style: TextStyle(
                         fontSize: 15,
                         fontWeight: FontWeight.w700,

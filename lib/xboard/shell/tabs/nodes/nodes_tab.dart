@@ -7,6 +7,7 @@
 /// 内核数据（延迟/选中/选择/测速）经 [XbNodesAdapter] 收口（适配层铁律），不直接碰 `lib/views/**`。
 library;
 
+import 'package:fl_clash/xboard/widgets/xb_emoji_text.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -524,7 +525,7 @@ class _GroupTabBar extends StatelessWidget {
             ? Row(
                 children: [
                   Expanded(
-                    child: EmojiText(
+                    child: XbEmojiText(
                       g.name,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
@@ -539,7 +540,7 @@ class _GroupTabBar extends StatelessWidget {
                   _CountBadge(count: g.nodes.length, selected: on),
                 ],
               )
-            : EmojiText(
+            : XbEmojiText(
                 g.name,
                 style: TextStyle(
                   fontSize: 13.5,

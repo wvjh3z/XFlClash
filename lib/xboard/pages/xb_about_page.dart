@@ -4,6 +4,7 @@
 /// 从「我的」Tab「关于」行 push 进入。
 library;
 
+import 'package:fl_clash/xboard/widgets/xb_emoji_text.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -18,7 +19,6 @@ import 'package:fl_clash/xboard/widgets/xb_feedback.dart' show xbBrandColor;
 import 'package:fl_clash/xboard/widgets/xb_theme.dart' show xbPush;
 import 'package:fl_clash/xboard/widgets/xb_ui_kit.dart' show XbBrandScaffold;
 import 'package:fl_clash/xboard/widgets/xb_update_dialog.dart';
-import 'package:fl_clash/widgets/widgets.dart' show EmojiText;
 import 'legal_pages.dart';
 
 /// 自定义关于页。
@@ -168,7 +168,7 @@ class _AboutBodyState extends ConsumerState<_AboutBody> {
                   border: Border.all(color: const Color(0x4D2E8B57)),
                   borderRadius: BorderRadius.circular(20),
                 ),
-                child: const EmojiText(
+                child: const XbEmojiText(
                   '🎉 有新版本啦',
                   style: TextStyle(
                     fontSize: 12,

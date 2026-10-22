@@ -5,7 +5,7 @@
 /// 标签格式「出口 IP (国家)」。点右侧刷新重新检测。
 library;
 
-import 'package:fl_clash/widgets/widgets.dart';
+import 'package:fl_clash/xboard/widgets/xb_emoji_text.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -52,7 +52,7 @@ class XbIpCard extends ConsumerWidget {
                   alignment: Alignment.center,
                   // 不给背景方框上色（用户决策）：白色国旗在浅色填充上会糊；去掉填充与边框后
                   // 国旗 emoji 直接落在卡片上，更清晰。
-                  child: EmojiText(flag, style: const TextStyle(fontSize: 22)),
+                  child: XbEmojiText(flag, style: const TextStyle(fontSize: 22)),
                 )
               : XbIconBadge(
                   icon: Icons.public,

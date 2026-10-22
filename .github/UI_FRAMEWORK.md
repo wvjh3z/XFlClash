@@ -96,6 +96,8 @@ lib/xboard/util/
 
 > 新建二级页统一用 `XbBrandScaffold`，不手写 Scaffold+AppBar+主题（重复 5 处已收口）。
 
+字体沿用 FlClash 的平台默认策略，不固定中文字体或引入新的字体资源。品牌 `TextTheme` 用 `merge` 叠加字号/字重/颜色，保留 Material 的平台字体和排版属性；组件子主题从完整 `textTheme` 派生，避免以不完整 `TextStyle` 替换。普通文字用 `Text`；独立 `RichText` 必须显式继承 `DefaultTextStyle` 并读取 `MediaQuery.textScaler`，或使用自动继承的 `Text.rich`。只检查字符串存在不能证明真实设备字形正常。
+
 ---
 
 ## 3. 原子组件（xb_ui_kit.dart）
@@ -242,9 +244,9 @@ XbFitText(xbYuan(p.amountYuan), alignment: Alignment.center, ...);          // �
 用户/数据字符串**（节点名 / 套餐名 / 订单号 / 邮箱）—— 那些过长应保留 `ellipsis`（scaleDown 会
 缩成蚂蚁字）。判断法：内容会不会长到「缩到看不清也放不下」？会 → `ellipsis`；不会 → `XbFitText`。
 
-**注意**：`XbFitText`（plain）基于 `XbEmojiText`（`RichText`），**不继承 `DefaultTextStyle`**，
-颜色须显式传 `style`（依赖按钮 `foregroundColor` 等继承色的场景仍用 `Text`，故 update 弹窗
-「浏览器下载」按钮保留手写 `FittedBox+Text`）。
+**注意**：`XbFitText`（plain）基于 `XbEmojiText`，先继承 `DefaultTextStyle` 再合并显式 `style`；
+字体、颜色和缩放由所在主题决定，只有 Emoji 片段使用 Twemoji。已存在的按钮 `FittedBox+Text`
+可以继续使用，两者都不得把 Twemoji 设置为数字/中文正文的全局回退字体。
 
 **使用方**：plan_list 套餐摘要 / invite 余额 hero / plan_detail 周期价。契约测试（含超宽缩放故障
 路径）：`test/xboard/widgets/xb_fit_text_test.dart`。
@@ -306,4 +308,4 @@ XbFitText(xbYuan(p.amountYuan), alignment: Alignment.center, ...);          // �
 
 ### Xboard 对齐文本
 
-需要段落对齐的Emoji文本使用 `lib/xboard/widgets/xb_emoji_text.dart` 的 `XbEmojiText`，当前消费者为套餐详情摘要、订单支付信息行和XbFitText。它保留系统文字缩放、maxLines/overflow与仅Emoji片段使用Twemoji的规则；普通数字使用原文本字体。底座 `EmojiText` 已恢复上游，不再向其传textAlign；其他无需扩展对齐的既有调用保持原状。
+Xboard 的 Emoji 文本统一使用 `lib/xboard/widgets/xb_emoji_text.dart` 的 `XbEmojiText`，覆盖节点/线路名、账号与套餐摘要、套餐/订单/公告、更新提示和 XbFitText。它将 `DefaultTextStyle` 与调用方样式合并，即使省略 style 也保留正文平台字体；Twemoji 仅覆盖 Emoji 片段。保留系统文字缩放、maxLines/overflow和对齐。底座 `EmojiText` 保持上游原样；这项统一不触碰底座接缝，也不改变 WebView 或第三方组件的字体策略。
