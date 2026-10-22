@@ -1,7 +1,7 @@
 /// W3.1 — XbConnectOrb 四态渲染 + 禁用/点击单测。
 library;
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 

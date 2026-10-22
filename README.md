@@ -6,7 +6,7 @@
 
 ## XFlclash
 
-XFlclash is a fork of [FlClash](https://github.com/chen08209/FlClash), with a branded Xboard client in `lib/xboard/`. The current product uses the Form A Home / Nodes / Mine interface; FlClash continues to provide the core, VPN, proxy, Profile and platform integration. The current base is **FlClash v0.8.93**.
+XFlclash is a fork of [FlClash](https://github.com/chen08209/FlClash), with a branded Xboard client in `lib/xboard/`. The current product uses the Form A Home / Nodes / Mine interface; FlClash continues to provide the core, VPN, proxy, Profile and platform integration. This independent branch targets **FlClash v0.9.1**; native release/device validation is tracked in Docs/STATUS.
 
 ### Project documentation
 

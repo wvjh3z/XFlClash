@@ -1,7 +1,7 @@
 /// XbCooldownGuard 行为契约测试（批次二纪律：行为类抽象必须覆盖重入/解锁/卸载路径）。
 library;
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:fl_clash/xboard/widgets/xb_cooldown_guard.dart';

@@ -32,10 +32,13 @@ void main() {
     for (final path in [
       ..._textInputs,
       'assets/images/icon.png',
-      for (var state = 1; state <= 3; state++) ...[
-        'assets/images/icon/status_$state.png',
-        'assets/images/icon/status_$state.ico',
-      ],
+      for (final directory in ['windows', 'unix', 'macos'])
+        for (final state in directory == 'macos' ? [1, 4] : [1, 2, 3, 4])
+          for (final scale
+              in directory == 'windows'
+                  ? ['']
+                  : ['', '2.0x/', '3.0x/', '4.0x/'])
+            'assets/images/tray/$directory/${scale}status_$state.${directory == 'windows' ? 'ico' : 'png'}',
     ]) {
       _copyFile(path, project);
     }
@@ -157,19 +160,15 @@ void main() {
 
   for (final brand in ['brand_a', 'brand_b']) {
     test(
-      '$brand CLI injects each platform and replaces shared PNGs on switch',
+      '$brand CLI injects platform-specific tray resources without stale density variants',
       () async {
-        // Linux -> macOS -> Linux checks both directions of the shared PNG path.
+        // Each platform retains its own resource directory; no upstream DPI variant survives.
         for (final platform in ['linux', 'macos', 'linux', 'windows']) {
           final before = {
-            for (var state = 1; state <= 3; state++)
-              for (final extension in ['png', 'ico'])
-                'status_$state.$extension': File(
-                  p.join(
-                    project.path,
-                    'assets/images/icon/status_$state.$extension',
-                  ),
-                ).readAsBytesSync(),
+            for (final file in Directory(
+              p.join(project.path, 'assets/images/tray'),
+            ).listSync(recursive: true).whereType<File>())
+              p.relative(file.path, from: project.path): file.readAsBytesSync(),
           };
           final result = await inject(brand, platform);
           expect(
@@ -178,15 +177,17 @@ void main() {
             reason: '${result.stdout}\n${result.stderr}',
           );
           final extension = platform == 'windows' ? 'ico' : 'png';
-          final written = {
-            for (final state in platform == 'macos' ? [1] : [1, 2, 3])
-              'status_$state.$extension',
-          };
+          final directory = platform == 'linux' ? 'unix' : platform;
+          final prefix = 'assets/images/tray/$directory/';
           for (final entry in before.entries) {
             final actual = File(
-              p.join(project.path, 'assets/images/icon', entry.key),
+              p.join(project.path, entry.key),
             ).readAsBytesSync();
-            final expected = written.contains(entry.key)
+            final name = p.basename(entry.key);
+            final sourceName = name == 'status_4.$extension'
+                ? 'status_1.$extension'
+                : name;
+            final expected = entry.key.startsWith(prefix)
                 ? File(
                     p.join(
                       _repository,
@@ -194,7 +195,7 @@ void main() {
                       brand,
                       'system_icons',
                       platform,
-                      entry.key,
+                      sourceName,
                     ),
                   ).readAsBytesSync()
                 : entry.value;
@@ -312,7 +313,7 @@ void main() {
       final before = _snapshot(project);
       final result = await inject('brand_a', 'macos', check: true);
       expect(result.exitCode, 0, reason: '${result.stdout}\n${result.stderr}');
-      expect(result.stdout, contains('assets/images/icon/status_1.png'));
+      expect(result.stdout, contains('assets/images/tray/macos/status_1.png'));
       expect(_snapshot(project), before);
       expect(
         File(p.join(project.path, 'flutter_launcher_icons.yaml')).existsSync(),

@@ -686,7 +686,7 @@ def load_inventory(build_root: Path, app: Path, configuration="Release"):
             raise ValueError()
         sources = [_validate_link_helper(item, root.parent, binaries) if "linker_only" in item else item for item in sources]
         value["source_targets"] = sources
-        owned_targets = {item["target"] for item in records} | {"runner", "rust_api", "FlClashCore"}
+        owned_targets = {item["target"] for item in records} | {"runner", "rust_api", "librust_api.dylib", "rust_api.dylib", "FlClashCore"}
         if any(not set(item["hosts"]) <= owned_targets for item in required_source_targets(sources)):
             raise ValueError()
         return value
@@ -1303,7 +1303,7 @@ def _collect_inventory(project: Path, build_root: Path, app: Path, configuration
             if (product in distributed and product in embedded
                     and product not in spm_owned | spm_prebuilt | vendored):
                 products.append(dict(product=product, target=distributed[product]["target"], source="pods"))
-        known = {item["product"] for item in products} | vendored | {"FlutterMacOS.framework", "rust_api.framework"}
+        known = {item["product"] for item in products} | vendored | {"FlutterMacOS.framework", "rust_api.framework", "librust_api.dylib", "rust_api.dylib"}
         known |= spm_prebuilt
         if (embedded & distributed.keys()) - known or (not linked and not pods_path.is_file()):
             raise InventoryError("macos_pods_inventory_missing")

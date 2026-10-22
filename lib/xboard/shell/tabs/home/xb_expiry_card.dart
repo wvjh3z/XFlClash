@@ -9,7 +9,7 @@
 /// 点击「去续费」→ 调 [onTapRenew]（shell 注入，跳「我的」Tab 让用户续费当前套餐）。
 library;
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:fl_clash/xboard/providers/auth_state_provider.dart';

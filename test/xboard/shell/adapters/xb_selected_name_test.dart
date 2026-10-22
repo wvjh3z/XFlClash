@@ -5,7 +5,7 @@
 /// selector 组本就立即认 selectedMap，回归保证不变。
 library;
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 

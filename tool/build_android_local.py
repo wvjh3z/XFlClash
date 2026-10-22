@@ -144,17 +144,14 @@ def capture_sources(root: Path, sdk: Path, flavor: str) -> dict:
     snapshot = {}
     repositories = [("client", root, paths), ("sdk", sdk, ("lib", "assets", "pubspec.yaml", "pubspec.lock")),
                     ("core", root / "core/Clash.Meta", ())]
-    for name in ("tray_manager", "flutter_distributor"):
-        if (root / "plugins" / name).is_dir():
-            repositories.append((name, root / "plugins" / name, ()))
     for label, repository, pathspec in repositories:
         head = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=repository, text=True, encoding="utf-8").strip()
         if not re.fullmatch(r"[a-fA-F0-9]{40,64}", head):
             raise ReleaseError("Cannot bind a valid source revision for " + label)
-        raw = subprocess.check_output(["git", "ls-files", "-z", "--", *pathspec], cwd=repository)
+        raw = subprocess.check_output(["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard", "--", *pathspec], cwd=repository)
         files = raw.decode("utf-8").split("\0")
         tracked = {}
-        for name in sorted(filter(None, files)):
+        for name in sorted(set(filter(None, files))):
             relative = Path(name)
             if relative.is_absolute() or ".." in relative.parts:
                 raise ReleaseError("Invalid tracked build input path")
@@ -415,7 +412,7 @@ def verify_apk(root: Path, apk: Path, inputs: dict, tools: Path, environment: di
         packaged_abis = {name.split("/")[1] for name in names if name.startswith("lib/") and name.endswith(".so")}
         if packaged_abis != {abi}:
             raise ReleaseError("APK contains unexpected native ABIs")
-        for library in ("libapp.so", "libflutter.so", "libclash.so", "libcore.so"):
+        for library in ("libapp.so", "libflutter.so", "libclash.so", "librust_api.so"):
             if names.count(f"lib/{abi}/{library}") != 1:
                 raise ReleaseError("APK is missing a mandatory native library")
         fallback = f"assets/flutter_assets/flavors/{inputs['flavor']}/assets/fallback.bin"
@@ -500,6 +497,8 @@ def main(argv: list[str] | None = None) -> int:
         if not all(path.is_file() for path in lock_paths):
             raise ReleaseError("Client and sibling SDK lockfiles are required for a strict local release")
         locks = {path: digest(path) for path in lock_paths}
+        builder = LocalBuild(root, batch, environment)
+        builder.run([sys.executable, "tool/prepare_native_build.py", "--platform", "android", "--install-rust-targets"], "native-inputs")
         sources = capture_sources(root, sdk, args.flavor)
         source_file = batch / "source-state.json"
         if source_file.exists():
@@ -507,7 +506,6 @@ def main(argv: list[str] | None = None) -> int:
                 raise ReleaseError("The existing batch was bound to different source contents or revisions")
         else:
             write_json(source_file, sources)
-        builder = LocalBuild(root, batch, environment)
         symbol = [sys.executable, str(root / "tool/postbuild_sentry_symbols.py"), "--platform", "android",
                   "--flavor", args.flavor, "--product-version", inputs["productVersion"], "--build-number", str(number),
                   "--source-revision", revision, "--evidence", str(batch / "sentry-symbols-evidence.json")]
@@ -523,7 +521,7 @@ def main(argv: list[str] | None = None) -> int:
             if any(digest(path) != expected for path, expected in locks.items()):
                 raise ReleaseError("Strict dependency resolution changed a lockfile; stop before compiling")
             assert_sources(root, sdk, args.flavor, sources)
-            prepare = ["dart", "run", "tool/prepare_flavor.dart", "--flavor", args.flavor, "--target", "prod", "--android-identity"]
+            prepare = ["dart", "--packages=.dart_tool/package_config.json", "tool/prepare_flavor.dart", "--flavor", args.flavor, "--target", "prod", "--android-identity"]
             if args.mode == "release":
                 prepare.append("--android-signing")
             builder.run(prepare, "prepare-flavor")
@@ -531,7 +529,6 @@ def main(argv: list[str] | None = None) -> int:
                 builder.run([*symbol, "--preflight"], "sentry-preflight")
             set_abi(root / "android/local.properties", inputs["abi"])
             assert_sources(root, sdk, args.flavor, sources)
-            builder.run(["bash", "plugins/setup/buildkit/run_build_tool.sh", "android", "--arch", ARCHES[args.arch][2]], "go-core-build")
             command = ["flutter", "build", "apk", "--" + args.mode, "--flavor", args.flavor,
                        "--dart-define-from-file=flavor_defines.json", "--dart-define=APP_ENV=stable", "--dart-define=XB_FORM_A=true",
                        "--dart-define=XB_ANDROID_ABI=" + inputs["abi"], "--dart-define=XB_BUILD_TAG=" + inputs["buildTag"],

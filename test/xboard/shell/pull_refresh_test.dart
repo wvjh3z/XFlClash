@@ -21,7 +21,7 @@ import 'package:fl_clash/xboard/sdk/xboard_service.dart';
 import 'package:fl_clash/xboard/services/xboard_subscription_service.dart';
 import 'package:fl_clash/xboard/shell/tabs/mine/mine_tab.dart';
 import 'package:fl_clash/xboard/shell/tabs/nodes/nodes_tab.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
@@ -133,8 +133,8 @@ Future<_Fixture> _pump(
         (ref) => ProxiesTabState(
           groups: f.nodeContent == _Nodes.empty ? const [] : const [_group],
           currentGroupName: _group.name,
-          proxyCardType: ProxyCardType.expand,
-          columns: 2,
+          proxyCardType: ProxyCardType.standard,
+
         ),
       ),
       patchClashConfigProvider.overrideWithBuild(

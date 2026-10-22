@@ -16,7 +16,7 @@
 /// **适配层铁律**：纯 UI widget，不 import `lib/views/**` / FlClash internal provider。
 library;
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 /// 单 Tab 错误边界 = 向下传 Tab 名的 scope + child 透传。
 ///

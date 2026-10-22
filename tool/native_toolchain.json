@@ -1,0 +1,10 @@
+{
+  "flutter": "3.47.6",
+  "go": "1.27.1",
+  "rust": "1.99.0",
+  "android_compile_sdk": 37,
+  "android_ndk": "28.2.13676358",
+  "ca_url": "https://curl.se/ca/cacert-2026-09-25.pem",
+  "ca_sha256": "a41b5d356aea97a529fe27e0f7316d2f9d946d75927476cf9cf1b90637d00505",
+  "flutter_revision": "5fc346839b5d0eef006ed8404392afb4dfae428d"
+}

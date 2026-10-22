@@ -7,7 +7,7 @@
 /// 游客态读形态 B `authStateProvider`（◇ 复用形态 B，自有 provider 非 FlClash 内部，无风险②）。
 library;
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:fl_clash/xboard/providers/auth_state_provider.dart';

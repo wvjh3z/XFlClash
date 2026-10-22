@@ -22,8 +22,12 @@ abstract final class SecureStorageTokenStorage {
   /// 当前macOS采用ad-hoc分发，不能依赖数据保护钥匙串的签名访问组。
   /// 此选项是锁定的9.2.4/3.1.3实际读取的键，不改变其他平台选项。
   static const defaultStorage = FlutterSecureStorage(
-    aOptions: AndroidOptions(encryptedSharedPreferences: true),
-    mOptions: MacOsOptions(useDataProtectionKeyChain: false),
+    aOptions: AndroidOptions(
+      encryptedSharedPreferences: true,
+      migrateOnAlgorithmChange: false,
+      resetOnError: false,
+    ),
+    mOptions: MacOsOptions(usesDataProtectionKeychain: false),
   );
 
   static Future<TokenStorage> create({

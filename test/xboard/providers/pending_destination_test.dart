@@ -1,6 +1,6 @@
 /// W3.11.7 — pendingDestination provider + buildXbRoute 6 路由 + Property 22 序列化等价。
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 

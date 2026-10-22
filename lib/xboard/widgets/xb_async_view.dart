@@ -17,7 +17,7 @@
 /// 3. error 文案：XbDomainError 经 resolveErrorText 解析；非领域错误用 fallback。
 library;
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 import '../models/xb_domain_error.dart';
 import '../util/error_text.dart';

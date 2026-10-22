@@ -1,24 +1,18 @@
 /// 形态 A 网络检测适配器（出口 IP，spec `xboard-form-a-ui-revamp` / W3）。
 ///
-/// **直接复用 FlClash `networkDetectionProvider`**（已封装多源并发竞速：ipapi.co / ip-api.com /
-/// ipinfo.io，谁先成功用谁 + 超时显示 + cancel 会话管理）。本适配器只做收口（适配层铁律：Tab
-/// 不直接 import FlClash provider），投影为轻量 [XbIpStatus]。
-///
-/// **触发机制**：FlClash 在连接/切换/重置连接时 `checkIpNum+1` → `app_manager` 监听触发
-/// `startCheck()`。但该监听依赖「仪表盘启用 networkDetection widget」，形态 A 不挂 FlClash 仪表盘，
-/// 故由本适配器 [startCheck] 在首页初始化 / 连接 / 切换节点时**主动触发**，确保检测发生。
+/// 复用 v0.9.1 的 outboundIpProbeProvider，以 routedOutbound 标识当前路由出口。
+/// provider 生命周期内登记 watch/unwatch；刷新沿用底座的探测世代与旧结果隔离，
+/// 页面只消费 XbIpStatus，不自行请求第三方 IP 接口。
 library;
 
-import 'package:fl_clash/providers/app.dart' show networkDetectionProvider;
+import 'package:fl_clash/providers/outbound_ip.dart';
+import 'package:fl_clash/providers/routed_probe.dart';
+import 'package:fl_clash/common/service_probe.dart' show routedOutbound;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 /// 出口 IP 状态（轻量投影，primitive only）。
 class XbIpStatus {
-  const XbIpStatus({
-    required this.loading,
-    this.ip,
-    this.countryCode,
-  });
+  const XbIpStatus({required this.loading, this.ip, this.countryCode});
 
   /// 检测中（首测 / 重测进行中）。
   final bool loading;
@@ -37,36 +31,35 @@ class XbIpStatus {
 class XbNetworkAdapter {
   const XbNetworkAdapter();
 
-  /// 投影出口 IP 状态（复用 FlClash networkDetectionProvider）。
+  /// 投影当前路由出口的 IP 探测状态。
   XbIpStatus ipStatus(WidgetRef ref) {
-    final s = ref.watch(networkDetectionProvider);
+    final s = ref.watch(outboundIpProbeProvider).entryOf(routedOutbound);
     return XbIpStatus(
-      loading: s.isLoading,
-      ip: s.ipInfo?.ip,
-      countryCode: s.ipInfo?.countryCode,
+      loading: s.isLoading || s.phase == ProbePhase.empty,
+      ip: s.value?.ip,
+      countryCode: s.value?.countryCode,
     );
   }
 
   /// 主动触发一次出口 IP 检测（首页初始化 / 连接 / 切换节点后调用）。
-  /// 复用 FlClash `startCheck`（内部 debounce + 多源竞速 + 会话取消，去重安全）。
+  /// 通过底座 route-aware probe 刷新，保留其请求合并与过期结果处理。
   void startCheck(WidgetRef ref) {
-    ref.read(networkDetectionProvider.notifier).startCheck();
+    ref.read(outboundIpProbeProvider.notifier).refresh(const [routedOutbound]);
   }
 
   /// 强制重新检测（IP 卡刷新按钮用）。
   ///
-  /// **为何不能只调 startCheck**：FlClash `_checkIp` 有早退守卫——未连接 + 上次也未连接 +
-  /// 已有 ipInfo 时直接 return（避免重复检测），导致未连接态点刷新无反应。这里先 `invalidate`
-  /// 重建 notifier（私有 `_preIsStart` 等会话态归零 + state 回到 isLoading:true/ipInfo:null →
-  /// UI 立即显示「检测中」），再 startCheck → 守卫不再挡，真正重测。
+  /// 与主动检测共用底座 refresh；不再销毁 provider 或重建探测所有者。
   void forceCheck(WidgetRef ref) {
-    ref.invalidate(networkDetectionProvider);
-    // invalidate 后 notifier 重建（私有会话态归零）；立即 startCheck → 守卫不再挡，真正重测。
-    ref.read(networkDetectionProvider.notifier).startCheck();
+    // The route-aware probe supersedes stale results without replacing its owner.
+    ref.read(outboundIpProbeProvider.notifier).refresh(const [routedOutbound]);
   }
 }
 
 /// 网络检测适配器单例 provider（Tab 经此取，测试可 override）。
-final xbNetworkAdapterProvider = Provider<XbNetworkAdapter>(
-  (ref) => const XbNetworkAdapter(),
-);
+final xbNetworkAdapterProvider = Provider<XbNetworkAdapter>((ref) {
+  final probe = ref.read(outboundIpProbeProvider.notifier);
+  probe.watch(routedOutbound);
+  ref.onDispose(() => probe.unwatch(routedOutbound));
+  return const XbNetworkAdapter();
+});

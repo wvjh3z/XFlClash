@@ -23,7 +23,7 @@ ROOT = Path(__file__).resolve().parents[2]
 SPEC = importlib.util.spec_from_file_location('context_packager', ROOT / 'tool/prepare_linux_packager.py')
 PACKAGER = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(PACKAGER)
-SOURCE = ROOT / 'plugins/flutter_distributor'
+SOURCE = ROOT / '.local-build/tool-sources/flutter_distributor' / PACKAGER.PINNED_REVISION
 
 
 def command(args, **kwargs):
@@ -172,7 +172,7 @@ class PackagerContextTests(unittest.TestCase):
                     repo = case / 'checkout'
                     command(['git', 'init', '--quiet', '--template=', repo])
                     tools = self.install_cli_fixture(repo=repo, autocrlf=mode)
-                    source = repo / 'plugins/flutter_distributor'
+                    source = repo / '.local-build/tool-sources/flutter_distributor' / PACKAGER.PINNED_REVISION
                     output = repo / 'build/packaging-tools/flutter_distributor'
                     index = (repo / '.git/index').read_bytes()
                     config = (repo / '.git/config').read_bytes()
@@ -222,9 +222,11 @@ class PackagerContextTests(unittest.TestCase):
         tools = repo / 'tool'
         (tools / 'patches').mkdir(parents=True)
         shutil.copyfile(ROOT / 'tool/prepare_linux_packager.py', tools / 'prepare_linux_packager.py')
+        for dependency in ('checkout_distributor.py','pub_get_retry.py','owned_process_cleanup.py'):
+            shutil.copyfile(ROOT/'tool'/dependency,tools/dependency)
         shutil.copyfile(PACKAGER.PATCH, tools / 'patches' / PACKAGER.PATCH.name)
-        source = repo / 'plugins/flutter_distributor'
-        source.parent.mkdir()
+        source = repo / '.local-build/tool-sources/flutter_distributor' / PACKAGER.PINNED_REVISION
+        source.parent.mkdir(parents=True)
         if autocrlf is None:
             command(['git', 'clone', '--quiet', '--shared', '--no-checkout', SOURCE, source])
         else:
@@ -232,8 +234,8 @@ class PackagerContextTests(unittest.TestCase):
             command(['git', 'config', 'core.autocrlf', autocrlf], cwd=source)
             command(['git', 'config', 'core.eol', 'crlf'], cwd=source)
         command(['git', 'checkout', '--quiet', '--detach', PACKAGER.PINNED_REVISION], cwd=source)
-        command(['git', 'update-index', '--add', '--cacheinfo', '160000',
-                 PACKAGER.PINNED_REVISION, 'plugins/flutter_distributor'], cwd=repo)
+        # Track fixture tools so the parent index exists without a gitlink.
+        command(['git', 'add', 'tool'], cwd=repo)
         if repo == self.repo:
             self.index = (repo / '.git/index').read_bytes()
         return tools

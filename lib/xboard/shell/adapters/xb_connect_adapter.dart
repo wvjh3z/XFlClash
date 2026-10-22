@@ -11,7 +11,7 @@
 /// - `isStart`（runTime != null）→ connected
 /// - 否则 → disconnected
 ///
-/// **toggle**：→ `setupActionProvider.updateStatus`（与 `StartButton.handleSwitchStart` 同源，
+/// **toggle**：→ `setupActionProvider.setRunning`（与 `CommonAction.toggleRunning` 同源，
 /// 写同一份内核状态，Property 4 无影子状态）。
 library;
 
@@ -69,18 +69,21 @@ class XbConnectAdapter {
 
   /// 切换连接状态（连/断）。
   ///
-  /// → `setupActionProvider.updateStatus(target)`：与 FlClash `StartButton` 同源写内核
+  /// → `setupActionProvider.setRunning(target)`：与 FlClash `StartButton` 同源写内核
   /// （Property 4 无影子状态）。booting 态忽略（gate canToggle）。
   Future<void> toggle(WidgetRef ref) async {
     if (!canToggle(ref)) return;
     final started = ref.read(isStartProvider);
-    await ref.read(setupActionProvider.notifier).updateStatus(!started);
+    await setStatus(ref, start: !started);
   }
 
   /// 显式设连接态（供线路卡 / 横幅等场景，幂等）。
   Future<void> setStatus(WidgetRef ref, {required bool start}) async {
     if (!canToggle(ref)) return;
-    await ref.read(setupActionProvider.notifier).updateStatus(start);
+    await ref.read(setupActionProvider.notifier).setRunning(
+      start,
+      initialize: start && !ref.read(initProvider),
+    );
   }
 }
 

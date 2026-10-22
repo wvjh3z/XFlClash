@@ -4,7 +4,7 @@
 /// 纯 UI，无 provider 依赖。
 library;
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 import 'package:fl_clash/xboard/config/xboard_config.dart';
 

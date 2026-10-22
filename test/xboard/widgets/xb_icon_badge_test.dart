@@ -1,7 +1,7 @@
 /// XbIconBadge 结构契约测试（批次三：视觉基元收敛，断言透传参数原样落到容器/图标）。
 library;
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:fl_clash/xboard/widgets/xb_ui_kit.dart';

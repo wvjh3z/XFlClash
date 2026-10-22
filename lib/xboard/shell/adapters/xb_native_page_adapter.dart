@@ -12,21 +12,19 @@ library;
 import 'package:fl_clash/common/common.dart' show system;
 import 'package:fl_clash/l10n/l10n.dart' show AppLocalizations;
 import 'package:fl_clash/providers/config.dart' show appSettingProvider;
-import 'package:fl_clash/state.dart' show globalState;
+import 'package:fl_clash/views/disclaimer.dart' show requestDisclaimerConsent;
 import 'package:fl_clash/views/about.dart' show AboutView;
 import 'package:fl_clash/views/access.dart' show AccessView;
-import 'package:fl_clash/views/application_setting.dart'
-    show ApplicationSettingView;
+import 'package:fl_clash/views/config/general.dart' show GeneralView;
 import 'package:fl_clash/views/backup_and_restore.dart' show BackupAndRestore;
 import 'package:fl_clash/views/config/advanced.dart' show AdvancedConfigView;
-import 'package:fl_clash/views/config/config.dart' show ConfigView;
 import 'package:fl_clash/views/connection/connections.dart'
     show ConnectionsView;
 import 'package:fl_clash/views/connection/requests.dart' show RequestsView;
 import 'package:fl_clash/views/resources.dart' show ResourcesView;
 import 'package:fl_clash/views/theme.dart' show ThemeView;
 import 'package:fl_clash/views/tools.dart' show ToolsView;
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 /// 原生页适配器。
@@ -54,13 +52,13 @@ class XbNativePageAdapter {
       _push(context, const AccessView());
 
   Future<void> openBasicConfig(BuildContext context) =>
-      _push(context, const ConfigView());
+      _push(context, const GeneralView());
 
   Future<void> openAdvancedConfig(BuildContext context) =>
       _push(context, const AdvancedConfigView());
 
   Future<void> openApplicationSetting(BuildContext context) =>
-      _push(context, const ApplicationSettingView());
+      _push(context, const GeneralView());
 
   /// FlClash 原生「请求」页（流量请求列表）。
   Future<void> openRequests(BuildContext context) =>
@@ -133,7 +131,7 @@ class XbNativePageAdapter {
   }
 
   /// 免责声明（FlClash globalState 流程：拒绝则退出 App，由调用方处理）。
-  Future<bool> showDisclaimer() => globalState.showDisclaimer();
+  Future<bool> showDisclaimer() => requestDisclaimerConsent();
 
   /// 当前平台是否 Android（访问控制仅 Android）。
   bool get isAndroid => system.isAndroid;

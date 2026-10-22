@@ -1,6 +1,6 @@
 // GENERATED CODE - DO NOT MODIFY BY HAND
 // coverage:ignore-file
-// ignore_for_file: type=lint
+// ignore_for_file: type=lint, type=warning, deprecated_member_use, deprecated_member_use_from_same_package
 // ignore_for_file: unused_element, deprecated_member_use, deprecated_member_use_from_same_package, use_function_type_syntax_for_parameters, unnecessary_const, avoid_init_to_null, invalid_override_different_default_values_named, prefer_expression_function_bodies, annotate_overrides, invalid_annotation_target, unnecessary_question_mark
 
 part of '../../models/plan_item.dart';
@@ -9,6 +9,7 @@ part of '../../models/plan_item.dart';
 // FreezedGenerator
 // **************************************************************************
 
+// GENERATED CODE - DO NOT MODIFY BY HAND
 // dart format off
 T _$identity<T>(T value) => value;
 /// @nodoc
@@ -25,16 +26,21 @@ $PricePlanCopyWith<PricePlan> get copyWith => _$PricePlanCopyWithImpl<PricePlan>
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is PricePlan&&(identical(other.period, period) || other.period == period)&&(identical(other.amountYuan, amountYuan) || other.amountYuan == amountYuan));
+  final _this = this as PricePlan;
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is PricePlan&&(identical(other.period, _this.period) || other.period == _this.period)&&(identical(other.amountYuan, _this.amountYuan) || other.amountYuan == _this.amountYuan));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,period,amountYuan);
+int get hashCode {
+  final _this = this as PricePlan;
+  return Object.hash(runtimeType,_this.period,_this.amountYuan);
+}
 
 @override
 String toString() {
-  return 'PricePlan(period: $period, amountYuan: $amountYuan)';
+  final _this = this as PricePlan;
+  return 'PricePlan(period: ${_this.period}, amountYuan: ${_this.amountYuan})';
 }
 
 
@@ -63,7 +69,7 @@ class _$PricePlanCopyWithImpl<$Res>
 /// Create a copy of PricePlan
 /// with the given fields replaced by the non-null parameter values.
 @pragma('vm:prefer-inline') @override $Res call({Object? period = null,Object? amountYuan = null,}) {
-  return _then(_self.copyWith(
+  return _then(PricePlan(
 period: null == period ? _self.period : period // ignore: cast_nullable_to_non_nullable
 as XbPlanPeriod,amountYuan: null == amountYuan ? _self.amountYuan : amountYuan // ignore: cast_nullable_to_non_nullable
 as double,
@@ -223,16 +229,18 @@ _$PricePlanCopyWith<_PricePlan> get copyWith => __$PricePlanCopyWithImpl<_PriceP
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is _PricePlan&&(identical(other.period, period) || other.period == period)&&(identical(other.amountYuan, amountYuan) || other.amountYuan == amountYuan));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is _PricePlan&&(identical(other.period, period) || other.period == period)&&(identical(other.amountYuan, amountYuan) || other.amountYuan == amountYuan));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,period,amountYuan);
+int get hashCode {
+    return Object.hash(runtimeType,period,amountYuan);
+}
 
 @override
 String toString() {
-  return 'PricePlan(period: $period, amountYuan: $amountYuan)';
+    return 'PricePlan(period: $period, amountYuan: $amountYuan)';
 }
 
 
@@ -274,9 +282,7 @@ as double,
 /// @nodoc
 mixin _$PlanItem {
 
- int get id; String get name; String? get description;// 🔴 第12轮：PlanModel.transferEnable 是 double 单位 GB（≠ SubscriptionModel bytes）。
-// 映射 transferEnableGb = plan.transferEnable.toInt()，UI 展示用 GB，勿与字节混算。
- int get transferEnableGb; List<PricePlan> get prices;
+ int get id; String get name; String? get description; int get transferEnableGb; List<PricePlan> get prices;
 /// Create a copy of PlanItem
 /// with the given fields replaced by the non-null parameter values.
 @JsonKey(includeFromJson: false, includeToJson: false)
@@ -287,16 +293,21 @@ $PlanItemCopyWith<PlanItem> get copyWith => _$PlanItemCopyWithImpl<PlanItem>(thi
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is PlanItem&&(identical(other.id, id) || other.id == id)&&(identical(other.name, name) || other.name == name)&&(identical(other.description, description) || other.description == description)&&(identical(other.transferEnableGb, transferEnableGb) || other.transferEnableGb == transferEnableGb)&&const DeepCollectionEquality().equals(other.prices, prices));
+  final _this = this as PlanItem;
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is PlanItem&&(identical(other.id, _this.id) || other.id == _this.id)&&(identical(other.name, _this.name) || other.name == _this.name)&&(identical(other.description, _this.description) || other.description == _this.description)&&(identical(other.transferEnableGb, _this.transferEnableGb) || other.transferEnableGb == _this.transferEnableGb)&&const DeepCollectionEquality().equals(other.prices, _this.prices));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,id,name,description,transferEnableGb,const DeepCollectionEquality().hash(prices));
+int get hashCode {
+  final _this = this as PlanItem;
+  return Object.hash(runtimeType,_this.id,_this.name,_this.description,_this.transferEnableGb,const DeepCollectionEquality().hash(_this.prices));
+}
 
 @override
 String toString() {
-  return 'PlanItem(id: $id, name: $name, description: $description, transferEnableGb: $transferEnableGb, prices: $prices)';
+  final _this = this as PlanItem;
+  return 'PlanItem(id: ${_this.id}, name: ${_this.name}, description: ${_this.description}, transferEnableGb: ${_this.transferEnableGb}, prices: ${_this.prices})';
 }
 
 
@@ -325,7 +336,7 @@ class _$PlanItemCopyWithImpl<$Res>
 /// Create a copy of PlanItem
 /// with the given fields replaced by the non-null parameter values.
 @pragma('vm:prefer-inline') @override $Res call({Object? id = null,Object? name = null,Object? description = freezed,Object? transferEnableGb = null,Object? prices = null,}) {
-  return _then(_self.copyWith(
+  return _then(PlanItem(
 id: null == id ? _self.id : id // ignore: cast_nullable_to_non_nullable
 as int,name: null == name ? _self.name : name // ignore: cast_nullable_to_non_nullable
 as String,description: freezed == description ? _self.description : description // ignore: cast_nullable_to_non_nullable
@@ -472,14 +483,12 @@ return $default(_that.id,_that.name,_that.description,_that.transferEnableGb,_th
 
 
 class _PlanItem implements PlanItem {
-  const _PlanItem({required this.id, required this.name, this.description, required this.transferEnableGb, required final  List<PricePlan> prices}): _prices = prices;
+  const _PlanItem({required this.id, required this.name, this.description, required this.transferEnableGb, required  List<PricePlan> prices}): _prices = prices;
   
 
 @override final  int id;
 @override final  String name;
 @override final  String? description;
-// 🔴 第12轮：PlanModel.transferEnable 是 double 单位 GB（≠ SubscriptionModel bytes）。
-// 映射 transferEnableGb = plan.transferEnable.toInt()，UI 展示用 GB，勿与字节混算。
 @override final  int transferEnableGb;
  final  List<PricePlan> _prices;
 @override List<PricePlan> get prices {
@@ -499,16 +508,18 @@ _$PlanItemCopyWith<_PlanItem> get copyWith => __$PlanItemCopyWithImpl<_PlanItem>
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is _PlanItem&&(identical(other.id, id) || other.id == id)&&(identical(other.name, name) || other.name == name)&&(identical(other.description, description) || other.description == description)&&(identical(other.transferEnableGb, transferEnableGb) || other.transferEnableGb == transferEnableGb)&&const DeepCollectionEquality().equals(other._prices, _prices));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is _PlanItem&&(identical(other.id, id) || other.id == id)&&(identical(other.name, name) || other.name == name)&&(identical(other.description, description) || other.description == description)&&(identical(other.transferEnableGb, transferEnableGb) || other.transferEnableGb == transferEnableGb)&&const DeepCollectionEquality().equals(other.prices, _prices));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,id,name,description,transferEnableGb,const DeepCollectionEquality().hash(_prices));
+int get hashCode {
+    return Object.hash(runtimeType,id,name,description,transferEnableGb,const DeepCollectionEquality().hash(_prices));
+}
 
 @override
 String toString() {
-  return 'PlanItem(id: $id, name: $name, description: $description, transferEnableGb: $transferEnableGb, prices: $prices)';
+    return 'PlanItem(id: $id, name: $name, description: $description, transferEnableGb: $transferEnableGb, prices: $prices)';
 }
 
 

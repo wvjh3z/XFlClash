@@ -727,7 +727,7 @@ class Preparer:
             product = framework or binary.name
             present_products.add(product)
             source = "runner" if binary == runner else owned.get(product, {}).get("source", "prebuilt")
-            if binary.name == "rust_api" and framework == "rust_api.framework":
+            if binary.name in {"rust_api", "librust_api.dylib", "rust_api.dylib"}:
                 source, has_rust = "rust", True
             elif binary.name == "FlClashCore":
                 source, has_core = "go", True
@@ -751,7 +751,8 @@ class Preparer:
                 self.rows.append(row)
             plans.append((binary, target, source, dart, slices, rows))
         for root, origin in ((self.products, "existing_products"), (self.root.parent / "libclash/macos", "existing_core"),
-                             (self.root / "macos/sentry-prebuilt-dsyms", "existing_vendor")):
+                             (self.root / "macos/sentry-prebuilt-dsyms", "existing_vendor"),
+                             (self.root / "sentry-hook-inputs/macos", "existing_products")):
             self.phase = "companions"
             for path in dwarf_files(root):
                 try:

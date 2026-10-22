@@ -3,16 +3,16 @@
 /// **替换上游 FlClash 首启的两个弹窗**（免责声明「学习交流/非商业」+ Android Crashlytics 提示）：
 /// 二者与本商业产品性质不符（前者禁止商业用途，后者声称用 Firebase 实则未用），统一成本弹窗。
 ///
-/// **触发**：App 首次安装打开（由 `lib/state.dart` `_handlerDisclaimer` 在 `disclaimerAccepted==false`
+/// **触发**：App 首次安装打开（由 `lib/bootstrap.dart` `_handlerDisclaimer` 在接受版本低于当前版本
 /// 时调用，接缝点 #seam-welcome）。**强制**：点「退出」关闭 App（上游 `handleExit`），
-/// 点「同意并开始」才继续（调用方写 `disclaimerAccepted=true` 持久化，不再弹）。
+/// 点「同意并开始」才继续（调用方写 `acceptedDisclaimerVersion` 持久化，不再弹）。
 ///
 /// **三段卖点**（文案锁定 2026-06-20，不提崩溃分析）：安全加密 / 数据存海外新加坡(PDPA) / 最小化收集。
 /// 底部「用户协议」「隐私政策」可点 → in-app push [TermsPage] / [PrivacyPage]（非外链）。
 library;
 
 import 'package:flutter/gestures.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 import '../config/xboard_config.dart';
 import '../pages/legal_pages.dart' show TermsPage, PrivacyPage;
@@ -73,7 +73,8 @@ class _WelcomeDialogBodyState extends State<_WelcomeDialogBody> {
       backgroundColor: t.card,
       insetPadding: const EdgeInsets.symmetric(horizontal: 28, vertical: 40),
       shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(XbTokens.rLg)),
+        borderRadius: BorderRadius.circular(XbTokens.rLg),
+      ),
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 420),
         child: Padding(
@@ -81,13 +82,20 @@ class _WelcomeDialogBodyState extends State<_WelcomeDialogBody> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text('欢迎使用',
-                  style: TextStyle(
-                      fontSize: 18, fontWeight: FontWeight.w700, color: t.on)),
+              Text(
+                '欢迎使用',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w700,
+                  color: t.on,
+                ),
+              ),
               const SizedBox(height: 6),
-              Text('使用前，请了解以下隐私与安全说明',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(fontSize: 12.5, color: t.onv)),
+              Text(
+                '使用前，请了解以下隐私与安全说明',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 12.5, color: t.onv),
+              ),
               const SizedBox(height: 18),
               const Flexible(
                 child: SingleChildScrollView(
@@ -97,19 +105,22 @@ class _WelcomeDialogBodyState extends State<_WelcomeDialogBody> {
                       _Feature(
                         icon: Icons.lock_outline,
                         title: '安全加密',
-                        desc: '采用业界标准的加密传输协议，为你的网络连接建立安全隧道，'
+                        desc:
+                            '采用业界标准的加密传输协议，为你的网络连接建立安全隧道，'
                             '有效防止数据在传输过程中被窃听或篡改。',
                       ),
                       _Feature(
                         icon: Icons.public,
                         title: '数据存于海外新加坡',
-                        desc: '你的账号与订阅数据存储在位于新加坡的服务器，遵循新加坡'
+                        desc:
+                            '你的账号与订阅数据存储在位于新加坡的服务器，遵循新加坡'
                             '《个人数据保护法》(PDPA) 等当地数据保护标准妥善保管。',
                       ),
                       _Feature(
                         icon: Icons.verified_user_outlined,
                         title: '最小化收集',
-                        desc: '我们仅收集为你提供服务所必需的信息（如邮箱、订阅与订单'
+                        desc:
+                            '我们仅收集为你提供服务所必需的信息（如邮箱、订阅与订单'
                             '记录），并采取加密等技术措施保护你的数据安全。',
                       ),
                     ],
@@ -125,14 +136,18 @@ class _WelcomeDialogBodyState extends State<_WelcomeDialogBody> {
                     TextSpan(
                       text: '用户协议',
                       style: TextStyle(
-                          color: scheme.primary, fontWeight: FontWeight.w600),
+                        color: scheme.primary,
+                        fontWeight: FontWeight.w600,
+                      ),
                       recognizer: _termsTap,
                     ),
                     const TextSpan(text: ' 与 '),
                     TextSpan(
                       text: '隐私政策',
                       style: TextStyle(
-                          color: scheme.primary, fontWeight: FontWeight.w600),
+                        color: scheme.primary,
+                        fontWeight: FontWeight.w600,
+                      ),
                       recognizer: _privacyTap,
                     ),
                   ],
@@ -152,8 +167,8 @@ class _WelcomeDialogBodyState extends State<_WelcomeDialogBody> {
                           foregroundColor: t.on,
                           elevation: 0,
                           shape: RoundedRectangleBorder(
-                              borderRadius:
-                                  BorderRadius.circular(XbTokens.rMd)),
+                            borderRadius: BorderRadius.circular(XbTokens.rMd),
+                          ),
                         ),
                         child: const Text('退出'),
                       ),
@@ -167,8 +182,8 @@ class _WelcomeDialogBodyState extends State<_WelcomeDialogBody> {
                         onPressed: () => Navigator.of(context).pop(true),
                         style: FilledButton.styleFrom(
                           shape: RoundedRectangleBorder(
-                              borderRadius:
-                                  BorderRadius.circular(XbTokens.rMd)),
+                            borderRadius: BorderRadius.circular(XbTokens.rMd),
+                          ),
                         ),
                         child: const Text('同意并开始'),
                       ),
@@ -207,7 +222,9 @@ class _Feature extends StatelessWidget {
             alignment: Alignment.center,
             decoration: BoxDecoration(
               color: Color.alphaBlend(
-                  scheme.primary.withValues(alpha: 0.12), t.card),
+                scheme.primary.withValues(alpha: 0.12),
+                t.card,
+              ),
               borderRadius: BorderRadius.circular(11),
             ),
             child: Icon(icon, size: 21, color: scheme.primary),
@@ -217,15 +234,19 @@ class _Feature extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(title,
-                    style: TextStyle(
-                        fontSize: 14.5,
-                        fontWeight: FontWeight.w600,
-                        color: t.on)),
+                Text(
+                  title,
+                  style: TextStyle(
+                    fontSize: 14.5,
+                    fontWeight: FontWeight.w600,
+                    color: t.on,
+                  ),
+                ),
                 const SizedBox(height: 3),
-                Text(desc,
-                    style:
-                        TextStyle(fontSize: 12.5, height: 1.65, color: t.onv)),
+                Text(
+                  desc,
+                  style: TextStyle(fontSize: 12.5, height: 1.65, color: t.onv),
+                ),
               ],
             ),
           ),

@@ -5,7 +5,7 @@
 /// 移动端不用此组件（标题在滚动体内，无分隔线）。
 library;
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 import 'package:fl_clash/xboard/widgets/xb_theme.dart' show XbTokens;
 

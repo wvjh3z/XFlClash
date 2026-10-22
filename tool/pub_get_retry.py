@@ -373,6 +373,7 @@ def write_report(path, report):
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--tool', choices=('flutter', 'dart'), required=True)
+    parser.add_argument('--enforce-lockfile', action='store_true')
     parser.add_argument('--cwd', type=Path, default=Path.cwd())
     parser.add_argument('--report', type=Path, required=True)
     args = parser.parse_args(argv)
@@ -392,7 +393,7 @@ def main(argv=None):
     for sig in (signal.SIGINT, signal.SIGTERM):
         old[sig] = signal.signal(sig, cancel)
     try:
-        code, report = execute([executable, 'pub', 'get'], args.cwd, os.environ,
+        code, report = execute([executable, 'pub', 'get', *(['--enforce-lockfile'] if args.enforce_lockfile else [])], args.cwd, os.environ,
                                cancelled=lambda: cancelled_signal[0],
                                emit=lambda line: print(line, flush=True))
         report['tool'] = args.tool

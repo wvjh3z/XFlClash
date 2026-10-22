@@ -1,7 +1,7 @@
 /// W3.2 — XbSpeedCard 单测（Mbps 换算 / 上传不标绿 / 延迟 --）。
 library;
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 

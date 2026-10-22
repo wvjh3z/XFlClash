@@ -466,6 +466,13 @@ class InterfaceTests(unittest.TestCase):
                 retry.main(argv)
             self.assertEqual(error.exception.code,2)
 
+    def test_cli_forwards_explicit_lockfile_enforcement(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            report=Path(temporary)/'result.json'
+            with mock.patch.object(retry.shutil,'which',return_value='dart'),mock.patch.object(retry,'execute',return_value=(0,{'outcome':'success','attempts':[]})) as execute:
+                self.assertEqual(retry.main(['--tool','dart','--enforce-lockfile','--report',str(report)]),0)
+            self.assertEqual(execute.call_args.args[0],['dart','pub','get','--enforce-lockfile'])
+
     def test_real_cli_uses_only_pub_get_and_writes_summary(self):
         with tempfile.TemporaryDirectory(prefix='pub cli fixture ') as directory:
             root=Path(directory)

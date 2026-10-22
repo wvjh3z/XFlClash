@@ -7,7 +7,7 @@
 /// **永不打断主流程**：取消失败 toast 提示；provider 失败/无单不显示。
 library;
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/order_summary.dart';

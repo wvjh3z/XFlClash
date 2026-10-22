@@ -2,9 +2,11 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:fl_clash/common/http.dart';
-import 'package:fl_clash/models/models.dart' show PatchClashConfig;
+import 'package:fl_clash/models/models.dart'
+    show PatchClashConfig, NetworkProps;
 import 'package:fl_clash/providers/app.dart' show runTimeProvider;
-import 'package:fl_clash/providers/config.dart' show patchClashConfigProvider;
+import 'package:fl_clash/providers/config.dart'
+    show patchClashConfigProvider, networkSettingProvider;
 import 'package:fl_clash/state.dart';
 import 'package:fl_clash/xboard/services/bootstrap_decryptor.dart';
 import 'package:fl_clash/xboard/services/bootstrap_fetcher.dart';
@@ -27,6 +29,9 @@ void main() {
       addTearDown(proxy.close);
       final container = ProviderContainer(
         overrides: [
+          networkSettingProvider.overrideWithBuild(
+            (_, _) => const NetworkProps(),
+          ),
           patchClashConfigProvider.overrideWithBuild(
             (_, _) => PatchClashConfig(mixedPort: proxy.server.port),
           ),
@@ -37,7 +42,7 @@ void main() {
       globalState.isAttach = false;
       addTearDown(() => globalState.isAttach = false);
       container.read(runTimeProvider.notifier).value = 0;
-      final routing = _LoopbackRoutingOverrides(origin.server.port);
+      final routing = _LoopbackRoutingOverrides(origin.server.port, container);
       final target = Uri(
         scheme: 'http',
         host: 'bootstrap.example.invalid',
@@ -75,7 +80,8 @@ void main() {
 /// Keep FlClashHttpOverrides.findProxy intact. Only map socket destinations to
 /// local fixtures, so either policy result is observable without external I/O.
 class _LoopbackRoutingOverrides extends FlClashHttpOverrides {
-  _LoopbackRoutingOverrides(this.originPort);
+  _LoopbackRoutingOverrides(this.originPort, ProviderContainer container)
+    : super(container);
 
   final int originPort;
   final proxyHosts = <String?>[];

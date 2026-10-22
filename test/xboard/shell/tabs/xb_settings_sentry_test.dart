@@ -4,7 +4,7 @@ import 'package:fl_clash/xboard/providers/sentry_reporting_preference_provider.d
 import 'package:fl_clash/xboard/services/sentry_reporting_preference.dart';
 import 'package:fl_clash/xboard/services/sentry_bootstrap.dart';
 import 'package:fl_clash/xboard/shell/tabs/mine/xb_settings_page.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 

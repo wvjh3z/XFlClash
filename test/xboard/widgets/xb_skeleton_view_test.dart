@@ -3,7 +3,7 @@
 /// 锁定：list/detail 两形态可渲染、不溢出；XbAsyncView 传 skeleton 时 loading 分支渲染骨架。
 library;
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:fl_clash/xboard/widgets/xb_async_view.dart';

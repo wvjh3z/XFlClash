@@ -41,9 +41,9 @@ class GenerationTests(unittest.TestCase):
         shutil.copyfile(self.elf, self.stripped)
         subprocess.run(["objcopy", "--strip-debug", str(self.stripped)], check=True)
 
-    def android_fixture(self, omit=None, include_rust=False, include_sentry=False):
+    def android_fixture(self, omit=None, include_rust=True, include_sentry=False):
         package = self.repo / "fixture.apk"
-        names = {"libcore.so", "libclash.so", "libflutter.so"}
+        names = {"libclash.so", "libflutter.so"}
         if include_rust:
             names.add("librust_api.so")
         if include_sentry:
@@ -76,7 +76,7 @@ class GenerationTests(unittest.TestCase):
             prepare.android([package])
             manifest = json.loads(prepare.finish().read_text())
         self.assertEqual({entry["target"] for entry in manifest["required"]},
-                         {"libcore.so", "libclash.so", "libsentry.so", "libsentry-android.so"})
+                         {"librust_api.so", "libclash.so", "libsentry.so", "libsentry-android.so"})
         sentry = [entry for entry in manifest["artifacts"] if entry["source"] == "sentry_prefab"]
         self.assertEqual({entry["target"] for entry in sentry}, {"libsentry.so", "libsentry-android.so"})
         for entry in sentry:
@@ -102,7 +102,7 @@ class GenerationTests(unittest.TestCase):
             prepare.android([package])
             manifest = json.loads(prepare.finish().read_text())
         self.assertEqual({entry["target"] for entry in manifest["required"]},
-                         {"libcore.so", "libclash.so", "libsentry.so"})
+                         {"librust_api.so", "libclash.so", "libsentry.so"})
 
     def test_android_extracts_matching_debug_only_and_records_actual_apk_bytes(self):
         package = self.android_fixture()
@@ -119,10 +119,10 @@ class GenerationTests(unittest.TestCase):
             self.assertEqual(info["unwind_sections"], inspect_elf(self.elf)["unwind_sections"])
             self.assertEqual((self.build / item["binary"]).read_bytes(), self.stripped.read_bytes())
         self.assertTrue(any(x["reason"] == "prebuilt_debug_companion_unavailable" for x in manifest["limitations"]))
-        self.assertEqual(sum(x["reason"] == "separate_process_no_sentry_sdk" for x in manifest["limitations"]), 2)
+        self.assertEqual(sum(x["reason"] == "separate_process_no_sentry_sdk" for x in manifest["limitations"]), 0)
 
     def test_android_missing_own_module_fails(self):
-        package = self.android_fixture(omit="libcore.so")
+        package = self.android_fixture(omit="librust_api.so")
         with self.assertRaisesRegex(PreparationError, "required_apk_native_module_missing"):
             Preparer(self.build, "android", "objcopy").android([package])
 
@@ -132,7 +132,7 @@ class GenerationTests(unittest.TestCase):
         prepare.android([package])
         manifest = json.loads(prepare.finish().read_text())
         self.assertEqual({entry["target"] for entry in manifest["required"]},
-                         {"libcore.so", "libclash.so", "librust_api.so"})
+                         {"librust_api.so", "libclash.so", "librust_api.so"})
 
     def test_android_distributed_rust_still_requires_matching_dwarf(self):
         package = self.android_fixture(include_rust=True)
@@ -156,7 +156,7 @@ class GenerationTests(unittest.TestCase):
         other = self.repo / "other.c"
         other.write_text("int other(void) { return 678; }\n")
         subprocess.run(["cc", "-g", "-shared", "-Wl,--build-id=sha1", str(other), "-o",
-                        str(self.build / "core/intermediates/libcore.so")], check=True)
+                        str(self.build / "core/intermediates/librust_api.so")], check=True)
         with self.assertRaisesRegex(PreparationError, "required_native_dwarf_unavailable"):
             Preparer(self.build, "android", "objcopy").android([package])
 
@@ -170,7 +170,11 @@ class GenerationTests(unittest.TestCase):
             final.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(self.stripped, final)
         (native / "sentry-native-Release.tsv").write_text("".join(f"t{i}\t{p}\n" for i, p in enumerate(sources)))
-        core = self.repo / "libclash/linux/FlClashCore"
+        hook = self.build / 'sentry-hook-inputs/linux' / self.linux_arch
+        hook.mkdir(parents=True)
+        shutil.copyfile(self.elf, hook / 'librust_api.so')
+        (hook / 'manifest.json').write_text(json.dumps({'schema_version':1, 'platform':'linux', 'architecture':self.linux_arch, 'binary':'librust_api.so', 'companions':[]}))
+        core = self.repo / "libclash/linux/FlClashCore.unstripped"
         core.parent.mkdir(parents=True)
         shutil.copyfile(self.elf, core)
         shutil.copyfile(self.stripped, native / "bundle/FlClashCore")
@@ -185,6 +189,22 @@ class GenerationTests(unittest.TestCase):
         self.assertEqual(len(manifest["artifacts"]), 4)
         self.assertEqual(len(manifest["required"]), 4)
         self.assertEqual(before, {p: p.read_bytes() for p in before})
+
+    def test_linux_distributed_rust_helper_requires_matching_private_symbols(self):
+        native = self.linux_fixture()
+        shutil.copyfile(self.stripped, native / 'bundle/FlClashHelperService')
+        target = 'x86_64' if self.linux_arch == 'x64' else 'aarch64'
+        source = self.repo / f'services/helper/target/{target}-unknown-linux-gnu/release/helper'
+        source.parent.mkdir(parents=True)
+        shutil.copyfile(self.elf, source)
+        prepare = Preparer(self.build, 'linux', 'objcopy')
+        prepare.linux(self.linux_arch, 'release')
+        manifest = json.loads(prepare.finish().read_text())
+        self.assertIn({'target':'FlClashHelperService','architecture':self.linux_arch},manifest['required'])
+        self.assertTrue(any(row['target']=='FlClashHelperService' and row['source']=='rust_helper' for row in manifest['artifacts']))
+        source.unlink()
+        with self.assertRaisesRegex(PreparationError,'required_native_dwarf_unavailable'):
+            Preparer(self.build,'linux','objcopy').linux(self.linux_arch,'release')
 
     def linux_handler_fixture(self):
         native = self.linux_fixture()
@@ -283,45 +303,8 @@ class GenerationTests(unittest.TestCase):
         with self.assertRaisesRegex(PreparationError, "local_plugin_source_manifest_missing"):
             Preparer(self.build, "linux", "objcopy").linux(self.linux_arch, "release")
 
-    @unittest.skipUnless(shutil.which("cmake"), "CMake build graph fixture unavailable")
-    def test_buildkit_rebuilds_existing_output_after_builder_change(self):
-        source = self.repo / "incremental_fixture"
-        cmake_source = source / "linux"
-        cmake_source.mkdir(parents=True)
-        buildkit = source / "plugins/setup/buildkit"
-        (buildkit / "cmake").mkdir(parents=True)
-        original = TOOL.parent / "plugins/setup/buildkit/cmake/buildkit.cmake"
-        shutil.copyfile(original, buildkit / "cmake/buildkit.cmake")
-        builder = buildkit / "build_tool/lib/src/go_builder.dart"
-        builder.parent.mkdir(parents=True)
-        builder.write_text("first policy\n")
-        launcher = buildkit / "run_build_tool.sh"
-        launcher.write_text('''#!/bin/sh
-set -eu
-mkdir -p "$PROJECT_DIR/libclash/linux"
-cat "$PROJECT_DIR/plugins/setup/buildkit/build_tool/lib/src/go_builder.dart" > "$PROJECT_DIR/libclash/linux/FlClashCore"
-''')
-        launcher.chmod(0o755)
-        (cmake_source / "CMakeLists.txt").write_text('''cmake_minimum_required(VERSION 3.13)
-project(build_graph NONE)
-include("../plugins/setup/buildkit/cmake/buildkit.cmake")
-apply_buildkit()
-''')
-        native = self.build / "incremental"
-        def run(command):
-            result = subprocess.run(command, capture_output=True, text=True)
-            self.assertEqual(result.returncode, 0, result.stderr)
-        run(["cmake", "-S", str(cmake_source), "-B", str(native), "-DCMAKE_BUILD_TYPE=Release"])
-        command = ["cmake", "--build", str(native), "--target", "setup_buildkit_build"]
-        run(command)
-        output = source / "libclash/linux/FlClashCore"
-        self.assertEqual(output.read_text(), "first policy\n")
-        # Keep timestamps ordered even on filesystems with coarse resolution.
-        timestamp = output.stat().st_mtime - 2
-        os.utime(output, (timestamp, timestamp))
-        builder.write_text("updated linker policy\n")
-        run(command)
-        self.assertEqual(output.read_text(), "updated linker policy\n")
+    # The deleted Buildkit CMake bootstrap is no longer executed. Native Assets
+    # cache/companion invalidation is covered by setup_hooks build_cache tests.
 
     def test_output_symlink_is_rejected(self):
         external = self.repo / "external"
@@ -369,7 +352,7 @@ install(TARGETS handler_target RUNTIME DESTINATION "${{CMAKE_INSTALL_PREFIX}}/bi
             self.assertEqual(full["build_id"], small["build_id"])
         # Rust/Go copies must use the same real-path guard as CMake targets,
         # rather than stripping an outside intermediate through an alias.
-        for relative in ("FlClashCore", "lib/librust_api.so"):
+        for relative in ("FlClashHelperService", "lib/librust_api.so"):
             original = native / (Path(relative).name + "-unstripped-source")
             shutil.copyfile(native / "FlClash", original)
             before = original.read_bytes()

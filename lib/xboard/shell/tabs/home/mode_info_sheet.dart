@@ -7,7 +7,7 @@
 /// （与线路分组类型说明同源，改一处全改）。纯 UI，无 provider 依赖。
 library;
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 import '../../../widgets/xb_components.dart' show XbInfoSheet, XbInfoItem;
 import '../../sheets/sheet_scaffold.dart' show showXbInfoPopup;

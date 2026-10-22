@@ -6,7 +6,7 @@
 /// + token 存储，全链路零重写（自有代码不经 adapter）。
 library;
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:fl_clash/xboard/config/xboard_config.dart';

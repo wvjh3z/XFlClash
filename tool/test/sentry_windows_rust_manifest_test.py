@@ -1,86 +1,91 @@
 #!/usr/bin/env python3
-"""Configure a tiny CMake graph; do not build a Windows client or Rust crate."""
-import os
+"""CMake declarations plus Native Assets handoff; no Windows client compilation."""
 import io
-from unittest import mock
+import json
+import os
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
+from unittest import mock
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from prepare_sentry_windows_assets import prepare_windows_assets
+from upload_sentry_symbols import SymbolError
+
+HELPER = Path(__file__).resolve().parents[2] / 'windows/xboard_sentry_symbols.cmake'
 
 
-HELPER = Path(__file__).resolve().parents[2] / "windows/xboard_sentry_symbols.cmake"
-
-
-@unittest.skipUnless(shutil.which("cmake") and (os.name == "nt" or shutil.which("c++")),
-                     "CMake fixture compiler unavailable")
 class RustManifestTests(unittest.TestCase):
-    def configure(self, mode="Release", rust=True, outputs=1):
-        temporary = tempfile.TemporaryDirectory(prefix="sentry-rust-pdb-中文-")
-        self.addCleanup(temporary.cleanup)
-        root = Path(temporary.name).resolve()
-        (root / "fixture.cpp").write_text("int main() { return 0; }\n", encoding="utf-8")
-        # Exercise the real generator expressions and manifest construction on
-        # Linux too. This is a configuration test, not an MSVC compilation claim.
-        project = ["cmake_minimum_required(VERSION 3.20)", "project(Fixture CXX)",
-                   "if(CMAKE_CONFIGURATION_TYPES)",
-                   'set(CMAKE_CONFIGURATION_TYPES "Release;Profile" CACHE STRING "" FORCE)',
-                   "endif()",
-                   'set(CMAKE_EXE_LINKER_FLAGS_PROFILE "${CMAKE_EXE_LINKER_FLAGS_RELEASE}")',
-                   'set(CMAKE_SHARED_LINKER_FLAGS_PROFILE "${CMAKE_SHARED_LINKER_FLAGS_RELEASE}")',
-                   'set(CMAKE_C_FLAGS_PROFILE "${CMAKE_C_FLAGS_RELEASE}")',
-                   'set(CMAKE_CXX_FLAGS_PROFILE "${CMAKE_CXX_FLAGS_RELEASE}")',
-                   f"set(CMAKE_BUILD_TYPE {mode})", "set(MSVC TRUE)",
-                   "set(CMAKE_CXX_COMPILER_ID MSVC)", "set(CMAKE_CXX_LINKER_SUPPORTS_PDB TRUE)",
-                   "add_executable(FlClash fixture.cpp)",
-                   "add_library(flutter_inappwebview_windows_plugin SHARED fixture.cpp)"]
-        if rust:
-            project.append("add_custom_target(rust_api_cargokit)")
-            binaries = [f'"${{CMAKE_BINARY_DIR}}/rust{index}/$<CONFIG>/rust_api.dll"'
-                        for index in range(outputs)]
-            project.append("set(rust_api_bundled_libraries " + " ".join(binaries) + ")")
-        helper = root / '中文 helper.cmake'
-        shutil.copyfile(HELPER, helper)
-        project.append('include("' + helper.as_posix() + '")')
-        (root / "CMakeLists.txt").write_text("\n".join(project) + "\n", encoding="utf-8")
-        result = subprocess.run(["cmake", "-S", str(root), "-B", str(root / "build")],
-                                capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60)
-        return root, result
+    def fixture(self):
+        temp=tempfile.TemporaryDirectory(prefix='sentry-rust-中文-');self.addCleanup(temp.cleanup)
+        root=Path(temp.name);build=root/'build';bundle=build/'windows/x64/runner/Release';bundle.mkdir(parents=True)
+        for name in ['FlClash.exe','rust_api.dll','FlClashHelperService.exe']:(bundle/name).write_bytes(b'matching')
+        manifest=build/'windows/x64/sentry-symbols/Release/targets.tsv';manifest.parent.mkdir(parents=True)
+        manifest.write_text(f'FlClash\t{bundle/"FlClash.exe"}\t{bundle/"FlClash.pdb"}\n',encoding='utf-8')
+        hook=build/'sentry-hook-inputs/windows/x64';hook.mkdir(parents=True)
+        (hook/'rust_api.dll').write_bytes(b'matching');(hook/'rust_api.pdb').write_bytes(b'matching')
+        (hook/'manifest.json').write_text(json.dumps({'schema_version':1,'platform':'windows','architecture':'x64','binary':'rust_api.dll','companions':['rust_api.pdb']}))
+        helper=root/'services/helper/target/x86_64-pc-windows-msvc/release/helper.pdb';helper.parent.mkdir(parents=True);helper.write_bytes(b'matching')
+        return build,bundle,hook,manifest
 
-    def test_local_rust_dll_is_paired_with_its_pdb_for_both_configs(self):
-        for mode in ("Release", "Profile"):
+    def check(self, cli, path, kind):
+        return {'debug_ids':[path.read_bytes().decode('ascii')], 'architectures':['x86_64']}
+
+    def test_real_postbuild_handoff_is_idempotent_and_copies_helper(self):
+        build,bundle,hook,manifest=self.fixture()
+        with mock.patch('prepare_sentry_windows_assets.check_symbol',side_effect=self.check):
+            prepare_windows_assets(build,'fixture-cli');first=manifest.read_bytes()
+            prepare_windows_assets(build,'fixture-cli')
+        self.assertEqual(first,manifest.read_bytes())
+        rows=[row.split('\t') for row in first.decode().splitlines()]
+        self.assertEqual({r[0] for r in rows},{'FlClash','rust_api','FlClashHelperService'})
+        self.assertTrue(all(Path(row[2]).is_relative_to(build) for row in rows))
+        self.assertEqual((build/'sentry-hook-inputs/windows/helper/helper.pdb').read_bytes(),b'matching')
+
+    def test_missing_or_wrong_runtime_and_pdb_fail_before_success(self):
+        for mode in ('missing_pdb','wrong_pdb','wrong_runtime','missing_helper'):
             with self.subTest(mode=mode):
-                root, result = self.configure(mode=mode)
-                self.assertEqual(result.returncode, 0, result.stderr)
-                rows = (root / f"build/sentry-symbols/{mode}/targets.tsv").read_text(encoding="utf-8").splitlines()
-                rust = [row.split("\t") for row in rows if row.startswith("rust_api\t")]
-                self.assertEqual(len(rust), 1)
-                self.assertEqual(Path(rust[0][1]), root / f"build/rust0/{mode}/rust_api.dll")
-                self.assertEqual(Path(rust[0][2]), root / f"build/rust0/{mode}/rust_api.pdb")
+                build,bundle,hook,manifest=self.fixture();before=manifest.read_bytes()
+                if mode=='missing_pdb':(hook/'rust_api.pdb').unlink()
+                if mode=='wrong_pdb':(hook/'rust_api.pdb').write_bytes(b'wrong')
+                if mode=='wrong_runtime':(bundle/'rust_api.dll').write_bytes(b'wrong')
+                if mode=='missing_helper':(bundle/'FlClashHelperService.exe').unlink()
+                with mock.patch('prepare_sentry_windows_assets.check_symbol',side_effect=self.check),self.assertRaises((SymbolError,ValueError)):
+                    prepare_windows_assets(build,'fixture-cli')
+                self.assertEqual(manifest.read_bytes(),before)
 
-    def test_actual_chinese_fixture_ignores_cp1252_default(self):
-        with mock.patch.object(io, 'text_encoding', side_effect=lambda encoding, *a: encoding or 'cp1252'):
-            root, result = self.configure()
-            self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertIn('中文', str(root))
-            self.assertIn('rust_api', (root / 'build/sentry-symbols/Release/targets.tsv').read_text(encoding='utf-8'))
+    def test_matching_debug_id_with_wrong_architecture_is_rejected(self):
+        build,bundle,hook,manifest=self.fixture()
+        def wrong_arch(cli,path,kind):
+            info=self.check(cli,path,kind)
+            if path.name=='rust_api.pdb':info['architectures']=['arm64']
+            return info
+        with mock.patch('prepare_sentry_windows_assets.check_symbol',side_effect=wrong_arch),self.assertRaisesRegex(SymbolError,'architecture'):
+            prepare_windows_assets(build,'fixture-cli')
 
-    def test_missing_rust_output_is_a_configuration_failure(self):
-        _, result = self.configure(outputs=0)
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("requires one matching DLL/PDB", result.stderr)
+    @unittest.skipUnless(shutil.which('cmake') and (os.name=='nt' or shutil.which('c++')), 'CMake compiler unavailable')
+    def test_cmake_owns_native_targets_but_has_no_deleted_cargokit_target(self):
+        for mode in ('Release','Profile'):
+            temp=tempfile.TemporaryDirectory(prefix='cmake-中文-');self.addCleanup(temp.cleanup);root=Path(temp.name)
+            (root/'fixture.cpp').write_text('int main(){return 0;}\n')
+            (root/'CMakeLists.txt').write_text(f'''cmake_minimum_required(VERSION 3.20)
+project(Fixture CXX)
+set(CMAKE_BUILD_TYPE {mode})
+set(CMAKE_CONFIGURATION_TYPES "Release;Profile" CACHE STRING "" FORCE)
+set(CMAKE_EXE_LINKER_FLAGS_PROFILE "${{CMAKE_EXE_LINKER_FLAGS_RELEASE}}")
+set(MSVC TRUE)
+set(CMAKE_CXX_COMPILER_ID MSVC)
+set(CMAKE_CXX_LINKER_SUPPORTS_PDB TRUE)
+add_executable(FlClash fixture.cpp)
+include("{HELPER.as_posix()}")
+''',encoding='utf-8')
+            with mock.patch.object(io,'text_encoding',side_effect=lambda encoding,*a:encoding or 'cp1252'):
+                result=subprocess.run(['cmake','-S',str(root),'-B',str(root/'build')],capture_output=True,text=True,encoding='utf-8',errors='replace',timeout=60)
+            self.assertEqual(result.returncode,0,result.stderr)
+            rows=(root/f'build/sentry-symbols/{mode}/targets.tsv').read_text(encoding='utf-8')
+            self.assertIn('FlClash\t',rows);self.assertNotIn('rust_api\t',rows)
 
-    def test_ambiguous_rust_outputs_are_a_configuration_failure(self):
-        _, result = self.configure(outputs=2)
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("requires one matching DLL/PDB", result.stderr)
 
-    def test_graph_without_rust_has_no_phantom_rust_requirement(self):
-        root, result = self.configure(rust=False)
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertNotIn("rust_api", (root / "build/sentry-symbols/Release/targets.tsv").read_text(encoding="utf-8"))
-
-
-if __name__ == "__main__":
-    unittest.main()
+if __name__=='__main__':unittest.main()

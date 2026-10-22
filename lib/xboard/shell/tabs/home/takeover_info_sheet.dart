@@ -6,7 +6,7 @@
 /// **共用组件**：复用 [XbInfoSheet]（与代理模式 / 分组类型说明同源，改一处全改）。纯 UI。
 library;
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 import '../../../widgets/xb_components.dart' show XbInfoSheet, XbInfoItem;
 import '../../sheets/sheet_scaffold.dart' show showXbInfoPopup;

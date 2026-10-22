@@ -5,7 +5,7 @@
 /// 修复（套滚动）后回归不复发。
 library;
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:fl_clash/xboard/widgets/xb_components.dart' show XbEmptyState;

@@ -5,7 +5,7 @@ library;
 
 import 'dart:io';
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -62,8 +62,8 @@ ProxiesTabState _tab() => const ProxiesTabState(
         ),
       ],
       currentGroupName: '智能优选',
-      proxyCardType: ProxyCardType.expand,
-      columns: 2,
+      proxyCardType: ProxyCardType.standard,
+
     );
 
 Future<void> pumpHome(

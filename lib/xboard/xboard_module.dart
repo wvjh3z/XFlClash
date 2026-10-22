@@ -692,8 +692,8 @@ class XboardModule {
 
   /// #1（监测）：initProvider==true 时幂等兜底检查 `FlutterError.onError` 链。
   ///
-  /// FlClash `globalState.attach()` → `_initApp` 在 runApp **后**硬设 `FlutterError.onError`，
-  /// state 在赋值后立即重链，覆盖初始化完成前的窗口；本监听在 attach 完成后再作幂等兜底。
+  /// v0.9.1 在 main 早期监测之前设置底座 handler，bootstrap.attach 不再覆盖。
+  /// 本监听确认 SDK handler 仍在位；没有后续覆盖时不新增捕获 wrapper。
   /// 一次性（首次 initProvider==true 后关监听）；dsn 空时 rechain 内部 no-op。
   static void _wireSentryRechain(ProviderContainer container) {
     if (container.read(initProvider)) {

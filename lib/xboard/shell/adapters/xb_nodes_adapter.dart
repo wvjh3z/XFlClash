@@ -3,25 +3,19 @@
 /// **职责（风险②b 收口）**：把 FlClash 节点分组 / 选中 / 选择写回 / 刷新竞速收口。
 /// - `nodesView`：从 `proxiesTabStateProvider` 投影**轻量** `XbNodesView`（分组名 + 数量 +
 ///   当前选中，全 primitive，不让 FlClash `Group`/`Proxy` 类型穿透到 Tab，防风险②类型耦合）。
-/// - `groupView(name)`：返回**直接复用**的 FlClash `ProxyGroupView`（它内含 `ProxyCard`，
-///   已封装节点行渲染 + 选择两步），节点页 body 直接挂它（◆ 经 adapter 复用）。
-/// - `selectNode`：⚠️ **必须两步**（card.dart:103-112 同源）——① `updateCurrentSelectedMap`
-///   持久化选择 ② `changeProxyDebounce` 调 core 切换 + reset/close 连接。只调一步会让
-///   UI/core/持久化脱节（design 风险②）。
+/// - `selectNode`：复用新版 changeProxyDebounce，由底座统一保存乐观选择、切换与回滚。
+/// - 节点页面继续使用 Xboard 自有组件；旧的未使用 groupView helper 已退役。
 /// - `refresh` / `testGroupDelay`：并发池竞速（`runPooledConcurrent`，始终保持并发 10、
 ///   慢节点不阻塞其余），调单节点 `proxyDelayTest`（不碰上游 `delayTest` 的 100 并发实现）。
 library;
 
-import 'package:fl_clash/common/common.dart' show utils;
-import 'package:fl_clash/common/compute.dart' show computeRealSelectedProxyState;
-import 'package:fl_clash/core/core.dart' show coreController;
+import 'package:fl_clash/common/compute.dart'
+    show computeRealSelectedProxyState;
+import 'package:fl_clash/providers/core.dart' show coreHandlerProvider;
 import 'package:fl_clash/models/models.dart' show Delay, Group, GroupExt, Proxy;
 import 'package:fl_clash/providers/providers.dart';
-import 'package:fl_clash/views/proxies/common.dart' as proxies_common;
-import 'package:fl_clash/views/proxies/tab.dart' show ProxyGroupView;
-import 'package:fl_clash/enum/enum.dart'
-    show GroupType, GroupName, Mode, ProxyCardType;
-import 'package:flutter/material.dart';
+import 'package:fl_clash/enum/enum.dart' show GroupType, GroupName, Mode;
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../tabs/home/home_latency_provider.dart';
@@ -154,9 +148,7 @@ class XbNodesAdapter {
   ///
   /// 全空（无任何组/节点）→ (null, null)。
   ({String? node, String? group}) currentSelection(WidgetRef ref) {
-    final mode = ref.watch(
-      patchClashConfigProvider.select((s) => s.mode),
-    );
+    final mode = ref.watch(patchClashConfigProvider.select((s) => s.mode));
     final groups = ref.watch(groupsProvider);
     if (groups.isEmpty) return (node: null, group: null);
     final selectedMap = ref.watch(selectedMapProvider);
@@ -182,7 +174,8 @@ class XbNodesAdapter {
     String? parentGroup;
     final seen = <String>{}; // 防环。
     while (cur != null && seen.add(cur.name)) {
-      final hasExplicit = selectedMap.containsKey(cur.name) &&
+      final hasExplicit =
+          selectedMap.containsKey(cur.name) &&
           selectedMap[cur.name]!.isNotEmpty;
       // 每层选中优先级：
       // ① 用户显式选择（selectedMap 有值）→ 尊重（含主动选 DIRECT）；
@@ -203,7 +196,8 @@ class XbNodesAdapter {
     }
     // 最终仍落在内置项（如整组只有 DIRECT 且非用户显式）→ 视为未选。
     if (leaf != null && builtin.contains(leaf)) {
-      final rootExplicit = parentGroup != null &&
+      final rootExplicit =
+          parentGroup != null &&
           selectedMap[parentGroup]?.isNotEmpty == true &&
           builtin.contains(selectedMap[parentGroup]);
       if (!rootExplicit) return (node: null, group: null);
@@ -240,12 +234,12 @@ class XbNodesAdapter {
   }
 
   XbGroupKind _kindOf(GroupType type) => switch (type) {
-        GroupType.URLTest => XbGroupKind.urlTest,
-        GroupType.Selector => XbGroupKind.selector,
-        GroupType.Fallback => XbGroupKind.fallback,
-        GroupType.LoadBalance => XbGroupKind.loadBalance,
-        GroupType.Relay => XbGroupKind.relay,
-      };
+    GroupType.URLTest => XbGroupKind.urlTest,
+    GroupType.Selector => XbGroupKind.selector,
+    GroupType.Fallback => XbGroupKind.fallback,
+    GroupType.LoadBalance => XbGroupKind.loadBalance,
+    GroupType.Relay => XbGroupKind.relay,
+  };
 
   /// 某节点当前延迟（ms）；null = 未测 / 0 = 测速中 / >0 ms / <0 超时（语义同 FlClash）。
   /// 经本 adapter 收口 `delayProvider`（适配层铁律，Tab 不直接 import FlClash provider）。
@@ -281,15 +275,17 @@ class XbNodesAdapter {
       int? best;
       try {
         for (var i = 0; i < rounds; i++) {
-          final d = await coreController.getDelay(testUrl, proxyName);
-          final v = d.value;
+          final d = await ref
+              .read(coreHandlerProvider)
+              .getDelay(testUrl, proxyName);
+          final v = d?.value;
           if (v != null && v > 0 && (best == null || v < best)) best = v;
         }
       } finally {
         // 把最低值写回全局延迟表（节点页显示最低，覆盖 core onDelay 推送的中间值），再解除转圈。
-        ref.read(proxiesActionProvider.notifier).setDelay(
-              Delay(url: testUrl, name: proxyName, value: best ?? -1),
-            );
+        ref
+            .read(proxiesActionProvider.notifier)
+            .setDelay(Delay(url: testUrl, name: proxyName, value: best ?? -1));
         measuring.finish(proxyName);
       }
       home.setResult(best); // null/失败 → 清空显示
@@ -358,8 +354,13 @@ class XbNodesAdapter {
     return explicit == null || explicit.isEmpty;
   }
 
-  /// 延迟着色（复用 FlClash `utils.getDelayColor`，口径一致）。
-  Color? delayColor(int? delay) => utils.getDelayColor(delay);
+  /// 保留品牌既有的原始延迟阈值与颜色，不对显示值换算后再判断。
+  Color? delayColor(int? delay) {
+    if (delay == null) return null;
+    if (delay < 0) return Colors.red;
+    if (delay < 600) return Colors.green;
+    return const Color(0xFFC57F0A);
+  }
 
   /// 并发上限（测延迟/刷新）：并发池始终保持最多 [_kDelayConcurrency] 个在跑，任一完成补下一个。
   /// 比上游 `delayTest` 的 100 并发更克制（避免瞬时打满连接）；慢节点只占 1 个槽不阻塞其余。
@@ -392,27 +393,28 @@ class XbNodesAdapter {
     final measuring = container.read(xbMeasuringNodesProvider.notifier);
     final total = proxies.length;
     var done = 0;
-    await runPooledConcurrent<Proxy>(
-      proxies,
-      _kDelayConcurrency,
-      (p) async {
-        // 整轮（含失败重试）保持测速态，避免 -1 → 转圈 → 延迟的中间跳变。
-        measuring.start(p.name);
-        try {
-          for (var attempt = 1; attempt <= _kDelayGroupMaxAttempts; attempt++) {
-            await testNode(ref, proxyName: p.name, type: p.type, testUrl: testUrl);
-            final v = container.read(
-              delayProvider(proxyName: p.name, testUrl: testUrl),
-            );
-            if (v == null || v >= 0) break; // 非超时（成功/无值）→ 停
-          }
-        } finally {
-          measuring.finish(p.name);
+    await runPooledConcurrent<Proxy>(proxies, _kDelayConcurrency, (p) async {
+      // 整轮（含失败重试）保持测速态，避免 -1 → 转圈 → 延迟的中间跳变。
+      measuring.start(p.name);
+      try {
+        for (var attempt = 1; attempt <= _kDelayGroupMaxAttempts; attempt++) {
+          await testNode(
+            ref,
+            proxyName: p.name,
+            type: p.type,
+            testUrl: testUrl,
+          );
+          final v = container.read(
+            delayProvider(proxyName: p.name, testUrl: testUrl),
+          );
+          if (v == null || v >= 0) break; // 非超时（成功/无值）→ 停
         }
-        done++;
-        onProgress?.call(done, total);
-      },
-    );
+      } finally {
+        measuring.finish(p.name);
+      }
+      done++;
+      onProgress?.call(done, total);
+    });
   }
 
   /// 测速本分组所有节点（点分组头「测延迟」触发，只测该组，不波及其它组）。
@@ -431,8 +433,13 @@ class XbNodesAdapter {
       orElse: () => throw ArgumentError('group not found: $groupName'),
     );
     final container = ProviderScope.containerOf(ref.context, listen: false);
-    await _delayTestPooled(ref, container, group.all, group.testUrl,
-        onProgress: onProgress);
+    await _delayTestPooled(
+      ref,
+      container,
+      group.all,
+      group.testUrl,
+      onProgress: onProgress,
+    );
   }
 
   /// 单节点测速（点击节点行延迟数字触发）。复用 `proxyDelayTest`。
@@ -442,38 +449,13 @@ class XbNodesAdapter {
     required String type,
     String? testUrl,
   }) async {
-    await proxies_common.proxyDelayTest(
-      Proxy(name: proxyName, type: type),
-      testUrl,
-    );
+    await ref
+        .read(proxiesActionProvider.notifier)
+        .proxyDelayTest(Proxy(name: proxyName, type: type), testUrl);
   }
 
-  /// 返回直接复用的 FlClash 分组视图（含 ProxyCard 选择两步）。
-  ///
-  /// 节点页 body 直接挂它（◆ 经 adapter 复用，不自己拼节点行）。
-  /// [columns] 列数、[cardType] 卡片形态由 Tab 传（默认从 tabState 取）。
-  Widget groupView(
-    WidgetRef ref,
-    String groupName, {
-    int? columns,
-    ProxyCardType? cardType,
-  }) {
-    final tabState = ref.read(proxiesTabStateProvider);
-    final group = tabState.groups.firstWhere(
-      (g) => g.name == groupName,
-      orElse: () => throw ArgumentError('group not found: $groupName'),
-    );
-    return ProxyGroupView(
-      group: group,
-      columns: columns ?? tabState.columns,
-      cardType: cardType ?? tabState.proxyCardType,
-    );
-  }
-
-  /// 选择节点（⚠️ 两步，card.dart:103-112 同源，缺一步则 UI/core/持久化脱节）。
-  ///
-  /// ① `profilesActionProvider.updateCurrentSelectedMap`（持久化选择）
-  /// ② `proxiesActionProvider.changeProxyDebounce`（调 core 切换 + reset/close 连接）
+  /// 选择节点：复用 v0.9.1 changeProxyDebounce。底座统一管理乐观选择、
+  /// 持久化、core 切换、失败回滚和 reset/close 连接，不再提前重复写 selectedMap。
   ///
   /// [computed] = url-test/fallback 计算选择组：点当前已选项 → 传空串「解锁」恢复自动；
   /// 点其它 → 锁定该节点。selector 组 [computed]=false：直接选中。
@@ -486,9 +468,7 @@ class XbNodesAdapter {
     final next = computed
         ? (ref.read(proxyNameProvider(groupName)) == proxyName ? '' : proxyName)
         : proxyName;
-    ref
-        .read(profilesActionProvider.notifier)
-        .updateCurrentSelectedMap(groupName, next);
+    // v0.9.1 changeProxyDebounce owns the optimistic selection and rollback.
     ref
         .read(proxiesActionProvider.notifier)
         .changeProxyDebounce(groupName, next);
@@ -525,8 +505,8 @@ final xbNodesAdapterProvider = Provider<XbNodesAdapter>(
 /// 节点页据此转圈并屏蔽中间结果；同名节点全部在途测试结束后才显示原始结果的换算值。
 final xbMeasuringNodesProvider =
     NotifierProvider<XbMeasuringNodesNotifier, Set<String>>(
-  XbMeasuringNodesNotifier.new,
-);
+      XbMeasuringNodesNotifier.new,
+    );
 
 /// 测速中节点集合 Notifier。
 class XbMeasuringNodesNotifier extends Notifier<Set<String>> {

@@ -4,7 +4,7 @@
 /// 流量/到期提醒已并入「我的」Tab 账号卡）。本文件保留的是形态 A 仍依赖的可观测性 / i18n 地基。
 library;
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 
@@ -19,10 +19,12 @@ void main() {
     SentryBootstrap.resetForTest();
     await SentryBootstrap.installEarly(dsn: null, release: '1.0');
     expect(SentryBootstrap.isEnabled, isFalse);
-    // 脱敏纯函数在 device 行为一致。
-    final scrubbed = SentryBootstrap.scrubData({'token': 'x', 'plan': 'Pro'});
-    expect(scrubbed['token'], '***');
-    expect(scrubbed['plan'], 'Pro');
+    expect(
+      () => SentryBootstrap.captureException(
+        StateError('disabled monitoring fixture'),
+      ),
+      returnsNormally,
+    );
   });
 
   testWidgets('W8.9/W8.8 三层 locale 一致性（device）', (t) async {

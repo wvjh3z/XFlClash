@@ -1,7 +1,7 @@
 /// 自绘节点分组 [XbNodeGroup] 单测：类型标签 + 「自动」标记 + 只读组 + 类型说明 sheet。
 library;
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 

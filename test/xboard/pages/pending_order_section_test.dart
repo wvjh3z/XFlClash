@@ -1,7 +1,7 @@
 /// 待支付订单横幅区块单测：有 pending 订单显示横幅 + 两按钮；无则收起。
 library;
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';

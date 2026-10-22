@@ -3,7 +3,7 @@
 /// 覆盖：三项渲染 / 点击回调 index / 选中态主题色。
 library;
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:fl_clash/xboard/shell/widgets/xb_bottom_bar.dart';

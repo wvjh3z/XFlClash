@@ -10,7 +10,7 @@
 /// **复用框架**：XbBrandScaffold / XbAsyncView(骨架 list) / XbCard / XbEmptyState。
 library;
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/xb_invite.dart';

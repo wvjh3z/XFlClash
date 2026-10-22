@@ -5,12 +5,13 @@
 /// 测试用 groupsProvider/selectedMap/mode override；currentGroupName 走「首个非 GLOBAL」回退。
 library;
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:fl_clash/enum/enum.dart';
-import 'package:fl_clash/models/models.dart' show Group, Proxy, PatchClashConfig;
+import 'package:fl_clash/models/models.dart'
+    show Group, Proxy, PatchClashConfig;
 import 'package:fl_clash/providers/app.dart';
 import 'package:fl_clash/providers/config.dart';
 import 'package:fl_clash/providers/state.dart';
@@ -33,22 +34,25 @@ Future<void> pumpCard(
       groupsProvider.overrideWithValue(groups),
       selectedMapProvider.overrideWith((ref) => selectedMap),
       currentProfileProvider.overrideWith((ref) => null),
-      patchClashConfigProvider
-          .overrideWithBuild((ref, _) => PatchClashConfig(mode: mode)),
+      patchClashConfigProvider.overrideWithBuild(
+        (ref, _) => PatchClashConfig(mode: mode),
+      ),
     ],
   );
   addTearDown(container.dispose);
   container.read(bootstrapReadyProvider.notifier).set(true);
-  container.read(coreStatusProvider.notifier).value =
-      isStart ? CoreStatus.connected : CoreStatus.disconnected;
+  container.read(coreStatusProvider.notifier).value = isStart
+      ? CoreStatus.connected
+      : CoreStatus.disconnected;
   await tester.pumpWidget(
     UncontrolledProviderScope(
       container: container,
       child: MaterialApp(
         home: Scaffold(
-            body: XbLineCard(
-                onTapToNodes:
-                    onTap == null ? null : (group, node) => onTap())),
+          body: XbLineCard(
+            onTapToNodes: onTap == null ? null : (group, node) => onTap(),
+          ),
+        ),
       ),
     ),
   );
@@ -57,19 +61,22 @@ Future<void> pumpCard(
 
 /// 单层 selector 组（now 由 core 填，未连接则空）。
 List<Group> _singleGroup({String? now}) => [
-      Group(
-        type: GroupType.Selector,
-        name: '智能优选',
-        now: now,
-        all: const [Proxy(name: '香港01', type: 'ss'), Proxy(name: '香港02', type: 'ss')],
-      ),
-    ];
+  Group(
+    type: GroupType.Selector,
+    name: '智能优选',
+    now: now,
+    all: const [
+      Proxy(name: '香港01', type: 'ss'),
+      Proxy(name: '香港02', type: 'ss'),
+    ],
+  ),
+];
 
 void main() {
   testWidgets('已连接 → 上行节点名 + 下行「当前分组：X」（now 来自 core）', (tester) async {
     await pumpCard(tester, isStart: true, groups: _singleGroup(now: '香港01'));
-    expect(find.text('香港01'), findsOneWidget);
-    expect(find.text('当前分组：智能优选'), findsOneWidget);
+    expect(find.text('香港01', findRichText: true), findsOneWidget);
+    expect(find.text('当前分组：智能优选', findRichText: true), findsOneWidget);
   });
 
   testWidgets('未连接(now 全空) → 沿 selectedMap 链下钻显示叶子节点 + 所属分组', (tester) async {
@@ -81,7 +88,10 @@ void main() {
         Group(
           type: GroupType.Selector,
           name: '智能优选',
-          all: [Proxy(name: '香港', type: 'Selector'), Proxy(name: '日本', type: 'Selector')],
+          all: [
+            Proxy(name: '香港', type: 'Selector'),
+            Proxy(name: '日本', type: 'Selector'),
+          ],
         ),
         Group(
           type: GroupType.Selector,
@@ -90,12 +100,11 @@ void main() {
         ),
       ],
     );
-    expect(find.text('🇭🇰 香港 BGP 02'), findsOneWidget);
-    expect(find.text('当前分组：香港'), findsOneWidget);
+    expect(find.text('🇭🇰 香港 BGP 02', findRichText: true), findsOneWidget);
+    expect(find.text('当前分组：香港', findRichText: true), findsOneWidget);
   });
 
-  testWidgets('未连接 + selectedMap 无该组 → 回退首个真实节点（不再显示「未选择」）',
-      (tester) async {
+  testWidgets('未连接 + selectedMap 无该组 → 回退首个真实节点（不再显示「未选择」）', (tester) async {
     // 用户从未手选、core 未运行：仍应显示该组首个真实节点（跳过 DIRECT 等内置）。
     await pumpCard(
       tester,
@@ -104,13 +113,16 @@ void main() {
         Group(
           type: GroupType.Selector,
           name: '智能优选',
-          all: [Proxy(name: 'DIRECT', type: 'Direct'), Proxy(name: '香港01', type: 'ss')],
+          all: [
+            Proxy(name: 'DIRECT', type: 'Direct'),
+            Proxy(name: '香港01', type: 'ss'),
+          ],
         ),
       ],
     );
-    expect(find.text('香港01'), findsOneWidget);
-    expect(find.text('当前分组：智能优选'), findsOneWidget);
-    expect(find.text('未选择线路'), findsNothing);
+    expect(find.text('香港01', findRichText: true), findsOneWidget);
+    expect(find.text('当前分组：智能优选', findRichText: true), findsOneWidget);
+    expect(find.text('未选择线路', findRichText: true), findsNothing);
   });
 
   testWidgets('全局模式首次 → 入口取 GLOBAL 组 + 回退默认节点', (tester) async {
@@ -128,25 +140,32 @@ void main() {
         Group(
           type: GroupType.Selector,
           name: 'GLOBAL',
-          all: [Proxy(name: '🇯🇵 东京 01', type: 'ss'), Proxy(name: '香港01', type: 'ss')],
+          all: [
+            Proxy(name: '🇯🇵 东京 01', type: 'ss'),
+            Proxy(name: '香港01', type: 'ss'),
+          ],
         ),
       ],
     );
     // GLOBAL 组首个真实节点。
-    expect(find.text('🇯🇵 东京 01'), findsOneWidget);
-    expect(find.text('当前分组：GLOBAL'), findsOneWidget);
+    expect(find.text('🇯🇵 东京 01', findRichText: true), findsOneWidget);
+    expect(find.text('当前分组：GLOBAL', findRichText: true), findsOneWidget);
   });
 
   testWidgets('无任何分组 → 占位「未选择线路」', (tester) async {
     await pumpCard(tester, isStart: false, groups: const []);
-    expect(find.text('未选择线路'), findsOneWidget);
-    expect(find.text('连接后自动优选'), findsOneWidget);
+    expect(find.text('未选择线路', findRichText: true), findsOneWidget);
+    expect(find.text('连接后自动优选', findRichText: true), findsOneWidget);
   });
 
   testWidgets('点击 → 触发切节点 Tab 回调', (tester) async {
     var tapped = false;
-    await pumpCard(tester,
-        isStart: true, groups: _singleGroup(now: '香港01'), onTap: () => tapped = true);
+    await pumpCard(
+      tester,
+      isStart: true,
+      groups: _singleGroup(now: '香港01'),
+      onTap: () => tapped = true,
+    );
     await tester.tap(find.byType(XbLineCard));
     expect(tapped, isTrue);
   });
@@ -165,10 +184,13 @@ void main() {
             all: [Proxy(name: '🇭🇰 香港 BGP 02', type: 'ss')],
           ),
         ]),
-        selectedMapProvider.overrideWith((ref) => const {'香港': '🇭🇰 香港 BGP 02'}),
+        selectedMapProvider.overrideWith(
+          (ref) => const {'香港': '🇭🇰 香港 BGP 02'},
+        ),
         currentProfileProvider.overrideWith((ref) => null),
-        patchClashConfigProvider
-            .overrideWithBuild((ref, _) => const PatchClashConfig(mode: Mode.rule)),
+        patchClashConfigProvider.overrideWithBuild(
+          (ref, _) => const PatchClashConfig(mode: Mode.rule),
+        ),
       ],
     );
     addTearDown(container.dispose);

@@ -3,7 +3,7 @@ library;
 
 import 'dart:async';
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
@@ -92,8 +92,8 @@ Future<_Fixture> _pumpShell(WidgetTester tester, {required bool mobile}) async {
         (ref) => const ProxiesTabState(
           groups: [],
           currentGroupName: null,
-          proxyCardType: ProxyCardType.expand,
-          columns: 2,
+          proxyCardType: ProxyCardType.standard,
+
         ),
       ),
       netDetectionOverride(),

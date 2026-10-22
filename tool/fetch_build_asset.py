@@ -57,9 +57,10 @@ def retry_delay(error, attempt):
 
 def download_asset(destination: Path, source_url: str, size_limit: int, *, token: str = "") -> None:
     url = urlsplit(source_url)
-    if (url.scheme != "https" or url.netloc not in ("api.github.com", "github.com")
+    if (url.scheme != "https" or (url.netloc not in ("api.github.com", "github.com")
+            and source_url != "https://curl.se/ca/cacert-2026-09-25.pem")
             or url.query or url.fragment):
-        raise RuntimeError("Build asset must use an approved HTTPS GitHub URL")
+        raise RuntimeError("Build asset must use an approved fixed HTTPS source")
     if token and (url.netloc != "api.github.com"
                   or not url.path.startswith("/repos/AppImage/AppImageKit/releases/assets/")
                   or not url.path.rsplit("/", 1)[-1].isdigit()):

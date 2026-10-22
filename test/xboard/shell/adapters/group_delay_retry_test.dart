@@ -3,7 +3,7 @@ library;
 
 import 'dart:async';
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -82,8 +82,7 @@ pumpRetryGroup(
         (ref) => ProxiesTabState(
           groups: groups,
           currentGroupName: 'HK',
-          proxyCardType: ProxyCardType.expand,
-          columns: 1,
+          proxyCardType: ProxyCardType.standard,
         ),
       ),
       realTestUrlProvider(_url).overrideWithValue(_url),
@@ -212,6 +211,7 @@ void main() {
     final measuring = h.container.read(xbMeasuringNodesProvider.notifier);
     measuring.start('HK1'); // 模拟首页仍在测同名节点。
     final task = h.adapter.testGroupDelay(h.ref, 'HK');
+    await tester.pump();
     h.adapter.attempts.last.result.complete(120);
     await tester.pump();
     await task;
@@ -244,6 +244,7 @@ void main() {
     final h = await pumpRetryGroup(tester);
     final task = h.adapter.testGroupDelay(h.ref, 'HK');
     final assertion = expectLater(task, throwsStateError);
+    await tester.pump();
     h.adapter.attempts.last.result.completeError(StateError('test failure'));
     await tester.pump();
     await assertion;
@@ -266,6 +267,7 @@ void main() {
   testWidgets('批量刷新共用重试状态，慢节点不阻塞并发池补位', (tester) async {
     final h = await pumpRetryGroup(tester, nodeCount: 11);
     final task = h.adapter.refresh(h.ref, groupName: 'HK');
+    await tester.pump();
     expect(h.adapter.attempts.length, 10);
     final first = List.of(h.adapter.attempts);
     first.first.result.complete(-1);

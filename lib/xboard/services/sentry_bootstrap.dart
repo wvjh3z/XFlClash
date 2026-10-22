@@ -4,8 +4,8 @@
 /// 在主 Flutter 进程安装原生崩溃处理器；Android `:remote` 服务和 Linux 独立 Go 内核进程
 /// 不由此初始化，不能据此声称其崩溃已自动捕获。main 在读取持久化选择后、Rust/globalState
 /// 初始化之前装配；Flutter binding、偏好读取和 Sentry 自身初始化之前仍没有此层覆盖。
-/// FlClash 的 `attach()` 会重设 `FlutterError.onError`，故设置完底座 handler 后同步调用
-/// [rechainFlutterError]，先上报再调底座处理器；initProvider 监听仍作幂等兜底。
+/// v0.9.1 在 main 的早期监测初始化前设置底座 handler；bootstrap.attach 不再覆盖它。
+/// [rechainFlutterError] 保留为 initProvider 就绪时的幂等兜底，不重复包裹 SDK handler。
 ///
 /// **当前配置**：sendDefaultPii=false + tracesSampleRate=0；事件、面包屑和标签
 /// 保留原始诊断内容，不安装自定义脱敏回调。`dsn==null`（dev / 用户 opt-out）全 no-op。
@@ -360,10 +360,9 @@ class SentryBootstrap {
 
   /// 底座设置自己的 handler 后立即重链 `FlutterError.onError`。
   ///
-  /// FlClash 在 `globalState.attach()`（runApp 后、晚于 [installEarly]）里硬设
-  /// `FlutterError.onError = commonPrint`，覆盖 SentryFlutter 集成装的 handler。本方法在这一
-  /// 赋值后同步调用，initProvider==true 时再作幂等兜底：取当前底座 handler 包一层 ——
-  /// 先 `Sentry.captureException` 再调 FlClash handler，二者都不丢。dsn 空 → no-op；幂等可重复调。
+  /// v0.9.1 的 handler 安装早于 Sentry，attach 不再赋值。initProvider 就绪时
+  /// 检查 SDK handler 身份并直接返回；仅后续第三方替换 handler 时才补回上报链。
+  /// dsn 空时 no-op；重复调用不会重复捕获同一个异常。
   static void rechainFlutterError() {
     if (!_enabled) return;
     final flclashHandler = FlutterError.onError;

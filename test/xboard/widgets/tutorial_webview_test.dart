@@ -2,7 +2,7 @@ import 'dart:io';
 
 import 'package:fl_clash/xboard/widgets/tutorial_webview.dart';
 import 'package:fl_clash/xboard/services/xboard_release_dio.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:flutter_inappwebview_windows/flutter_inappwebview_windows.dart';

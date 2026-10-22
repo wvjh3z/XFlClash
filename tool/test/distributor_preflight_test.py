@@ -57,18 +57,22 @@ class ColdStartTests(unittest.TestCase):
         self.base = Path(self.temp.name).resolve(); self.root = self.base/'source'; self.root.mkdir()
         git(self.root,'init','--quiet','--template=')
         for path in ('tool/distributor_preflight.py','tool/prepare_linux_packager.py',
-                     'tool/patches/flutter_distributor_appimage.patch'):
+                     'tool/patches/flutter_distributor_appimage.patch', 'tool/checkout_distributor.py',
+                     'tool/pub_get_retry.py', 'tool/owned_process_cleanup.py'):
             dest = self.root/path; dest.parent.mkdir(parents=True,exist_ok=True)
             shutil.copyfile(ROOT/path,dest)
         (self.root/'pub').write_text(PUB,encoding='utf-8')
         probe = self.root/'tool/test/packager_context_test.py'; probe.parent.mkdir()
         probe.write_text("import os,sys\nsys.exit(25 if os.environ.get('FIXTURE_FAILURE') == 'platform' else 0)\n",encoding='utf-8')
         (self.root/'.gitignore').write_text('build/\n.dart_tool/\n.local-build/\n',encoding='utf-8')
-        module = self.root/'plugins/flutter_distributor'; module.parent.mkdir()
-        subprocess.run(['git','clone','--quiet','--shared',str(ROOT/'plugins/flutter_distributor'),str(module)],check=True,capture_output=True)
-        sha=git(module,'rev-parse','HEAD').decode().strip()
+        from checkout_distributor import RELATIVE, URL
+        module = self.root / RELATIVE
+        module.parent.mkdir(parents=True)
+        source = ROOT / RELATIVE
+        subprocess.run(['git','clone','--quiet','--shared',str(source),str(module)],check=True,capture_output=True)
+        fetch = self.root/'tool/checkout_distributor.py'
+        fetch.write_text(fetch.read_text(encoding='utf-8').replace(repr(URL),repr(source.as_uri())),encoding='utf-8')
         git(self.root,'add','tool','pub','.gitignore')
-        git(self.root,'update-index','--add','--cacheinfo','160000',sha,'plugins/flutter_distributor')
         git(self.root,'-c','user.name=fixture','-c','user.email=fixture@example.invalid','commit','--quiet','-m','fixture')
         self.report=self.base/'reports/cold.json'
         self.env={**os.environ,'PUB_CACHE':str(self.base/'old-cache')}
@@ -133,17 +137,17 @@ class ColdStartTests(unittest.TestCase):
         source=self.root
         shallow=self.base/'shallow'
         subprocess.run(['git','clone','--quiet','--depth=1',source.as_uri(),str(shallow)],check=True,capture_output=True)
-        module=shallow/'plugins/flutter_distributor'
-        subprocess.run(['git','clone','--quiet','--depth=1',(source/'plugins/flutter_distributor').as_uri(),str(module)],check=True,capture_output=True)
         self.assertEqual(git(shallow,'rev-parse','--is-shallow-repository').strip(),b'true')
-        self.assertEqual(git(module,'rev-parse','--is-shallow-repository').strip(),b'true')
         self.root=shallow
         self.assertTrue(self.run_cold().data['temporary_workspace_removed'])
 
-    def test_missing_pinned_submodule_commit_fails_without_falling_back_to_head(self):
-        git(self.root,'update-index','--cacheinfo','160000','1'*40,'plugins/flutter_distributor')
+    def test_missing_immutable_tool_commit_fails_before_activation(self):
+        source=self.root/'tool/prepare_linux_packager.py'
+        from prepare_linux_packager import PINNED_REVISION
+        source.write_text(source.read_text(encoding='utf-8').replace(PINNED_REVISION,'1'*40),encoding='utf-8')
+        git(self.root,'add','tool/prepare_linux_packager.py')
         git(self.root,'-c','user.name=fixture','-c','user.email=fixture@example.invalid','commit','--quiet','-m','bad pin')
-        with self.assertRaisesRegex(entry.PreflightError,'stage_failed:checkout-distributor'):self.run_cold()
+        with self.assertRaisesRegex(entry.PreflightError,'stage_failed:prepare'):self.run_cold()
         data=json.loads(self.report.read_text(encoding='utf-8'))
         self.assertFalse(data['passed'])
         self.assertNotIn('activate',[s['name'] for s in data['steps']])
@@ -211,7 +215,8 @@ class ColdStartTests(unittest.TestCase):
     def test_dirty_source_refused_before_pub_activation(self):
         # Direct formal entry also fails closed; cold cloning cannot conceal a
         # modified submodule used by the actual production activation.
-        source=self.root/'plugins/flutter_distributor/packages/flutter_distributor/pubspec.yaml'
+        from checkout_distributor import RELATIVE
+        source=self.root/RELATIVE/'packages/flutter_distributor/pubspec.yaml'
         source.write_bytes(source.read_bytes()+b'\nchanged\n')
         runner=entry.Runner(self.report)
         with mock.patch.object(entry,'native_dart',return_value=sys.executable):

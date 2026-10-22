@@ -4,7 +4,7 @@
 /// 用 `overrideWithBuild` 在 provider 层注入初始 mode（避免 build 期改 provider / pending timer）。
 library;
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 

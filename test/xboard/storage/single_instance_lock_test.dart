@@ -107,8 +107,9 @@ void main() {
       expect(gate, greaterThan(helper));
       for (final initialization in [
         'await XboardModule.initializeMonitoringEarly',
+        'AtomicFilePreferencesStore(',
         'await RustLib.init()',
-        'await globalState.init(version)',
+        'await bootstrap.init(version)',
       ]) {
         expect(main.indexOf(initialization), greaterThan(gate));
       }

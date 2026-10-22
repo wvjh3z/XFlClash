@@ -7,7 +7,7 @@
 /// 复刻 application.dart 接缝点表达式（不全量启动 Application，避免 Manager 链 / 原生依赖）。
 library;
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -76,8 +76,8 @@ Future<void> pumpGate(
       proxiesTabStateProvider.overrideWith((ref) => const ProxiesTabState(
             groups: [],
             currentGroupName: null,
-            proxyCardType: ProxyCardType.expand,
-            columns: 2,
+            proxyCardType: ProxyCardType.standard,
+
           )),
       patchClashConfigProvider
           .overrideWithBuild((ref, _) => const PatchClashConfig()),

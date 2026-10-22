@@ -5,7 +5,7 @@
 /// bootstrap 容器提供）；否则子树读 FlClash app-state provider（path_provider/DB）会抛。
 library;
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -38,8 +38,8 @@ ProviderContainer _container() {
       proxiesTabStateProvider.overrideWith((ref) => const ProxiesTabState(
             groups: [],
             currentGroupName: null,
-            proxyCardType: ProxyCardType.expand,
-            columns: 2,
+            proxyCardType: ProxyCardType.standard,
+
           )),
       patchClashConfigProvider
           .overrideWithBuild((ref, _) => const PatchClashConfig()),

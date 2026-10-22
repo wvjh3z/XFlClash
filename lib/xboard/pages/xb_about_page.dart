@@ -5,7 +5,7 @@
 library;
 
 import 'package:fl_clash/xboard/widgets/xb_emoji_text.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:fl_clash/xboard/config/xboard_config.dart';
@@ -27,10 +27,7 @@ class XbAboutPage extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    return XbBrandScaffold(
-      title: '关于',
-      body: _AboutBody(),
-    );
+    return XbBrandScaffold(title: '关于', body: _AboutBody());
   }
 }
 
@@ -61,11 +58,13 @@ class _AboutBodyState extends ConsumerState<_AboutBody> {
           ref.read(availableUpdateProvider.notifier).set(info);
           showXbUpdateDialog(context, info);
         case UpdateNotAvailable():
-          XbCenterToast.show(context, '已是最新版本 ✓',
-              icon: Icons.check_circle_outline);
+          XbCenterToast.show(
+            context,
+            '已是最新版本 ✓',
+            icon: Icons.check_circle_outline,
+          );
         case UpdateCheckFailed():
-          XbCenterToast.show(context, '检查失败，请稍后重试',
-              icon: Icons.error_outline);
+          XbCenterToast.show(context, '检查失败，请稍后重试', icon: Icons.error_outline);
       }
     } finally {
       if (mounted) setState(() => _checking = false);
@@ -86,130 +85,161 @@ class _AboutBodyState extends ConsumerState<_AboutBody> {
           child: Column(
             children: [
               // App Logo
-          Container(
-            width: 76,
-            height: 76,
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(20),
-              gradient: LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [
-                  Color(XboardConfig.current.brandColor).withValues(alpha: 0.85),
-                  Color(XboardConfig.current.brandColor),
-                ],
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color: Color(XboardConfig.current.brandColor)
-                      .withValues(alpha: 0.25),
-                  blurRadius: 24,
-                  offset: const Offset(0, 8),
+              Container(
+                width: 76,
+                height: 76,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(20),
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [
+                      Color(
+                        XboardConfig.current.brandColor,
+                      ).withValues(alpha: 0.85),
+                      Color(XboardConfig.current.brandColor),
+                    ],
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Color(
+                        XboardConfig.current.brandColor,
+                      ).withValues(alpha: 0.25),
+                      blurRadius: 24,
+                      offset: const Offset(0, 8),
+                    ),
+                  ],
                 ),
-              ],
-            ),
-            child: const Center(
-              child: Text('M',
-                  style: TextStyle(
+                child: const Center(
+                  child: Text(
+                    'M',
+                    style: TextStyle(
                       fontSize: 34,
                       fontWeight: FontWeight.w900,
-                      color: Colors.white)),
-            ),
-          ),
-          const SizedBox(height: 16),
-          // App Name
-          Text(XboardConfig.current.appName,
-              style: TextStyle(
+                      color: Colors.white,
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              // App Name
+              Text(
+                XboardConfig.current.appName,
+                style: TextStyle(
                   fontSize: 19,
                   fontWeight: FontWeight.w700,
-                  color: scheme.onSurface)),
-          const SizedBox(height: 4),
-          // Version
-          Text(myClientVersionLabel(),
-              style: TextStyle(fontSize: 13, color: scheme.onSurfaceVariant)),
-          const SizedBox(height: 2),
-          Text('内核 FlClash 0.8.93',
-              style: TextStyle(fontSize: 11, color: scheme.onSurfaceVariant)),
-          const SizedBox(height: 24),
-          // Check Update Button（原型 .achk：限宽 300 居中）。
-          ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 300),
-            child: SizedBox(
-              width: double.infinity,
-              child: FilledButton(
-                onPressed: _checking ? null : _checkForUpdate,
-                style: FilledButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(vertical: 13),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(14),
-                  ),
+                  color: scheme.onSurface,
                 ),
-                child: _checking
-                    ? const SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(
-                            strokeWidth: 2, color: Colors.white))
-                    : const Text('检查更新',
-                        style: TextStyle(
-                            fontSize: 14, fontWeight: FontWeight.w600)),
               ),
-            ),
-          ),
-          // Update available pill
-          if (hasUpdate)
-            Padding(
-              padding: const EdgeInsets.only(top: 14),
-              child: Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 14, vertical: 5),
-                decoration: BoxDecoration(
-                  color: const Color(0x1E2E8B57),
-                  border: Border.all(color: const Color(0x4D2E8B57)),
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: const XbEmojiText(
-                  '🎉 有新版本啦',
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                    color: Color(0xFF2E8B57),
+              const SizedBox(height: 4),
+              // Version
+              Text(
+                myClientVersionLabel(),
+                style: TextStyle(fontSize: 13, color: scheme.onSurfaceVariant),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                '内核 FlClash 0.9.1',
+                style: TextStyle(fontSize: 11, color: scheme.onSurfaceVariant),
+              ),
+              const SizedBox(height: 24),
+              // Check Update Button（原型 .achk：限宽 300 居中）。
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 300),
+                child: SizedBox(
+                  width: double.infinity,
+                  child: FilledButton(
+                    onPressed: _checking ? null : _checkForUpdate,
+                    style: FilledButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 13),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                    ),
+                    child: _checking
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.white,
+                            ),
+                          )
+                        : const Text(
+                            '检查更新',
+                            style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
                   ),
                 ),
               ),
-            ),
-          const SizedBox(height: 32),
-          // Links section（原型 .alinks：minelist 卡，限宽 340 居中）。
-          ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 340),
-            child: XbListCard(
-              rows: [
-                XbListRow(
-                  icon: Icons.gavel,
-                  label: '免责声明',
-                  onTap: () => xbPush(context, const DisclaimerPage(),
-                      brandColor: xbBrandColor()),
+              // Update available pill
+              if (hasUpdate)
+                Padding(
+                  padding: const EdgeInsets.only(top: 14),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 5,
+                    ),
+                    decoration: BoxDecoration(
+                      color: const Color(0x1E2E8B57),
+                      border: Border.all(color: const Color(0x4D2E8B57)),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: const XbEmojiText(
+                      '🎉 有新版本啦',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: Color(0xFF2E8B57),
+                      ),
+                    ),
+                  ),
                 ),
-                XbListRow(
-                  icon: Icons.description_outlined,
-                  label: '用户协议',
-                  onTap: () => xbPush(context, const TermsPage(),
-                      brandColor: xbBrandColor()),
+              const SizedBox(height: 32),
+              // Links section（原型 .alinks：minelist 卡，限宽 340 居中）。
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 340),
+                child: XbListCard(
+                  rows: [
+                    XbListRow(
+                      icon: Icons.gavel,
+                      label: '免责声明',
+                      onTap: () => xbPush(
+                        context,
+                        const DisclaimerPage(),
+                        brandColor: xbBrandColor(),
+                      ),
+                    ),
+                    XbListRow(
+                      icon: Icons.description_outlined,
+                      label: '用户协议',
+                      onTap: () => xbPush(
+                        context,
+                        const TermsPage(),
+                        brandColor: xbBrandColor(),
+                      ),
+                    ),
+                    XbListRow(
+                      icon: Icons.shield_outlined,
+                      label: '隐私政策',
+                      onTap: () => xbPush(
+                        context,
+                        const PrivacyPage(),
+                        brandColor: xbBrandColor(),
+                      ),
+                    ),
+                  ],
                 ),
-                XbListRow(
-                  icon: Icons.shield_outlined,
-                  label: '隐私政策',
-                  onTap: () => xbPush(context, const PrivacyPage(),
-                      brandColor: xbBrandColor()),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 24),
-          Text(
-            '© 2025 ${XboardConfig.current.appName} · All rights reserved',
-            style: TextStyle(fontSize: 10, color: scheme.onSurfaceVariant),
-          ),
+              ),
+              const SizedBox(height: 24),
+              Text(
+                '© 2025 ${XboardConfig.current.appName} · All rights reserved',
+                style: TextStyle(fontSize: 10, color: scheme.onSurfaceVariant),
+              ),
             ],
           ),
         ),
@@ -217,4 +247,3 @@ class _AboutBodyState extends ConsumerState<_AboutBody> {
     );
   }
 }
-

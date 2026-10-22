@@ -14,7 +14,7 @@
 /// 数字乱跳，直接显示当前帧最直观（用户验证后定稿）。
 library;
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:fl_clash/xboard/util/format.dart' show xbLatencyDisplay;

@@ -1,7 +1,7 @@
 /// XbNodeGroup 进入定位：长列表注入假数据，断言选中节点滚动到视口尽量居中（靠边就近）。
 library;
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 

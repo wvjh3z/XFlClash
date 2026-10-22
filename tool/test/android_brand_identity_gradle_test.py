@@ -2,7 +2,7 @@
 """Real prepare_flavor CLI -> Gradle Kotlin DSL identity regression.
 
 Runs only an isolated Gradle check task, without AGP or Android compilation.
-Needs prepared Dart packages and Java 17. Prepares checksum-pinned Gradle 8.13
+Needs prepared Dart packages and Java 17. Prepares checksum-pinned Gradle matching the tracked wrapper
 in a private fixture; public inputs only, never reads real flavor secrets.
 """
 import hashlib
@@ -142,7 +142,11 @@ sentryDsn: "PRIVATE_FIXTURE_SENTINEL"
 import groovy.json.JsonOutput
 import java.security.MessageDigest
 ''' + helper + '''
-class Flavor { var dimension = ""; var applicationId = ""; val manifestPlaceholders = mutableMapOf<String, Any>() }
+class Flavor {
+ var dimension = ""; var applicationId = ""; val manifestPlaceholders = mutableMapOf<String, Any>()
+ val resValues = mutableMapOf<Pair<String,String>,String>()
+ fun resValue(type: String, name: String, value: String) { resValues[type to name] = value }
+}
 class Flavors {
  val values = mutableMapOf<String, Flavor>()
  fun create(name: String, body: Flavor.() -> Unit) { values[name] = Flavor().apply(body) }
@@ -178,6 +182,7 @@ tasks.register("checkBrandIdentity") {
     check(identity["appId"] == want["appId"])
     check(configured[brand]!!.applicationId == want["appId"])
     check(configured[brand]!!.manifestPlaceholders["appName"] == want["appName"])
+    check(configured[brand]!!.resValues["string" to "app_name"] == want["appName"])
     val yaml = File(root,"flavors/$brand/flavor.yaml")
     val original = yaml.readBytes()
     yaml.appendText("\\n# changed source\\n", Charsets.UTF_8)
@@ -196,6 +201,7 @@ tasks.register("checkBrandIdentity") {
     val unconfigured = configureActualFlavors().values[brand]!!
     check(unconfigured.applicationId == "com.follow.clash")
     check(unconfigured.manifestPlaceholders["appName"] == "FlClash")
+    check(unconfigured.resValues["string" to "app_name"] == "FlClash")
     yaml.writeBytes(original)
    }
   }

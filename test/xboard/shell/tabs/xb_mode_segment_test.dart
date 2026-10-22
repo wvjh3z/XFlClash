@@ -3,7 +3,7 @@
 /// 覆盖：仅显示智能/全局（隐藏 direct）/ 当前选中映射 / ⓘ 弹说明 sheet / 游客态 dim。
 library;
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 

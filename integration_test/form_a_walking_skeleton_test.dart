@@ -9,14 +9,15 @@
 /// 容器提供），否则子树抛异常被 XbErrorBoundary 兜住 = 看不到内容（这本身证明 R1.7 有效）。
 library;
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:fl_clash/enum/enum.dart' show CoreStatus, ProxyCardType, Mode;
-import 'package:fl_clash/models/models.dart' show PatchClashConfig, ProxiesTabState;
+import 'package:fl_clash/models/models.dart'
+    show PatchClashConfig, ProxiesTabState;
 import 'package:fl_clash/providers/app.dart';
 import 'package:fl_clash/providers/config.dart';
 import 'package:fl_clash/providers/state.dart';
@@ -30,11 +31,10 @@ import 'package:fl_clash/xboard/shell/xboard_app_shell.dart';
 import '_fake_integration_service.dart';
 
 ProxiesTabState _emptyTab() => const ProxiesTabState(
-      groups: [],
-      currentGroupName: null,
-      proxyCardType: ProxyCardType.expand,
-      columns: 2,
-    );
+  groups: [],
+  currentGroupName: null,
+  proxyCardType: ProxyCardType.standard,
+);
 
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
@@ -47,22 +47,23 @@ void main() {
   });
 
   Widget app(ProviderContainer container) => UncontrolledProviderScope(
-        container: container,
-        child: const MaterialApp(home: XboardAppShell()),
-      );
+    container: container,
+    child: const MaterialApp(home: XboardAppShell()),
+  );
 
   /// 补齐 HomeTab/NodesTab 子树依赖的 FlClash provider（真 app 由 bootstrap 容器提供）。
   ProviderContainer makeContainer(AuthState auth) => ProviderContainer(
-        overrides: [
-          xboardServiceProvider.overrideWithValue(service),
-          bootstrapReadyProvider.overrideWith(() => _Ready()),
-          authStateProvider.overrideWith(() => _Auth(auth)),
-          isStartProvider.overrideWith((ref) => false),
-          proxiesTabStateProvider.overrideWith((ref) => _emptyTab()),
-          patchClashConfigProvider
-              .overrideWithBuild((ref, _) => const PatchClashConfig()),
-        ],
-      );
+    overrides: [
+      xboardServiceProvider.overrideWithValue(service),
+      bootstrapReadyProvider.overrideWith(() => _Ready()),
+      authStateProvider.overrideWith(() => _Auth(auth)),
+      isStartProvider.overrideWith((ref) => false),
+      proxiesTabStateProvider.overrideWith((ref) => _emptyTab()),
+      patchClashConfigProvider.overrideWithBuild(
+        (ref, _) => const PatchClashConfig(),
+      ),
+    ],
+  );
 
   /// 点底栏某 Tab（用 XbBottomBar 内的 label，避开页面标题同名歧义）。
   Future<void> tapTab(WidgetTester t, String label) async {
@@ -75,7 +76,8 @@ void main() {
   }
 
   testWidgets('formA 外壳：首页 连接球/速度卡渲染 + 三 Tab 切换 + 保活', (t) async {
-    final original = ErrorWidget.builder; // shell.initState 装友好 builder，body 末还原
+    final original =
+        ErrorWidget.builder; // shell.initState 装友好 builder，body 末还原
     final container = makeContainer(AuthState.authenticated);
     addTearDown(container.dispose);
     container.read(coreStatusProvider.notifier).value = CoreStatus.disconnected;
@@ -116,9 +118,13 @@ void main() {
     expect(find.text('忘记密码？'), findsOneWidget);
     ErrorWidget.builder = original;
   });
+
   /// 不 override patchClashConfigProvider 的容器（写穿真内核 config）。
   /// 设备上 core/DB 可用，changeMode/normalize 可真跑（headless 单测因 path_provider 跑不了）。
-  ProviderContainer makeContainerRealConfig(AuthState auth, {Mode? initialMode}) {
+  ProviderContainer makeContainerRealConfig(
+    AuthState auth, {
+    Mode? initialMode,
+  }) {
     final c = ProviderContainer(
       overrides: [
         xboardServiceProvider.overrideWithValue(service),
@@ -138,11 +144,14 @@ void main() {
     return c;
   }
 
-  testWidgets('内核写穿（设备）：点「全局」段 → 写穿真内核 patchClashConfig（Property 4）',
-      (t) async {
+  testWidgets('内核写穿（设备）：点「全局」段 → 写穿真内核 patchClashConfig（Property 4）', (
+    t,
+  ) async {
     final original = ErrorWidget.builder;
-    final container = makeContainerRealConfig(AuthState.authenticated,
-        initialMode: Mode.rule);
+    final container = makeContainerRealConfig(
+      AuthState.authenticated,
+      initialMode: Mode.rule,
+    );
     addTearDown(container.dispose);
 
     await t.pumpWidget(app(container));
@@ -166,16 +175,20 @@ void main() {
     ErrorWidget.builder = original;
   });
 
-  testWidgets('内核写穿（设备）：进首页 direct → 归一纠正为 rule（design 风险② direct 坑）',
-      (t) async {
+  testWidgets('内核写穿（设备）：进首页 direct → 归一纠正为 rule（design 风险② direct 坑）', (
+    t,
+  ) async {
     final original = ErrorWidget.builder;
     // 内核初始 = direct（formA 二选一无法表达）。
-    final container = makeContainerRealConfig(AuthState.authenticated,
-        initialMode: Mode.direct);
+    final container = makeContainerRealConfig(
+      AuthState.authenticated,
+      initialMode: Mode.direct,
+    );
     addTearDown(container.dispose);
 
     await t.pumpWidget(app(container));
-    await t.pumpAndSettle(); // HomeTab.initState postFrame 触发 normalizeDirectIfNeeded
+    await t
+        .pumpAndSettle(); // HomeTab.initState postFrame 触发 normalizeDirectIfNeeded
 
     // 进首页后 direct 被纠正为 rule（写穿真内核）。
     expect(container.read(patchClashConfigProvider).mode, Mode.rule);

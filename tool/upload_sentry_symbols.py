@@ -130,8 +130,10 @@ def audit_windows(cli: str, build_root: Path) -> tuple[list[Path], list[dict]]:
         raise SymbolError("Windows manifest omitted a distributed native plugin")
     if (bundle / "rust_api.dll").is_file() and "rust_api" not in targets:
         raise SymbolError("Windows manifest omitted the distributed Rust PDB")
+    if (bundle / "FlClashHelperService.exe").is_file() and "FlClashHelperService" not in targets:
+        raise SymbolError("Windows manifest omitted the distributed helper PDB")
     for target, binary in binaries.items():
-        if target == "FlClash" or target == "rust_api" or target.endswith("_plugin") or (bundle / binary.name).is_file():
+        if target == "FlClash" or target in {"rust_api", "librust_api.dylib", "rust_api.dylib"} or target.endswith("_plugin") or (bundle / binary.name).is_file():
             installed = bundle / binary.name
             if not installed.is_file() or fingerprint(installed)["sha256"] != fingerprint(binary)["sha256"]:
                 raise SymbolError(f"Bundle does not contain the matching native binary: {target}")
@@ -150,7 +152,7 @@ def _windows_native_limits(build_root: Path, evidence: list[dict]) -> list[dict]
         if not path.is_file():
             continue
         if path.name in {"FlClashCore.exe", "FlClashHelperService.exe"}:
-            source, reason = "go", "separate_process_no_sentry_sdk"
+            source, reason = ("go" if path.name == "FlClashCore.exe" else "rust_helper"), "separate_process_no_sentry_sdk"
         elif path.suffix.lower() == ".dll" and path.name not in owned:
             source, reason = "prebuilt", "external_debug_companion_unavailable"
         else:
@@ -206,13 +208,12 @@ def _audit_native_inventory(build_root: Path, platform: str, entries: list[dict]
                 continue
             if not any((directory / marker).is_file() for marker in ("libapp.so", "libflutter.so")):
                 continue
-            for target in ("libcore.so", "libclash.so"):
+            for target in ("libclash.so", "librust_api.so"):
                 if not (directory / target).is_file():
                     raise SymbolError("APK runtime inventory is missing a mandatory owned module")
                 expected.add((target, abi))
-            # rust_api is not an Android Flutter plugin in this project. It is
-            # mandatory only when a future/package-specific build ships it.
-            for target in {"librust_api.so"} | SENTRY_ANDROID_TARGETS:
+            # Sentry prefab coverage follows the actual shipped modules.
+            for target in SENTRY_ANDROID_TARGETS:
                 if (directory / target).is_file():
                     expected.add((target, abi))
             for binary in directory.glob("*.so"):
@@ -343,7 +344,7 @@ def audit_elf_native(cli: str, build_root: Path, platform: str) -> tuple[list[Pa
         required.add(identity)
     if not required <= seen:
         raise SymbolError("Native manifest omitted a required debug companion")
-    static_targets = {"libcore.so", "libclash.so"} if platform == "android" else {"FlClash", "librust_api.so"}
+    static_targets = {"libclash.so", "librust_api.so"} if platform == "android" else {"FlClash", "librust_api.so"}
     for architecture in {architecture for _, architecture in seen}:
         if not {(target, architecture) for target in static_targets} <= required:
             raise SymbolError("Native manifest omitted mandatory owned module coverage")
@@ -419,7 +420,7 @@ def audit_macos(cli: str, build_root: Path) -> tuple[list[Path], list[dict], lis
         target = "runner" if actual == runner else _safe_label(path.name, "Mach-O target")
         product_names = {parent.name for parent in path.parents if parent.suffix == ".framework"}
         product_names.add(path.name)
-        expected_source = ("runner" if target == "runner" else "rust" if target == "rust_api"
+        expected_source = ("runner" if target == "runner" else "rust" if target in {"rust_api", "librust_api.dylib", "rust_api.dylib"}
                            else "go" if target == "FlClashCore" else next(
                                (owned_sources[name] for name in product_names if name in owned_sources), "prebuilt"))
         for architecture, info in _macho_variants(path).items():
@@ -428,13 +429,13 @@ def audit_macos(cli: str, build_root: Path) -> tuple[list[Path], list[dict], lis
                 raise SymbolError("Duplicate or non-runtime Mach-O inside the app bundle")
             inventory[identity] = {"binary": actual, "info": info,
                                    "owned": bool(product_names & owned_products)
-                                            or target in {"runner", "rust_api", "FlClashCore"},
+                                            or target in {"runner", "rust_api", "librust_api.dylib", "rust_api.dylib", "FlClashCore"},
                                    "source": expected_source,
                                    "dart": "App.framework" in product_names}
     if not any(target == "runner" for target, _ in inventory):
         raise SymbolError("macOS app executable is missing from its native inventory")
-    if not any(target == "rust_api" for target, _ in inventory):
-        raise SymbolError("macOS app is missing its required Rust framework")
+    if not any(target in {"rust_api", "librust_api.dylib", "rust_api.dylib"} for target, _ in inventory):
+        raise SymbolError("macOS app is missing its required Rust Native Asset")
     entries, required_entries, limitations = manifest.get("artifacts"), manifest.get("required"), manifest.get("limitations", [])
     if not isinstance(entries, list) or not entries or not isinstance(required_entries, list) or not required_entries or not isinstance(limitations, list):
         raise SymbolError("macOS manifest must enumerate companions, requirements and limitations")

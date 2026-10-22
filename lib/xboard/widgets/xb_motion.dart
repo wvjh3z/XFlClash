@@ -10,7 +10,7 @@
 /// 会被 `pumpAndSettle` 收敛到终态;**不在 golden 屏用循环动画**(那会让 pumpAndSettle 卡死)。
 library;
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 /// 动效 token：统一时长 + 缓动曲线。
 class XbMotion {

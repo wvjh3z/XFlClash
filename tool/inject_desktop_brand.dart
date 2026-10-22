@@ -24,7 +24,7 @@
 //      about.dart）。本地跑后 `git checkout` 还原（committed 永远是 FlClash）。
 //   Android 启动图标走 prepare_flavor（本工具 android:false / ios:false）。
 //   3) 按目标平台复制已校验的 system_icons：Windows 三态 ICO、Linux 三态 PNG、
-//      macOS 单色 template PNG。共用 PNG 路径不能混用两个平台的素材。
+//      macOS 单色 template PNG；写入新平台目录及 DPI 变体，安全模式复用停止图标。
 //
 // 用法：
 //   dart run tool/inject_desktop_brand.dart --flavor brand_a --platform windows --build-number 29 [--check]

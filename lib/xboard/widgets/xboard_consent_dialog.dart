@@ -14,7 +14,7 @@
 /// Schema 升级（DD-22 / κ-1）：未来 GDPR 政策变更升 `xb_consent_v2` key 重新弹。
 library;
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 

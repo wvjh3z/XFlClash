@@ -59,7 +59,7 @@ final class XboardConnectivityProvider
 }
 
 String _$xboardConnectivityHash() =>
-    r'11ec2d1a815bc42e5489722a3435b1d2b12b46f7';
+    r'e44d906edada4a777ccb6adfc395a6c0770c3b24';
 
 /// 是否离线（派生）—— `none` 在结果集中即视为离线（ζ9 跨平台一致）。
 ///

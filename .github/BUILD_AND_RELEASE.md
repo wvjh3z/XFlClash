@@ -4,7 +4,7 @@
 
 # XFlclash 品牌构建与发布入口
 
-XFlclash 当前维护形态 A 商业客户端，FlClash 底座仍为 **v0.8.93**。产品展示版本、底座版本、构建号及 APK 原生版本分别核对，不能用一个“版本号”代替全部发布输入。
+XFlclash 当前维护形态 A 商业客户端，本独立分支的 FlClash 底座目标为 **v0.9.1**，正式成品仍待验收。产品展示版本、底座版本、构建号及 APK 原生版本分别核对，不能用一个“版本号”代替全部发布输入。
 
 完整流程由 [DEVELOPMENT](https://github.com/wvjh3z/proxy-suite-docs/blob/main/DEVELOPMENT.md#多品牌构建和版本) 和 [Android release skill](https://github.com/wvjh3z/proxy-suite-docs/blob/main/skills/xflclash-android-release/SKILL.md) 唯一维护。本页是客户端仓库的导航与检查摘要。Docs 仓库及 [SDK](https://github.com/wvjh3z/Xboard_sdk) 为私有仓库，需要维护者授予 GitHub 访问权限；本地分别 checkout 为客户端平级的 `Docs/` 和 `Xboard_sdk/`。
 
@@ -18,7 +18,7 @@ XFlclash 当前维护形态 A 商业客户端，FlClash 底座仍为 **v0.8.93**
 | 模块分析、测试与接缝检查 | [Xboard CI](workflows/xboard-ci.yml) | 手动运行一套检查，不重复构建客户端 |
 | Sentry 后台维护 | [Sentry maintenance](workflows/sentry-maintenance.yml) | 独立管理后台，不编译客户端 |
 
-`tool/` 中的品牌注入、SDK checkout、原生库存、符号生成与上传工具是上述入口的依赖；`plugins/setup/buildkit`、`plugins/rust_api/cargokit` 是工程构建调用的 Go/Rust 工具，不能按“不是直接执行的入口”删除。`dart setup.dart <platform>` 保留为底座工具，品牌正式包使用上表入口。
+`tool/` 中的品牌注入、SDK checkout、原生库存、符号生成与上传工具是上述入口的依赖；Go/Rust 已迁到 `plugins/setup/hook`、`plugins/setup/setup_hooks`、`plugins/rust_api/hook` 与 Android gomobile Gradle；旧 Buildkit/Cargokit 残留已退役。`dart setup.dart <platform>` 保留为底座工具，品牌正式包使用上表入口。
 
 旧上游发布 workflow、Telegram 脚本及配套模板已退役；旧形态 A diff 守卫并入统一接缝白名单。macOS 临时 manifest/Xcode 对照工具已从当前树删除，生产中的依赖解析、库存及受控符号探针继续保留。历史脚本可从 Git 历史追溯，不维护另一份旧入口。
 

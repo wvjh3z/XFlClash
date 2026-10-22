@@ -41,6 +41,13 @@ const _ourAdditions = <String>[
   'lib/xboard/',
   'test/',
   'integration_test/',
+  'test_driver/native_upgrade_chain.dart',
+  // Self-owned Native Assets helpers/tests; the upstream hook calls stay registered.
+  'plugins/rust_api/hook/xboard_symbols.dart',
+  'plugins/rust_api/test/xboard_symbols_test.dart',
+  'plugins/setup/setup_hooks/lib/src/xboard_symbols.dart',
+  'plugins/setup/setup_hooks/test/xboard_symbols_test.dart',
+  'plugins/setup/setup_hooks/test/xboard_encoding_test.dart',
   'tool/',
   'flavors/',
   '.githooks/',

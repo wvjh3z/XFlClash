@@ -4,7 +4,7 @@
 /// （golden 像素基线在 CI 环境生成；此处用结构性断言保证深浅色双跑不崩 + 取色自主题。）
 library;
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -25,8 +25,8 @@ class _FakeAuth extends AuthStateNotifier {
 ProxiesTabState _emptyTab() => const ProxiesTabState(
       groups: [],
       currentGroupName: null,
-      proxyCardType: ProxyCardType.expand,
-      columns: 2,
+      proxyCardType: ProxyCardType.standard,
+
     );
 
 Future<void> pumpThemed(

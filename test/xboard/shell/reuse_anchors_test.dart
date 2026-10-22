@@ -10,11 +10,10 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   test('check-line-anchors 全命中（含形态 A 复用符号 + SEAM9）', () {
-    final result = Process.runSync(
-      'dart',
-      ['run', 'tool/check-line-anchors.dart'],
-      workingDirectory: Directory.current.path,
-    );
+    final result = Process.runSync('dart', [
+      'run',
+      'tool/check-line-anchors.dart',
+    ], workingDirectory: Directory.current.path);
     expect(
       result.exitCode,
       0,
@@ -23,11 +22,8 @@ void main() {
   });
 
   test('锚点文件登记了形态 A 复用符号 + 接缝点 #9', () {
-    final anchorsFile = File(
-      '../.kiro/specs/xboard-mvp-form-b/flclash-anchors.md',
-    );
-    expect(anchorsFile.existsSync(), isTrue,
-        reason: '锚点文件应存在于 spec 仓');
+    final anchorsFile = File('../Docs/FLCLASH_ANCHORS.md');
+    expect(anchorsFile.existsSync(), isTrue, reason: '锚点文件应存在于当前 sibling Docs');
     final content = anchorsFile.readAsStringSync();
     // 形态 A 复用的关键符号必须在锚点块登记（漂移即 CI fail）。
     for (final id in const [

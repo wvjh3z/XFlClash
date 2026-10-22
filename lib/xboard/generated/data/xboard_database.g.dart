@@ -433,7 +433,19 @@ class $$XboardProfileIndexV1TableTableManager
                 userIdHash: userIdHash,
               ),
           withReferenceMapper: (p0) => p0
-              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .map(
+                (e) => (
+                  e.readTable<
+                    $XboardProfileIndexV1Table,
+                    XboardProfileIndexV1Data
+                  >(table),
+                  BaseReferences<
+                    _$XboardDatabase,
+                    $XboardProfileIndexV1Table,
+                    XboardProfileIndexV1Data
+                  >(db, table, e),
+                ),
+              )
               .toList(),
           prefetchHooksCallback: null,
         ),

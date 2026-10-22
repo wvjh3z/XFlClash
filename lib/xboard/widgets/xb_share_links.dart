@@ -7,7 +7,7 @@
 /// model-agnostic：只吃 URL 字符串，不依赖域模型（保持 `widgets/` 层与 `models/` 解耦）。
 library;
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 
 import 'xb_components.dart' show XbCard;

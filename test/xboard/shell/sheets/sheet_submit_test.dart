@@ -3,7 +3,7 @@
 /// 纯单测（mock 反腐层，无 core）：覆盖之前只测了「渲染 + gate」未测的 _submit 分支。
 library;
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';

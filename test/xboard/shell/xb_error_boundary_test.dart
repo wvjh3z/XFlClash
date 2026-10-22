@@ -8,7 +8,7 @@
 /// 预期的构建异常（否则框架判 test 失败）。
 library;
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:fl_clash/xboard/shell/widgets/xb_bottom_bar.dart';

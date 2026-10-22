@@ -7,7 +7,7 @@
 /// **复用框架**：XbBrandScaffold / XbAsyncView(骨架) / XbCard / XbListCard / xbShowDialog / xbToast。
 library;
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 

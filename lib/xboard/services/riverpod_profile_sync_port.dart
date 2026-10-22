@@ -21,6 +21,7 @@ import 'package:fl_clash/common/path.dart' show appPath;
 import 'package:fl_clash/database/database.dart'
     show Database, database, TableInfoExt, ProfilesCompanionExt;
 import 'package:fl_clash/models/profile.dart';
+import 'package:fl_clash/providers/core.dart' show coreHandlerProvider;
 import 'package:fl_clash/providers/database.dart' show profilesProvider;
 import 'package:fl_clash/providers/config.dart' show currentProfileIdProvider;
 import 'package:fl_clash/providers/app.dart' show initProvider;
@@ -39,7 +40,7 @@ class RiverpodProfileSyncPort implements ProfileSyncPort {
     Future<String> Function(int profileId)? profilePath,
     Future<Profile> Function(Profile profile, Uint8List bytes)? saveProfile,
   }) : _saveProfile =
-           saveProfile ?? ((profile, bytes) => profile.saveFile(bytes)),
+           saveProfile ?? ((profile, bytes) => profile.saveFile(bytes, validate: _ref.read(coreHandlerProvider).validateProfile)),
        _database = profileDatabase ?? database,
        _profilePath =
            profilePath ?? ((id) => appPath.getProfilePath(id.toString()));
@@ -54,7 +55,7 @@ class RiverpodProfileSyncPort implements ProfileSyncPort {
     required String url,
     required String label,
   }) async {
-    final profile = await Profile.normal(label: label, url: url).update();
+    final profile = await Profile.normal(label: label, url: url).update(validate: _ref.read(coreHandlerProvider).validateProfile);
     _ref.read(profilesActionProvider.notifier).putProfile(profile);
     return profile.id;
   }
@@ -162,7 +163,7 @@ class RiverpodProfileSyncPort implements ProfileSyncPort {
     // 仅停用当前正被使用的账号 Profile；选中的手工/其他账号 Profile 不应被误断。
     if (_ref.mounted && _ref.read(currentProfileIdProvider) == profileId) {
       if (_ref.read(isStartProvider)) {
-        await _ref.read(setupActionProvider.notifier).updateStatus(false);
+        await _ref.read(setupActionProvider.notifier).setRunning(false);
       }
       // 停止期间用户可能切换 Profile，再确认选择态才清掉旧选择。
       if (_ref.mounted && _ref.read(currentProfileIdProvider) == profileId) {

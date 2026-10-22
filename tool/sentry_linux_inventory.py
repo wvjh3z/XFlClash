@@ -127,14 +127,15 @@ def collect_linux_inventory(build_root: Path, architecture: str, configuration: 
     if "crashpad_handler" in modules and "crashpad_handler" not in sources:
         raise LinuxInventoryError("crashpad_source_manifest_missing")
     required = {"FlClash", "librust_api.so"} | (modules.keys() & sources.keys())
-    if "FlClashCore" in modules:
-        required.add("FlClashCore")
+    for owned in ("FlClashCore", "FlClashHelperService"):
+        if owned in modules:
+            required.add(owned)
     if "crashpad_handler" in modules:
         required.add("crashpad_handler")
 
     # The TSV is independent of the upload manifest, but it can itself be
     # truncated. Matching local DWARF must never become an optional prebuilt gap.
-    undeclared = modules.keys() - sources.keys() - {"librust_api.so", "FlClashCore", "libapp.so"}
+    undeclared = modules.keys() - sources.keys() - {"librust_api.so", "FlClashCore", "FlClashHelperService", "libapp.so"}
     if undeclared:
         for path in _local_files(native, excluded=bundle):
             if path.name not in undeclared:

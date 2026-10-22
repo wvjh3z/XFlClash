@@ -1,7 +1,7 @@
 /// Authenticated tutorial reader. Article headings belong to the HTML itself.
 library;
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../providers/auth_state_provider.dart';

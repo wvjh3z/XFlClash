@@ -28,7 +28,7 @@ REPO = Path(__file__).resolve().parents[2]
 SPEC = importlib.util.spec_from_file_location("prepare_linux_packager", REPO / "tool/prepare_linux_packager.py")
 PACKAGER = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(PACKAGER)
-SOURCE = REPO / "plugins/flutter_distributor"
+SOURCE = REPO / ".local-build/tool-sources/flutter_distributor" / "cdeeef2d8f8325bb6ae0bc86b39f56e4325d1a58"
 FIXTURE = REPO / "tool/test/fixtures/linux_appimage_maker.dart"
 
 

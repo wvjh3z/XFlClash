@@ -4,7 +4,7 @@
 /// 提交订单成功 → 跳 [OrderPaymentPage]（选支付方式 + 立即支付）。
 library;
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_html/flutter_html.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 

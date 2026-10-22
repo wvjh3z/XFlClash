@@ -6,7 +6,7 @@
 /// **适配层铁律**：纯 UI widget，不 import `lib/views/**` / FlClash internal provider。
 library;
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 import '../../widgets/xb_motion.dart';
 

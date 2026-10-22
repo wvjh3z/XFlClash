@@ -169,6 +169,8 @@ if [ "${PLATFORM}" = "linux" ] && [ "${ARCH}" = "amd64" ]; then
   fi
 fi
 
+python3 tool/prepare_native_build.py --platform "${PLATFORM}" --architecture "${ARCH}" --install-rust-targets
+
 # ───────── 版本号 ─────────
 BUILD_NUMBER="$(cat scripts/build_number.txt 2>/dev/null || echo 1)"
 echo "=== package: flavor=${FLAVOR} target=${TARGET} build=${BUILD_NUMBER} ==="
@@ -180,24 +182,24 @@ flutter pub get --enforce-lockfile
 
 if [ -d "../Xboard_sdk" ]; then
   echo "=== SDK build_runner（../Xboard_sdk）==="
-  ( cd ../Xboard_sdk && flutter pub get --enforce-lockfile && dart run build_runner build )
+  ( cd ../Xboard_sdk && flutter pub get --enforce-lockfile && python3 "$REPO_DIR/tool/dart_package.py" build_runner build )
 else
   echo "✗ 未找到 sibling ../Xboard_sdk；正式打包要求严格解析 SDK 锁文件"
   exit 1
 fi
 
 echo "=== client codegen ==="
-dart run build_runner build
+python3 "$REPO_DIR/tool/dart_package.py" build_runner build
 
 # ───────── flavor 注入（桌面：不带 --android-signing）+ 品牌注入 + 图标 ─────────
 echo "=== prepare_flavor（生成 flavor_defines.json，含 aesKey）==="
-dart run tool/prepare_flavor.dart --flavor "${FLAVOR}" --target prod
+dart --packages=.dart_tool/package_config.json tool/prepare_flavor.dart --flavor "${FLAVOR}" --target prod
 
 CONTEXT_ARGS=(--flavor "${FLAVOR}" --platform "${PLATFORM}" --arch "${ARCH}"
   --build-number "${BUILD_NUMBER}" --source-revision "$(git rev-parse HEAD)" --align-package-name)
 [ "${PLATFORM}" != "windows" ] || CONTEXT_ARGS+=(--include-zip)
 [ "${WANT_RPM}" = "1" ] || CONTEXT_ARGS+=(--no-include-rpm)
-dart run tool/prepare_release_context.dart "${CONTEXT_ARGS[@]}"
+dart --packages=.dart_tool/package_config.json tool/prepare_release_context.dart "${CONTEXT_ARGS[@]}"
 VERSION_NAME="$(python3 tool/release_pipeline.py value --key product_version)"
 BASE_VERSION="$(python3 tool/release_pipeline.py value --key base_version)"
 
@@ -209,16 +211,12 @@ SENTRY_ARGS=(--platform "${PLATFORM}" --flavor "${FLAVOR}" --product-version "${
 run_sentry_postbuild "${SENTRY_ARGS[@]}" --preflight
 
 echo "=== inject_desktop_brand（窗口标题 / 打包 display_name / 图标）==="
-dart run tool/inject_desktop_brand.dart --flavor "${FLAVOR}" --platform "${PLATFORM}" --build-number "${BUILD_NUMBER}"
+dart --packages=.dart_tool/package_config.json tool/inject_desktop_brand.dart --flavor "${FLAVOR}" --platform "${PLATFORM}" --build-number "${BUILD_NUMBER}"
 
 echo "=== generate desktop icons ==="
-dart run flutter_launcher_icons -f flutter_launcher_icons.yaml
+python tool/dart_package.py flutter_launcher_icons -f flutter_launcher_icons.yaml
 
-# ───────── Windows：先编 Go 核心取 CORE_SHA256（运行时核心完整性校验）─────────
-if [ "${PLATFORM}" = "windows" ]; then
-  echo "=== build Go core + CORE_SHA256（Windows）==="
-  ( cd plugins/setup/buildkit/build_tool && dart pub get && dart run build_tool windows --root-dir "${REPO_DIR}" )
-fi
+# Native Assets builds Core before Helper and binds the final runtime hash.
 
 # ───────── 合成 env.json（保住全部 XB_* defines；不走 setup.dart）─────────
 APP_ENV=stable python3 tool/release_pipeline.py compose

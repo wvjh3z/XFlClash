@@ -1,6 +1,6 @@
 // GENERATED CODE - DO NOT MODIFY BY HAND
 // coverage:ignore-file
-// ignore_for_file: type=lint
+// ignore_for_file: type=lint, type=warning, deprecated_member_use, deprecated_member_use_from_same_package
 // ignore_for_file: unused_element, deprecated_member_use, deprecated_member_use_from_same_package, use_function_type_syntax_for_parameters, unnecessary_const, avoid_init_to_null, invalid_override_different_default_values_named, prefer_expression_function_bodies, annotate_overrides, invalid_annotation_target, unnecessary_question_mark
 
 part of '../../models/xb_domain_types.dart';
@@ -9,6 +9,7 @@ part of '../../models/xb_domain_types.dart';
 // FreezedGenerator
 // **************************************************************************
 
+// GENERATED CODE - DO NOT MODIFY BY HAND
 // dart format off
 T _$identity<T>(T value) => value;
 /// @nodoc
@@ -25,16 +26,21 @@ $XbCheckLoginCopyWith<XbCheckLogin> get copyWith => _$XbCheckLoginCopyWithImpl<X
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is XbCheckLogin&&(identical(other.isLogin, isLogin) || other.isLogin == isLogin));
+  final _this = this as XbCheckLogin;
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is XbCheckLogin&&(identical(other.isLogin, _this.isLogin) || other.isLogin == _this.isLogin));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,isLogin);
+int get hashCode {
+  final _this = this as XbCheckLogin;
+  return Object.hash(runtimeType,_this.isLogin);
+}
 
 @override
 String toString() {
-  return 'XbCheckLogin(isLogin: $isLogin)';
+  final _this = this as XbCheckLogin;
+  return 'XbCheckLogin(isLogin: ${_this.isLogin})';
 }
 
 
@@ -63,7 +69,7 @@ class _$XbCheckLoginCopyWithImpl<$Res>
 /// Create a copy of XbCheckLogin
 /// with the given fields replaced by the non-null parameter values.
 @pragma('vm:prefer-inline') @override $Res call({Object? isLogin = null,}) {
-  return _then(_self.copyWith(
+  return _then(XbCheckLogin(
 isLogin: null == isLogin ? _self.isLogin : isLogin // ignore: cast_nullable_to_non_nullable
 as bool,
   ));
@@ -221,16 +227,18 @@ _$XbCheckLoginCopyWith<_XbCheckLogin> get copyWith => __$XbCheckLoginCopyWithImp
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is _XbCheckLogin&&(identical(other.isLogin, isLogin) || other.isLogin == isLogin));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is _XbCheckLogin&&(identical(other.isLogin, isLogin) || other.isLogin == isLogin));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,isLogin);
+int get hashCode {
+    return Object.hash(runtimeType,isLogin);
+}
 
 @override
 String toString() {
-  return 'XbCheckLogin(isLogin: $isLogin)';
+    return 'XbCheckLogin(isLogin: $isLogin)';
 }
 
 
@@ -282,16 +290,21 @@ $XbPagedListCopyWith<T, XbPagedList<T>> get copyWith => _$XbPagedListCopyWithImp
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is XbPagedList<T>&&const DeepCollectionEquality().equals(other.items, items)&&(identical(other.page, page) || other.page == page)&&(identical(other.pageSize, pageSize) || other.pageSize == pageSize)&&(identical(other.total, total) || other.total == total));
+  final _this = this as XbPagedList<T>;
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is XbPagedList<T>&&const DeepCollectionEquality().equals(other.items, _this.items)&&(identical(other.page, _this.page) || other.page == _this.page)&&(identical(other.pageSize, _this.pageSize) || other.pageSize == _this.pageSize)&&(identical(other.total, _this.total) || other.total == _this.total));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,const DeepCollectionEquality().hash(items),page,pageSize,total);
+int get hashCode {
+  final _this = this as XbPagedList<T>;
+  return Object.hash(runtimeType,const DeepCollectionEquality().hash(_this.items),_this.page,_this.pageSize,_this.total);
+}
 
 @override
 String toString() {
-  return 'XbPagedList<$T>(items: $items, page: $page, pageSize: $pageSize, total: $total)';
+  final _this = this as XbPagedList<T>;
+  return 'XbPagedList<$T>(items: ${_this.items}, page: ${_this.page}, pageSize: ${_this.pageSize}, total: ${_this.total})';
 }
 
 
@@ -320,7 +333,7 @@ class _$XbPagedListCopyWithImpl<T,$Res>
 /// Create a copy of XbPagedList
 /// with the given fields replaced by the non-null parameter values.
 @pragma('vm:prefer-inline') @override $Res call({Object? items = null,Object? page = null,Object? pageSize = null,Object? total = null,}) {
-  return _then(_self.copyWith(
+  return _then(XbPagedList(
 items: null == items ? _self.items : items // ignore: cast_nullable_to_non_nullable
 as List<T>,page: null == page ? _self.page : page // ignore: cast_nullable_to_non_nullable
 as int,pageSize: null == pageSize ? _self.pageSize : pageSize // ignore: cast_nullable_to_non_nullable
@@ -466,7 +479,7 @@ return $default(_that.items,_that.page,_that.pageSize,_that.total);case _:
 
 
 class _XbPagedList<T> implements XbPagedList<T> {
-  const _XbPagedList({required final  List<T> items, required this.page, required this.pageSize, required this.total}): _items = items;
+  const _XbPagedList({required  List<T> items, required this.page, required this.pageSize, required this.total}): _items = items;
   
 
  final  List<T> _items;
@@ -490,16 +503,18 @@ _$XbPagedListCopyWith<T, _XbPagedList<T>> get copyWith => __$XbPagedListCopyWith
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is _XbPagedList<T>&&const DeepCollectionEquality().equals(other._items, _items)&&(identical(other.page, page) || other.page == page)&&(identical(other.pageSize, pageSize) || other.pageSize == pageSize)&&(identical(other.total, total) || other.total == total));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is _XbPagedList<T>&&const DeepCollectionEquality().equals(other.items, _items)&&(identical(other.page, page) || other.page == page)&&(identical(other.pageSize, pageSize) || other.pageSize == pageSize)&&(identical(other.total, total) || other.total == total));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,const DeepCollectionEquality().hash(_items),page,pageSize,total);
+int get hashCode {
+    return Object.hash(runtimeType,const DeepCollectionEquality().hash(_items),page,pageSize,total);
+}
 
 @override
 String toString() {
-  return 'XbPagedList<$T>(items: $items, page: $page, pageSize: $pageSize, total: $total)';
+    return 'XbPagedList<$T>(items: $items, page: $page, pageSize: $pageSize, total: $total)';
 }
 
 
@@ -554,16 +569,21 @@ $PaymentMethodItemCopyWith<PaymentMethodItem> get copyWith => _$PaymentMethodIte
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is PaymentMethodItem&&(identical(other.id, id) || other.id == id)&&(identical(other.name, name) || other.name == name)&&(identical(other.icon, icon) || other.icon == icon)&&(identical(other.feeFixedYuan, feeFixedYuan) || other.feeFixedYuan == feeFixedYuan)&&(identical(other.feePercent, feePercent) || other.feePercent == feePercent));
+  final _this = this as PaymentMethodItem;
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is PaymentMethodItem&&(identical(other.id, _this.id) || other.id == _this.id)&&(identical(other.name, _this.name) || other.name == _this.name)&&(identical(other.icon, _this.icon) || other.icon == _this.icon)&&(identical(other.feeFixedYuan, _this.feeFixedYuan) || other.feeFixedYuan == _this.feeFixedYuan)&&(identical(other.feePercent, _this.feePercent) || other.feePercent == _this.feePercent));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,id,name,icon,feeFixedYuan,feePercent);
+int get hashCode {
+  final _this = this as PaymentMethodItem;
+  return Object.hash(runtimeType,_this.id,_this.name,_this.icon,_this.feeFixedYuan,_this.feePercent);
+}
 
 @override
 String toString() {
-  return 'PaymentMethodItem(id: $id, name: $name, icon: $icon, feeFixedYuan: $feeFixedYuan, feePercent: $feePercent)';
+  final _this = this as PaymentMethodItem;
+  return 'PaymentMethodItem(id: ${_this.id}, name: ${_this.name}, icon: ${_this.icon}, feeFixedYuan: ${_this.feeFixedYuan}, feePercent: ${_this.feePercent})';
 }
 
 
@@ -592,7 +612,7 @@ class _$PaymentMethodItemCopyWithImpl<$Res>
 /// Create a copy of PaymentMethodItem
 /// with the given fields replaced by the non-null parameter values.
 @pragma('vm:prefer-inline') @override $Res call({Object? id = null,Object? name = null,Object? icon = freezed,Object? feeFixedYuan = freezed,Object? feePercent = freezed,}) {
-  return _then(_self.copyWith(
+  return _then(PaymentMethodItem(
 id: null == id ? _self.id : id // ignore: cast_nullable_to_non_nullable
 as String,name: null == name ? _self.name : name // ignore: cast_nullable_to_non_nullable
 as String,icon: freezed == icon ? _self.icon : icon // ignore: cast_nullable_to_non_nullable
@@ -758,16 +778,18 @@ _$PaymentMethodItemCopyWith<_PaymentMethodItem> get copyWith => __$PaymentMethod
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is _PaymentMethodItem&&(identical(other.id, id) || other.id == id)&&(identical(other.name, name) || other.name == name)&&(identical(other.icon, icon) || other.icon == icon)&&(identical(other.feeFixedYuan, feeFixedYuan) || other.feeFixedYuan == feeFixedYuan)&&(identical(other.feePercent, feePercent) || other.feePercent == feePercent));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is _PaymentMethodItem&&(identical(other.id, id) || other.id == id)&&(identical(other.name, name) || other.name == name)&&(identical(other.icon, icon) || other.icon == icon)&&(identical(other.feeFixedYuan, feeFixedYuan) || other.feeFixedYuan == feeFixedYuan)&&(identical(other.feePercent, feePercent) || other.feePercent == feePercent));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,id,name,icon,feeFixedYuan,feePercent);
+int get hashCode {
+    return Object.hash(runtimeType,id,name,icon,feeFixedYuan,feePercent);
+}
 
 @override
 String toString() {
-  return 'PaymentMethodItem(id: $id, name: $name, icon: $icon, feeFixedYuan: $feeFixedYuan, feePercent: $feePercent)';
+    return 'PaymentMethodItem(id: $id, name: $name, icon: $icon, feeFixedYuan: $feeFixedYuan, feePercent: $feePercent)';
 }
 
 
@@ -823,16 +845,21 @@ $IpMirrorConfigUiCopyWith<IpMirrorConfigUi> get copyWith => _$IpMirrorConfigUiCo
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is IpMirrorConfigUi&&(identical(other.enabled, enabled) || other.enabled == enabled)&&const DeepCollectionEquality().equals(other.urls, urls)&&(identical(other.throttle, throttle) || other.throttle == throttle)&&(identical(other.fetchTimeout, fetchTimeout) || other.fetchTimeout == fetchTimeout));
+  final _this = this as IpMirrorConfigUi;
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is IpMirrorConfigUi&&(identical(other.enabled, _this.enabled) || other.enabled == _this.enabled)&&const DeepCollectionEquality().equals(other.urls, _this.urls)&&(identical(other.throttle, _this.throttle) || other.throttle == _this.throttle)&&(identical(other.fetchTimeout, _this.fetchTimeout) || other.fetchTimeout == _this.fetchTimeout));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,enabled,const DeepCollectionEquality().hash(urls),throttle,fetchTimeout);
+int get hashCode {
+  final _this = this as IpMirrorConfigUi;
+  return Object.hash(runtimeType,_this.enabled,const DeepCollectionEquality().hash(_this.urls),_this.throttle,_this.fetchTimeout);
+}
 
 @override
 String toString() {
-  return 'IpMirrorConfigUi(enabled: $enabled, urls: $urls, throttle: $throttle, fetchTimeout: $fetchTimeout)';
+  final _this = this as IpMirrorConfigUi;
+  return 'IpMirrorConfigUi(enabled: ${_this.enabled}, urls: ${_this.urls}, throttle: ${_this.throttle}, fetchTimeout: ${_this.fetchTimeout})';
 }
 
 
@@ -861,7 +888,7 @@ class _$IpMirrorConfigUiCopyWithImpl<$Res>
 /// Create a copy of IpMirrorConfigUi
 /// with the given fields replaced by the non-null parameter values.
 @pragma('vm:prefer-inline') @override $Res call({Object? enabled = null,Object? urls = null,Object? throttle = null,Object? fetchTimeout = null,}) {
-  return _then(_self.copyWith(
+  return _then(IpMirrorConfigUi(
 enabled: null == enabled ? _self.enabled : enabled // ignore: cast_nullable_to_non_nullable
 as bool,urls: null == urls ? _self.urls : urls // ignore: cast_nullable_to_non_nullable
 as List<String>,throttle: null == throttle ? _self.throttle : throttle // ignore: cast_nullable_to_non_nullable
@@ -1007,7 +1034,7 @@ return $default(_that.enabled,_that.urls,_that.throttle,_that.fetchTimeout);case
 
 
 class _IpMirrorConfigUi implements IpMirrorConfigUi {
-  const _IpMirrorConfigUi({required this.enabled, required final  List<String> urls, required this.throttle, required this.fetchTimeout}): _urls = urls;
+  const _IpMirrorConfigUi({required this.enabled, required  List<String> urls, required this.throttle, required this.fetchTimeout}): _urls = urls;
   
 
 @override final  bool enabled;
@@ -1031,16 +1058,18 @@ _$IpMirrorConfigUiCopyWith<_IpMirrorConfigUi> get copyWith => __$IpMirrorConfigU
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is _IpMirrorConfigUi&&(identical(other.enabled, enabled) || other.enabled == enabled)&&const DeepCollectionEquality().equals(other._urls, _urls)&&(identical(other.throttle, throttle) || other.throttle == throttle)&&(identical(other.fetchTimeout, fetchTimeout) || other.fetchTimeout == fetchTimeout));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is _IpMirrorConfigUi&&(identical(other.enabled, enabled) || other.enabled == enabled)&&const DeepCollectionEquality().equals(other.urls, _urls)&&(identical(other.throttle, throttle) || other.throttle == throttle)&&(identical(other.fetchTimeout, fetchTimeout) || other.fetchTimeout == fetchTimeout));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,enabled,const DeepCollectionEquality().hash(_urls),throttle,fetchTimeout);
+int get hashCode {
+    return Object.hash(runtimeType,enabled,const DeepCollectionEquality().hash(_urls),throttle,fetchTimeout);
+}
 
 @override
 String toString() {
-  return 'IpMirrorConfigUi(enabled: $enabled, urls: $urls, throttle: $throttle, fetchTimeout: $fetchTimeout)';
+    return 'IpMirrorConfigUi(enabled: $enabled, urls: $urls, throttle: $throttle, fetchTimeout: $fetchTimeout)';
 }
 
 
@@ -1084,9 +1113,7 @@ as Duration,
 /// @nodoc
 mixin _$CouponInfo {
 
- String get code; int get type;// 1=金额折扣(cents) / 2=百分比(0-100)
- int get value; int? get discountAmountCents;// 来自下单后 OrderModel.discountAmount（非 CouponModel）
- DateTime? get endedAt;
+ String get code; int get type; int get value; int? get discountAmountCents; DateTime? get endedAt;
 /// Create a copy of CouponInfo
 /// with the given fields replaced by the non-null parameter values.
 @JsonKey(includeFromJson: false, includeToJson: false)
@@ -1097,16 +1124,21 @@ $CouponInfoCopyWith<CouponInfo> get copyWith => _$CouponInfoCopyWithImpl<CouponI
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is CouponInfo&&(identical(other.code, code) || other.code == code)&&(identical(other.type, type) || other.type == type)&&(identical(other.value, value) || other.value == value)&&(identical(other.discountAmountCents, discountAmountCents) || other.discountAmountCents == discountAmountCents)&&(identical(other.endedAt, endedAt) || other.endedAt == endedAt));
+  final _this = this as CouponInfo;
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is CouponInfo&&(identical(other.code, _this.code) || other.code == _this.code)&&(identical(other.type, _this.type) || other.type == _this.type)&&(identical(other.value, _this.value) || other.value == _this.value)&&(identical(other.discountAmountCents, _this.discountAmountCents) || other.discountAmountCents == _this.discountAmountCents)&&(identical(other.endedAt, _this.endedAt) || other.endedAt == _this.endedAt));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,code,type,value,discountAmountCents,endedAt);
+int get hashCode {
+  final _this = this as CouponInfo;
+  return Object.hash(runtimeType,_this.code,_this.type,_this.value,_this.discountAmountCents,_this.endedAt);
+}
 
 @override
 String toString() {
-  return 'CouponInfo(code: $code, type: $type, value: $value, discountAmountCents: $discountAmountCents, endedAt: $endedAt)';
+  final _this = this as CouponInfo;
+  return 'CouponInfo(code: ${_this.code}, type: ${_this.type}, value: ${_this.value}, discountAmountCents: ${_this.discountAmountCents}, endedAt: ${_this.endedAt})';
 }
 
 
@@ -1135,7 +1167,7 @@ class _$CouponInfoCopyWithImpl<$Res>
 /// Create a copy of CouponInfo
 /// with the given fields replaced by the non-null parameter values.
 @pragma('vm:prefer-inline') @override $Res call({Object? code = null,Object? type = null,Object? value = null,Object? discountAmountCents = freezed,Object? endedAt = freezed,}) {
-  return _then(_self.copyWith(
+  return _then(CouponInfo(
 code: null == code ? _self.code : code // ignore: cast_nullable_to_non_nullable
 as String,type: null == type ? _self.type : type // ignore: cast_nullable_to_non_nullable
 as int,value: null == value ? _self.value : value // ignore: cast_nullable_to_non_nullable
@@ -1287,10 +1319,8 @@ class _CouponInfo implements CouponInfo {
 
 @override final  String code;
 @override final  int type;
-// 1=金额折扣(cents) / 2=百分比(0-100)
 @override final  int value;
 @override final  int? discountAmountCents;
-// 来自下单后 OrderModel.discountAmount（非 CouponModel）
 @override final  DateTime? endedAt;
 
 /// Create a copy of CouponInfo
@@ -1303,16 +1333,18 @@ _$CouponInfoCopyWith<_CouponInfo> get copyWith => __$CouponInfoCopyWithImpl<_Cou
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is _CouponInfo&&(identical(other.code, code) || other.code == code)&&(identical(other.type, type) || other.type == type)&&(identical(other.value, value) || other.value == value)&&(identical(other.discountAmountCents, discountAmountCents) || other.discountAmountCents == discountAmountCents)&&(identical(other.endedAt, endedAt) || other.endedAt == endedAt));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is _CouponInfo&&(identical(other.code, code) || other.code == code)&&(identical(other.type, type) || other.type == type)&&(identical(other.value, value) || other.value == value)&&(identical(other.discountAmountCents, discountAmountCents) || other.discountAmountCents == discountAmountCents)&&(identical(other.endedAt, endedAt) || other.endedAt == endedAt));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,code,type,value,discountAmountCents,endedAt);
+int get hashCode {
+    return Object.hash(runtimeType,code,type,value,discountAmountCents,endedAt);
+}
 
 @override
 String toString() {
-  return 'CouponInfo(code: $code, type: $type, value: $value, discountAmountCents: $discountAmountCents, endedAt: $endedAt)';
+    return 'CouponInfo(code: $code, type: $type, value: $value, discountAmountCents: $discountAmountCents, endedAt: $endedAt)';
 }
 
 

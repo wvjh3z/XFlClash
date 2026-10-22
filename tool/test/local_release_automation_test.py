@@ -99,6 +99,30 @@ class LocalCounterTests(unittest.TestCase):
         subprocess.run(["git", "check-ignore", "--quiet", ".local-build/build_number.brand_a.txt"], cwd=self.root, check=True)
 
 
+class WorkingSourceFingerprintTests(unittest.TestCase):
+    def test_new_hook_is_bound_but_ignored_credentials_are_not(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            base=Path(temporary);root=base/'client';sdk=base/'sdk';core=root/'core/Clash.Meta'
+            for repo,source in [(root,'lib/main.dart'),(sdk,'lib/sdk.dart'),(core,'main.go')]:
+                repo.mkdir(parents=True,exist_ok=True)
+                subprocess.run(['git','init','--quiet','--template=',str(repo)],check=True)
+                (repo/'.gitignore').write_text('*.secret\ncore/Clash.Meta/\n')
+                path=repo/source;path.parent.mkdir(exist_ok=True);path.write_text('tracked input')
+                subprocess.run(['git','add','.'],cwd=repo,check=True)
+                subprocess.run(['git','-c','user.name=Fixture','-c','user.email=fixture@example.invalid','-c','commit.gpgSign=false','commit','--quiet','-m','fixture'],cwd=repo,check=True)
+            flavor=root/'flavors/brand_a';(flavor/'assets').mkdir(parents=True)
+            (flavor/'flavor.yaml').write_text('public fixture');(flavor/'assets/fallback.bin').write_bytes(b'fixture')
+            added=root/'plugins/rust_api/hook/xboard_symbols.dart';added.parent.mkdir(parents=True);added.write_text('new hook')
+            ignored=root/'lib/credential.secret';ignored.write_text('never include')
+            # Stale deleted-submodule directories must not become phantom repos.
+            (root/'plugins/tray_manager').mkdir();(root/'plugins/flutter_distributor').mkdir()
+            snapshot=android.capture_sources(root,sdk,'brand_a')
+            self.assertIn('plugins/rust_api/hook/xboard_symbols.dart',snapshot['client']['files'])
+            self.assertNotIn('lib/credential.secret',snapshot['client']['files'])
+            added.write_text('changed hook')
+            with self.assertRaises(android.ReleaseError):android.assert_sources(root,sdk,'brand_a',snapshot)
+
+
 class CliOutputEncodingTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix="cli-encoding-")
@@ -174,7 +198,7 @@ class PostbuildTests(unittest.TestCase):
         self.arguments = ["--project-root", str(self.root), "--platform", "android", "--flavor", "brand_a"]
 
     def test_preflight_requires_no_symbols_and_does_not_start_subcommands(self):
-        with mock.patch.object(postbuild, "resolve_cli", return_value="fake-cli"), mock.patch.object(postbuild, "run_checked") as run:
+        with mock.patch.object(postbuild, "prepare_windows_assets"), mock.patch.object(postbuild, "resolve_cli", return_value="fake-cli"), mock.patch.object(postbuild, "run_checked") as run:
             self.assertEqual(postbuild.main([*self.arguments, "--preflight"]), 0)
         run.assert_not_called()
 
@@ -232,7 +256,7 @@ class PostbuildTests(unittest.TestCase):
                 platform = command[command.index("--platform") + 1]
                 path.write_text(json.dumps({"status": "audited", "platform": platform, "flavor": "brand_a"}))
         for platform in postbuild.PLATFORMS:
-            with self.subTest(platform=platform), mock.patch.object(postbuild, "resolve_cli", return_value="fixed-cli"), mock.patch.object(postbuild, "run_checked", side_effect=write_evidence) as run:
+            with self.subTest(platform=platform), mock.patch.object(postbuild, "prepare_windows_assets"), mock.patch.object(postbuild, "resolve_cli", return_value="fixed-cli"), mock.patch.object(postbuild, "run_checked", side_effect=write_evidence) as run:
                 arguments = ["--project-root", str(self.root), "--platform", platform, "--flavor", "brand_a", "--audit-only"]
                 if platform == "android":
                     arguments += ["--package", "final-a.apk", "--package", "final-b.apk"]
@@ -250,9 +274,72 @@ class PostbuildTests(unittest.TestCase):
                     self.assertNotIn("SENTRY_AUTH_TOKEN", call.kwargs["environment"])
 
     def test_prepare_failure_prevents_upload(self):
-        with mock.patch.object(postbuild, "resolve_cli", return_value="fake-cli"), mock.patch.object(postbuild, "run_checked", side_effect=postbuild.ReleaseError("prepared failed")) as run:
+        with mock.patch.object(postbuild, "prepare_windows_assets"), mock.patch.object(postbuild, "resolve_cli", return_value="fake-cli"), mock.patch.object(postbuild, "run_checked", side_effect=postbuild.ReleaseError("prepared failed")) as run:
             self.assertEqual(postbuild.main([*self.arguments, "--package", "final.apk"]), 1)
         self.assertEqual(run.call_count, 1)
+
+    def test_failure_report_lifecycle_for_both_brands_and_all_platforms(self):
+        evidence = self.root / 'build/sentry-symbols-evidence.json'
+        evidence.parent.mkdir(exist_ok=True)
+        for flavor in ('brand_a', 'brand_b'):
+            for platform in postbuild.PLATFORMS:
+                for phase in ('configuration', 'credentials', 'cli', 'prepare', 'upload', 'completion'):
+                    with self.subTest(flavor=flavor, platform=platform, phase=phase):
+                        identity = dict(platform=platform, flavor=flavor)
+                        evidence.write_text(json.dumps(dict(identity, status='uploaded_and_processed', obsolete=True)))
+                        config = dict(XB_FLAVOR_ID=flavor, XB_DEBUG='false', XB_SENTRY_DSN='fixture')
+                        if phase == 'configuration': config['XB_DEBUG'] = 'true'
+                        self.defines.write_text(json.dumps(config))
+                        def fail(): raise postbuild.ReleaseError('controlled failure')
+                        def run(command, **kwargs):
+                            preparing = 'prepare_sentry_' in command[1]
+                            if preparing:
+                                if phase == 'prepare': fail()
+                            elif phase == 'upload':
+                                evidence.write_text(json.dumps(dict(identity, status='failed', upload={'category':'fixture'})))
+                                fail()
+                        def windows(*_):
+                            if phase == 'prepare': fail()
+                        with mock.patch.object(postbuild, 'upload_environment', side_effect=(lambda *_: fail()) if phase == 'credentials' else (lambda *_: {})), \
+                             mock.patch.object(postbuild, 'resolve_cli', side_effect=(lambda *_: fail()) if phase == 'cli' else (lambda *_: 'fixture')), \
+                             mock.patch.object(postbuild, 'prepare_windows_assets', side_effect=windows), \
+                             mock.patch.object(postbuild, 'run_checked', side_effect=run):
+                            args = ['--project-root', str(self.root), '--flavor', flavor, '--platform', platform, '--package', 'fixture.apk']
+                            self.assertEqual(postbuild.main(args), 1)
+                        result = json.loads(evidence.read_text())
+                        self.assertEqual(result['status'], 'failed')
+                        self.assertEqual(result['postbuild_stage'], phase)
+                        self.assertNotIn('obsolete', result)
+                        if phase == 'upload': self.assertEqual(result['upload']['category'], 'fixture')
+                        self.assertFalse(list(evidence.parent.glob('.sentry-outcome-*')))
+
+    def test_preflight_preserves_archive_and_skips_cannot_claim_old_success(self):
+        evidence = self.root / 'build/sentry-symbols-evidence.json'
+        evidence.parent.mkdir()
+        old = b'{"status":"uploaded_and_processed","archive":true}'
+        for flags in (['--preflight'], ['--preflight', '--no-sentry']):
+            evidence.write_bytes(old)
+            with mock.patch.object(postbuild, 'resolve_cli', return_value='fixture'):
+                self.assertEqual(postbuild.main([*self.arguments, *flags]), 0)
+            self.assertEqual(evidence.read_bytes(), old)
+        evidence.write_bytes(old)
+        self.defines.unlink()
+        self.assertEqual(postbuild.main([*self.arguments, '--preflight']), 1)
+        self.assertEqual(evidence.read_bytes(), old)
+        self.assertEqual(postbuild.main([*self.arguments, '--no-sentry']), 0)
+        self.assertEqual(json.loads(evidence.read_text())['status'], 'skipped')
+
+    def test_reuse_prepared_failure_invalidates_success_without_preparing_again(self):
+        evidence = self.root / 'build/sentry-symbols-evidence.json'
+        evidence.parent.mkdir()
+        evidence.write_text('{"status":"uploaded_and_processed"}')
+        with mock.patch.object(postbuild, 'resolve_cli', return_value='fixture'), \
+             mock.patch.object(postbuild, 'prepare_windows_assets') as prepare, \
+             mock.patch.object(postbuild, 'run_checked', side_effect=postbuild.ReleaseError('controlled')) as run:
+            self.assertEqual(postbuild.main([*self.arguments, '--audit-only', '--reuse-prepared']), 1)
+        prepare.assert_not_called()
+        self.assertEqual(run.call_count, 1)
+        self.assertEqual(json.loads(evidence.read_text())['postbuild_stage'], 'audit')
 
     def test_cli_version_is_pinned(self):
         with mock.patch.object(postbuild.shutil, "which", return_value="fake-cli"), mock.patch.object(postbuild.subprocess, "run", return_value=mock.Mock(returncode=0, stdout="sentry-cli 2.99.0\n")):
@@ -263,16 +350,16 @@ class PostbuildTests(unittest.TestCase):
         evidence = self.root / "build/sentry-symbols-evidence.json"
         evidence.parent.mkdir()
         evidence.write_text(json.dumps({"status": "uploaded_and_processed", "platform": "android", "flavor": "brand_a"}))
-        with mock.patch.object(postbuild, "resolve_cli", return_value="fixed-cli"), mock.patch.object(postbuild, "run_checked"):
+        with mock.patch.object(postbuild, "prepare_windows_assets"), mock.patch.object(postbuild, "resolve_cli", return_value="fixed-cli"), mock.patch.object(postbuild, "run_checked"):
             self.assertEqual(postbuild.main([*self.arguments, "--package", "final.apk"]), 1)
-        self.assertFalse(evidence.exists())
+        self.assertEqual(json.loads(evidence.read_text())["status"], "failed")
 
     def test_reuse_prepared_audits_archive_without_regenerating_it(self):
         def complete(command, **_kwargs):
             evidence = self.root / "build/sentry-symbols-evidence.json"
             evidence.parent.mkdir(exist_ok=True)
             evidence.write_text(json.dumps({"status": "audited", "platform": "android", "flavor": "brand_a"}))
-        with mock.patch.object(postbuild, "resolve_cli", return_value="fake-cli"), mock.patch.object(postbuild, "run_checked", side_effect=complete) as run:
+        with mock.patch.object(postbuild, "prepare_windows_assets"), mock.patch.object(postbuild, "resolve_cli", return_value="fake-cli"), mock.patch.object(postbuild, "run_checked", side_effect=complete) as run:
             self.assertEqual(postbuild.main([*self.arguments, "--reuse-prepared", "--audit-only"]), 0)
         self.assertEqual(run.call_count, 1)
         self.assertTrue(run.call_args.args[0][1].endswith("upload_sentry_symbols.py"))
@@ -376,7 +463,7 @@ class AndroidLocalTests(unittest.TestCase):
 
     def test_release_finishes_only_after_verification_and_symbols(self):
         self.assertEqual(self.run_fake(), 0)
-        self.assertEqual([name for name, *_ in self.calls], ["sdk-pub-get", "clean", "pub-get", "prepare-flavor", "sentry-preflight", "go-core-build", "flutter-apk", "sentry-symbols"])
+        self.assertEqual([name for name, *_ in self.calls], ["native-inputs", "sdk-pub-get", "clean", "pub-get", "prepare-flavor", "sentry-preflight", "flutter-apk", "sentry-symbols"])
         self.assertEqual(self.counter.read_text(), "18\n")
         self.assertTrue((self.root / "dist/test-0.0.1-android-arm64-v8a.apk").is_file())
         self.assert_restored()
@@ -397,7 +484,7 @@ class AndroidLocalTests(unittest.TestCase):
         self.assert_restored()
 
     def test_each_failure_keeps_success_counter_and_restores_temporary_state(self):
-        for step in ("sdk-pub-get", "clean", "pub-get", "prepare-flavor", "sentry-preflight", "go-core-build", "flutter-apk", "sentry-symbols"):
+        for step in ("native-inputs", "sdk-pub-get", "clean", "pub-get", "prepare-flavor", "sentry-preflight", "flutter-apk", "sentry-symbols"):
             with self.subTest(step=step):
                 self.calls.clear()
                 self.assertEqual(self.run_fake(step), 1)
@@ -623,7 +710,7 @@ class AndroidLocalTests(unittest.TestCase):
         fresh.write_bytes(minimal_aot())
         self.properties.write_text("storePassword=fake\nkeyAlias=fake\n")
         with zipfile.ZipFile(apk, "w") as archive:
-            for library in ("libapp.so", "libflutter.so", "libclash.so", "libcore.so"):
+            for library in ("libapp.so", "libflutter.so", "libclash.so", "librust_api.so"):
                 archive.writestr("lib/arm64-v8a/" + library, minimal_aot())
             archive.writestr("assets/flutter_assets/flavors/brand_a/assets/fallback.bin", b"fake-fallback")
         inputs = {"flavor": "brand_a", "arch": "arm64", "packageName": "com.example.test", "baseVersion": "0.8.93", "buildNumber": 18, "displayName": "Test Brand"}
@@ -639,6 +726,9 @@ class AndroidLocalTests(unittest.TestCase):
             android.verify_apk(self.root, apk, inputs, self.base, {})
 
     def run_stub_processes(self, fail_symbols=False):
+        native = self.root / "tool/prepare_native_build.py"
+        native.parent.mkdir(parents=True, exist_ok=True)
+        native.write_text("# Fixture: no network or toolchain installation\n")
         """Run the real coordinator against executable stand-ins, never toolchains."""
         binary_dir = self.base / "fake-bin"
         binary_dir.mkdir()
@@ -674,7 +764,7 @@ elif name == 'flutter' and args[:2] == ['build', 'apk']:
     apk = root / 'build/app/outputs/flutter-apk/app-brand_a-release.apk'
     apk.parent.mkdir(parents=True)
     with zipfile.ZipFile(apk, 'w') as archive:
-        for library in ['libapp.so', 'libflutter.so', 'libclash.so', 'libcore.so']:
+        for library in ['libapp.so', 'libflutter.so', 'libclash.so', 'librust_api.so']:
             archive.writestr('lib/arm64-v8a/' + library, data)
         archive.writestr('assets/flutter_assets/flavors/brand_a/assets/fallback.bin', b'fake-fallback')
 elif name == 'keytool':
@@ -692,7 +782,7 @@ elif name == 'apksigner':
             (binary_dir / name).symlink_to(implementation)
         for name in ("aapt", "apksigner", "zipalign"):
             (sdk_tools / name).symlink_to(implementation)
-        (self.root / "tool").mkdir()
+        (self.root / "tool").mkdir(exist_ok=True)
         (self.root / "tool/postbuild_sentry_symbols.py").write_text('''
 import json, os
 from pathlib import Path

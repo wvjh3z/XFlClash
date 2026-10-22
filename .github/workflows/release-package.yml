@@ -3,9 +3,9 @@
 # workflow 已删除，功能被本 workflow 覆盖；裸目录调试需求改用本地 build_local.sh /
 # package_desktop_local.sh）。
 #
-# 设计：复用 FlClash 的 flutter_distributor（vendored 在 plugins/flutter_distributor/，
+# 设计：复用已固定版本的 flutter_distributor（独立源码缓存在 .local-build/tool-sources，
 #   打包配置在 <platform>/packaging/*/make_config.yaml）出 dist/ 正式包。
-#   **不走 dart setup.dart**（它会把 env.json 覆盖成 {APP_ENV,CORE_SHA256} 丢掉 XB_* defines），
+#   品牌入口不走 dart setup.dart，避免上游定义文件生成覆盖 XB_* defines，
 #   改为：自己预合成 env.json（含全部 XB_* defines + formA + Sentry DSN）→ 直接调
 #   `flutter_distributor package --flutter-build-args=dart-define-from-file=env.json,...`，
 #   既拿到 FlClash 同款打包产物，又保住反腐层/品牌/签名/Sentry 全部注入。
@@ -77,7 +77,7 @@ permissions:
 
 env:
   APP_ENV: stable
-  GO_VERSION: 1.24.0
+  GO_VERSION: 1.27.1
   SENTRY_ORG: ka-chiu-lee
 
 jobs:
@@ -127,7 +127,7 @@ jobs:
         run: python3 tool/test/distributor_checkout_test.py
       - name: Prepare pinned distributor for shared checks
         timeout-minutes: 5
-        run: git -c submodule.plugins/flutter_distributor.url=https://github.com/chen08209/flutter_distributor.git submodule update --init --depth 1 -- plugins/flutter_distributor
+        run: python3 tool/checkout_distributor.py
       - name: Check default packager preparation entrypoint
         run: python3 tool/prepare_linux_packager.py
       - name: Check shared release contracts
@@ -191,6 +191,24 @@ jobs:
           submodules: recursive
           persist-credentials: false
 
+      - name: Setup Python for packaging
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Verify packaging Python
+        run: |
+          python - <<'PY'
+          import sys
+          print(f"Packaging Python: {sys.version.split()[0]} ({sys.executable})")
+          if sys.version_info[:2] != (3, 12):
+              raise SystemExit("Packaging requires Python 3.12")
+          PY
+
+      - name: Prepare pinned distributor source
+        timeout-minutes: 10
+        run: python tool/checkout_distributor.py
+
       - name: Check release workflow structure
         run: python tool/test/sentry_release_workflow_test.py ReleaseWorkflowStructureTests
 
@@ -225,22 +243,6 @@ jobs:
         run: |
           & tool/windows/prepare_vc_runtime.ps1 -Root $env:GITHUB_WORKSPACE -DownloadOnly
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-
-      - name: Setup Python for Linux and macOS tooling
-        if: matrix.platform == 'linux' || matrix.platform == 'macos'
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-
-      - name: Verify packaging Python
-        if: matrix.platform == 'linux' || matrix.platform == 'macos'
-        run: |
-          python3 - <<'PY'
-          import sys
-          print(f"Packaging Python: {sys.version.split()[0]} ({sys.executable})")
-          if sys.version_info[:2] != (3, 12):
-              raise SystemExit("Linux/macOS packaging requires Python 3.12")
-          PY
 
       - name: Setup Sentry CLI and verify symbol tooling
         timeout-minutes: 20
@@ -316,6 +318,13 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
           cache-dependency-path: core/go.sum
 
+      - name: Setup Java (Android)
+        if: matrix.platform == 'android'
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
       - name: Setup NDK (Android)
         if: matrix.platform == 'android'
         uses: nttld/setup-ndk@v1
@@ -324,47 +333,45 @@ jobs:
           add-to-path: true
           link-to-sdk: true
 
-      # 注：windows-arm64 已移除（desktop_webview_window 插件 ARM64 链接 WebView2 失败 LNK1120；
-      # FlClash 自身 release 也无 win-arm64；win-arm 用户用 amd64 包经 Windows x64 仿真运行）。
-      # 故 win-arm 专属的 Setup rust 步骤 + flutter master 分支的 windows-11-arm 条件一并清除。
+      # Windows ARM64 仍沿本项目暂缓决定；升级上游不自动扩大现有发行矩阵。
 
       - name: Enable git long paths (Windows)
         if: matrix.platform == 'windows'
         run: git config --global core.longpaths true
 
-      # macOS 用 stable 3.44.2，其他非 arm runner 保留 3.41.9；
-      # arm runner（ubuntu-24.04-arm）按 FlClash 惯例走 master 3.44.0-0.1.pre。
-      - name: Setup Flutter (stable)
-        if: ${{ !startsWith(matrix.os, 'ubuntu-24.04-arm') }}
+      # Stable has no Linux ARM64 archive. Use the action's source install
+      # path at the exact SAME stable commit; never follow floating master.
+      - name: Setup Flutter (pinned)
         uses: subosito/flutter-action@v2
         with:
-          channel: stable
-          # macOS 3.44 emits AOT Mach-O and split symbols with a shared UUID.
-          # 3.41's assembly + clang link produces a different final LC_UUID.
-          # 3.44.2 also removes pub get's unbounded background SwiftPM prefetch.
-          flutter-version: ${{ matrix.platform == 'macos' && '3.44.2' || '3.41.9' }}
-          cache: true
-      - name: Setup Flutter (master, arm runner)
-        if: ${{ startsWith(matrix.os, 'ubuntu-24.04-arm') }}
-        uses: subosito/flutter-action@v2
-        with:
-          channel: master
-          flutter-version: 3.44.0-0.1.pre
+          flutter-version: ${{ matrix.platform == 'linux' && matrix.arch == 'arm64' && '5fc346839b5d0eef006ed8404392afb4dfae428d' || '3.47.6' }}
+          channel: ${{ matrix.platform == 'linux' && matrix.arch == 'arm64' && 'master' || 'stable' }}
+          architecture: ${{ matrix.arch == 'arm64' && 'arm64' || 'x64' }}
           cache: true
 
-      - name: Enable desktop
-        if: matrix.platform != 'android'
-        run: flutter config --enable-windows-desktop --enable-linux-desktop --enable-macos-desktop
-
-      - name: Check bounded dependency download retries
-        run: python tool/test/pub_get_retry_test.py
-
-      - name: Get Flutter dependency
-        timeout-minutes: 15
+      - name: Select supported Xcode
+        if: matrix.platform == 'macos'
         run: |
           set -euo pipefail
-          flutter --version
-          python tool/pub_get_retry.py --tool flutter --report build/dependency-retries/client.json
+          sudo xcode-select -s /Applications/Xcode_26.3.app || sudo xcode-select -s /Applications/Xcode_26.2.app
+          xcodebuild -version
+
+      - name: Use default Rust homes for Native Assets hooks
+        shell: python
+        run: |
+          import os
+          from pathlib import Path
+          home = Path.home()
+          with open(os.environ['GITHUB_ENV'], 'a', encoding='utf-8') as stream:
+              stream.write(f"CARGO_HOME={home / '.cargo'}\nRUSTUP_HOME={home / '.rustup'}\nRUSTUP_TOOLCHAIN=1.99.0\n")
+
+      - name: Prepare native build inputs
+        timeout-minutes: 20
+        run: python tool/prepare_native_build.py --platform "${{ matrix.platform }}" --install-rust-targets
+
+      - name: Client pub get
+        timeout-minutes: 15
+        run: python tool/pub_get_retry.py --tool flutter --enforce-lockfile --report build/dependency-retries/client.json
 
       - name: Check platform packager context
         timeout-minutes: 5
@@ -372,11 +379,7 @@ jobs:
 
       - name: Check build tool encoding and launchers
         timeout-minutes: 5
-        run: python tool/test/build_encoding_test.py
-
-      - name: Check Windows Cargokit path protocol
-        if: matrix.platform == 'windows'
-        run: python tool/test/cargokit_path_test.py
+        run: python tool/test/native_release_migration_test.py
 
       # µ-8 顺序：SDK build_runner → client build_runner。
       - name: SDK build_runner
@@ -384,23 +387,41 @@ jobs:
         working-directory: ../Xboard_sdk
         run: |
           set -euo pipefail
-          python "$GITHUB_WORKSPACE/tool/pub_get_retry.py" --tool dart --report "$GITHUB_WORKSPACE/build/dependency-retries/sdk.json"
-          dart run build_runner build
+          python "$GITHUB_WORKSPACE/tool/pub_get_retry.py" --tool dart --enforce-lockfile --report "$GITHUB_WORKSPACE/build/dependency-retries/sdk.json"
+          python "$GITHUB_WORKSPACE/tool/dart_package.py" build_runner build
 
       - name: Client codegen
         timeout-minutes: 20
-        run: dart run build_runner build
+        run: python "$GITHUB_WORKSPACE/tool/dart_package.py" build_runner build
+
+      - name: Check Rust Native Assets symbol handoff
+        timeout-minutes: 10
+        run: python tool/flutter_check.py --no-pub plugins/rust_api/test/xboard_symbols_test.dart
+
+      - name: Check setup build hooks
+        timeout-minutes: 15
+        working-directory: plugins/setup/setup_hooks
+        run: |
+          set -euo pipefail
+          python "$GITHUB_WORKSPACE/tool/pub_get_retry.py" --tool dart --enforce-lockfile --report "$GITHUB_WORKSPACE/build/dependency-retries/setup-hooks.json"
+          dart test
+
+      - name: Check real hook environment and symbol cache recovery
+        timeout-minutes: 10
+        run: |
+          python tool/test/dart_package_test.py
+          python tool/test/native_hook_environment_test.py
 
       - name: Check Android brand identity and task title
         if: matrix.platform == 'android'
         timeout-minutes: 15
         run: |
           set -euo pipefail
-          flutter test --no-pub tool/test/android_brand_identity_test.dart test/xboard/config/application_title_test.dart
+          python tool/flutter_check.py --no-pub tool/test/android_brand_identity_test.dart test/xboard/config/application_title_test.dart
           python tool/test/android_brand_identity_gradle_test.py
 
       - name: Check fallback selection before brand injection
-        run: dart test tool/test/fallback_assets_test.dart
+        run: python tool/dart_package.py test tool/test/fallback_assets_test.dart
 
       # prepare_flavor 生成 flavor_defines.json（含真实 aesKey）。Android 额外 --android-signing
       # 落地 keystore.jks + local.properties。多 ABI 打包：删掉 prepare_flavor 写的 XB_TARGET_ABI，
@@ -416,7 +437,7 @@ jobs:
           if [ "${{ matrix.platform }}" = "android" ]; then
             FLAVOR_ARGS+=(--android-signing --android-identity)
           fi
-          dart run tool/prepare_flavor.dart "${FLAVOR_ARGS[@]}"
+          dart --packages=.dart_tool/package_config.json tool/prepare_flavor.dart "${FLAVOR_ARGS[@]}"
           if [ "${{ matrix.platform }}" = "android" ]; then
             sed -i '/^XB_TARGET_ABI=/d' android/local.properties || true
             echo "✓ 已移除 XB_TARGET_ABI（split-per-abi 出全部 ABI）"
@@ -426,7 +447,7 @@ jobs:
       - name: Check brand resource checkout
         if: matrix.platform == 'windows'
         run: |
-          flutter test --no-pub tool/test/system_icon_git_checkout_test.dart tool/test/windows_installer_metadata_test.dart tool/test/inject_desktop_brand_test.dart tool/test/prepare_release_context_test.dart
+          python tool/flutter_check.py --no-pub tool/test/system_icon_git_checkout_test.dart tool/test/windows_installer_metadata_test.dart tool/test/inject_desktop_brand_test.dart tool/test/prepare_release_context_test.dart
 
       - name: Check Windows compiled title
         if: matrix.platform == 'windows'
@@ -436,25 +457,18 @@ jobs:
       # 桌面品牌注入（appName → 窗口标题 / 打包 make_config display_name 等）+ 图标重生成。
       - name: Inject desktop branding
         if: matrix.platform != 'android'
-        run: dart run tool/inject_desktop_brand.dart --flavor "$FLAVOR" --platform "${{ matrix.platform }}" --build-number "$BUILD_NUMBER"
+        run: dart --packages=.dart_tool/package_config.json tool/inject_desktop_brand.dart --flavor "$FLAVOR" --platform "${{ matrix.platform }}" --build-number "$BUILD_NUMBER"
 
       - name: Generate desktop icons
         timeout-minutes: 5
         if: matrix.platform != 'android'
-        run: dart run flutter_launcher_icons -f flutter_launcher_icons.yaml
+        run: python tool/dart_package.py flutter_launcher_icons -f flutter_launcher_icons.yaml
 
       - name: Prepare public release context
-        run: dart run tool/prepare_release_context.dart --flavor "$FLAVOR" --platform "${{ matrix.platform }}" --arch "${{ matrix.arch }}" --build-number "$BUILD_NUMBER" --source-revision "$BUILD_SOURCE_SHA" --align-package-name
+        run: dart --packages=.dart_tool/package_config.json tool/prepare_release_context.dart --flavor "$FLAVOR" --platform "${{ matrix.platform }}" --arch "${{ matrix.arch }}" --build-number "$BUILD_NUMBER" --source-revision "$BUILD_SOURCE_SHA" --align-package-name
 
-      # Windows：先编 Go 核心取 CORE_SHA256（编译期 define，运行时核心完整性校验）。
-      - name: Build Go core + read CORE_SHA256 (Windows)
-        timeout-minutes: 20
-        if: matrix.platform == 'windows'
-        working-directory: plugins/setup/buildkit/build_tool
-        run: |
-          set -euo pipefail
-          python "$GITHUB_WORKSPACE/tool/pub_get_retry.py" --tool dart --report "$GITHUB_WORKSPACE/build/dependency-retries/windows-build-tool.json"
-          dart run build_tool windows --root-dir "$GITHUB_WORKSPACE"
+      # Native Assets builds the Core, then binds the Helper to its final hash.
+      # The runtime reads libclash's manifest; the old Dart CORE_SHA256 prebuild is retired.
 
       # 合成 env.json（flavor_defines + APP_ENV + CORE_SHA256 + XB_FORM_A + 版本/构建号/tag）。
       - name: Compose env.json

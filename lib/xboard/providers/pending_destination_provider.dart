@@ -9,7 +9,7 @@
 /// 重建，无捕获、无泄漏、序列化等价（Property 22）。
 library;
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 part '../generated/providers/pending_destination_provider.g.dart';

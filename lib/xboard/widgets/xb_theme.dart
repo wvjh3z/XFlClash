@@ -9,7 +9,7 @@
 /// （内部调本文件），堵住「sheet/页面挂根 Navigator 拿不到主题」的漏洞。
 library;
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 /// 原型设计 token（full.html `:root` 浅色 / `.screen.dark` 深色）。
 ///

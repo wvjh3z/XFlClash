@@ -5,7 +5,7 @@
 /// 一个 callback 捕获（避免 widget 持可变字段）。
 library;
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -18,8 +18,8 @@ import 'package:fl_clash/xboard/util/pooled_concurrent.dart';
 ProxiesTabState _tabState(List<Group> groups) => ProxiesTabState(
       groups: groups,
       currentGroupName: groups.isEmpty ? null : groups.first.name,
-      proxyCardType: ProxyCardType.expand,
-      columns: 2,
+      proxyCardType: ProxyCardType.standard,
+
     );
 
 Group _group(

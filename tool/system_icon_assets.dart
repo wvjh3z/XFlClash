@@ -219,12 +219,15 @@ Map<String, Uint8List> desktopSystemIconWrites(
   if (!{'windows', 'linux', 'macos'}.contains(platform)) {
     throw const FormatException('Unsupported desktop system icon platform');
   }
-  final count = platform == 'macos' ? 1 : 3;
   final extension = platform == 'windows' ? 'ico' : 'png';
+  final directory = platform == 'linux' ? 'unix' : platform;
+  final states = platform == 'macos' ? [1, 4] : [1, 2, 3, 4];
+  final scales = platform == 'windows' ? [''] : ['', '2.0x/', '3.0x/', '4.0x/'];
   return {
-    for (var status = 1; status <= count; status++)
-      'assets/images/icon/status_$status.$extension':
-          assets.files['$platform/status_$status.$extension']!,
+    for (final state in states)
+      for (final scale in scales)
+        'assets/images/tray/$directory/${scale}status_$state.$extension': assets
+            .files['$platform/status_${state == 4 ? 1 : state}.$extension']!,
   };
 }
 
@@ -236,9 +239,11 @@ void applySystemIconWrites({
   bool dryRun = false,
 }) {
   final allowed = {
-    for (var status = 1; status <= 3; status++)
-      for (final extension in ['png', 'ico'])
-        'assets/images/icon/status_$status.$extension',
+    for (final platform in ['windows', 'unix', 'macos'])
+      for (final state in platform == 'macos' ? [1, 4] : [1, 2, 3, 4])
+        for (final scale
+            in platform == 'windows' ? [''] : ['', '2.0x/', '3.0x/', '4.0x/'])
+          'assets/images/tray/$platform/${scale}status_$state.${platform == 'windows' ? 'ico' : 'png'}',
   };
   if (!writes.keys.every(allowed.contains)) {
     throw const FormatException('Invalid system icon destination');

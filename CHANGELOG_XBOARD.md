@@ -5,17 +5,25 @@
 >
 > **版本号**：产品版本走自己的 SemVer，与上游 FlClash 版本独立递增。
 > 产品关于页读取 `XB_PRODUCT_VERSION` / `XB_BUILD_TAG`；原生 `build-name` 保留底座版本，构建号另行注入。`prepare_flavor` 当前不改写 pubspec 为产品与底座的拼接版本。
-> **底座版本**：当前为 FlClash v0.8.93；规则、发布流程及已验证批次见 [当前文档](https://github.com/wvjh3z/proxy-suite-docs/blob/main/README.md)。Docs 和 SDK 为私有仓库，需要维护者授予访问权限；旧 `.kiro` 仅作历史追溯，不是开发前置条件。
+> **底座版本**：本独立分支正在升级至 FlClash v0.9.1；规则、发布流程及已验证批次见 [当前文档](https://github.com/wvjh3z/proxy-suite-docs/blob/main/README.md)。Docs 和 SDK 为私有仓库，需要维护者授予访问权限；旧 `.kiro` 仅作历史追溯，不是开发前置条件。
 >
 > 格式遵循 [Keep a Changelog](https://keepachangelog.com/)：`Added` 新增 / `Changed` 变更 / `Fixed` 修复 / `Synced` FlClash 底座同步。
 
 ## [Unreleased]
 
 > 开发中累积（尚无正式 release）；首个真实用户 release 时切走为 `## [x.y.z] — YYYY-MM-DD`。
-> 当前底座：**FlClash v0.8.93**（upstream `ac2f6b9`）。
+> 升级目标：**FlClash v0.9.1**（upstream `8d4f974`），正式发行代码与预检已迁移，真实各平台成品仍待验收。
 > 注：早期按形态 B（v0.1）规划，实际已演进到**形态 A 商业 UI**（唯一 UI）+ v0.2 加密订阅 / Crisp + v0.3 自更新，均累积于此 [Unreleased]。下方历史批次编号用于追溯，发布完成度和设备验证以 [STATUS](https://github.com/wvjh3z/proxy-suite-docs/blob/main/STATUS.md) 为准。
 
 > 当前维护决策：D03 订阅孤儿/重复索引暂缓；D06 校验空值行为跟随上游、暂不修复；D04 续费后账号和节点恢复已获用户实测正常，隔离状态边界与设备行为的差异仍待查。本记录不将这些事项列为已修复。
+
+### Synced
+- 固定helper的Rust调用穿过真实hook环境；补助手/PDB与macOS dSYM内容失效恢复、失败报告生命周期及正式CI回归入口，SDK固定引用对齐升级提交；恢复Rust真实解析所需targets，纯Dart工具避免提前启动应用hook。
+- 迁移正式打包与Sentry符号链到Native Assets/gomobile，补齐实际Rust产物和helper符号、内核裁剪前后hash绑定、独立固定打包器获取及平台准备顺序；本轮仅本地工具/夹具验证，未发布成品。
+- 解决新上游Windows安装事件重名、托盘新目录/DPI变体与图标工具依赖冲突；保留两品牌原安装器、图标和产物命名策略。
+- 独立分支合并FlClash v0.9.1，迁移启动/单实例锁、schema20、Profile校验、节点和setRunning连接入口；品牌欢迎、自动更新规则及商业外壳继续保留。
+- 自有UI跟随上游material_ui，使用官方兼容桥支持legacy富文本等组件，修复新底座下登录弹窗缺MaterialLocalizations；侧栏和关于页更新底座版本说明。
+- 本地Linux品牌A原生业务冒烟与非golden业务回归通过；品牌B独立原生验收按用户决定跳过。平台发行、Native Assets符号采集、真实设备升级仍在进行，未发布新安装包。
 
 ### Fixed
 - 两品牌共用的品牌主题保留 FlClash/Material 平台字体继承；首页速度、套餐价格与 Emoji 混排补齐默认文字样式，按钮/弹窗沿完整主题派生。移动速度在窄屏放大文字时完整缩放显示，不新增字体资源或底座接缝；用户 Windows 换字体后的缺字反馈仍待同机验收。

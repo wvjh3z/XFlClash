@@ -103,7 +103,7 @@ class SymbolAuditTest(unittest.TestCase):
         self.assertEqual(arguments[:2], ["debug-files", "upload"])
         stage = Path(arguments[-1])
         staged = [path for path in stage.rglob("*") if path.is_file()]
-        self.assertEqual(len(staged), 4)
+        self.assertEqual(len(staged), len(self.records) + 1)
         self.assertTrue(all(path.suffix in (".pdb", ".symbols") for path in staged))
         self.assertIn("--no-sources", arguments)
         self.assertIn("--no-zips", arguments)
@@ -169,7 +169,7 @@ class SymbolAuditTest(unittest.TestCase):
         aot.parent.mkdir(parents=True)
         aot.write_bytes(elf_fixture(architecture="aarch64", debug=False, executable=True))
         self.metadata[str(aot)] = self.info("elf")
-        native_evidence = [{"target": "libcore.so", "architecture": "arm64-v8a", "source": "cmake",
+        native_evidence = [{"target": "librust_api.so", "architecture": "arm64-v8a", "source": "cmake",
                             "debug_ids": [DEBUG_ID]}]
         with mock.patch.object(symbols, "audit_elf_native", return_value=([], native_evidence, [])):
             result, evidence = self.run_main(platform="android")
@@ -209,10 +209,24 @@ class SymbolAuditTest(unittest.TestCase):
         self.assertEqual(result, 1)
         self.assertIn("Rust PDB", evidence["error"])
 
+    def test_distributed_windows_helper_cannot_disappear_from_manifest(self):
+        bundle = Path(self.records[0][1]).parent
+        (bundle / "FlClashHelperService.exe").write_text("fixture helper")
+        result, evidence = self.run_main(token="fixture-token")
+        self.assertEqual(result, 1)
+        self.assertIn("helper PDB", evidence["error"])
+
     def test_windows_evidence_names_external_symbols_and_independent_process_limits(self):
         bundle = Path(self.records[0][1]).parent
         for name in ("flutter_windows.dll", "WebView2Loader.dll", "FlClashCore.exe", "FlClashHelperService.exe"):
             (bundle / name).write_text("fixture external module")
+        helper = bundle / "FlClashHelperService.exe"
+        pdb = self.manifest.parent / "helper.pdb"
+        pdb.write_text("fixture helper symbols")
+        self.metadata[str(helper)] = self.info("pe")
+        self.metadata[str(pdb)] = self.info("pdb")
+        self.records.append(["FlClashHelperService", str(helper), str(pdb)])
+        self.write_manifest()
         result, evidence = self.run_main(token="fixture-token")
         self.assertEqual(result, 0)
         reasons = {entry["target"]: entry["reason"] for entry in evidence["native_limitations"]}
@@ -636,7 +650,7 @@ class NativeElfSymbolsTest(unittest.TestCase):
         shutil.copyfile(self.original, source)
         abi = "arm64-v8a" if self.architecture == "arm64" else "x86_64"
         prepare = Preparer(self.build, "android", "objcopy")
-        for target in ("libcore.so", "libclash.so", "librust_api.so"):
+        for target in ("libclash.so", "librust_api.so"):
             binary = prepare.output / "runtime/0" / abi / target
             binary.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(self.binary, binary)
@@ -644,20 +658,20 @@ class NativeElfSymbolsTest(unittest.TestCase):
         shutil.copyfile(self.binary, binary.parent / "libflutter.so")
         manifest_path = prepare.finish()
         manifest = json.loads(manifest_path.read_text())
-        manifest["artifacts"] = [entry for entry in manifest["artifacts"] if entry["target"] != "libcore.so"]
-        manifest["required"] = [entry for entry in manifest["required"] if entry["target"] != "libcore.so"]
+        manifest["artifacts"] = [entry for entry in manifest["artifacts"] if entry["target"] != "librust_api.so"]
+        manifest["required"] = [entry for entry in manifest["required"] if entry["target"] != "librust_api.so"]
         manifest_path.write_text(json.dumps(manifest))
         with mock.patch.object(symbols, "run_cli", side_effect=self.cli), \
              self.assertRaisesRegex(symbols.SymbolError, "mandatory owned module"):
             symbols.audit_elf_native("sentry-cli", self.build, "android")
 
-    def test_android_current_core_and_go_inventory_does_not_require_absent_rust(self):
+    def test_android_current_go_and_rust_inventory_does_not_require_removed_jni_bridge(self):
         from prepare_sentry_native_symbols import Preparer
         source = self.root / "unstripped.so"
         shutil.copyfile(self.original, source)
         abi = "arm64-v8a" if self.architecture == "arm64" else "x86_64"
         prepare = Preparer(self.build, "android", "objcopy")
-        for target in ("libcore.so", "libclash.so"):
+        for target in ("librust_api.so", "libclash.so"):
             binary = prepare.output / "runtime/0" / abi / target
             binary.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(self.binary, binary)
@@ -667,7 +681,7 @@ class NativeElfSymbolsTest(unittest.TestCase):
         with mock.patch.object(symbols, "run_cli", side_effect=self.cli):
             artifacts, evidence, _ = symbols.audit_elf_native("sentry-cli", self.build, "android")
         self.assertEqual(len(artifacts), 2)
-        self.assertEqual({entry["target"] for entry in evidence}, {"libcore.so", "libclash.so"})
+        self.assertEqual({entry["target"] for entry in evidence}, {"librust_api.so", "libclash.so"})
 
     def android_sentry_inventory(self):
         from prepare_sentry_native_symbols import Preparer
@@ -675,7 +689,7 @@ class NativeElfSymbolsTest(unittest.TestCase):
         shutil.copyfile(self.original, source)
         abi = "arm64-v8a" if self.architecture == "arm64" else "x86_64"
         prepare = Preparer(self.build, "android", "objcopy")
-        for target in ("libcore.so", "libclash.so", "libsentry.so", "libsentry-android.so"):
+        for target in ("librust_api.so", "libclash.so", "libsentry.so", "libsentry-android.so"):
             binary = prepare.output / "runtime/0" / abi / target
             binary.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(self.binary, binary)
@@ -690,7 +704,7 @@ class NativeElfSymbolsTest(unittest.TestCase):
             artifacts, evidence, limitations = symbols.audit_elf_native("sentry-cli", self.build, "android")
         self.assertEqual(len(artifacts), 4)
         self.assertEqual({entry["target"] for entry in evidence},
-                         {"libcore.so", "libclash.so", "libsentry.so", "libsentry-android.so"})
+                         {"librust_api.so", "libclash.so", "libsentry.so", "libsentry-android.so"})
         self.assertTrue(all(path.suffix == ".debug" and not symbols.inspect_elf(path)["has_executable_text"]
                             for path in artifacts))
         self.assertFalse(limitations)
@@ -708,7 +722,7 @@ class NativeElfSymbolsTest(unittest.TestCase):
                 return self.cli(executable, arguments)
             staged = [path for path in Path(arguments[-1]).rglob("*") if path.is_file()]
             self.assertEqual({path.name for path in staged},
-                             {"libcore.so.debug", "libclash.so.debug", "libsentry.so.debug",
+                             {"librust_api.so.debug", "libclash.so.debug", "libsentry.so.debug",
                               "libsentry-android.so.debug", dart.name})
             self.assertTrue(all(not symbols.inspect_elf(path)["has_executable_text"] for path in staged))
             self.assertIn("--no-sources", arguments)
@@ -762,7 +776,7 @@ class NativeElfSymbolsTest(unittest.TestCase):
         shutil.copyfile(self.original, source)
         abi = "arm64-v8a" if self.architecture == "arm64" else "x86_64"
         prepare = Preparer(self.build, "android", "objcopy")
-        for target in ("libcore.so", "libclash.so", "librust_api.so"):
+        for target in ("libclash.so", "librust_api.so"):
             binary = prepare.output / "runtime/0" / abi / target
             binary.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(self.binary, binary)
@@ -784,7 +798,7 @@ class NativeElfSymbolsTest(unittest.TestCase):
         abi = "arm64-v8a" if self.architecture == "arm64" else "x86_64"
         omitted_abi = "x86_64" if abi != "x86_64" else "arm64-v8a"
         prepare = Preparer(self.build, "android", "objcopy")
-        for target in ("libcore.so", "libclash.so", "librust_api.so"):
+        for target in ("libclash.so", "librust_api.so"):
             binary = prepare.output / "runtime/0" / abi / target
             binary.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(self.binary, binary)
@@ -795,7 +809,7 @@ class NativeElfSymbolsTest(unittest.TestCase):
         # for that ABI is absent. The audit must inspect the inventory itself.
         other = prepare.output / "runtime/1" / omitted_abi
         other.mkdir(parents=True)
-        for target in ("libcore.so", "libclash.so", "librust_api.so", "libflutter.so"):
+        for target in ("libclash.so", "librust_api.so", "libflutter.so"):
             shutil.copyfile(self.binary, other / target)
         with mock.patch.object(symbols, "run_cli", side_effect=self.cli), \
              self.assertRaisesRegex(symbols.SymbolError, "distributed Android ABI"):
@@ -973,7 +987,10 @@ set_target_properties(sqlite3 PROPERTIES
                      "Native C/C++ CMake fixture tools unavailable")
 class WindowsRootLanguagesTest(unittest.TestCase):
     def test_production_root_initializes_c_before_child_c_only_library(self):
-        from windows_loader_install_test import find_cmake
+        try:
+            from .windows_loader_install_test import find_cmake
+        except ImportError:
+            from windows_loader_install_test import find_cmake
         with tempfile.TemporaryDirectory(prefix="xflclash-root-c-") as temporary:
             root = Path(temporary).resolve()
             source, build = root / "source", root / "build"
@@ -990,7 +1007,10 @@ class WindowsRootLanguagesTest(unittest.TestCase):
 class NativeWindowsSymbolsTest(unittest.TestCase):
     def test_production_rules_generate_matching_pdb_for_runner_and_plugins(self):
         # Native CI test, not a string assertion about compiler/linker flags.
-        from windows_loader_install_test import find_cmake
+        try:
+            from .windows_loader_install_test import find_cmake
+        except ImportError:
+            from windows_loader_install_test import find_cmake
         cli = shutil.which("sentry-cli")
         self.assertIsNotNone(cli, "CI must install sentry-cli before this test")
         with tempfile.TemporaryDirectory(prefix="xflclash-msvc-symbols-") as temporary:

@@ -16,15 +16,16 @@ import tempfile
 import zipfile
 
 from sentry_elf import ElfError, inspect_elf
+from sentry_hook_inputs import rust_inputs
 from sentry_android_prefab import PrefabError, SENTRY_ANDROID_TARGETS, prefab_candidates
 from sentry_linux_inventory import LinuxInventoryError, collect_linux_inventory
 
 ANDROID_ARCH = {"armeabi-v7a": "arm", "arm64-v8a": "aarch64", "x86_64": "x86_64"}
 LINUX_ARCH = {"x64": "x86_64", "arm64": "aarch64"}
 OWN_ANDROID = {"libcore.so": "cmake", "libclash.so": "go", "librust_api.so": "rust"}
-# rust_api currently declares desktop/iOS platforms only. If an APK ever
-# contains its ELF, treat that distributed module as owned and require symbols.
-REQUIRED_ANDROID = {"libcore.so", "libclash.so"}
+# v0.9.1 uses gomobile libclash and Rust Native Assets on Android; the old
+# JNI libcore bridge was removed. Both shipped owned modules need matching DWARF.
+REQUIRED_ANDROID = {"libclash.so", "librust_api.so"}
 MAX_ELF = 512 * 1024 * 1024
 
 
@@ -217,11 +218,10 @@ class Preparer:
                                      self.root / "app" / "intermediates" / "merged_native_libs"]
                             candidates[name] = [p for root in roots if root.exists()
                                                 for p in root.rglob(name)]
-                            candidates[name] += list((self.repo / "libclash" / "android").glob("*/" + name))
+                            candidates[name] += [record['binary'] for record in rust_inputs(self.root, 'android') if record['binary'].name == name]
                         source = OWN_ANDROID.get(name, "gradle")
                         self.add(name, abi, binary, candidates[name], source, name in OWN_ANDROID)
-                        if name in {"libcore.so", "libclash.so"}:
-                            self.limitation(name, abi, source, "separate_process_no_sentry_sdk")
+
 
     def linux(self, architecture: str, configuration: str):
         try:
@@ -237,10 +237,13 @@ class Preparer:
                 self.limitation(name, architecture, "dart", "split_debug_info_managed_separately")
                 continue
             if name == "FlClashCore":
-                candidates = [self.repo / "libclash/linux/FlClashCore"]
+                candidates = [self.repo / "libclash/linux/FlClashCore.unstripped"]
                 source = "go"
+            elif name == "FlClashHelperService":
+                candidates = list((self.repo / "services/helper/target").glob("*/release/helper"))
+                source = "rust_helper"
             elif name == "librust_api.so":
-                candidates = list((native / "plugins" / "rust_api").rglob(name))
+                candidates = [record["binary"] for record in rust_inputs(self.root, "linux") if record["binary"].name == name]
                 source = "rust"
             else:
                 candidates = inventory["sources"].get(name, [])
@@ -249,7 +252,7 @@ class Preparer:
             self.add(name, architecture, binary, candidates, source, name in inventory["required"])
             if len(self.artifacts) > previous:
                 self.artifacts[-1]["binary_copies"] = [path.relative_to(self.root).as_posix() for path in copies]
-            if name == "FlClashCore":
+            if name in {"FlClashCore", "FlClashHelperService"}:
                 self.limitation(name, architecture, source, "separate_process_no_sentry_sdk")
 
     def finish(self):

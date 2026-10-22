@@ -5,7 +5,7 @@ import 'dart:async';
 import 'package:crisp_chat/crisp_chat.dart';
 import 'package:fl_clash/xboard/services/crisp_chat_driver.dart';
 import 'package:fl_clash/xboard/services/crisp_support_service.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart'
     show MethodCall, MethodChannel, PlatformException, SystemChannels;
 import 'package:flutter_riverpod/flutter_riverpod.dart';

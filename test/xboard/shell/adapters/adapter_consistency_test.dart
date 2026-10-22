@@ -8,7 +8,7 @@
 /// **降级**：trafficsProvider 空 → `currentTraffic` 返 0/0 不崩（fallback）。
 library;
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -32,21 +32,24 @@ class _Probe extends ConsumerWidget {
 }
 
 void main() {
-  testWidgets('Property 4：FlClash mode 真值变 → adapter 读回一致（无影子状态）',
-      (tester) async {
-    late WidgetRef capturedRef;
+  testWidgets('Property 4：FlClash mode 真值变 → adapter 读回一致（无影子状态）', (
+    tester,
+  ) async {
+    late XbMode observed;
+    const adapter = XbModeAdapter();
     final container = ProviderContainer();
     addTearDown(container.dispose);
     await tester.pumpWidget(
       UncontrolledProviderScope(
         container: container,
-        child: MaterialApp(home: _Probe((ref) => capturedRef = ref)),
+        child: MaterialApp(
+          home: _Probe((ref) => observed = adapter.currentMode(ref)),
+        ),
       ),
     );
 
-    const adapter = XbModeAdapter();
     // 默认 rule → smart。
-    expect(adapter.currentMode(capturedRef), XbMode.smart);
+    expect(observed, XbMode.smart);
 
     // 直接改 FlClash 真值（模拟内核侧 / 其它入口改 mode）。
     container
@@ -54,14 +57,14 @@ void main() {
         .update((s) => s.copyWith(mode: Mode.global));
     await tester.pump();
     // adapter 读出即变（无中间缓存）。
-    expect(adapter.currentMode(capturedRef), XbMode.global);
+    expect(observed, XbMode.global);
 
     // direct（formA 无法表达）→ 归一为 smart。
     container
         .read(patchClashConfigProvider.notifier)
         .update((s) => s.copyWith(mode: Mode.direct));
     await tester.pump();
-    expect(adapter.currentMode(capturedRef), XbMode.smart);
+    expect(observed, XbMode.smart);
   });
 
   test('Property 4：XbModeAdapter 无实例字段（结构性无影子状态）', () {
@@ -71,7 +74,9 @@ void main() {
     expect(identical(a, b), isTrue, reason: 'const 单态，无实例状态');
   });
 
-  testWidgets('降级：trafficsProvider 空 → currentTraffic 返 0/0 不崩', (tester) async {
+  testWidgets('降级：trafficsProvider 空 → currentTraffic 返 0/0 不崩', (
+    tester,
+  ) async {
     late WidgetRef capturedRef;
     final container = ProviderContainer(
       overrides: [
@@ -96,10 +101,10 @@ void main() {
     final container = ProviderContainer(
       overrides: [
         trafficsProvider.overrideWithBuild(
-          (ref, _) => FixedList<Traffic>(10, list: const [
-            Traffic(up: 1, down: 2),
-            Traffic(up: 7, down: 9),
-          ]),
+          (ref, _) => FixedList<Traffic>(
+            10,
+            list: const [Traffic(up: 1, down: 2), Traffic(up: 7, down: 9)],
+          ),
         ),
       ],
     );

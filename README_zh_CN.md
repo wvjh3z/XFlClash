@@ -6,7 +6,7 @@
 
 ## XFlclash
 
-XFlclash 是 [FlClash](https://github.com/chen08209/FlClash) 的二次开发，品牌 Xboard 客户端业务在 `lib/xboard/` 中维护。当前产品采用形态 A「首页 / 节点 / 我的」界面，FlClash 底座继续负责内核、VPN、代理、Profile 和平台集成。当前底座为 **FlClash v0.8.93**。
+XFlclash 是 [FlClash](https://github.com/chen08209/FlClash) 的二次开发，品牌 Xboard 客户端业务在 `lib/xboard/` 中维护。当前产品采用形态 A「首页 / 节点 / 我的」界面，FlClash 底座继续负责内核、VPN、代理、Profile 和平台集成。本独立分支升级目标为 **FlClash v0.9.1**；原生发行/设备验收状态见 Docs/STATUS。
 
 ### 项目文档与开发入口
 

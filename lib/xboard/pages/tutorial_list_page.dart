@@ -10,7 +10,7 @@
 /// **数据**：`tutorialsProvider`（autoDispose），成功值与 AsyncError 按明确状态分流。
 library;
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/xb_domain_error.dart';

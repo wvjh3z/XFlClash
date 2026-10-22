@@ -75,7 +75,7 @@ begin
   Result := FmtMessage(CustomMessage('XbVcFailed'), [IntToStr(Code), Hint, LogPath]);
 end;
 
-function PrepareToInstall(var NeedsRestart: Boolean): String;
+function XbPrepareVCRuntime(var NeedsRestart: Boolean): String;
 var
   Code: Integer;
   LogPath, Params, PowerShellPath: String;

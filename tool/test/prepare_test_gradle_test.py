@@ -18,8 +18,8 @@ import prepare_test_gradle as g
 def archive(entries=None):
     output = io.BytesIO()
     with zipfile.ZipFile(output, 'w') as z:
-        for name, content in (entries or {'gradle-8.13/bin/gradle': 'launcher',
-                                          'gradle-8.13/bin/gradle.bat': 'launcher'}).items():
+        for name, content in (entries or {'gradle-9.8.0/bin/gradle': 'launcher',
+                                          'gradle-9.8.0/bin/gradle.bat': 'launcher'}).items():
             z.writestr(name, content)
     return output.getvalue()
 
@@ -46,7 +46,7 @@ class GradleProvisionTests(unittest.TestCase):
 
     def test_bad_cache_is_replaced_only_after_verified_download(self):
         cache = self.root/'cache'; cache.mkdir()
-        target = cache/'gradle-8.13-bin.zip'; target.write_bytes(b'broken')
+        target = cache/'gradle-9.8.0-bin.zip'; target.write_bytes(b'broken')
         data = archive()
         with patch.object(g, 'SHA256', hashlib.sha256(data).hexdigest()):
             g.prepare(self.root/'out', cache=cache, download=lambda p,*_: p.write_bytes(data))
@@ -56,7 +56,7 @@ class GradleProvisionTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, 'SHA256'):
             g.prepare(self.root/'out', cache=self.root/'cache', download=lambda p,*_: p.write_bytes(archive()))
         self.assertFalse((self.root/'out').exists())
-        self.assertFalse((self.root/'cache/gradle-8.13-bin.zip').exists())
+        self.assertFalse((self.root/'cache/gradle-9.8.0-bin.zip').exists())
 
     def test_failed_partial_download_is_cleaned(self):
         def fail(path, *_):
@@ -66,7 +66,7 @@ class GradleProvisionTests(unittest.TestCase):
         self.assertEqual(list((self.root/'cache').iterdir()), [])
 
     def test_traversal_archive_is_rejected(self):
-        for name in ['../escaped', 'gradle-8.13/../../escaped', 'gradle-8.13/..\\escaped']:
+        for name in ['../escaped', 'gradle-9.8.0/../../escaped', 'gradle-9.8.0/..\\escaped']:
             data = archive({name: 'bad'})
             with self.subTest(name=name), patch.object(g, 'SHA256', hashlib.sha256(data).hexdigest()):
                 with self.assertRaisesRegex(RuntimeError, 'Unsafe'):
@@ -84,7 +84,7 @@ class GradleProvisionTests(unittest.TestCase):
         launcher = self.root/'prepared/bin/gradle'
         with patch.dict(g.os.environ, {'XFLCLASH_TEST_GRADLE': '/missing/manual/gradle'}), \
              patch.object(entry, 'prepare', return_value=launcher) as prepare, \
-             patch.object(entry, 'run', side_effect=['[pub-get output] Gradle 8.13\n', 'OK']) as run:
+             patch.object(entry, 'run', side_effect=['[pub-get output] Gradle 9.8.0\n', 'OK']) as run:
             self.assertEqual(entry.check_gradle_identity(checkout/'project', checkout), 'OK')
         prepare.assert_called_once_with(checkout/'verified-gradle')
         self.assertEqual(run.call_args.args[0][0], launcher)

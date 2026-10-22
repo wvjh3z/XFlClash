@@ -223,10 +223,8 @@ def main() -> int:
     parser.add_argument("--output", type=Path, default=OUTPUT)
     args = parser.parse_args()
     try:
-        entry = git(REPO, "ls-files", "--stage", "plugins/flutter_distributor").decode().split()
-        if entry[:2] != ["160000", PINNED_REVISION]:
-            raise RuntimeError("Parent repository distributor gitlink changed; review the pinned patch")
-        output = prepare(REPO / "plugins/flutter_distributor", args.output)
+        from checkout_distributor import ensure_checkout
+        output = prepare(ensure_checkout(REPO), args.output)
     except (OSError, RuntimeError, tarfile.TarError) as error:
         parser.exit(1, f"Packager preparation failed: {error}\n")
     # Human diagnostic only: ASCII escaping preserves the path without making

@@ -11,6 +11,9 @@ import 'package:fl_clash/xboard/models/xb_domain_error.dart';
 import 'package:fl_clash/xboard/models/xb_domain_subscription.dart';
 import 'package:fl_clash/xboard/models/xb_domain_types.dart';
 import 'package:fl_clash/xboard/models/xb_result.dart';
+import 'package:fl_clash/xboard/models/xb_invite.dart';
+import 'package:fl_clash/xboard/models/xb_notice.dart';
+import 'package:fl_clash/xboard/models/xb_tutorial.dart';
 import 'package:fl_clash/xboard/sdk/xboard_service.dart';
 
 class FakeIntegrationService implements XboardService {
@@ -35,8 +38,12 @@ class FakeIntegrationService implements XboardService {
   }
 
   @override
-  Future<XbResult<bool>> register(String email, String password,
-      {String? emailCode, String? inviteCode}) async {
+  Future<XbResult<bool>> register(
+    String email,
+    String password, {
+    String? emailCode,
+    String? inviteCode,
+  }) async {
     await _delay;
     return XbResult.success(true);
   }
@@ -49,7 +56,10 @@ class FakeIntegrationService implements XboardService {
 
   @override
   Future<XbResult<bool>> forgotPassword(
-      String email, String code, String newPassword) async {
+    String email,
+    String code,
+    String newPassword,
+  ) async {
     await _delay;
     return XbResult.success(true);
   }
@@ -70,16 +80,18 @@ class FakeIntegrationService implements XboardService {
   @override
   Future<XbResult<XbDomainSubscription>> getSubscription() async {
     await _delay;
-    return XbResult.success(XbDomainSubscription(
-      email: 'demo@example.com',
-      uuid: 'a1b2c3d4-int',
-      planName: '专业版套餐',
-      totalBytes: 100 * 1024 * 1024 * 1024,
-      usedBytes: 37 * 1024 * 1024 * 1024,
-      expiredAt: DateTime.now().add(const Duration(days: 23)),
-      nextResetAt: DateTime.now().add(const Duration(days: 8)),
-      planId: 1,
-    ));
+    return XbResult.success(
+      XbDomainSubscription(
+        email: 'demo@example.com',
+        uuid: 'a1b2c3d4-int',
+        planName: '专业版套餐',
+        totalBytes: 100 * 1024 * 1024 * 1024,
+        usedBytes: 37 * 1024 * 1024 * 1024,
+        expiredAt: DateTime.now().add(const Duration(days: 23)),
+        nextResetAt: DateTime.now().add(const Duration(days: 8)),
+        planId: 1,
+      ),
+    );
   }
 
   @override
@@ -112,54 +124,67 @@ class FakeIntegrationService implements XboardService {
   }
 
   @override
-  Future<XbResult<String>> createOrder(int planId, XbPlanPeriod period,
-      {String? couponCode}) async {
+  Future<XbResult<String>> createOrder(
+    int planId,
+    XbPlanPeriod period, {
+    String? couponCode,
+  }) async {
     await _delay;
     createOrderCalls++;
     return XbResult.success('TRADE_INT_$createOrderCalls');
   }
 
   @override
-  Future<XbResult<CheckoutOutcomeUi>> checkout(String tradeNo, String method) async {
+  Future<XbResult<CheckoutOutcomeUi>> checkout(
+    String tradeNo,
+    String method,
+  ) async {
     await _delay;
     checkoutCalls++;
     return XbResult.success(const CheckoutPaid());
   }
 
   @override
-  Future<XbResult<XbPagedList<OrderSummary>>> getOrders(
-      {bool forceRefresh = false, int page = 1, int pageSize = 20}) async {
+  Future<XbResult<XbPagedList<OrderSummary>>> getOrders({
+    bool forceRefresh = false,
+    int page = 1,
+    int pageSize = 20,
+  }) async {
     await _delay;
-    return XbResult.success(XbPagedList(
-      items: [
-        OrderSummary(
-          tradeNo: 'TRADE_OLD',
+    return XbResult.success(
+      XbPagedList(
+        items: [
+          OrderSummary(
+            tradeNo: 'TRADE_OLD',
+            planName: '专业版',
+            period: XbPlanPeriod.monthly,
+            totalAmountYuan: 10,
+            status: XbOrderStatus.completed,
+            createdAt: DateTime(2026, 1, 1),
+          ),
+        ],
+        page: page,
+        pageSize: pageSize,
+        total: 1,
+      ),
+    );
+  }
+
+  @override
+  Future<XbResult<OrderDetail?>> getOrder(String tradeNo) async {
+    await _delay;
+    return XbResult.success(
+      OrderDetail(
+        summary: OrderSummary(
+          tradeNo: tradeNo,
           planName: '专业版',
           period: XbPlanPeriod.monthly,
           totalAmountYuan: 10,
           status: XbOrderStatus.completed,
           createdAt: DateTime(2026, 1, 1),
         ),
-      ],
-      page: page,
-      pageSize: pageSize,
-      total: 1,
-    ));
-  }
-
-  @override
-  Future<XbResult<OrderDetail?>> getOrder(String tradeNo) async {
-    await _delay;
-    return XbResult.success(OrderDetail(
-      summary: OrderSummary(
-        tradeNo: tradeNo,
-        planName: '专业版',
-        period: XbPlanPeriod.monthly,
-        totalAmountYuan: 10,
-        status: XbOrderStatus.completed,
-        createdAt: DateTime(2026, 1, 1),
       ),
-    ));
+    );
   }
 
   @override
@@ -170,7 +195,10 @@ class FakeIntegrationService implements XboardService {
 
   @override
   Future<XbResult<CouponInfo?>> checkCoupon(
-      String code, int planId, XbPlanPeriod period) async {
+    String code,
+    int planId,
+    XbPlanPeriod period,
+  ) async {
     await _delay;
     return XbResult.success(CouponInfo(code: code, type: 2, value: 10));
   }
@@ -186,16 +214,57 @@ class FakeIntegrationService implements XboardService {
   @override
   Future<XbResult<IpMirrorConfigUi>> fetchMirrorList() async {
     await _delay;
-    return XbResult.success(const IpMirrorConfigUi(
-      enabled: true,
-      urls: ['https://m1.example.com', 'https://m2.example.com'],
-      throttle: Duration(minutes: 5),
-      fetchTimeout: Duration(seconds: 3),
-    ));
+    return XbResult.success(
+      const IpMirrorConfigUi(
+        enabled: true,
+        urls: ['https://m1.example.com', 'https://m2.example.com'],
+        throttle: Duration(minutes: 5),
+        fetchTimeout: Duration(seconds: 3),
+      ),
+    );
   }
 
   @override
   void fireAllMirrors(List<String> urls) {
     firedMirrors.addAll(urls);
   }
+
+  // Features outside these scenarios return explicit unsupported results, never network.
+  XbResult<T> _unsupported<T>() => XbResult.failure(
+    XbDomainError.unexpected(
+      'integration fixture',
+      'Not configured by this scenario',
+    ),
+  );
+  @override
+  Future<XbResult<XbInviteInfo>> getInviteInfo() async => _unsupported();
+  @override
+  Future<XbResult<String>> generateInviteCode() async => _unsupported();
+  @override
+  Future<XbResult<List<XbCommissionRecord>>> getCommissionRecords({
+    int page = 1,
+    int pageSize = 20,
+  }) async => _unsupported();
+  @override
+  Future<XbResult<bool>> withdrawCommission({
+    required String method,
+    required String account,
+  }) async => _unsupported();
+  @override
+  Future<XbResult<bool>> transferCommissionToBalance(double yuan) async =>
+      _unsupported();
+  @override
+  Future<XbResult<List<String>>> getWithdrawMethods() async => _unsupported();
+  @override
+  Future<XbResult<XbShareLink>> getShareLink() async => _unsupported();
+  @override
+  Future<XbResult<List<XbTutorial>>> getTutorials() async =>
+      XbResult.success([]);
+  @override
+  Future<XbResult<XbTutorialDetail>> getTutorialDetail(int id) async =>
+      _unsupported();
+  @override
+  Future<XbResult<List<XbNotice>>> getNotices() async => XbResult.success([]);
+  @override
+  Future<String> currentUserIdHash() async => 'integration-user';
 }

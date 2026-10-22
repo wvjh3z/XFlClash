@@ -4,7 +4,7 @@
 /// 右侧节点以双列网格并排（同一分组两节点 dy 相近、dx 不同，左节点在分组栏右侧）。
 library;
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -40,8 +40,8 @@ ProxiesTabState _twoNodeTab() => const ProxiesTabState(
         ),
       ],
       currentGroupName: '香港',
-      proxyCardType: ProxyCardType.expand,
-      columns: 2,
+      proxyCardType: ProxyCardType.standard,
+
     );
 
 Future<void> pumpDesktopNodes(WidgetTester tester) async {

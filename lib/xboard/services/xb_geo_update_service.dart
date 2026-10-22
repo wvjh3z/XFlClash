@@ -13,17 +13,57 @@ library;
 
 import 'dart:async';
 
-import 'package:fl_clash/common/constant.dart' show GEOIP, GEOSITE, MMDB, ASN;
 import 'package:fl_clash/core/core.dart' show coreController;
-import 'package:fl_clash/models/models.dart' show UpdateGeoDataParams;
+import 'package:fl_clash/core/event.dart';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-/// 单个 geo 库的「类型标签 + 文件名」（与设置→资源页一致）。
-class _GeoTarget {
-  const _GeoTarget(this.label, this.fileName);
-  final String label; // geoType（'GEOIP'/'GEOSITE'/'MMDB'/'ASN'）
-  final String fileName; // geoName（GEOIP.dat 等）
+/// v0.9.1 acknowledges the request before the update finishes. Only the matching
+/// completion event may count as a successful update for the seven-day policy.
+Future<String> updateXbGeoResource(
+  String type, {
+  Future<String> Function(String type)? request,
+  Duration timeout = const Duration(minutes: 3),
+}) async {
+  final completion = Completer<String>();
+  final listener = _GeoCompletion(type, completion);
+  final events = CoreEventManager.instance;
+  events.addListener(listener);
+  try {
+    final operation = () async {
+      final message = await (request ?? coreController.updateGeoData)(type);
+      if (message.isNotEmpty) return message;
+      return completion.future;
+    }();
+    return await operation.timeout(
+      timeout,
+      onTimeout: () => 'GEO update timed out',
+    );
+  } finally {
+    events.removeListener(listener);
+    if (!completion.isCompleted) completion.complete('GEO update cancelled');
+  }
+}
+
+class _GeoCompletion with CoreEventListener {
+  _GeoCompletion(this.type, this.completion);
+  final String type;
+  final Completer<String> completion;
+  @override
+  void onGeoUpdate(String geoType, bool updating, bool skipped, String? error) {
+    if (geoType.toUpperCase() == type.toUpperCase() &&
+        !updating &&
+        !completion.isCompleted) {
+      completion.complete(error ?? '');
+    }
+  }
+
+  @override
+  void onCrash(String message) {
+    if (!completion.isCompleted) {
+      completion.complete('Core stopped during GEO update');
+    }
+  }
 }
 
 abstract final class XbGeoUpdateService {
@@ -39,12 +79,7 @@ abstract final class XbGeoUpdateService {
   /// 持久化「上次成功更新时刻」的 prefs 键（毫秒时间戳）。
   static const String _kPrefsKey = 'xb_geo_last_update_at_ms';
 
-  static const List<_GeoTarget> _targets = [
-    _GeoTarget('GEOIP', GEOIP),
-    _GeoTarget('GEOSITE', GEOSITE),
-    _GeoTarget('MMDB', MMDB),
-    _GeoTarget('ASN', ASN),
-  ];
+  static const _targets = ['GEOIP', 'GEOSITE', 'MMDB', 'ASN'];
 
   /// 进行中标记（single-flight，防并发重复拉取）。
   static bool _running = false;
@@ -108,17 +143,14 @@ abstract final class XbGeoUpdateService {
       var allOk = true;
       for (final t in _targets) {
         try {
-          // updateGeoData 成功返空串，失败返错误消息（与设置→资源页同源）。
-          final msg = await coreController.updateGeoData(
-            UpdateGeoDataParams(geoType: t.label, geoName: t.fileName),
-          );
+          final msg = await updateXbGeoResource(t);
           if (msg.isNotEmpty) {
             allOk = false;
-            debugPrint('[XbGeoUpdate] ${t.label} 更新失败: $msg');
+            debugPrint('[XbGeoUpdate] $t 更新失败: $msg');
           }
         } catch (e) {
           allOk = false;
-          debugPrint('[XbGeoUpdate] ${t.label} 更新异常: $e');
+          debugPrint('[XbGeoUpdate] $t 更新异常: $e');
         }
       }
       // 仅全部成功才写时间戳；有失败则不写 → 下次连上（过节流后）重试，不必等 7 天。

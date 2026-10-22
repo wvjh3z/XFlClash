@@ -1,6 +1,6 @@
 // GENERATED CODE - DO NOT MODIFY BY HAND
 // coverage:ignore-file
-// ignore_for_file: type=lint
+// ignore_for_file: type=lint, type=warning, deprecated_member_use, deprecated_member_use_from_same_package
 // ignore_for_file: unused_element, deprecated_member_use, deprecated_member_use_from_same_package, use_function_type_syntax_for_parameters, unnecessary_const, avoid_init_to_null, invalid_override_different_default_values_named, prefer_expression_function_bodies, annotate_overrides, invalid_annotation_target, unnecessary_question_mark
 
 part of '../../models/order_summary.dart';
@@ -9,17 +9,14 @@ part of '../../models/order_summary.dart';
 // FreezedGenerator
 // **************************************************************************
 
+// GENERATED CODE - DO NOT MODIFY BY HAND
 // dart format off
 T _$identity<T>(T value) => value;
 
 /// @nodoc
 mixin _$OrderSummary {
 
- String get tradeNo; String? get planName;// OrderModel.orderPlan.name
- XbPlanPeriod get period;// 旧版 *_price 命名解析自 OrderModel.period（F338）
- double get totalAmountYuan;// SDK totalAmountInYuan getter（D38）
- XbOrderStatus get status;// 客户端自有副本（零 SDK 穿透 Property 2）
- DateTime get createdAt;
+ String get tradeNo; String? get planName; XbPlanPeriod get period; double get totalAmountYuan; XbOrderStatus get status; DateTime get createdAt;
 /// Create a copy of OrderSummary
 /// with the given fields replaced by the non-null parameter values.
 @JsonKey(includeFromJson: false, includeToJson: false)
@@ -32,16 +29,21 @@ $OrderSummaryCopyWith<OrderSummary> get copyWith => _$OrderSummaryCopyWithImpl<O
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is OrderSummary&&(identical(other.tradeNo, tradeNo) || other.tradeNo == tradeNo)&&(identical(other.planName, planName) || other.planName == planName)&&(identical(other.period, period) || other.period == period)&&(identical(other.totalAmountYuan, totalAmountYuan) || other.totalAmountYuan == totalAmountYuan)&&(identical(other.status, status) || other.status == status)&&(identical(other.createdAt, createdAt) || other.createdAt == createdAt));
+  final _this = this as OrderSummary;
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is OrderSummary&&(identical(other.tradeNo, _this.tradeNo) || other.tradeNo == _this.tradeNo)&&(identical(other.planName, _this.planName) || other.planName == _this.planName)&&(identical(other.period, _this.period) || other.period == _this.period)&&(identical(other.totalAmountYuan, _this.totalAmountYuan) || other.totalAmountYuan == _this.totalAmountYuan)&&(identical(other.status, _this.status) || other.status == _this.status)&&(identical(other.createdAt, _this.createdAt) || other.createdAt == _this.createdAt));
 }
 
 @JsonKey(includeFromJson: false, includeToJson: false)
 @override
-int get hashCode => Object.hash(runtimeType,tradeNo,planName,period,totalAmountYuan,status,createdAt);
+int get hashCode {
+  final _this = this as OrderSummary;
+  return Object.hash(runtimeType,_this.tradeNo,_this.planName,_this.period,_this.totalAmountYuan,_this.status,_this.createdAt);
+}
 
 @override
 String toString() {
-  return 'OrderSummary(tradeNo: $tradeNo, planName: $planName, period: $period, totalAmountYuan: $totalAmountYuan, status: $status, createdAt: $createdAt)';
+  final _this = this as OrderSummary;
+  return 'OrderSummary(tradeNo: ${_this.tradeNo}, planName: ${_this.planName}, period: ${_this.period}, totalAmountYuan: ${_this.totalAmountYuan}, status: ${_this.status}, createdAt: ${_this.createdAt})';
 }
 
 
@@ -70,7 +72,7 @@ class _$OrderSummaryCopyWithImpl<$Res>
 /// Create a copy of OrderSummary
 /// with the given fields replaced by the non-null parameter values.
 @pragma('vm:prefer-inline') @override $Res call({Object? tradeNo = null,Object? planName = freezed,Object? period = null,Object? totalAmountYuan = null,Object? status = null,Object? createdAt = null,}) {
-  return _then(_self.copyWith(
+  return _then(OrderSummary(
 tradeNo: null == tradeNo ? _self.tradeNo : tradeNo // ignore: cast_nullable_to_non_nullable
 as String,planName: freezed == planName ? _self.planName : planName // ignore: cast_nullable_to_non_nullable
 as String?,period: null == period ? _self.period : period // ignore: cast_nullable_to_non_nullable
@@ -223,13 +225,9 @@ class _OrderSummary implements OrderSummary {
 
 @override final  String tradeNo;
 @override final  String? planName;
-// OrderModel.orderPlan.name
 @override final  XbPlanPeriod period;
-// 旧版 *_price 命名解析自 OrderModel.period（F338）
 @override final  double totalAmountYuan;
-// SDK totalAmountInYuan getter（D38）
 @override final  XbOrderStatus status;
-// 客户端自有副本（零 SDK 穿透 Property 2）
 @override final  DateTime createdAt;
 
 /// Create a copy of OrderSummary
@@ -245,16 +243,18 @@ Map<String, dynamic> toJson() {
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is _OrderSummary&&(identical(other.tradeNo, tradeNo) || other.tradeNo == tradeNo)&&(identical(other.planName, planName) || other.planName == planName)&&(identical(other.period, period) || other.period == period)&&(identical(other.totalAmountYuan, totalAmountYuan) || other.totalAmountYuan == totalAmountYuan)&&(identical(other.status, status) || other.status == status)&&(identical(other.createdAt, createdAt) || other.createdAt == createdAt));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is _OrderSummary&&(identical(other.tradeNo, tradeNo) || other.tradeNo == tradeNo)&&(identical(other.planName, planName) || other.planName == planName)&&(identical(other.period, period) || other.period == period)&&(identical(other.totalAmountYuan, totalAmountYuan) || other.totalAmountYuan == totalAmountYuan)&&(identical(other.status, status) || other.status == status)&&(identical(other.createdAt, createdAt) || other.createdAt == createdAt));
 }
 
 @JsonKey(includeFromJson: false, includeToJson: false)
 @override
-int get hashCode => Object.hash(runtimeType,tradeNo,planName,period,totalAmountYuan,status,createdAt);
+int get hashCode {
+    return Object.hash(runtimeType,tradeNo,planName,period,totalAmountYuan,status,createdAt);
+}
 
 @override
 String toString() {
-  return 'OrderSummary(tradeNo: $tradeNo, planName: $planName, period: $period, totalAmountYuan: $totalAmountYuan, status: $status, createdAt: $createdAt)';
+    return 'OrderSummary(tradeNo: $tradeNo, planName: $planName, period: $period, totalAmountYuan: $totalAmountYuan, status: $status, createdAt: $createdAt)';
 }
 
 
@@ -300,10 +300,7 @@ as DateTime,
 /// @nodoc
 mixin _$OrderDetail {
 
- OrderSummary get summary; PaymentMethodItem? get paymentMethod; double? get balanceAmountYuan;// 主余额抵扣（OrderModel.balanceAmount/100）
- double? get surplusAmountYuan;// 上一订单结余抵扣
- double? get discountAmountYuan;// 优惠券抵扣
- double? get handlingAmountYuan;
+ OrderSummary get summary; PaymentMethodItem? get paymentMethod; double? get balanceAmountYuan; double? get surplusAmountYuan; double? get discountAmountYuan; double? get handlingAmountYuan;
 /// Create a copy of OrderDetail
 /// with the given fields replaced by the non-null parameter values.
 @JsonKey(includeFromJson: false, includeToJson: false)
@@ -314,16 +311,21 @@ $OrderDetailCopyWith<OrderDetail> get copyWith => _$OrderDetailCopyWithImpl<Orde
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is OrderDetail&&(identical(other.summary, summary) || other.summary == summary)&&(identical(other.paymentMethod, paymentMethod) || other.paymentMethod == paymentMethod)&&(identical(other.balanceAmountYuan, balanceAmountYuan) || other.balanceAmountYuan == balanceAmountYuan)&&(identical(other.surplusAmountYuan, surplusAmountYuan) || other.surplusAmountYuan == surplusAmountYuan)&&(identical(other.discountAmountYuan, discountAmountYuan) || other.discountAmountYuan == discountAmountYuan)&&(identical(other.handlingAmountYuan, handlingAmountYuan) || other.handlingAmountYuan == handlingAmountYuan));
+  final _this = this as OrderDetail;
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is OrderDetail&&(identical(other.summary, _this.summary) || other.summary == _this.summary)&&(identical(other.paymentMethod, _this.paymentMethod) || other.paymentMethod == _this.paymentMethod)&&(identical(other.balanceAmountYuan, _this.balanceAmountYuan) || other.balanceAmountYuan == _this.balanceAmountYuan)&&(identical(other.surplusAmountYuan, _this.surplusAmountYuan) || other.surplusAmountYuan == _this.surplusAmountYuan)&&(identical(other.discountAmountYuan, _this.discountAmountYuan) || other.discountAmountYuan == _this.discountAmountYuan)&&(identical(other.handlingAmountYuan, _this.handlingAmountYuan) || other.handlingAmountYuan == _this.handlingAmountYuan));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,summary,paymentMethod,balanceAmountYuan,surplusAmountYuan,discountAmountYuan,handlingAmountYuan);
+int get hashCode {
+  final _this = this as OrderDetail;
+  return Object.hash(runtimeType,_this.summary,_this.paymentMethod,_this.balanceAmountYuan,_this.surplusAmountYuan,_this.discountAmountYuan,_this.handlingAmountYuan);
+}
 
 @override
 String toString() {
-  return 'OrderDetail(summary: $summary, paymentMethod: $paymentMethod, balanceAmountYuan: $balanceAmountYuan, surplusAmountYuan: $surplusAmountYuan, discountAmountYuan: $discountAmountYuan, handlingAmountYuan: $handlingAmountYuan)';
+  final _this = this as OrderDetail;
+  return 'OrderDetail(summary: ${_this.summary}, paymentMethod: ${_this.paymentMethod}, balanceAmountYuan: ${_this.balanceAmountYuan}, surplusAmountYuan: ${_this.surplusAmountYuan}, discountAmountYuan: ${_this.discountAmountYuan}, handlingAmountYuan: ${_this.handlingAmountYuan})';
 }
 
 
@@ -352,7 +354,7 @@ class _$OrderDetailCopyWithImpl<$Res>
 /// Create a copy of OrderDetail
 /// with the given fields replaced by the non-null parameter values.
 @pragma('vm:prefer-inline') @override $Res call({Object? summary = null,Object? paymentMethod = freezed,Object? balanceAmountYuan = freezed,Object? surplusAmountYuan = freezed,Object? discountAmountYuan = freezed,Object? handlingAmountYuan = freezed,}) {
-  return _then(_self.copyWith(
+  return _then(OrderDetail(
 summary: null == summary ? _self.summary : summary // ignore: cast_nullable_to_non_nullable
 as OrderSummary,paymentMethod: freezed == paymentMethod ? _self.paymentMethod : paymentMethod // ignore: cast_nullable_to_non_nullable
 as PaymentMethodItem?,balanceAmountYuan: freezed == balanceAmountYuan ? _self.balanceAmountYuan : balanceAmountYuan // ignore: cast_nullable_to_non_nullable
@@ -527,11 +529,8 @@ class _OrderDetail implements OrderDetail {
 @override final  OrderSummary summary;
 @override final  PaymentMethodItem? paymentMethod;
 @override final  double? balanceAmountYuan;
-// 主余额抵扣（OrderModel.balanceAmount/100）
 @override final  double? surplusAmountYuan;
-// 上一订单结余抵扣
 @override final  double? discountAmountYuan;
-// 优惠券抵扣
 @override final  double? handlingAmountYuan;
 
 /// Create a copy of OrderDetail
@@ -544,16 +543,18 @@ _$OrderDetailCopyWith<_OrderDetail> get copyWith => __$OrderDetailCopyWithImpl<_
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is _OrderDetail&&(identical(other.summary, summary) || other.summary == summary)&&(identical(other.paymentMethod, paymentMethod) || other.paymentMethod == paymentMethod)&&(identical(other.balanceAmountYuan, balanceAmountYuan) || other.balanceAmountYuan == balanceAmountYuan)&&(identical(other.surplusAmountYuan, surplusAmountYuan) || other.surplusAmountYuan == surplusAmountYuan)&&(identical(other.discountAmountYuan, discountAmountYuan) || other.discountAmountYuan == discountAmountYuan)&&(identical(other.handlingAmountYuan, handlingAmountYuan) || other.handlingAmountYuan == handlingAmountYuan));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is _OrderDetail&&(identical(other.summary, summary) || other.summary == summary)&&(identical(other.paymentMethod, paymentMethod) || other.paymentMethod == paymentMethod)&&(identical(other.balanceAmountYuan, balanceAmountYuan) || other.balanceAmountYuan == balanceAmountYuan)&&(identical(other.surplusAmountYuan, surplusAmountYuan) || other.surplusAmountYuan == surplusAmountYuan)&&(identical(other.discountAmountYuan, discountAmountYuan) || other.discountAmountYuan == discountAmountYuan)&&(identical(other.handlingAmountYuan, handlingAmountYuan) || other.handlingAmountYuan == handlingAmountYuan));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,summary,paymentMethod,balanceAmountYuan,surplusAmountYuan,discountAmountYuan,handlingAmountYuan);
+int get hashCode {
+    return Object.hash(runtimeType,summary,paymentMethod,balanceAmountYuan,surplusAmountYuan,discountAmountYuan,handlingAmountYuan);
+}
 
 @override
 String toString() {
-  return 'OrderDetail(summary: $summary, paymentMethod: $paymentMethod, balanceAmountYuan: $balanceAmountYuan, surplusAmountYuan: $surplusAmountYuan, discountAmountYuan: $discountAmountYuan, handlingAmountYuan: $handlingAmountYuan)';
+    return 'OrderDetail(summary: $summary, paymentMethod: $paymentMethod, balanceAmountYuan: $balanceAmountYuan, surplusAmountYuan: $surplusAmountYuan, discountAmountYuan: $discountAmountYuan, handlingAmountYuan: $handlingAmountYuan)';
 }
 
 

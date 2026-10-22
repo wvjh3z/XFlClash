@@ -4,7 +4,7 @@
 /// `Color(XboardConfig.current.brandColor)` 散取在 9+ 处。集中到此，改一处全改。
 library;
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 import '../config/xboard_config.dart';
 import 'xb_center_toast.dart';

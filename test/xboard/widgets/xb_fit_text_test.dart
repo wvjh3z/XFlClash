@@ -7,7 +7,7 @@
 ///   3. .rich：多段样式拼成的完整文本可见、单行、无省略。
 library;
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 

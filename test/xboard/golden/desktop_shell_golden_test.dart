@@ -8,7 +8,7 @@ library;
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/rendering.dart' show RenderParagraph;
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -141,8 +141,8 @@ final _groups = <Group>[
 ProxiesTabState _tab() => ProxiesTabState(
   groups: _groups,
   currentGroupName: '优选',
-  proxyCardType: ProxyCardType.expand,
-  columns: 2,
+  proxyCardType: ProxyCardType.standard,
+
 );
 
 XbDomainSubscription _sub({bool expired = false}) => XbDomainSubscription(

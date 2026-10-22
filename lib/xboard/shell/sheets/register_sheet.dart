@@ -5,7 +5,7 @@
 /// 验证码短框 + 获取按钮 + 冷却倒计时（R5.8）。认证 ◇ 复用形态 B 反腐层（R5.10）。
 library;
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:fl_clash/xboard/models/xb_result.dart';

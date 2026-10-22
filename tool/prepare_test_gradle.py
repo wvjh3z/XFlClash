@@ -14,10 +14,10 @@ import zipfile
 
 from fetch_build_asset import download_asset
 
-VERSION = '8.13'
-SHA256 = '20f1b1176237254a6fc204d8434196fa11a4cfb387567519c61556e8710aed78'
-URL = 'https://github.com/gradle/gradle-distributions/releases/download/v8.13.0/gradle-8.13-bin.zip'
-SIZE_LIMIT = 150_000_000
+VERSION = '9.8.0'
+SHA256 = 'bafd5ce9cfaea0fbccfdc8439a1ac42fbd4cd9c89dc9a988228d8a2639a58e6c'
+URL = 'https://github.com/gradle/gradle-distributions/releases/download/v9.8.0/gradle-9.8.0-bin.zip'
+SIZE_LIMIT = 200_000_000
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -52,7 +52,7 @@ def prepare(destination: Path, *, cache: Path | None = None, download=None) -> P
             if (not member.filename.startswith(f'gradle-{VERSION}/')
                     or '\\' in member.filename
                     or not path.resolve().is_relative_to(destination.resolve())
-                    or stat.S_ISLNK(mode) or total > 400_000_000):
+                    or stat.S_ISLNK(mode) or total > 600_000_000):
                 raise RuntimeError('Unsafe Gradle archive entry')
         bundle.extractall(destination)
     launcher = destination / f'gradle-{VERSION}/bin/gradle'

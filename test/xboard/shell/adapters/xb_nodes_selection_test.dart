@@ -9,7 +9,7 @@
 /// - 边界：未手选回退首个真实节点 / computed 组用 now / 空组。
 library;
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -115,8 +115,8 @@ void main() {
         proxiesTabStateProvider.overrideWith((ref) => ProxiesTabState(
               groups: groups,
               currentGroupName: null,
-              proxyCardType: ProxyCardType.expand,
-              columns: 2,
+              proxyCardType: ProxyCardType.standard,
+
             )),
       ],
       child: MaterialApp(

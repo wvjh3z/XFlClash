@@ -1,6 +1,6 @@
 /// W4.2 — XboardConsentDialog GDPR（3 段文案 + 同意/拒绝持久化 + schema v1）。
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 

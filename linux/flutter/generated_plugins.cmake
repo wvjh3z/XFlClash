@@ -3,26 +3,21 @@
 #
 
 list(APPEND FLUTTER_PLUGIN_LIST
+  app_links_linux
   desktop_webview_window
   dynamic_color
   file_selector_linux
-  flutter_js
   flutter_secure_storage_linux
-  gtk
-  hotkey_manager_linux
   screen_retriever_linux
   sentry_flutter
-  sqlite3_flutter_libs
-  tray_manager
+  tray
   url_launcher_linux
   wifi_ssid
-  window_manager
+  window
 )
 
 list(APPEND FLUTTER_FFI_PLUGIN_LIST
   jni
-  rust_api
-  setup
 )
 
 set(PLUGIN_BUNDLED_LIBRARIES)

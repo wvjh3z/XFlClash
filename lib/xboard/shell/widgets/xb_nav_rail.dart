@@ -13,8 +13,7 @@
 library;
 
 import 'package:fl_clash/xboard/widgets/xb_emoji_text.dart';
-import 'package:fl_clash/widgets/widgets.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:fl_clash/xboard/config/xboard_config.dart';
@@ -85,7 +84,8 @@ class XbNavRail extends StatelessWidget {
                     for (var i = 0; i < _items.length; i++)
                       Padding(
                         padding: EdgeInsets.only(
-                            bottom: i == _items.length - 1 ? 0 : 8),
+                          bottom: i == _items.length - 1 ? 0 : 8,
+                        ),
                         child: _RailItem(
                           item: _items[i],
                           selected: i == currentIndex,
@@ -215,8 +215,7 @@ class _RailAccountChip extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final scheme = Theme.of(context).colorScheme;
-    final isGuest =
-        ref.watch(authStateProvider) != AuthState.authenticated;
+    final isGuest = ref.watch(authStateProvider) != AuthState.authenticated;
 
     return Material(
       color: scheme.surfaceContainer,
@@ -231,25 +230,24 @@ class _RailAccountChip extends ConsumerWidget {
             border: Border.all(color: scheme.outlineVariant),
           ),
           child: isGuest
-              ? const _AccountChipBody(
-                  title: '未登录',
-                  subtitle: '点击登录 / 注册',
-                )
-              : ref.watch(userProfileProvider).when(
-                    loading: () => const _AccountChipBody(
-                      title: '加载中…',
-                      subtitle: '正在同步账号信息',
+              ? const _AccountChipBody(title: '未登录', subtitle: '点击登录 / 注册')
+              : ref
+                    .watch(userProfileProvider)
+                    .when(
+                      loading: () => const _AccountChipBody(
+                        title: '加载中…',
+                        subtitle: '正在同步账号信息',
+                      ),
+                      error: (_, _) => const _AccountChipBody(
+                        title: '账号信息',
+                        subtitle: '点击重新加载',
+                      ),
+                      data: (sub) => _AccountChipBody(
+                        title: sub.planName ?? '未订阅套餐',
+                        subtitle: sub.email,
+                        sub: sub,
+                      ),
                     ),
-                    error: (_, _) => const _AccountChipBody(
-                      title: '账号信息',
-                      subtitle: '点击重新加载',
-                    ),
-                    data: (sub) => _AccountChipBody(
-                      title: sub.planName ?? '未订阅套餐',
-                      subtitle: sub.email,
-                      sub: sub,
-                    ),
-                  ),
         ),
       ),
     );
@@ -308,8 +306,7 @@ class _AccountChipBody extends StatelessWidget {
                 ],
               ),
             ),
-            Icon(Icons.chevron_right,
-                size: 18, color: scheme.onSurfaceVariant),
+            Icon(Icons.chevron_right, size: 18, color: scheme.onSurfaceVariant),
           ],
         ),
         if (sub != null) ...[
@@ -344,9 +341,10 @@ class _ChipTraffic extends StatelessWidget {
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Text('流量',
-                style: TextStyle(
-                    fontSize: 10.5, color: scheme.onSurfaceVariant)),
+            Text(
+              '流量',
+              style: TextStyle(fontSize: 10.5, color: scheme.onSurfaceVariant),
+            ),
             Text(
               '已用 ${(usedPct * 100).round()}%',
               style: TextStyle(
@@ -388,9 +386,11 @@ class _ChipExpiry extends StatelessWidget {
         '${expiredAt.month.toString().padLeft(2, '0')}-${expiredAt.day.toString().padLeft(2, '0')} 到期';
     return Row(
       children: [
-        Icon(Icons.schedule,
-            size: 13,
-            color: expired ? scheme.error : scheme.onSurfaceVariant),
+        Icon(
+          Icons.schedule,
+          size: 13,
+          color: expired ? scheme.error : scheme.onSurfaceVariant,
+        ),
         const SizedBox(width: 5),
         Text(
           left,
@@ -431,7 +431,7 @@ class _RailVersion extends StatelessWidget {
         ),
         const SizedBox(height: 2),
         Text(
-          '内核 FlClash 0.8.93',
+          '内核 FlClash 0.9.1',
           textAlign: TextAlign.center,
           style: TextStyle(fontSize: 10, color: scheme.onSurfaceVariant),
         ),

@@ -1,6 +1,6 @@
 // GENERATED CODE - DO NOT MODIFY BY HAND
 // coverage:ignore-file
-// ignore_for_file: type=lint
+// ignore_for_file: type=lint, type=warning, deprecated_member_use, deprecated_member_use_from_same_package
 // ignore_for_file: unused_element, deprecated_member_use, deprecated_member_use_from_same_package, use_function_type_syntax_for_parameters, unnecessary_const, avoid_init_to_null, invalid_override_different_default_values_named, prefer_expression_function_bodies, annotate_overrides, invalid_annotation_target, unnecessary_question_mark
 
 part of '../../models/bootstrap_payload.dart';
@@ -9,6 +9,7 @@ part of '../../models/bootstrap_payload.dart';
 // FreezedGenerator
 // **************************************************************************
 
+// GENERATED CODE - DO NOT MODIFY BY HAND
 // dart format off
 T _$identity<T>(T value) => value;
 
@@ -28,16 +29,21 @@ $BootstrapEndpointCopyWith<BootstrapEndpoint> get copyWith => _$BootstrapEndpoin
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is BootstrapEndpoint&&(identical(other.url, url) || other.url == url)&&(identical(other.region, region) || other.region == region));
+  final _this = this as BootstrapEndpoint;
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is BootstrapEndpoint&&(identical(other.url, _this.url) || other.url == _this.url)&&(identical(other.region, _this.region) || other.region == _this.region));
 }
 
 @JsonKey(includeFromJson: false, includeToJson: false)
 @override
-int get hashCode => Object.hash(runtimeType,url,region);
+int get hashCode {
+  final _this = this as BootstrapEndpoint;
+  return Object.hash(runtimeType,_this.url,_this.region);
+}
 
 @override
 String toString() {
-  return 'BootstrapEndpoint(url: $url, region: $region)';
+  final _this = this as BootstrapEndpoint;
+  return 'BootstrapEndpoint(url: ${_this.url}, region: ${_this.region})';
 }
 
 
@@ -66,7 +72,7 @@ class _$BootstrapEndpointCopyWithImpl<$Res>
 /// Create a copy of BootstrapEndpoint
 /// with the given fields replaced by the non-null parameter values.
 @pragma('vm:prefer-inline') @override $Res call({Object? url = null,Object? region = null,}) {
-  return _then(_self.copyWith(
+  return _then(BootstrapEndpoint(
 url: null == url ? _self.url : url // ignore: cast_nullable_to_non_nullable
 as String,region: null == region ? _self.region : region // ignore: cast_nullable_to_non_nullable
 as BootstrapRegion,
@@ -229,16 +235,18 @@ Map<String, dynamic> toJson() {
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is _BootstrapEndpoint&&(identical(other.url, url) || other.url == url)&&(identical(other.region, region) || other.region == region));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is _BootstrapEndpoint&&(identical(other.url, url) || other.url == url)&&(identical(other.region, region) || other.region == region));
 }
 
 @JsonKey(includeFromJson: false, includeToJson: false)
 @override
-int get hashCode => Object.hash(runtimeType,url,region);
+int get hashCode {
+    return Object.hash(runtimeType,url,region);
+}
 
 @override
 String toString() {
-  return 'BootstrapEndpoint(url: $url, region: $region)';
+    return 'BootstrapEndpoint(url: $url, region: $region)';
 }
 
 
@@ -281,8 +289,7 @@ as BootstrapRegion,
 /// @nodoc
 mixin _$BootstrapPayload {
 
-@JsonKey(name: 'api_endpoints', fromJson: _endpointsFromJson) List<BootstrapEndpoint> get apiEndpoints;@JsonKey(name: 'subscription_endpoints', fromJson: _endpointsFromJson) List<BootstrapEndpoint> get subscriptionEndpoints;// R4.7 地址自举：下一代 bootstrap 分发地址（客户端拉取后缓存滚动）。
-@JsonKey(name: 'next_bootstrap_urls') List<String> get nextBootstrapUrls;
+@JsonKey(name: 'api_endpoints', fromJson: _endpointsFromJson) List<BootstrapEndpoint> get apiEndpoints;@JsonKey(name: 'subscription_endpoints', fromJson: _endpointsFromJson) List<BootstrapEndpoint> get subscriptionEndpoints;@JsonKey(name: 'next_bootstrap_urls') List<String> get nextBootstrapUrls;
 /// Create a copy of BootstrapPayload
 /// with the given fields replaced by the non-null parameter values.
 @JsonKey(includeFromJson: false, includeToJson: false)
@@ -295,16 +302,21 @@ $BootstrapPayloadCopyWith<BootstrapPayload> get copyWith => _$BootstrapPayloadCo
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is BootstrapPayload&&const DeepCollectionEquality().equals(other.apiEndpoints, apiEndpoints)&&const DeepCollectionEquality().equals(other.subscriptionEndpoints, subscriptionEndpoints)&&const DeepCollectionEquality().equals(other.nextBootstrapUrls, nextBootstrapUrls));
+  final _this = this as BootstrapPayload;
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is BootstrapPayload&&const DeepCollectionEquality().equals(other.apiEndpoints, _this.apiEndpoints)&&const DeepCollectionEquality().equals(other.subscriptionEndpoints, _this.subscriptionEndpoints)&&const DeepCollectionEquality().equals(other.nextBootstrapUrls, _this.nextBootstrapUrls));
 }
 
 @JsonKey(includeFromJson: false, includeToJson: false)
 @override
-int get hashCode => Object.hash(runtimeType,const DeepCollectionEquality().hash(apiEndpoints),const DeepCollectionEquality().hash(subscriptionEndpoints),const DeepCollectionEquality().hash(nextBootstrapUrls));
+int get hashCode {
+  final _this = this as BootstrapPayload;
+  return Object.hash(runtimeType,const DeepCollectionEquality().hash(_this.apiEndpoints),const DeepCollectionEquality().hash(_this.subscriptionEndpoints),const DeepCollectionEquality().hash(_this.nextBootstrapUrls));
+}
 
 @override
 String toString() {
-  return 'BootstrapPayload(apiEndpoints: $apiEndpoints, subscriptionEndpoints: $subscriptionEndpoints, nextBootstrapUrls: $nextBootstrapUrls)';
+  final _this = this as BootstrapPayload;
+  return 'BootstrapPayload(apiEndpoints: ${_this.apiEndpoints}, subscriptionEndpoints: ${_this.subscriptionEndpoints}, nextBootstrapUrls: ${_this.nextBootstrapUrls})';
 }
 
 
@@ -333,7 +345,7 @@ class _$BootstrapPayloadCopyWithImpl<$Res>
 /// Create a copy of BootstrapPayload
 /// with the given fields replaced by the non-null parameter values.
 @pragma('vm:prefer-inline') @override $Res call({Object? apiEndpoints = null,Object? subscriptionEndpoints = null,Object? nextBootstrapUrls = null,}) {
-  return _then(_self.copyWith(
+  return _then(BootstrapPayload(
 apiEndpoints: null == apiEndpoints ? _self.apiEndpoints : apiEndpoints // ignore: cast_nullable_to_non_nullable
 as List<BootstrapEndpoint>,subscriptionEndpoints: null == subscriptionEndpoints ? _self.subscriptionEndpoints : subscriptionEndpoints // ignore: cast_nullable_to_non_nullable
 as List<BootstrapEndpoint>,nextBootstrapUrls: null == nextBootstrapUrls ? _self.nextBootstrapUrls : nextBootstrapUrls // ignore: cast_nullable_to_non_nullable
@@ -478,7 +490,7 @@ return $default(_that.apiEndpoints,_that.subscriptionEndpoints,_that.nextBootstr
 @JsonSerializable()
 
 class _BootstrapPayload extends BootstrapPayload {
-  const _BootstrapPayload({@JsonKey(name: 'api_endpoints', fromJson: _endpointsFromJson) final  List<BootstrapEndpoint> apiEndpoints = const <BootstrapEndpoint>[], @JsonKey(name: 'subscription_endpoints', fromJson: _endpointsFromJson) final  List<BootstrapEndpoint> subscriptionEndpoints = const <BootstrapEndpoint>[], @JsonKey(name: 'next_bootstrap_urls') final  List<String> nextBootstrapUrls = const <String>[]}): _apiEndpoints = apiEndpoints,_subscriptionEndpoints = subscriptionEndpoints,_nextBootstrapUrls = nextBootstrapUrls,super._();
+  const _BootstrapPayload({@JsonKey(name: 'api_endpoints', fromJson: _endpointsFromJson)  List<BootstrapEndpoint> apiEndpoints = const <BootstrapEndpoint>[], @JsonKey(name: 'subscription_endpoints', fromJson: _endpointsFromJson)  List<BootstrapEndpoint> subscriptionEndpoints = const <BootstrapEndpoint>[], @JsonKey(name: 'next_bootstrap_urls')  List<String> nextBootstrapUrls = const <String>[]}): _apiEndpoints = apiEndpoints,_subscriptionEndpoints = subscriptionEndpoints,_nextBootstrapUrls = nextBootstrapUrls,super._();
   factory _BootstrapPayload.fromJson(Map<String, dynamic> json) => _$BootstrapPayloadFromJson(json);
 
  final  List<BootstrapEndpoint> _apiEndpoints;
@@ -495,9 +507,7 @@ class _BootstrapPayload extends BootstrapPayload {
   return EqualUnmodifiableListView(_subscriptionEndpoints);
 }
 
-// R4.7 地址自举：下一代 bootstrap 分发地址（客户端拉取后缓存滚动）。
  final  List<String> _nextBootstrapUrls;
-// R4.7 地址自举：下一代 bootstrap 分发地址（客户端拉取后缓存滚动）。
 @override@JsonKey(name: 'next_bootstrap_urls') List<String> get nextBootstrapUrls {
   if (_nextBootstrapUrls is EqualUnmodifiableListView) return _nextBootstrapUrls;
   // ignore: implicit_dynamic_type
@@ -518,16 +528,18 @@ Map<String, dynamic> toJson() {
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is _BootstrapPayload&&const DeepCollectionEquality().equals(other._apiEndpoints, _apiEndpoints)&&const DeepCollectionEquality().equals(other._subscriptionEndpoints, _subscriptionEndpoints)&&const DeepCollectionEquality().equals(other._nextBootstrapUrls, _nextBootstrapUrls));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is _BootstrapPayload&&const DeepCollectionEquality().equals(other.apiEndpoints, _apiEndpoints)&&const DeepCollectionEquality().equals(other.subscriptionEndpoints, _subscriptionEndpoints)&&const DeepCollectionEquality().equals(other.nextBootstrapUrls, _nextBootstrapUrls));
 }
 
 @JsonKey(includeFromJson: false, includeToJson: false)
 @override
-int get hashCode => Object.hash(runtimeType,const DeepCollectionEquality().hash(_apiEndpoints),const DeepCollectionEquality().hash(_subscriptionEndpoints),const DeepCollectionEquality().hash(_nextBootstrapUrls));
+int get hashCode {
+    return Object.hash(runtimeType,const DeepCollectionEquality().hash(_apiEndpoints),const DeepCollectionEquality().hash(_subscriptionEndpoints),const DeepCollectionEquality().hash(_nextBootstrapUrls));
+}
 
 @override
 String toString() {
-  return 'BootstrapPayload(apiEndpoints: $apiEndpoints, subscriptionEndpoints: $subscriptionEndpoints, nextBootstrapUrls: $nextBootstrapUrls)';
+    return 'BootstrapPayload(apiEndpoints: $apiEndpoints, subscriptionEndpoints: $subscriptionEndpoints, nextBootstrapUrls: $nextBootstrapUrls)';
 }
 
 

@@ -8,7 +8,7 @@
 /// 排版对齐 [TutorialDetailPage]：标题 + 最近更新元行 + 分隔线 + 分节正文，桌面宽窗限宽 680。
 library;
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 import '../widgets/xb_components.dart' show XbInfoCard;
 import '../widgets/xb_theme.dart' show XbTokens;

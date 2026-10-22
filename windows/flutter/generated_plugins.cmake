@@ -9,24 +9,18 @@ list(APPEND FLUTTER_PLUGIN_LIST
   dynamic_color
   file_selector_windows
   flutter_inappwebview_windows
-  flutter_js
   flutter_secure_storage_windows
-  hotkey_manager_windows
   proxy
   screen_retriever_windows
   sentry_flutter
-  sqlite3_flutter_libs
-  tray_manager
+  tray
   url_launcher_windows
   wifi_ssid
-  window_ext
-  window_manager
+  window
 )
 
 list(APPEND FLUTTER_FFI_PLUGIN_LIST
   jni
-  rust_api
-  setup
 )
 
 set(PLUGIN_BUNDLED_LIBRARIES)

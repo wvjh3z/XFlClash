@@ -14,13 +14,12 @@ library;
 import 'dart:async';
 
 import 'package:fl_clash/xboard/widgets/xb_emoji_text.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/rendering.dart' show RenderAbstractViewport;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:fl_clash/xboard/widgets/xb_components.dart'
     show XbTag, XbInfoSheet, XbInfoItem, XbSpinner;
-import 'package:fl_clash/widgets/widgets.dart';
 import 'package:fl_clash/xboard/util/format.dart' show xbLatencyDisplay;
 import 'package:fl_clash/xboard/widgets/xb_feedback.dart' show xbToast;
 import 'package:fl_clash/xboard/widgets/xb_theme.dart' show XbTokens;

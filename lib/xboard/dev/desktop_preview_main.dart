@@ -12,7 +12,7 @@
 /// 或构建后在 Xvfb 中运行产物可执行文件。
 library;
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:fl_clash/enum/enum.dart';
@@ -21,9 +21,7 @@ import 'package:fl_clash/models/models.dart'
         PatchClashConfig,
         Group,
         Proxy,
-        ProxiesTabState,
-        IpInfo,
-        NetworkDetectionState;
+        ProxiesTabState;
 import 'package:fl_clash/providers/app.dart';
 import 'package:fl_clash/providers/config.dart';
 import 'package:fl_clash/providers/state.dart';
@@ -36,6 +34,7 @@ import 'package:fl_clash/xboard/models/xb_domain_subscription.dart';
 import 'package:fl_clash/xboard/providers/auth_state_provider.dart';
 import 'package:fl_clash/xboard/providers/user_profile_provider.dart';
 import 'package:fl_clash/xboard/shell/xboard_app_shell.dart';
+import 'package:fl_clash/xboard/shell/adapters/xb_network_adapter.dart';
 
 class _FakeAuth extends AuthStateNotifier {
   _FakeAuth(this._initial);
@@ -44,13 +43,14 @@ class _FakeAuth extends AuthStateNotifier {
   AuthState build() => _initial;
 }
 
-class _FakeNetworkDetection extends NetworkDetection {
-  _FakeNetworkDetection(this._state);
-  final NetworkDetectionState _state;
+class _FakeNetworkAdapter extends XbNetworkAdapter {
+  const _FakeNetworkAdapter();
   @override
-  NetworkDetectionState build() => _state;
+  XbIpStatus ipStatus(WidgetRef ref) => const XbIpStatus(loading: false, ip: '47.243.10.20', countryCode: 'HK');
   @override
-  void startCheck() {} // no-op：不起真实 Timer / 网络。
+  void startCheck(WidgetRef ref) {}
+  @override
+  void forceCheck(WidgetRef ref) {}
 }
 
 final _groups = <Group>[
@@ -79,8 +79,7 @@ final _groups = <Group>[
 ProxiesTabState _tab() => ProxiesTabState(
   groups: _groups,
   currentGroupName: '优选',
-  proxyCardType: ProxyCardType.expand,
-  columns: 2,
+  proxyCardType: ProxyCardType.standard,
 );
 
 XbDomainSubscription _sub({required bool expiredDemo}) => XbDomainSubscription(
@@ -113,10 +112,7 @@ void main(List<String> args) {
   );
 
   final tab = _tab();
-  const detState = NetworkDetectionState(
-    isLoading: false,
-    ipInfo: IpInfo(ip: '47.243.10.20', countryCode: 'HK'),
-  );
+
 
   final container = ProviderContainer(
     overrides: [
@@ -124,9 +120,7 @@ void main(List<String> args) {
       authStateProvider.overrideWith(() => _FakeAuth(AuthState.authenticated)),
       isStartProvider.overrideWith((ref) => true),
       proxiesTabStateProvider.overrideWith((ref) => tab),
-      networkDetectionProvider.overrideWith(
-        () => _FakeNetworkDetection(detState),
-      ),
+      xbNetworkAdapterProvider.overrideWithValue(const _FakeNetworkAdapter()),
       userProfileProvider.overrideWith(
         (ref) =>
             Future.value(_sub(expiredDemo: args.contains('--expired-demo'))),

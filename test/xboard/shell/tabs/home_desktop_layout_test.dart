@@ -5,7 +5,7 @@
 /// 等价 HTML 原型里用 getBoundingClientRect 量左右关系的做法（无图形环境下的可视化替代）。
 library;
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -59,8 +59,8 @@ Future<ProviderContainer> pumpDesktopHome(
               ),
             ],
             currentGroupName: '智能优选',
-            proxyCardType: ProxyCardType.expand,
-            columns: 2,
+            proxyCardType: ProxyCardType.standard,
+
           )),
       netDetectionOverride(),
       groupsProvider.overrideWithValue(const [

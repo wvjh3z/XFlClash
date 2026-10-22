@@ -1,6 +1,7 @@
 import 'package:fl_clash/providers/action.dart';
 import 'package:fl_clash/providers/app.dart';
 import 'package:fl_clash/state.dart';
+import 'package:fl_clash/bootstrap.dart';
 import 'package:fl_clash/xboard/services/sentry_bootstrap.dart';
 import 'package:fl_clash/xboard/xboard_module.dart';
 import 'package:flutter/foundation.dart';
@@ -27,7 +28,7 @@ void main() {
   });
 
   test(
-    'actual attach handler captures before any tray/core work or initProvider=true',
+    'early Sentry handler survives bootstrap attach before tray/core work',
     () async {
       await SentryBootstrap.installEarly(
         dsn: 'https://public@sentry.invalid/1',
@@ -41,8 +42,10 @@ void main() {
       globalState.isAttach = false;
 
       // Stop at the first action lookup so no real tray, profile, core, consent
-      // dialog or network code can run. The actual handler assignment has run.
-      await expectLater(globalState.attach(), throwsStateError);
+      // dialog or network code can run. Bootstrap must retain the handler installed before native initialization.
+      final installedHandler = FlutterError.onError;
+      await expectLater(bootstrap.attach(), throwsStateError);
+      expect(FlutterError.onError, same(installedHandler));
       expect(container.read(initProvider), isFalse);
       final error = StateError('Flutter framework error during early attach');
       final stack = StackTrace.current;
@@ -105,6 +108,13 @@ class _RecordingRuntime implements SentryBootstrapRuntime {
   @override
   Future<void> initialize(void Function(SentryFlutterOptions) configure) async {
     configure(SentryFlutterOptions());
+    // The real SentryFlutter runtime installs its integration here. The
+    // v0.9.1 Bootstrap must preserve it instead of assigning another handler.
+    FlutterError.onError = (details) {
+      errors.add(details.exception);
+      stacks.add(details.stack);
+      locations.add('framework');
+    };
   }
 
   @override

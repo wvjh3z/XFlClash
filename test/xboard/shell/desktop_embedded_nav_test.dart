@@ -2,7 +2,7 @@
 /// 左侧 NavRail **仍可见**（不再全屏跳转盖掉 NavRail）；返回后回到「我的」。
 library;
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -39,45 +39,73 @@ void main() {
     addTearDown(t.view.resetPhysicalSize);
     addTearDown(t.view.resetDevicePixelRatio);
 
-    XboardConfig.bind(const XboardConfig(
-        subscribeUserAgent: 'x', devApiEndpoint: 'https://x',
-        devSubscriptionEndpoint: 'https://x', debug: false,
-        kIsTest: true, formA: true));
+    XboardConfig.bind(
+      const XboardConfig(
+        subscribeUserAgent: 'x',
+        devApiEndpoint: 'https://x',
+        devSubscriptionEndpoint: 'https://x',
+        debug: false,
+        kIsTest: true,
+        formA: true,
+      ),
+    );
     addTearDown(XboardConfig.resetForTest);
 
     const groups = [
-      Group(type: GroupType.URLTest, name: '优选', now: 'a',
-          all: [Proxy(name: 'a', type: 'ss')]),
+      Group(
+        type: GroupType.URLTest,
+        name: '优选',
+        now: 'a',
+        all: [Proxy(name: 'a', type: 'ss')],
+      ),
     ];
-    final container = ProviderContainer(overrides: [
-      isMobileViewProvider.overrideWith((ref) => false),
-      authStateProvider.overrideWith(() => _FakeAuth(AuthState.authenticated)),
-      isStartProvider.overrideWith((ref) => true),
-      proxiesTabStateProvider.overrideWith((ref) => const ProxiesTabState(
-          groups: groups, currentGroupName: '优选',
-          proxyCardType: ProxyCardType.expand, columns: 2)),
-      netDetectionOverride(),
-      userProfileProvider.overrideWith((ref) => Future.value(
-          XbDomainSubscription(
-              email: 'u@e.com', uuid: 'x', planName: '标准套餐 · VIP',
+    final container = ProviderContainer(
+      overrides: [
+        isMobileViewProvider.overrideWith((ref) => false),
+        authStateProvider.overrideWith(
+          () => _FakeAuth(AuthState.authenticated),
+        ),
+        isStartProvider.overrideWith((ref) => true),
+        proxiesTabStateProvider.overrideWith(
+          (ref) => const ProxiesTabState(
+            groups: groups,
+            currentGroupName: '优选',
+            proxyCardType: ProxyCardType.standard,
+          ),
+        ),
+        netDetectionOverride(),
+        userProfileProvider.overrideWith(
+          (ref) => Future.value(
+            XbDomainSubscription(
+              email: 'u@e.com',
+              uuid: 'x',
+              planName: '标准套餐 · VIP',
               totalBytes: 250 * 1024 * 1024 * 1024,
               usedBytes: 100 * 1024 * 1024 * 1024,
-              expiredAt: DateTime(2026, 7, 1), planId: 1))),
-      groupsProvider.overrideWithValue(groups),
-      selectedMapProvider.overrideWith((ref) => const {'优选': 'a'}),
-      currentProfileProvider.overrideWith((ref) => null),
-      patchClashConfigProvider
-          .overrideWithBuild((ref, _) => const PatchClashConfig(mode: Mode.rule)),
-    ]);
+              expiredAt: DateTime(2026, 7, 1),
+              planId: 1,
+            ),
+          ),
+        ),
+        groupsProvider.overrideWithValue(groups),
+        selectedMapProvider.overrideWith((ref) => const {'优选': 'a'}),
+        currentProfileProvider.overrideWith((ref) => null),
+        patchClashConfigProvider.overrideWithBuild(
+          (ref, _) => const PatchClashConfig(mode: Mode.rule),
+        ),
+      ],
+    );
     addTearDown(container.dispose);
     container.read(bootstrapReadyProvider.notifier).set(true);
     container.read(coreStatusProvider.notifier).value = CoreStatus.connected;
 
     final eb = ErrorWidget.builder;
-    await t.pumpWidget(UncontrolledProviderScope(
-      container: container,
-      child: const MaterialApp(home: XboardAppShell()),
-    ));
+    await t.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: XboardAppShell()),
+      ),
+    );
     await t.pump();
     // 切到「我的」。
     await t.tap(find.text('我的'));

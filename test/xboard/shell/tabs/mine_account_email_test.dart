@@ -8,7 +8,7 @@
 /// 直接证明空间没被平分（这才是 bug 的根因）。
 library;
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -36,8 +36,12 @@ XbDomainSubscription _sub(String email, {String plan = '专业版'}) =>
       planId: 1,
     );
 
-Future<void> _pump(WidgetTester tester, String email,
-    {double width = 390, String plan = '专业版'}) async {
+Future<void> _pump(
+  WidgetTester tester,
+  String email, {
+  double width = 390,
+  String plan = '专业版',
+}) async {
   tester.view.devicePixelRatio = 1.0;
   tester.view.physicalSize = Size(width, 844);
   addTearDown(tester.view.resetPhysicalSize);
@@ -45,8 +49,12 @@ Future<void> _pump(WidgetTester tester, String email,
   await tester.pumpWidget(
     ProviderScope(
       overrides: [
-        authStateProvider.overrideWith(() => _FakeAuth(AuthState.authenticated)),
-        userProfileProvider.overrideWith((ref) async => _sub(email, plan: plan)),
+        authStateProvider.overrideWith(
+          () => _FakeAuth(AuthState.authenticated),
+        ),
+        userProfileProvider.overrideWith(
+          (ref) async => _sub(email, plan: plan),
+        ),
       ],
       child: const MaterialApp(home: Scaffold(body: MineTab())),
     ),
@@ -63,25 +71,28 @@ void main() {
   testWidgets('邮箱占套餐名之外的剩余空间（不与套餐名平分）', (tester) async {
     const email = 'demo@example.com';
     await _pump(tester, email);
-    final planW = _w(tester, find.text('专业版'));
-    final mailW = _w(tester, find.text(email));
+    final planW = _w(tester, find.text('专业版', findRichText: true));
+    final mailW = _w(tester, find.text(email, findRichText: true));
     // 邮箱宽必须远大于「平分一半」——即套餐名占用很小时，邮箱拿到大部分剩余。
     // 若被平分（旧 bug），邮箱 ≈ 卡内宽/2；修复后邮箱 ≈ 卡内宽 - 套餐名 - gap。
-    expect(mailW, greaterThan(planW * 2),
-        reason: '邮箱应占大部分行宽（套餐名很短），而非与套餐名平分');
+    expect(mailW, greaterThan(planW * 2), reason: '邮箱应占大部分行宽（套餐名很短），而非与套餐名平分');
   });
 
   testWidgets('短邮箱（390）→ 完整不省略', (tester) async {
     const email = 'demo@example.com';
     await _pump(tester, email);
-    final ro = tester.renderObject(find.text(email)) as RenderParagraph;
+    final ro =
+        tester.renderObject(find.text(email, findRichText: true))
+            as RenderParagraph;
     expect(ro.didExceedMaxLines, isFalse);
   });
 
   testWidgets('套餐名优先：长套餐名能放下 → 套餐名完整（邮箱让位）', (tester) async {
     const email = 'a-very-long-email-1234567890@some-domain.example.com';
     await _pump(tester, email, plan: '尊享会员');
-    final ro = tester.renderObject(find.text('尊享会员')) as RenderParagraph;
+    final ro =
+        tester.renderObject(find.text('尊享会员', findRichText: true))
+            as RenderParagraph;
     expect(ro.didExceedMaxLines, isFalse, reason: '套餐名优先完整显示');
   });
 }

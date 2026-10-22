@@ -51,7 +51,7 @@ fi
 echo "[pre-commit] 检测到接缝点/锚点相关文件变动 → 跑 DD-21 行号锚点 + 接缝点白名单校验…"
 
 # (a) DD-21 行号锚点校验（已登记接缝点行号是否漂移）
-if ! dart run "$VALIDATOR" 2>&1; then
+if ! dart --packages="$REPO_ROOT/.dart_tool/package_config.json" "$VALIDATOR" 2>&1; then
     cat >&2 <<'EOF'
 
 [pre-commit] ✗ 行号锚点校验未通过 —— FlClash 引用已漂移/丢失。
@@ -74,7 +74,7 @@ if [[ -f "$SEAM_VALIDATOR" ]]; then
     # 不退回 HEAD，否则会把只检查本次改动误写成完整 fork 检查。
     SEAM_BASELINE="$(git config --get xflclash.seamBaseline || true)"
     SEAM_BASELINE="${SEAM_BASELINE:-upstream/main}"
-    if ! dart run "$SEAM_VALIDATOR" --baseline "$SEAM_BASELINE" 2>&1; then
+    if ! dart --packages="$REPO_ROOT/.dart_tool/package_config.json" "$SEAM_VALIDATOR" --baseline "$SEAM_BASELINE" 2>&1; then
         cat >&2 <<'EOF'
 
 [pre-commit] ✗ 接缝点白名单校验未通过 —— 改了 FlClash 既有文件但未登记 PATCHES.md。

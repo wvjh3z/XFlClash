@@ -1,6 +1,6 @@
 import 'package:emoji_regex/emoji_regex.dart';
-import 'package:fl_clash/enum/enum.dart' show FontFamily;
-import 'package:flutter/material.dart';
+import 'package:fl_clash/ui/text_style.dart' show FontFamily;
+import 'package:material_ui/material_ui.dart';
 
 /// Xboard-only aligned text. Keep Twemoji confined to emoji spans so ordinary
 /// digits retain their text font. Upstream EmojiText remains unmodified.

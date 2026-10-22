@@ -1,6 +1,6 @@
 // GENERATED CODE - DO NOT MODIFY BY HAND
 // coverage:ignore-file
-// ignore_for_file: type=lint
+// ignore_for_file: type=lint, type=warning, deprecated_member_use, deprecated_member_use_from_same_package
 // ignore_for_file: unused_element, deprecated_member_use, deprecated_member_use_from_same_package, use_function_type_syntax_for_parameters, unnecessary_const, avoid_init_to_null, invalid_override_different_default_values_named, prefer_expression_function_bodies, annotate_overrides, invalid_annotation_target, unnecessary_question_mark
 
 part of '../../models/xb_domain_subscription.dart';
@@ -9,18 +9,14 @@ part of '../../models/xb_domain_subscription.dart';
 // FreezedGenerator
 // **************************************************************************
 
+// GENERATED CODE - DO NOT MODIFY BY HAND
 // dart format off
 T _$identity<T>(T value) => value;
 
 /// @nodoc
 mixin _$XbDomainSubscription {
 
- String get email; String get uuid; String? get planName; int get totalBytes;// SubscriptionModel.transferEnable（字节 F408）
- int get usedBytes;// (u ?? 0) + (d ?? 0)（字节 R6.8）
- DateTime? get expiredAt;// null = 长期有效（一次性套餐 D51）
- DateTime? get nextResetAt;// null = 流量套餐/不重置（D51）
- int? get resetDay;// 月内重置日（F408 v1.13.0；≠ nextResetAt.day）
- int? get planId;
+ String get email; String get uuid; String? get planName; int get totalBytes; int get usedBytes; DateTime? get expiredAt; DateTime? get nextResetAt; int? get resetDay; int? get planId;
 /// Create a copy of XbDomainSubscription
 /// with the given fields replaced by the non-null parameter values.
 @JsonKey(includeFromJson: false, includeToJson: false)
@@ -33,16 +29,21 @@ $XbDomainSubscriptionCopyWith<XbDomainSubscription> get copyWith => _$XbDomainSu
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is XbDomainSubscription&&(identical(other.email, email) || other.email == email)&&(identical(other.uuid, uuid) || other.uuid == uuid)&&(identical(other.planName, planName) || other.planName == planName)&&(identical(other.totalBytes, totalBytes) || other.totalBytes == totalBytes)&&(identical(other.usedBytes, usedBytes) || other.usedBytes == usedBytes)&&(identical(other.expiredAt, expiredAt) || other.expiredAt == expiredAt)&&(identical(other.nextResetAt, nextResetAt) || other.nextResetAt == nextResetAt)&&(identical(other.resetDay, resetDay) || other.resetDay == resetDay)&&(identical(other.planId, planId) || other.planId == planId));
+  final _this = this as XbDomainSubscription;
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is XbDomainSubscription&&(identical(other.email, _this.email) || other.email == _this.email)&&(identical(other.uuid, _this.uuid) || other.uuid == _this.uuid)&&(identical(other.planName, _this.planName) || other.planName == _this.planName)&&(identical(other.totalBytes, _this.totalBytes) || other.totalBytes == _this.totalBytes)&&(identical(other.usedBytes, _this.usedBytes) || other.usedBytes == _this.usedBytes)&&(identical(other.expiredAt, _this.expiredAt) || other.expiredAt == _this.expiredAt)&&(identical(other.nextResetAt, _this.nextResetAt) || other.nextResetAt == _this.nextResetAt)&&(identical(other.resetDay, _this.resetDay) || other.resetDay == _this.resetDay)&&(identical(other.planId, _this.planId) || other.planId == _this.planId));
 }
 
 @JsonKey(includeFromJson: false, includeToJson: false)
 @override
-int get hashCode => Object.hash(runtimeType,email,uuid,planName,totalBytes,usedBytes,expiredAt,nextResetAt,resetDay,planId);
+int get hashCode {
+  final _this = this as XbDomainSubscription;
+  return Object.hash(runtimeType,_this.email,_this.uuid,_this.planName,_this.totalBytes,_this.usedBytes,_this.expiredAt,_this.nextResetAt,_this.resetDay,_this.planId);
+}
 
 @override
 String toString() {
-  return 'XbDomainSubscription(email: $email, uuid: $uuid, planName: $planName, totalBytes: $totalBytes, usedBytes: $usedBytes, expiredAt: $expiredAt, nextResetAt: $nextResetAt, resetDay: $resetDay, planId: $planId)';
+  final _this = this as XbDomainSubscription;
+  return 'XbDomainSubscription(email: ${_this.email}, uuid: ${_this.uuid}, planName: ${_this.planName}, totalBytes: ${_this.totalBytes}, usedBytes: ${_this.usedBytes}, expiredAt: ${_this.expiredAt}, nextResetAt: ${_this.nextResetAt}, resetDay: ${_this.resetDay}, planId: ${_this.planId})';
 }
 
 
@@ -71,7 +72,7 @@ class _$XbDomainSubscriptionCopyWithImpl<$Res>
 /// Create a copy of XbDomainSubscription
 /// with the given fields replaced by the non-null parameter values.
 @pragma('vm:prefer-inline') @override $Res call({Object? email = null,Object? uuid = null,Object? planName = freezed,Object? totalBytes = null,Object? usedBytes = null,Object? expiredAt = freezed,Object? nextResetAt = freezed,Object? resetDay = freezed,Object? planId = freezed,}) {
-  return _then(_self.copyWith(
+  return _then(XbDomainSubscription(
 email: null == email ? _self.email : email // ignore: cast_nullable_to_non_nullable
 as String,uuid: null == uuid ? _self.uuid : uuid // ignore: cast_nullable_to_non_nullable
 as String,planName: freezed == planName ? _self.planName : planName // ignore: cast_nullable_to_non_nullable
@@ -229,15 +230,10 @@ class _XbDomainSubscription extends XbDomainSubscription {
 @override final  String uuid;
 @override final  String? planName;
 @override final  int totalBytes;
-// SubscriptionModel.transferEnable（字节 F408）
 @override final  int usedBytes;
-// (u ?? 0) + (d ?? 0)（字节 R6.8）
 @override final  DateTime? expiredAt;
-// null = 长期有效（一次性套餐 D51）
 @override final  DateTime? nextResetAt;
-// null = 流量套餐/不重置（D51）
 @override final  int? resetDay;
-// 月内重置日（F408 v1.13.0；≠ nextResetAt.day）
 @override final  int? planId;
 
 /// Create a copy of XbDomainSubscription
@@ -253,16 +249,18 @@ Map<String, dynamic> toJson() {
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is _XbDomainSubscription&&(identical(other.email, email) || other.email == email)&&(identical(other.uuid, uuid) || other.uuid == uuid)&&(identical(other.planName, planName) || other.planName == planName)&&(identical(other.totalBytes, totalBytes) || other.totalBytes == totalBytes)&&(identical(other.usedBytes, usedBytes) || other.usedBytes == usedBytes)&&(identical(other.expiredAt, expiredAt) || other.expiredAt == expiredAt)&&(identical(other.nextResetAt, nextResetAt) || other.nextResetAt == nextResetAt)&&(identical(other.resetDay, resetDay) || other.resetDay == resetDay)&&(identical(other.planId, planId) || other.planId == planId));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is _XbDomainSubscription&&(identical(other.email, email) || other.email == email)&&(identical(other.uuid, uuid) || other.uuid == uuid)&&(identical(other.planName, planName) || other.planName == planName)&&(identical(other.totalBytes, totalBytes) || other.totalBytes == totalBytes)&&(identical(other.usedBytes, usedBytes) || other.usedBytes == usedBytes)&&(identical(other.expiredAt, expiredAt) || other.expiredAt == expiredAt)&&(identical(other.nextResetAt, nextResetAt) || other.nextResetAt == nextResetAt)&&(identical(other.resetDay, resetDay) || other.resetDay == resetDay)&&(identical(other.planId, planId) || other.planId == planId));
 }
 
 @JsonKey(includeFromJson: false, includeToJson: false)
 @override
-int get hashCode => Object.hash(runtimeType,email,uuid,planName,totalBytes,usedBytes,expiredAt,nextResetAt,resetDay,planId);
+int get hashCode {
+    return Object.hash(runtimeType,email,uuid,planName,totalBytes,usedBytes,expiredAt,nextResetAt,resetDay,planId);
+}
 
 @override
 String toString() {
-  return 'XbDomainSubscription(email: $email, uuid: $uuid, planName: $planName, totalBytes: $totalBytes, usedBytes: $usedBytes, expiredAt: $expiredAt, nextResetAt: $nextResetAt, resetDay: $resetDay, planId: $planId)';
+    return 'XbDomainSubscription(email: $email, uuid: $uuid, planName: $planName, totalBytes: $totalBytes, usedBytes: $usedBytes, expiredAt: $expiredAt, nextResetAt: $nextResetAt, resetDay: $resetDay, planId: $planId)';
 }
 
 

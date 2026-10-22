@@ -11,28 +11,31 @@
     <uses-feature
         android:name="android.software.leanback"
         android:required="false" />
+    <uses-feature
+        android:name="android.hardware.wifi"
+        android:required="false" />
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE" />
     <uses-permission
         android:name="android.permission.QUERY_ALL_PACKAGES"
         tools:ignore="QueryAllPackagesPermission" />
+    <uses-permission android:name="com.android.permission.GET_INSTALLED_APPS" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-    <uses-permission android:name="android.permission.POST_PROMOTED_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+    <uses-permission android:name="android.permission.ACCESS_LOCAL_NETWORK" />
 
     <application
-        android:name=".Application"
+        android:name=".FlClashApplication"
         android:allowBackup="false"
-        android:banner="@mipmap/ic_banner"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:fullBackupContent="@xml/no_backup"
+        android:banner="@mipmap/ic_banner"
         android:hardwareAccelerated="true"
         android:icon="@mipmap/ic_launcher"
         android:label="${appName}">
@@ -47,6 +50,10 @@
             <meta-data
                 android:name="io.flutter.embedding.android.NormalTheme"
                 android:resource="@style/NormalTheme" />
+            <!-- install-config links go through app_links; Flutter would also push them as routes. -->
+            <meta-data
+                android:name="flutter_deeplinking_enabled"
+                android:value="false" />
 
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -72,7 +79,7 @@
         </activity>
 
         <activity
-            android:name=".TempActivity"
+            android:name=".QuickActionActivity"
             android:excludeFromRecents="true"
             android:exported="true"
             android:theme="@style/TransparentTheme">
@@ -105,20 +112,19 @@
         </service>
 
         <receiver
-            android:name=".BroadcastReceiver"
+            android:name=".ServiceBroadcastReceiver"
             android:enabled="true"
             android:exported="true"
             android:permission="${applicationId}.permission.RECEIVE_BROADCASTS">
             <intent-filter>
-                <action android:name="${applicationId}.intent.action.SERVICE_CREATED" />
-                <action android:name="${applicationId}.intent.action.SERVICE_DESTROYED" />
+                <action android:name="${applicationId}.intent.action.VPN_START_REQUESTED" />
+                <action android:name="${applicationId}.intent.action.VPN_REVOKED" />
             </intent-filter>
         </receiver>
 
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
-
         <!-- FileProvider for sharing APK files to system installer (self-update tier-2) -->
         <provider
             android:name=".UpdateFileProvider"

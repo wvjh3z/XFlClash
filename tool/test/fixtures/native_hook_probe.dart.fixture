@@ -1,0 +1,39 @@
+// Runs against Flutter's own package graph, not a mocked environment filter.
+import 'dart:convert';
+import 'dart:io';
+import 'package:file/local.dart';
+import 'package:hooks_runner/src/build_runner/build_runner.dart';
+import 'package:hooks_runner/src/dependencies_hash_file/dependencies_hash_file.dart';
+
+Future<void> main(List<String> args) async {
+  if (args.first == 'filter') {
+    final source = jsonDecode(File(args[1]).readAsStringSync()) as Map;
+    final filtered = <String, String>{
+      for (final key in source.keys.cast<String>())
+        if (NativeAssetsBuildRunner.includeHookEnvironmentVariable(
+          key.toUpperCase(),
+        ))
+          key: source[key] as String,
+    };
+    File(args[2]).writeAsStringSync(jsonEncode(filtered));
+    return;
+  }
+  final record = DependenciesHashFile(
+    const LocalFileSystem(),
+    fileUri: File(args[2]).uri,
+  );
+  if (args.first == 'record') {
+    final data = jsonDecode(File(args[1]).readAsStringSync()) as Map;
+    await record.updateHashes(
+      (data['dependencies'] as List).cast<String>().map(Uri.parse).toList(),
+      DateTime.now().add(const Duration(seconds: 10)),
+      {},
+    );
+  } else {
+    stdout.writeln(
+      jsonEncode({
+        'invalidated': await record.findOutdatedDependency({}) != null,
+      }),
+    );
+  }
+}

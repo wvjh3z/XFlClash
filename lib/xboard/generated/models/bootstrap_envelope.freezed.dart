@@ -1,6 +1,6 @@
 // GENERATED CODE - DO NOT MODIFY BY HAND
 // coverage:ignore-file
-// ignore_for_file: type=lint
+// ignore_for_file: type=lint, type=warning, deprecated_member_use, deprecated_member_use_from_same_package
 // ignore_for_file: unused_element, deprecated_member_use, deprecated_member_use_from_same_package, use_function_type_syntax_for_parameters, unnecessary_const, avoid_init_to_null, invalid_override_different_default_values_named, prefer_expression_function_bodies, annotate_overrides, invalid_annotation_target, unnecessary_question_mark
 
 part of '../../models/bootstrap_envelope.dart';
@@ -9,6 +9,7 @@ part of '../../models/bootstrap_envelope.dart';
 // FreezedGenerator
 // **************************************************************************
 
+// GENERATED CODE - DO NOT MODIFY BY HAND
 // dart format off
 T _$identity<T>(T value) => value;
 
@@ -28,16 +29,21 @@ $BootstrapEnvelopeCopyWith<BootstrapEnvelope> get copyWith => _$BootstrapEnvelop
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is BootstrapEnvelope&&(identical(other.schemaVersion, schemaVersion) || other.schemaVersion == schemaVersion)&&(identical(other.encrypted, encrypted) || other.encrypted == encrypted));
+  final _this = this as BootstrapEnvelope;
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is BootstrapEnvelope&&(identical(other.schemaVersion, _this.schemaVersion) || other.schemaVersion == _this.schemaVersion)&&(identical(other.encrypted, _this.encrypted) || other.encrypted == _this.encrypted));
 }
 
 @JsonKey(includeFromJson: false, includeToJson: false)
 @override
-int get hashCode => Object.hash(runtimeType,schemaVersion,encrypted);
+int get hashCode {
+  final _this = this as BootstrapEnvelope;
+  return Object.hash(runtimeType,_this.schemaVersion,_this.encrypted);
+}
 
 @override
 String toString() {
-  return 'BootstrapEnvelope(schemaVersion: $schemaVersion, encrypted: $encrypted)';
+  final _this = this as BootstrapEnvelope;
+  return 'BootstrapEnvelope(schemaVersion: ${_this.schemaVersion}, encrypted: ${_this.encrypted})';
 }
 
 
@@ -66,7 +72,7 @@ class _$BootstrapEnvelopeCopyWithImpl<$Res>
 /// Create a copy of BootstrapEnvelope
 /// with the given fields replaced by the non-null parameter values.
 @pragma('vm:prefer-inline') @override $Res call({Object? schemaVersion = null,Object? encrypted = null,}) {
-  return _then(_self.copyWith(
+  return _then(BootstrapEnvelope(
 schemaVersion: null == schemaVersion ? _self.schemaVersion : schemaVersion // ignore: cast_nullable_to_non_nullable
 as int,encrypted: null == encrypted ? _self.encrypted : encrypted // ignore: cast_nullable_to_non_nullable
 as String,
@@ -229,16 +235,18 @@ Map<String, dynamic> toJson() {
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is _BootstrapEnvelope&&(identical(other.schemaVersion, schemaVersion) || other.schemaVersion == schemaVersion)&&(identical(other.encrypted, encrypted) || other.encrypted == encrypted));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is _BootstrapEnvelope&&(identical(other.schemaVersion, schemaVersion) || other.schemaVersion == schemaVersion)&&(identical(other.encrypted, encrypted) || other.encrypted == encrypted));
 }
 
 @JsonKey(includeFromJson: false, includeToJson: false)
 @override
-int get hashCode => Object.hash(runtimeType,schemaVersion,encrypted);
+int get hashCode {
+    return Object.hash(runtimeType,schemaVersion,encrypted);
+}
 
 @override
 String toString() {
-  return 'BootstrapEnvelope(schemaVersion: $schemaVersion, encrypted: $encrypted)';
+    return 'BootstrapEnvelope(schemaVersion: $schemaVersion, encrypted: $encrypted)';
 }
 
 

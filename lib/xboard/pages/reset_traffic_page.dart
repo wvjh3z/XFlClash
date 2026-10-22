@@ -5,7 +5,7 @@
 /// 下单成功（`createOrder(planId, resetTraffic)`）→ 跳 [OrderPaymentPage] 选支付方式。
 library;
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../widgets/xb_async_view.dart';

@@ -7,7 +7,7 @@
 /// **形态 A 演进路径**：未来换设计语言时改本 kit 内部实现，调用方（页面）不动 —— 同反腐层隔离思想。
 library;
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 import '../config/xboard_config.dart';
 import 'xb_theme.dart';
@@ -36,7 +36,9 @@ class XbBrandTheme extends StatelessWidget {
         brandColor: brandColor,
         brightness: Theme.of(context).brightness,
       ),
-      child: child,
+      // Third-party HTML/QR widgets still use Flutter's bundled Material.
+      // The official bridge preserves the same brand typography and locale.
+      child: MaterialUiCompatibilityBridge(child: child),
     );
   }
 }
@@ -93,7 +95,12 @@ class XbBrandScaffold extends StatelessWidget {
             final bar = bottomNavigationBar;
             return bar == null
                 ? content
-                : Column(children: [Expanded(child: content), bar]);
+                : Column(
+                    children: [
+                      Expanded(child: content),
+                      bar,
+                    ],
+                  );
           }
           return Scaffold(
             appBar: AppBar(title: Text(title), actions: actions),
@@ -205,7 +212,11 @@ class XbTextField extends StatelessWidget {
 
 /// 品牌图标徽标 —— 渐变圆角容器 + 居中图标（登录/注册页头部用）。
 class XbBrandBadge extends StatelessWidget {
-  const XbBrandBadge({super.key, this.icon = Icons.vpn_key_rounded, this.size = 72});
+  const XbBrandBadge({
+    super.key,
+    this.icon = Icons.vpn_key_rounded,
+    this.size = 72,
+  });
 
   final IconData icon;
   final double size;
@@ -221,7 +232,10 @@ class XbBrandBadge extends StatelessWidget {
         gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [cs.primary, Color.alphaBlend(cs.primary.withValues(alpha: 0.6), cs.tertiary)],
+          colors: [
+            cs.primary,
+            Color.alphaBlend(cs.primary.withValues(alpha: 0.6), cs.tertiary),
+          ],
         ),
         boxShadow: [
           BoxShadow(
@@ -253,8 +267,10 @@ class XbIconBadge extends StatelessWidget {
     this.gradient,
     this.iconColor,
     this.iconSize,
-  }) : assert(background == null || gradient == null,
-            'background 与 gradient 互斥');
+  }) : assert(
+         background == null || gradient == null,
+         'background 与 gradient 互斥',
+       );
 
   /// 图标。
   final IconData icon;

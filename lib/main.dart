@@ -1,84 +1,90 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:fl_clash/pages/error.dart';
-import 'package:fl_clash/state.dart';
+import 'package:fl_clash/enum/enum.dart';
+import 'package:desktop_webview_window/desktop_webview_window.dart';
 import 'package:fl_clash/xboard/config/xboard_config.dart';
 import 'package:fl_clash/xboard/xboard_module.dart';
-import 'package:desktop_webview_window/desktop_webview_window.dart';
-import 'package:flutter/material.dart';
+import 'package:fl_clash/pages/error.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:rust_api/rust_api.dart';
+import 'package:shared_preferences_platform_interface/shared_preferences_platform_interface.dart';
 
 import 'application.dart';
+import 'bootstrap.dart';
+import 'common/app_data.dart';
 import 'common/common.dart';
+import 'common/preferences_store.dart';
+import 'common/window.dart';
 
-final singleInstanceLock = SingleInstanceLock(
-  lockFilePath: () => appPath.lockFilePath,
-);
+void main(List<String> args) {
+  runZonedGuarded(
+    () async {
+      WidgetsFlutterBinding.ensureInitialized();
+      FlutterError.onError = (details) {
+        Future.microtask(() {
+          commonPrint.log(
+            'exception: ${details.exception} stack: ${details.stack}',
+            logLevel: LogLevel.warning,
+          );
+        });
+      };
+      try {
+        // Crisp's title-bar child must not claim the main process data lock.
+        if (system.isDesktop && runWebViewTitleBarWidget(args)) return;
+        if (system.isDesktop && !await singleInstanceLock.acquire()) exit(0);
+        if (Platform.isWindows || Platform.isLinux) {
+          SharedPreferencesStorePlatform.instance = AtomicFilePreferencesStore(
+            appPath.sharedPreferencesPath,
+          );
+        }
+        if (Platform.isLinux) {
+          linkManager.seedInitialLink(args);
+        }
 
-Future<void> main(List<String> args) async {
-  try {
-    WidgetsFlutterBinding.ensureInitialized();
-
-    // === Xboard 接缝点 #1.ter（D9 客服 / crisp_chat 桌面 WebView）===
-    // 桌面端 Crisp 客服走 desktop_webview_window 嵌入窗口；该插件以子进程渲染 WebView
-    // 标题栏（复用同一可执行文件）。此 helper 检测当前进程是否为标题栏子进程，是则只渲染
-    // 标题栏并 return（绝不再跑 FlClash 内核 / Xboard bootstrap）。必须在 runApp 前、
-    // 尽量靠前调用（crisp_chat README 要求）。非桌面 / 非该子进程 → false，正常启动。
-    if (system.isDesktop && runWebViewTitleBarWidget(args)) {
-      return;
-    }
-
-    // Main desktop processes must own the data directory before monitoring,
-    // Rust or globalState can touch it. WebView title-bar children return above.
-    if (system.isDesktop && !await singleInstanceLock.acquire()) {
-      exit(0);
-    }
-
-    // Read the saved opt-out before native capture, then install Sentry before
-    // Rust/globalState initialization can fail. Monitoring failure is isolated.
-    final xboardConfig = XboardConfig.fromEnvironment();
-    await XboardModule.initializeMonitoringEarly(config: xboardConfig);
-
-    if (system.isDesktop) {
-      await RustLib.init();
-    }
-    final version = await system.version;
-    final container = await globalState.init(version);
-    HttpOverrides.global = FlClashHttpOverrides();
-
-    // === Xboard 接缝点 #1（决策 #16 / DD-2.bis 双层 try/catch 隔离）===
-    // 内层 XboardModule.bootstrap 已全捕获（DD-2）；此处外层再兜底，
-    // 绝不让 Xboard 故障把 FlClash + VPN 一起拖进 InitErrorScreen。
-    // config: dart-define 编译期值（W8.5，prepare_flavor 生成 flavor_defines.json 注入；
-    // 无注入则用占位默认）。
-    try {
-      await XboardModule.bootstrap(container, config: xboardConfig);
-    } catch (error, stackTrace) {
-      XboardModule.captureStartupFailure(
-        'main Xboard bootstrap',
-        error,
-        stackTrace,
+        final xboardConfig = XboardConfig.fromEnvironment();
+        await XboardModule.initializeMonitoringEarly(config: xboardConfig);
+        await RustLib.init();
+        final version = await system.init();
+        final container = await bootstrap.init(version);
+        await FlClashHttpOverrides.trustCoreRoots();
+        HttpOverrides.global = FlClashHttpOverrides(container);
+        request.attach(container.read);
+        try {
+          await XboardModule.bootstrap(container, config: xboardConfig);
+        } catch (error, stackTrace) {
+          XboardModule.captureStartupFailure('main Xboard bootstrap', error, stackTrace);
+        }
+        runApp(
+          UncontrolledProviderScope(
+            container: container,
+            child: const Application(),
+          ),
+        );
+        unawaited(XboardModule.bootstrapAsync(container));
+      } catch (e, s) {
+        XboardModule.captureStartupFailure('main initialization', e, s);
+        runApp(
+          InitErrorApp(
+            error: e,
+            stack: s,
+            onClearData: clearAppData,
+            onExit: _exitAfterInitFailure,
+          ),
+        );
+        unawaited(window?.showInitFailure(onExit: _exitAfterInitFailure));
+      }
+    },
+    (error, stack) {
+      FlutterError.reportError(
+        FlutterErrorDetails(exception: error, stack: stack),
       );
-    }
+    },
+  );
+}
 
-    runApp(
-      UncontrolledProviderScope(
-        container: container,
-        child: const Application(),
-      ),
-    );
-
-    // === Xboard 接缝点 #1.bis（W5 异步阶段，runApp 后 fire-and-forget，DD-17 render-first）===
-    // 远端 Bootstrap 拉取 + endpoint 竞速 + baseUrl 热替换；绝不 await（不阻塞首屏）+ 永不抛（DD-2）。
-    unawaited(XboardModule.bootstrapAsync(container));
-  } catch (e, s) {
-    XboardModule.captureStartupFailure('main initialization', e, s);
-    return runApp(
-      MaterialApp(
-        home: InitErrorScreen(error: e, stack: s),
-      ),
-    );
-  }
+Future<void> _exitAfterInitFailure() async {
+  await system.exit();
+  window?.forceExit();
 }

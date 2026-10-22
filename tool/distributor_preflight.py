@@ -142,15 +142,9 @@ def cold_start(root, environment, runner, target, *, revision='HEAD', wine=None,
         runner.run('checkout', ['git', 'checkout', '--quiet', '--detach', source], checkout, env)
         if (checkout/'tool/distributor_preflight.py').read_text(encoding='utf-8') != Path(__file__).read_text(encoding='utf-8'):
             raise PreflightError('revision_does_not_match_entrypoint')
-        module = checkout/'plugins/flutter_distributor'
-        runner.run('clone-distributor', ['git', 'clone', '--quiet', '--shared', '--no-checkout', '--template=', '--config', 'core.longpaths=true',
-                                        str(root/'plugins/flutter_distributor'), str(module)], checkout, env)
-        # The parent gitlink, not an upstream default branch, selects the tool.
-        entry = runner.run('gitlink', ['git', 'ls-files', '--stage', 'plugins/flutter_distributor'], checkout, env).split()
-        if len(entry) != 4 or entry[0] != '160000' or not re.fullmatch('[0-9a-f]{40}', entry[1]):
-            raise PreflightError('invalid_distributor_gitlink')
-        runner.run('checkout-distributor', ['git', 'checkout', '--quiet', '--detach', entry[1]], module, env)
-        for relative in ('.dart_tool', 'build', '.local-build', 'plugins/flutter_distributor/packages/flutter_distributor/.dart_tool'):
+        # The source is fetched by the same immutable-pin entry as activation;
+        # do not clone a warmed submodule from the developer's checkout.
+        for relative in ('.dart_tool', 'build', '.local-build'):
             if (checkout/relative).exists(): raise PreflightError('cold_workspace_contains_cache')
         if any(Path(env['PUB_CACHE']).iterdir()): raise PreflightError('cold_pub_cache_not_empty')
         runner.data['initial_cache_empty'] = True

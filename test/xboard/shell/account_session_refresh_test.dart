@@ -21,7 +21,7 @@ import 'package:fl_clash/xboard/sdk/xboard_service.dart';
 import 'package:fl_clash/xboard/services/xboard_subscription_service.dart';
 import 'package:fl_clash/xboard/shell/tabs/mine/mine_tab.dart';
 import 'package:fl_clash/xboard/shell/tabs/nodes/nodes_tab.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
@@ -105,8 +105,8 @@ Future<ProviderContainer> _pumpTab(
         (ref) => const ProxiesTabState(
           groups: [_group],
           currentGroupName: '手选线路',
-          proxyCardType: ProxyCardType.expand,
-          columns: 2,
+          proxyCardType: ProxyCardType.standard,
+
         ),
       ),
       patchClashConfigProvider.overrideWithBuild(

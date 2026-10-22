@@ -3,8 +3,11 @@ import json
 from pathlib import Path
 import re
 import unittest
+import sys
 
 ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0,str(ROOT / "tool"))
+from checkout_distributor import RELATIVE as DISTRIBUTOR_SOURCE
 
 
 class RuntimeContractTest(unittest.TestCase):
@@ -34,7 +37,7 @@ class RuntimeContractTest(unittest.TestCase):
         self.assertIn('python tool/release_pipeline.py package', workflow)
 
     def test_maker_source_path_contract(self):
-        maker = self.read("plugins/flutter_distributor/packages/flutter_app_packager/lib/src/makers/exe/inno_setup/inno_setup_script.dart")
+        maker = self.read(str(DISTRIBUTOR_SOURCE / "packages/flutter_app_packager/lib/src/makers/exe/inno_setup/inno_setup_script.dart"))
         self.assertIn("'SOURCE_DIR': makeConfig.sourceDir", maker)
         self.assertIn("File('${makeConfig.packagingDirectory.path}.iss')", maker)
         source = self.read("windows/packaging/exe/vc_runtime.iss")
@@ -53,7 +56,12 @@ class RuntimeContractTest(unittest.TestCase):
         self.assertIn("nocompression", entries[0])
         self.assertNotIn("[UninstallRun]", source)
         self.assertNotIn("[Run]", source)
-        self.assertIn("function PrepareToInstall", source)
+        self.assertIn("function XbPrepareVCRuntime", source)
+        template = self.read("windows/packaging/exe/inno_setup.iss")
+        self.assertEqual(template.count("function PrepareToInstall("), 1)
+        entry = template.split("function PrepareToInstall(", 1)[1].split("procedure CurStepChanged", 1)[0]
+        self.assertLess(entry.index("XbPrepareVCRuntime"), entry.index("UnregisterHelperService"))
+        self.assertLess(entry.index("if Result <> '' then exit"), entry.index("KillProcesses"))
         self.assertIn("Exec(PowerShellPath,", source)
         self.assertIn("{sysnative}\\WindowsPowerShell", source)
         self.assertIn("Params, ExpandConstant('{tmp}'), SW_HIDE", source)

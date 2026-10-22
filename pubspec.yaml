@@ -1,145 +1,138 @@
 name: fl_clash
 description: A multi-platform proxy client based on ClashMeta, simple and easy to use, open-source and ad-free.
 publish_to: 'none'
-version: 0.8.93+2026052901
+version: 0.9.1+2026101702
 environment:
-  sdk: '>=3.8.0 <4.0.0'
+  sdk: '>=3.10.0 <4.0.0'
+
+hooks:
+  user_defines:
+    setup:
+      build_assets: true
+    rust_api:
+      build_assets: true
 
 dependencies:
   flutter:
     sdk: flutter
   flutter_localizations:
     sdk: flutter
+  material_ui: ^1.5.0
   intl: any
-  path_provider: ^2.1.5
-  path: ^1.9.0
-  shared_preferences: ^2.5.3
-  window_manager:
-    git:
-      url: https://github.com/chen08209/window_manager
-      ref: main
-      path: packages/window_manager
-  dynamic_color: ^1.8.1
+  path_provider: ^2.1.6
+  path: ^1.9.1
+  shared_preferences: ^2.5.6
+  shared_preferences_platform_interface: ^2.4.2
+  window:
+    path: plugins/window
+  dynamic_color: ^2.1.0
   proxy:
     path: plugins/proxy
-  window_ext:
-    path: plugins/window_ext
-  launch_at_startup: ^0.5.1
-  json_annotation: ^4.11.0
-  file_picker: ^11.0.2
-  mobile_scanner: ^7.0.1
-  app_links: ^7.0.0
-  win32_registry: ^2.0.0
-  tray_manager:
-    path: plugins/tray_manager/packages/tray_manager
+  launch_at_startup:
+    git:
+      url: https://github.com/chen08209/launch_at_startup.git
+      ref: e930ce65c5804343103447e01d39fccabedc8681
+  json_annotation: ^4.12.0
+  file_picker: ^12.3.0
+  mobile_scanner: ^7.4.2
+  app_links: ^7.2.2
+  win32_registry: ^3.0.3
+  tray:
+    path: plugins/tray
   wifi_ssid:
     path: plugins/wifi_ssid
   collection: ^1.19.1
-  animations: ^2.1.1
-  package_info_plus: ^9.0.0
-  url_launcher: ^6.3.2
+  animations: ^3.0.0
+  package_info_plus: ^10.2.2
+  url_launcher: ^6.3.3
   freezed_annotation: ^3.1.0
-  image_picker: ^1.2.0
-  ffi: ^2.1.4
+  image_picker: ^1.2.4
+  ffi: ^2.2.0
 
-  webdav_client: ^1.2.2
-  dio: ^5.8.0+1
-  win32: ^5.5.1
-  re_editor:
-    git:
-      url: https://github.com/chen08209/re-editor
-      ref: main
+  dio: ^5.11.1
+  win32: ^6.4.0
+  code_forge:
+    path: plugins/code_forge
   re_highlight: ^0.0.3
-  archive: ^4.0.7
+  archive: ^4.3.0
   emoji_regex: ^0.0.5
-  hotkey_manager: ^0.2.3
   uni_platform: ^0.1.3
-  device_info_plus: ^12.2.0
-  connectivity_plus: ^7.0.0
-  screen_retriever: ^0.2.0
-  defer_pointer: ^0.0.2
-  flutter_riverpod: ^3.3.1
-  riverpod_annotation: ^4.0.2
-  riverpod: ^3.2.1
+  device_info_plus: ^13.3.0
+  connectivity_plus: 7.2.0
+  screen_retriever: ^0.2.2
+  flutter_riverpod: ^3.4.3
+  riverpod_annotation: ^4.0.7
+  riverpod: ^3.4.3
   material_color_utilities: ^0.13.0
-  flutter_js:
-    git:
-      url: https://github.com/chen08209/flutter_js
-      ref: master
-  flutter_svg: ^2.1.0
-  flutter_cache_manager: ^3.4.1
-  crypto: ^3.0.3
-  # Shared by flavor tooling and encrypted subscription syntax validation.
-  yaml: ^3.1.2
-  yaml_writer:
-    git:
-      url: https://github.com/chen08209/yaml_writer
-      ref: master
+  material_new_shapes: ^1.0.0
+  flutter_svg: ^2.3.0
+  path_parsing: ^1.1.0
+  flutter_cache_manager: ^3.4.5
+  crypto: ^3.0.7
+  yaml: ^3.1.4
   super_sliver_list: ^0.4.1
-  drift: ^2.31.0
-  drift_flutter: ^0.2.8
-  fractional_indexing: ^1.0.0
-  reorderable_grid: ^1.0.13
-  smooth_sheets: ^1.0.2
+  drift: ^2.35.1
+  drift_flutter: ^0.3.1
   rust_api:
     path: plugins/rust_api
   setup:
     path: plugins/setup
-
-  # ─────────────────────────────────────────────────────────────
-  # Xboard 段（接缝点 #3，conventions §1.2 白名单；spec xboard-mvp-form-b）
-  # 「加而不改」：仅在 dependencies 末尾追加，不改 upstream 既有项。
-  # ⚠️ θ-4 安全约束：flutter_xboard_sdk 的 `path:` 仅本地调试用；
-  #    release build 必须改为 git ref + commit hash（防 sibling 漂移）。
-  # ─────────────────────────────────────────────────────────────
+  # Xboard product dependencies (same versions as the stable fork).
   flutter_xboard_sdk:
     path: ../Xboard_sdk            # sibling path 依赖（F394）
   cryptography: ^2.7.0             # D58/D59 — AES-256-GCM 解密 Bootstrap JSON
   sentry_flutter: 9.30.1          # NFR-7 — pin SDK and matching native bindings; CLI stays 2.58.4.
-  flutter_secure_storage: ^9.2.4   # NFR-3 — TokenStorage 注入实现
+  flutter_secure_storage: 10.3.1   # NFR-3 — TokenStorage 注入实现
   qr_flutter: ^4.1.0               # R8 AC 6.bis（F346）— AlipayF2f 支付二维码渲染
   flutter_html: ^3.0.0             # R8 — 套餐 content 富文本 HTML 渲染（emoji 标题/✓✗列表/颜色）
   flutter_inappwebview: 6.1.5       # Tutorial reader: Android, Windows and macOS native WebView.
   flutter_inappwebview_windows: 0.6.0 # Public environment adapter for this pinned Windows implementation.
   flutter_inappwebview_platform_interface: 1.3.0+1 # Channel extension used only by the Windows environment repair.
-  html: ^0.15.6                    # DOM preparation for authenticated tutorial HTML.
+  html: 0.15.6                    # DOM preparation for authenticated tutorial HTML.
   desktop_webview_window: 0.3.2   # Crisp desktop transport; keep native navigation fixes reproducible.
   crisp_chat: 3.0.0               # D9 在线客服（Android 原生 SDK；mac/win/linux WebView 套 Web Chat）
 dev_dependencies:
+  connectivity_plus_platform_interface: 2.1.0 # Native smoke: controlled network events.
   flutter_test:
     sdk: flutter
   flutter_lints: ^6.0.0
-  json_serializable: ^6.8.0
-  build_runner: ^2.14.1
-  args: ^2.4.2
-  freezed: ^3.2.5
-  riverpod_generator: ^4.0.3
-  riverpod_lint: ^3.1.3
-
-  drift_dev: ^2.31.0
-  intl_utils: ^2.8.14
-  test: ^1.30.0
-  mocktail: ^1.0.4
-  # 桌面图标构建期生成（纯 Dart，从品牌 PNG 生成 Windows .ico + macOS appiconset）。
-  # 用户 2026-06-27 批准；多品牌桌面图标注入（见 tool/inject_desktop_brand.dart）。
   flutter_launcher_icons: ^0.14.4
-  # Xboard 段（spec xboard-mvp-form-b）：W4.8/W5.8/W6.9/W7.10/W8.9 端到端集成测试
+  image: 4.8.0 # Tooling: 4.11.0 calls archive.decodeLazy, removed in archive 4.3.
   integration_test:
     sdk: flutter
+  json_serializable: ^6.14.1
+  build_runner: ^2.16.1
+  args: ^2.7.0
+  freezed: ^4.0.1
+  riverpod_generator: ^4.0.9
+
+  drift_dev: ^2.35.1
+  intl_utils: ^2.8.16
+  test: ^1.31.1
+  sqlite3: ^3.7.0
+  cross_file: ^0.3.5+5
+  mocktail: ^1.0.5
 
 flutter:
   uses-material-design: true
   assets:
+    # xboard-fallback-assets:begin
+    - flavors/brand_a/assets/
+    # xboard-fallback-assets:end
     - assets/data/
     - assets/fonts/
     - assets/images/
     - assets/images/avatar/
-    - assets/images/empty/
-    - assets/images/icon/
-    # xboard-fallback-assets:begin
-    # prepare_flavor replaces this development directory with ONE brand fallback file.
-    - flavors/brand_a/assets/
-    # xboard-fallback-assets:end
+    - assets/images/services/
+    - core/Clash.Meta/component/ca/ca-certificates.crt
+    - path: assets/images/tray/unix/
+      platforms: [ linux ]
+    - path: assets/images/tray/macos/
+      platforms: [ macos ]
+    - path: assets/images/tray/windows/
+      platforms: [ windows ]
+  shaders:
+    - shaders/liquid_glass.frag
   fonts:
     - family: JetBrainsMono
       fonts:
@@ -147,9 +140,6 @@ flutter:
     - family: Twemoji
       fonts:
         - asset: assets/fonts/Twemoji.Mozilla.ttf
-    - family: Icons
-      fonts:
-        - asset: assets/fonts/Icons.ttf
 flutter_intl:
   enabled: true
   class_name: AppLocalizations

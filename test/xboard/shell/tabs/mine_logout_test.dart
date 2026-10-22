@@ -15,7 +15,7 @@ import 'package:fl_clash/xboard/services/xboard_subscription_service.dart';
 import 'package:fl_clash/xboard/shell/tabs/mine/mine_tab.dart';
 import 'package:fl_clash/xboard/util/pii_mask.dart';
 import 'package:fl_clash/xboard/widgets/xb_theme.dart' show XbTokens;
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';

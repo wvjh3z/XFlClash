@@ -11,12 +11,11 @@ library;
 import 'dart:async';
 
 import 'package:fl_clash/xboard/widgets/xb_emoji_text.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-import 'package:fl_clash/widgets/widgets.dart';
 import 'package:fl_clash/xboard/models/xb_domain_subscription.dart';
 import 'package:fl_clash/xboard/pages/invite_commission_page.dart';
 import 'package:fl_clash/xboard/pages/order_list_page.dart';

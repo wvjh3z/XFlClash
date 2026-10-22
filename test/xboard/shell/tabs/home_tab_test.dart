@@ -3,7 +3,7 @@
 /// 覆盖：游客态显示登录 banner + 各组件齐全；已登录态隐藏 banner。
 library;
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -39,15 +39,15 @@ ProxiesTabState _tab() => const ProxiesTabState(
         ),
       ],
       currentGroupName: '智能优选',
-      proxyCardType: ProxyCardType.expand,
-      columns: 2,
+      proxyCardType: ProxyCardType.standard,
+
     );
 
 ProxiesTabState _emptyTab() => const ProxiesTabState(
       groups: [],
       currentGroupName: null,
-      proxyCardType: ProxyCardType.expand,
-      columns: 2,
+      proxyCardType: ProxyCardType.standard,
+
     );
 
 Future<void> pumpHome(

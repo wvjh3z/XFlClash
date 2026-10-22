@@ -1,7 +1,7 @@
 /// XbAsyncView 契约测试（四分支 + 优先级 + 错误文案解析）。
 library;
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:fl_clash/xboard/models/xb_domain_error.dart';

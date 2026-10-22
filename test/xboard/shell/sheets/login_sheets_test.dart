@@ -4,7 +4,7 @@
 /// 字段顺序验证码在密码上方（R5.7）/ 渐进 sheet 不全屏（R5.3）。
 library;
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';

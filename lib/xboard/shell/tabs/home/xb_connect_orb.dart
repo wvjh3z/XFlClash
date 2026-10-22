@@ -15,7 +15,7 @@
 /// **文案约束（R2.5）**：不出现「节点 / 优选 / 线路 / 竞速」等技术词。
 library;
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../widgets/xb_motion.dart';

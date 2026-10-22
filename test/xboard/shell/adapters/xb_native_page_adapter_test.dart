@@ -4,7 +4,7 @@
 /// provider + core），仅断言导航行为发生 —— 渲染不崩由 W6.4 集成冒烟覆盖。
 library;
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:fl_clash/xboard/shell/adapters/xb_native_page_adapter.dart';

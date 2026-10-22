@@ -14,6 +14,10 @@ from pathlib import Path
 import shutil
 import subprocess
 import sys
+import tempfile
+
+from prepare_sentry_windows_assets import prepare_windows_assets
+from upload_sentry_symbols import SymbolError
 
 
 CLI_VERSION = "2.58.4"
@@ -66,6 +70,19 @@ def run_checked(arguments: list[str], *, root: Path, environment: dict[str, str]
         raise ReleaseError("Symbol preparation, audit or upload failed; release remains incomplete")
 
 
+def write_outcome(path: Path, data: dict) -> None:
+    """Atomically replace only this invocation's small, credential-free report."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, temporary = tempfile.mkstemp(prefix='.sentry-outcome-', dir=path.parent)
+    try:
+        with os.fdopen(descriptor, 'w', encoding='utf-8') as stream:
+            json.dump(data, stream, indent=2)
+            stream.write('\n')
+        os.replace(temporary, path)
+    finally:
+        Path(temporary).unlink(missing_ok=True)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--platform", required=True, choices=PLATFORMS)
@@ -90,8 +107,18 @@ def main(argv: list[str] | None = None) -> int:
     diagnostic.add_argument("--no-sentry", action="store_true", help="Explicit diagnostic; skip Sentry work")
     args = parser.parse_args(argv)
     root = args.project_root.resolve()
+    evidence_path = args.evidence or args.build_root / 'sentry-symbols-evidence.json'
+    evidence_path = evidence_path if evidence_path.is_absolute() else root / evidence_path
+    identity = dict(platform=args.platform, flavor=args.flavor)
+    stage = 'configuration'
     try:
+        # Preflight is read-only. Every actual run, including archive reuse and
+        # diagnostic skips, invalidates old success before it can fail early.
+        if not args.preflight:
+            evidence_path.unlink(missing_ok=True)
         if args.no_sentry:
+            if not args.preflight:
+                write_outcome(evidence_path, dict(identity, status='skipped', reason='explicit_diagnostic'))
             print("Sentry symbols explicitly disabled for this diagnostic build (--no-sentry)")
             return 0
         defines_path = args.defines if args.defines.is_absolute() else root / args.defines
@@ -107,14 +134,21 @@ def main(argv: list[str] | None = None) -> int:
         if not isinstance(dsn, str):
             raise ReleaseError("Generated Sentry configuration has an invalid type")
         if not dsn.strip():
+            if not args.preflight:
+                write_outcome(evidence_path, dict(identity, status='skipped', reason='not_configured'))
             print("Sentry symbols not required: the selected production flavor has no Sentry DSN")
             return 0
+        stage = 'credentials'
         environment = upload_environment(root, dict(os.environ), args.audit_only)
         offline_environment = {key: value for key, value in environment.items() if key != "SENTRY_AUTH_TOKEN"}
+        stage = 'cli'
         cli = resolve_cli(args.sentry_cli, offline_environment)
         if args.preflight:
             print("Sentry release preflight passed" + (" (offline audit only)" if args.audit_only else ""))
             return 0
+        stage = 'prepare'
+        if not args.reuse_prepared and args.platform == 'windows':
+            prepare_windows_assets((root / args.build_root).resolve(), cli)
         common = ["--build-root", str(args.build_root)]
         if not args.reuse_prepared and args.platform in ("android", "linux"):
             prepare = [sys.executable, str(root / "tool/prepare_sentry_native_symbols.py"),
@@ -135,7 +169,6 @@ def main(argv: list[str] | None = None) -> int:
         upload = [sys.executable, str(root / "tool/upload_sentry_symbols.py"),
                   "--platform", args.platform, "--flavor", args.flavor, *common,
                   "--sentry-cli", cli]
-        evidence_path = args.evidence or args.build_root / "sentry-symbols-evidence.json"
         upload.extend(["--evidence", str(evidence_path)])
         for name in ("product_version", "build_number", "source_revision"):
             value = getattr(args, name)
@@ -143,9 +176,9 @@ def main(argv: list[str] | None = None) -> int:
                 upload.extend(["--" + name.replace("_", "-"), str(value)])
         if args.audit_only:
             upload.append("--audit-only")
-        evidence_path = evidence_path if evidence_path.is_absolute() else root / evidence_path
-        evidence_path.unlink(missing_ok=True)
+        stage = 'audit' if args.audit_only else 'upload'
         run_checked(upload, root=root, environment=environment)
+        stage = 'completion'
         try:
             evidence = json.loads(evidence_path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
@@ -155,8 +188,24 @@ def main(argv: list[str] | None = None) -> int:
                 or evidence.get("platform") != args.platform or evidence.get("flavor") != args.flavor):
             raise ReleaseError("The symbol completion report does not confirm the required audit/upload result")
         return 0
-    except (ReleaseError, OSError, subprocess.TimeoutExpired) as error:
-        safe = str(error) if isinstance(error, ReleaseError) else type(error).__name__
+    except (ReleaseError, SymbolError, ValueError, OSError, subprocess.TimeoutExpired) as error:
+        if not args.preflight:
+            # Preserve current uploader diagnostics, but never a success state
+            # when this coordinator failed. The old report was removed above.
+            failure = dict(identity, status='failed', postbuild_stage=stage,
+                           postbuild_error=type(error).__name__)
+            try:
+                current = json.loads(evidence_path.read_text(encoding='utf-8'))
+                if (isinstance(current, dict) and current.get('status') == 'failed'
+                        and all(current.get(key) == value for key, value in identity.items())):
+                    failure = {**current, **failure}
+            except (OSError, ValueError):
+                pass
+            try:
+                write_outcome(evidence_path, failure)
+            except OSError:
+                print('Sentry failure report could not be saved', file=sys.stderr)
+        safe = str(error) if isinstance(error, (ReleaseError, SymbolError)) else type(error).__name__
         print("Sentry release failed: " + safe, file=sys.stderr)
         return 1
 

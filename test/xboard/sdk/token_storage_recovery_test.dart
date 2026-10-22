@@ -127,8 +127,10 @@ void main() {
     'locked plugin options use traditional macOS keychain and Android encryption',
     () {
       const storage = SecureStorageTokenStorage.defaultStorage;
-      expect(storage.mOptions.toMap()['useDataProtectionKeyChain'], 'false');
+      expect(storage.mOptions.toMap()['usesDataProtectionKeychain'], 'false');
       expect(storage.aOptions.toMap()['encryptedSharedPreferences'], 'true');
+      expect(storage.aOptions.toMap()['migrateOnAlgorithmChange'], 'false');
+      expect(storage.aOptions.toMap()['resetOnError'], 'false');
     },
   );
 

@@ -305,23 +305,33 @@ void main() {
     });
     tearDown(() => target.deleteSync(recursive: true));
 
-    test('platform mappings preserve the existing tray asset paths', () {
+    test('platform mappings cover v0.9.1 tray states and pixel-density variants', () {
       for (final platform in ['windows', 'linux', 'macos']) {
         final writes = desktopSystemIconWrites(brandA, platform: platform);
         final extension = platform == 'windows' ? 'ico' : 'png';
-        final states = platform == 'macos' ? [1] : [1, 2, 3];
+        final directory = platform == 'linux' ? 'unix' : platform;
+        final states = platform == 'macos' ? [1, 4] : [1, 2, 3, 4];
+        final scales = platform == 'windows'
+            ? ['']
+            : ['', '2.0x/', '3.0x/', '4.0x/'];
         expect(
           writes.keys,
           unorderedEquals([
             for (final state in states)
-              'assets/images/icon/status_$state.$extension',
+              for (final scale in scales)
+                'assets/images/tray/$directory/${scale}status_$state.$extension',
           ]),
         );
         for (final state in states) {
-          expect(
-            writes['assets/images/icon/status_$state.$extension'],
-            orderedEquals(brandA.files['$platform/status_$state.$extension']!),
-          );
+          for (final scale in scales) {
+            expect(
+              writes['assets/images/tray/$directory/${scale}status_$state.$extension'],
+              orderedEquals(
+                brandA
+                    .files['$platform/status_${state == 4 ? 1 : state}.$extension']!,
+              ),
+            );
+          }
         }
       }
       expect(
@@ -387,7 +397,7 @@ void main() {
     );
 
     test('preflights every destination before changing any valid target', () {
-      const validPath = 'assets/images/icon/status_1.png';
+      const validPath = 'assets/images/tray/unix/status_1.png';
       final valid = File(p.join(target.path, validPath));
       valid.parent.createSync(recursive: true);
       valid.writeAsStringSync('original');
@@ -419,7 +429,9 @@ void main() {
           addTearDown(() => outside.deleteSync(recursive: true));
           final externalFile = File(p.join(outside.path, 'status_2.png'))
             ..writeAsStringSync('outside');
-          final iconDir = Directory(p.join(target.path, 'assets/images/icon'));
+          final iconDir = Directory(
+            p.join(target.path, 'assets/images/tray/unix'),
+          );
           iconDir.parent.createSync(recursive: true);
           final first = File(p.join(iconDir.path, 'status_1.png'));
           if (linkParent) {
@@ -435,8 +447,8 @@ void main() {
             () => applySystemIconWrites(
               projectRoot: target.path,
               writes: {
-                'assets/images/icon/status_1.png': Uint8List.fromList([1]),
-                'assets/images/icon/status_2.png': Uint8List.fromList([2]),
+                'assets/images/tray/unix/status_1.png': Uint8List.fromList([1]),
+                'assets/images/tray/unix/status_2.png': Uint8List.fromList([2]),
               },
             ),
             throwsFormatException,

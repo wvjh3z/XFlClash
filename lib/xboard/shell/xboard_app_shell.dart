@@ -9,7 +9,7 @@
 /// 必须经 `lib/xboard/shell/adapters/`（W2）收口。
 library;
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_xboard_sdk/flutter_xboard_sdk.dart' show AppUpdateModel;
 

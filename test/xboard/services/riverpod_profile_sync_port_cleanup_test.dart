@@ -20,8 +20,9 @@ class _FakeSetupAction extends SetupAction {
   void build() {}
 
   @override
-  Future<void> updateStatus(bool isStart, {bool isInit = false}) async {
+  Future<bool> setRunning(bool isStart, {bool initialize = false}) async {
     statusCalls.add(isStart);
+    return true;
   }
 }
 
