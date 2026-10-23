@@ -95,6 +95,7 @@ jobs:
       flavor: ${{ steps.request.outputs.flavor }}
       upload: ${{ steps.request.outputs.upload }}
       source_sha: ${{ steps.request.outputs.source_sha }}
+      source_ref: ${{ steps.request.outputs.source_ref }}
       sdk_ref: ${{ steps.settings.outputs.sdk_ref }}
       verify_symbolication: ${{ steps.settings.outputs.verify_symbolication }}
     steps:
@@ -697,10 +698,10 @@ jobs:
   # 发布成功后，下次编号至少为本批次编号+1；不降低已被其他发布推进的计数。
   # 仅 upload=true（真发布）才自增——纯构建验证（upload=false）不消耗版本号。
   # needs: package → 仅当所有平台 job 成功才跑（任一失败不自增，避免号空耗）。
-  # a/b 各自独立计数：scripts/build_number.<flavor>.txt，互不影响。
+  # a/b 各自独立计数；只回写本次源分支，标签构建不回写。
   bump:
     needs: [setup, package]
-    if: needs.setup.outputs.upload == 'true'
+    if: needs.setup.outputs.upload == 'true' && startsWith(needs.setup.outputs.source_ref, 'refs/heads/')
     name: Bump versionCode (next release)
     timeout-minutes: 10
     runs-on: ubuntu-latest
@@ -712,31 +713,16 @@ jobs:
         with:
           ref: ${{ needs.setup.outputs.source_sha }}
           token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0 # 验证构建提交仍是源分支的祖先，不依赖浅克隆边界。
       - name: Increment build_number for flavor
         env:
           FLAVOR: ${{ needs.setup.outputs.flavor }}
           RESOLVED_BUILD_NUMBER: ${{ needs.setup.outputs.build_number }}
+          BUILD_SOURCE_REF: ${{ needs.setup.outputs.source_ref }}
+          BUILD_SOURCE_SHA: ${{ needs.setup.outputs.source_sha }}
         run: |
           set -euo pipefail
-          FILE="scripts/build_number.${FLAVOR}.txt"
+          # 冻结本次提交的工具，防止重取源分支后执行其他版本。
           NUMBER_TOOL="${RUNNER_TEMP}/release_build_number.py"
           cp tool/release_build_number.py "$NUMBER_TOOL"
-          git config user.name "anonymous"
-          git config user.email "anonymous@users.noreply.github.com"
-          # 本 job 是独立临时 checkout。冲突后先取最新 main 再计算，不复用旧计算结果。
-          for i in 1 2 3; do
-            git fetch --no-tags origin main
-            git reset --hard FETCH_HEAD
-            python3 "$NUMBER_TOOL" advance --flavor "$FLAVOR"
-            NEXT="$(cat "$FILE")"
-            if git diff --quiet -- "$FILE"; then
-              echo "✓ ${FLAVOR} 下一编号已达到 ${NEXT}，无需重复递增"; exit 0
-            fi
-            git add "$FILE"
-            git commit -m "[xfork] chore(build): ${FLAVOR} next build ${NEXT}（CI 发布后更新）"
-            if git push origin HEAD:main; then
-              echo "✓ ${FLAVOR} versionCode → ${NEXT}（已提交回仓库）"; exit 0
-            fi
-            echo "push 冲突，重试 ($i)…"; sleep 4
-          done
-          echo "✗ 自增提交推送失败（请手动检查 ${FILE}）"; exit 1
+          python3 "$NUMBER_TOOL" publish --flavor "$FLAVOR"
