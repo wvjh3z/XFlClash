@@ -10,6 +10,30 @@ sys.path.insert(0,str(ROOT / "tool"))
 from checkout_distributor import RELATIVE as DISTRIBUTOR_SOURCE
 
 
+def assert_prepare_order(template):
+    """Keep prerequisite rejection ahead of the current brand's stop operation."""
+    matches = re.findall(
+        r"function\s+PrepareToInstall\([^;]+;\s*begin\b(.*?)\bend\s*;",
+        template, re.S | re.I,
+    )
+    assert len(matches) == 1, "Expected one PrepareToInstall body"
+    entry = matches[0]
+    actions = [
+        r"Result\s*:=\s*XbPrepareVCRuntime\(NeedsRestart\)\s*;",
+        r"if\s+Result\s*<>\s*''\s+then\s+exit\s*;",
+        r"if\s+not\s+StopOwnedInstallation\(\)\s+then\s+"
+        r"Result\s*:=\s*CustomMessage\('XbOwnedInstallError'\)\s*;",
+    ]
+    positions = []
+    for action in actions:
+        found = list(re.finditer(action, entry, re.I))
+        assert len(found) == 1, "Required installer action missing or duplicated"
+        positions.append(found[0].start())
+    assert positions == sorted(positions), "Stop must follow prerequisite success"
+    assert not re.search(r"\b(UnregisterHelperService|KillProcesses)\b", template), \
+        "Legacy global process/service operations must not return"
+
+
 class RuntimeContractTest(unittest.TestCase):
     def read(self, name):
         return (ROOT / name).read_text(encoding="utf-8")
@@ -59,15 +83,30 @@ class RuntimeContractTest(unittest.TestCase):
         self.assertIn("function XbPrepareVCRuntime", source)
         template = self.read("windows/packaging/exe/inno_setup.iss")
         self.assertEqual(template.count("function PrepareToInstall("), 1)
-        entry = template.split("function PrepareToInstall(", 1)[1].split("procedure CurStepChanged", 1)[0]
-        self.assertLess(entry.index("XbPrepareVCRuntime"), entry.index("UnregisterHelperService"))
-        self.assertLess(entry.index("if Result <> '' then exit"), entry.index("KillProcesses"))
+        assert_prepare_order(template)
         self.assertIn("Exec(PowerShellPath,", source)
         self.assertIn("{sysnative}\\WindowsPowerShell", source)
         self.assertIn("Params, ExpandConstant('{tmp}'), SW_HIDE", source)
         self.assertNotIn("ExecWithNativeSysDir", source)
         self.assertIn("finally\n    XbVcPage.Hide", source)
         self.assertNotIn("NeedsRestart := True", source)
+
+    def test_prepare_order_accepts_checkout_newlines_and_spacing(self):
+        template = self.read("windows/packaging/exe/inno_setup.iss")
+        assert_prepare_order(template.replace("\n", "\r\n"))
+        assert_prepare_order(template.replace("if Result <> '' then exit;", "if  Result<>''  then\n exit ;"))
+
+    def test_prepare_order_rejects_early_stop_and_missing_failure_guard(self):
+        template = self.read("windows/packaging/exe/inno_setup.iss")
+        stop = "  if not StopOwnedInstallation() then\n    Result := CustomMessage('XbOwnedInstallError');"
+        self.assertEqual(template.count(stop), 1)
+        moved = template.replace(stop, "").replace("  Result := XbPrepareVCRuntime(NeedsRestart);", stop + "\n  Result := XbPrepareVCRuntime(NeedsRestart);")
+        with self.assertRaises(AssertionError):
+            assert_prepare_order(moved)
+        with self.assertRaises(AssertionError):
+            assert_prepare_order(template.replace("if Result <> '' then exit;", ""))
+        with self.assertRaises(AssertionError):
+            assert_prepare_order(template.replace("StopOwnedInstallation()", "KillProcesses()"))
 
     def test_errors_localized_and_reentry_does_not_launch_another_installer(self):
         source = self.read("windows/packaging/exe/vc_runtime.iss")

@@ -204,7 +204,7 @@ def main(argv=None):
             if c['platform'] == 'linux':
                 from verify_linux_packages import verify, PackageError
                 try:
-                    verify(c, Path(args.dist))
+                    verify(c, Path(args.dist), report_path=Path(args.manifest).parent/'linux-package-audit.json')
                 except (PackageError, OSError, ValueError, subprocess.SubprocessError) as error:
                     write_json(args.manifest, {'schema_version': 1, 'passed': False, 'artifacts': []})
                     raise PipelineError('linux_package_verification_failed') from error
@@ -214,8 +214,9 @@ def main(argv=None):
             if c['platform'] == 'linux':
                 from verify_linux_packages import verify, PackageError
                 try:
-                    verify(c, Path(args.dist))
+                    verify(c, Path(args.dist), report_path=Path(args.manifest).parent/'linux-package-audit.json')
                 except (PackageError, OSError, ValueError, subprocess.SubprocessError) as error:
+                    write_json(args.manifest, {'schema_version': 1, 'passed': False, 'artifacts': []})
                     raise PipelineError('linux_package_verification_failed') from error
             if args.action == 'upload':
                 tag,repo = os.environ.get('TAG',''),os.environ.get('GITHUB_REPOSITORY','')

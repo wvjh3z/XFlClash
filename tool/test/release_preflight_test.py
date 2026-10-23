@@ -15,6 +15,8 @@ class PreflightResultTests(unittest.TestCase):
         self.assertIn("tool.test.prepare_test_gradle_test", gate.MODULES)
         self.assertIn("tool.test.sentry_upload_confirmation_test", gate.MODULES)
         self.assertIn("tool.test.local_release_automation_test.CliOutputEncodingTests", gate.MODULES)
+        self.assertIn("tool.test.android_package_fixture_test", gate.MODULES)
+        self.assertIn("tool.test.linux_appimage_readback_test.ContainerHeaderTests", gate.MODULES)
 
     def test_success_requires_executed_tests_and_zero_skips(self):
         def passing():

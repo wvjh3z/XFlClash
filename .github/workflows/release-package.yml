@@ -634,6 +634,7 @@ jobs:
             build/fallback-assets-evidence.json
             build/toolchain-versions.json
             build/appimage-elf-audit.json
+            build/linux-package-audit.json
             build/macos/sentry-native-inventory.json
             build/macos/sentry-native-build.json
             build/macos/sentry-manifest-diagnostics.json

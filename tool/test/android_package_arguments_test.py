@@ -19,8 +19,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from distributor_graph import PREPARED, PACKAGES, resolved_packages
 
 try:
+    from .android_package_fixture import prepare_android_package_fixture
     from .sentry_release_workflow_test import step_script
 except ImportError:
+    from android_package_fixture import prepare_android_package_fixture
     from sentry_release_workflow_test import step_script
 
 
@@ -132,14 +134,10 @@ class Charset {
             dart.write_text("#!/usr/bin/env python3\nimport json, os, pathlib, sys\n"
                             "pathlib.Path(os.environ['RECORDED_ARGS']).write_text(json.dumps(sys.argv[1:]))\n")
             dart.chmod(0o755)
-            from tool.test.release_pipeline_test import context
             python = self.bin / "python"
             python.write_text("#!/bin/sh\nexec " + shlex.quote(sys.executable) + ' "$@"\n')
             python.chmod(0o755)
-            (self.root / "tool").mkdir(exist_ok=True)
-            shutil.copyfile(Path(__file__).resolve().parents[2] / "tool/release_pipeline.py", self.root / "tool/release_pipeline.py")
-            (self.root / "build").mkdir(exist_ok=True)
-            (self.root / "build/release-context.json").write_text(json.dumps(context("android", "", base_version="0.0.0", build_number=101, flavor=selected)))
+            prepare_android_package_fixture(self.root, selected)
             script = step_script("Package (flutter_distributor)").replace("${{ matrix.platform }}", "android").replace(
                 "${{ matrix.arch }}", "")
             shell = subprocess.run(["bash", "-c", script], cwd=self.root, env=self.env,

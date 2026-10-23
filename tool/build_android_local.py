@@ -8,6 +8,7 @@ the selected flavor enables Sentry. Explicit diagnostic options are recorded.
 from __future__ import annotations
 
 import argparse
+import base64
 import contextlib
 import datetime
 import hashlib
@@ -382,6 +383,28 @@ def captured(arguments: list[str], environment: dict[str, str]) -> bytes:
     return result.stdout
 
 
+def apk_certificate_sha256(output: str) -> str:
+    """Hash verified PEM certificate bytes, independent of apksigner log labels."""
+    begin, end = '-----BEGIN CERTIFICATE-----', '-----END CERTIFICATE-----'
+    blocks = re.findall(re.escape(begin) + r'\s*(.*?)\s*' + re.escape(end), output, re.S)
+    if not blocks or output.count(begin) != len(blocks) or output.count(end) != len(blocks):
+        raise ReleaseError('APK certificate PEM output is missing or malformed')
+    hashes = set()
+    for block in blocks:
+        try:
+            certificate = base64.b64decode(''.join(block.split()), validate=True)
+        except ValueError as error:
+            raise ReleaseError('APK certificate PEM output is malformed') from error
+        if not certificate:
+            raise ReleaseError('APK certificate PEM output is empty')
+        hashes.add(hashlib.sha256(certificate).hexdigest())
+    # A repeated certificate across schemes is valid. Different signing or
+    # stamp certificates need explicit policy, never silently pick the first.
+    if len(hashes) != 1:
+        raise ReleaseError('APK contains multiple different certificates')
+    return hashes.pop()
+
+
 def verify_apk(root: Path, apk: Path, inputs: dict, tools: Path, environment: dict[str, str]) -> dict:
     from check_fallback_assets import verify as verify_fallback
     verify_fallback(root, inputs['flavor'], 'android', packages=[apk])
@@ -400,9 +423,8 @@ def verify_apk(root: Path, apk: Path, inputs: dict, tools: Path, environment: di
     certificate = captured(["keytool", "-exportcert", "-keystore", str(root / "android/app/keystore.jks"),
                             "-alias", properties.get("keyAlias", ""), "-storepass:env", "XFL_KEYSTORE_PASSWORD"], signing_environment)
     expected_certificate = hashlib.sha256(certificate).hexdigest()
-    signed = captured([str(tools / "apksigner"), "verify", "--print-certs", str(apk)], environment).decode("utf-8")
-    match = re.search(r"Signer #1 certificate SHA-256 digest:\s*([a-fA-F0-9]{64})", signed)
-    if not match or match.group(1).lower() != expected_certificate:
+    signed = captured([str(tools / "apksigner"), "verify", "--print-certs", "--print-certs-pem", str(apk)], environment).decode("utf-8")
+    if apk_certificate_sha256(signed) != expected_certificate:
         raise ReleaseError("APK certificate does not match the selected original brand keystore")
     captured([str(tools / "zipalign"), "-c", "-P", "16", "4", str(apk)], environment)
     abi, _, _, machine = ARCHES[inputs["arch"]]

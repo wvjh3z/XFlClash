@@ -235,6 +235,10 @@ class EntryContractTests(unittest.TestCase):
             self.assertEqual([row[0] for row in plan],labels)
             self.assertTrue(all(row[1][0]==sys.executable for row in plan))
             self.assertTrue(all('release_pipeline.py' not in ' '.join(map(str,row[1])) for row in plan))
+            if platform == 'linux':
+                maker = next(row[1] for row in plan if row[0] == 'linux-maker')
+                self.assertIn('tool.test.linux_release_packages_test', maker)
+                self.assertIn('tool.test.linux_appimage_readback_test', maker)
 
     def test_cold_environment_drops_credentials_python_injection_and_all_old_caches(self):
         with tempfile.TemporaryDirectory() as temporary:

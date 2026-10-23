@@ -136,10 +136,27 @@
          final soDeps = lines
              .split('\n')
              .where(
-@@ -49,6 +54,162 @@
+@@ -49,6 +54,179 @@
      );
    }
 
++  // CMake/pkg-config metadata and static archives are not ldd inputs. Keep
++  // named shared objects in the scan so corrupt/missing libraries still fail.
++  Future<bool> _isDependencyInput(FileSystemEntity entry) async {
++    if (entry is! File) return false;
++    if (RegExp(r'\.so(?:\.[^/]+)*$').hasMatch(path.basename(entry.path))) {
++      return true;
++    }
++    final input = await entry.open();
++    try {
++      final magic = await input.read(4);
++      return magic.length == 4 && magic[0] == 0x7f &&
++          magic[1] == 0x45 && magic[2] == 0x4c && magic[3] == 0x46;
++    } finally {
++      await input.close();
++    }
++  }
++
 +  // Compare bounded chunks rather than loading large shared objects at once.
 +  Future<bool> _sameContents(String first, String second) async {
 +    final a = File(first);
@@ -299,7 +316,7 @@
    @override
    Future<MakeResult> make(MakeConfig config) {
      return _make(
-@@ -64,9 +225,20 @@
+@@ -64,9 +242,20 @@
      required MakeAppImageConfig makeConfig,
    }) async {
      try {
@@ -321,7 +338,7 @@
          path.join(
            makeConfig.packagingDirectory.path,
            '${makeConfig.appName}.AppDir',
-@@ -183,62 +355,82 @@
+@@ -183,62 +372,83 @@
          ),
        );
 
@@ -332,6 +349,7 @@
          appSOLibs.map((so) async {
 -          final referencedSharedLibs =
 -              await _getSharedDependencies(so.path).then(
++          if (!await _isDependencyInput(so)) return <String>{};
 +          return await _getSharedDependencies(so.path).then(
              (d) => d.difference(libFlutterGtkDeps)
 -              ..removeWhere(
@@ -455,7 +473,7 @@
 
        await $(
          'appimagetool',
-@@ -249,9 +441,7 @@
+@@ -249,9 +459,7 @@
            ),
            makeConfig.outputFile.path.replaceAll('.appimage', '.AppImage'),
          ],

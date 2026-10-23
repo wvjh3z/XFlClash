@@ -16,13 +16,14 @@ from prepare_sentry_windows_assets import prepare_windows_assets
 from upload_sentry_symbols import SymbolError
 from sentry_hook_inputs import rust_inputs
 import postbuild_sentry_symbols as postbuild
+import upload_sentry_symbols as uploader
 
 HELPER = Path(__file__).resolve().parents[2] / 'windows/xboard_sentry_symbols.cmake'
 
 
 class RustManifestTests(unittest.TestCase):
-    def fixture(self):
-        temp=tempfile.TemporaryDirectory(prefix='sentry-rust-中文-');self.addCleanup(temp.cleanup)
+    def fixture(self, parent=None):
+        temp=tempfile.TemporaryDirectory(prefix='sentry-rust-中文-', dir=parent);self.addCleanup(temp.cleanup)
         root=Path(temp.name);build=root/'build';bundle=build/'windows/x64/runner/Release';bundle.mkdir(parents=True)
         for name in ['FlClash.exe','rust_api.dll','FlClashHelperService.exe']:(bundle/name).write_bytes(b'matching')
         manifest=build/'windows/x64/sentry-symbols/Release/targets.tsv';manifest.parent.mkdir(parents=True)
@@ -36,6 +37,12 @@ class RustManifestTests(unittest.TestCase):
     def check(self, cli, path, kind):
         return {'debug_ids':[path.read_bytes().decode('ascii')], 'architectures':['x86_64']}
 
+    def assert_companions_inside(self, rows, build):
+        # Windows short names/junctions and macOS /var aliases identify the
+        # same directory. Compare physical paths on BOTH sides, not spelling.
+        root = build.resolve(strict=True)
+        self.assertTrue(all(Path(row[2]).resolve().is_relative_to(root) for row in rows))
+
     def test_real_postbuild_handoff_is_idempotent_and_copies_helper(self):
         build,bundle,hook,manifest=self.fixture()
         with mock.patch('prepare_sentry_windows_assets.check_symbol',side_effect=self.check):
@@ -44,8 +51,63 @@ class RustManifestTests(unittest.TestCase):
         self.assertEqual(first,manifest.read_bytes())
         rows=[row.split('\t') for row in first.decode().splitlines()]
         self.assertEqual({r[0] for r in rows},{'FlClash','rust_api','FlClashHelperService'})
-        self.assertTrue(all(Path(row[2]).is_relative_to(build) for row in rows))
+        self.assert_companions_inside(rows, build)
         self.assertEqual((build/'sentry-hook-inputs/windows/helper/helper.pdb').read_bytes(),b'matching')
+
+    def test_real_directory_alias_and_escape_negative_control(self):
+        temp=tempfile.TemporaryDirectory(prefix='sentry-alias-');self.addCleanup(temp.cleanup)
+        root=Path(temp.name);real=root/'real';real.mkdir();alias=root/'alias'
+        if os.name=='nt':
+            subprocess.run(['cmd','/d','/c','mklink','/J',str(alias),str(real)],
+                           check=True,capture_output=True,timeout=30)
+            self.addCleanup(os.rmdir,alias)
+        else:
+            alias.symlink_to(real,target_is_directory=True)
+        for brand in ('OmoFly','Daishu'):
+            with self.subTest(brand=brand):
+                build,bundle,hook,manifest=self.fixture(alias)
+                (bundle/'FlClash.exe').rename(bundle/(brand+'.exe'))
+                (bundle/'FlClashHelperService.exe').rename(bundle/(brand+'HelperService.exe'))
+                manifest.write_text(f'{brand}\t{bundle/(brand+".exe")}\t{bundle/(brand+".pdb")}\n',encoding='utf-8')
+                with mock.patch('prepare_sentry_windows_assets.check_symbol',side_effect=self.check):
+                    prepare_windows_assets(build,'fixture-cli');first=manifest.read_bytes()
+                    prepare_windows_assets(build,'fixture-cli')
+                self.assertEqual(first,manifest.read_bytes())
+                rows=[row.split('\t') for row in first.decode().splitlines()]
+                self.assertFalse(all(Path(row[2]).is_relative_to(build) for row in rows),
+                                 'Old lexical comparison must reject a valid alias')
+                self.assert_companions_inside(rows,build)
+                outside=root/'outside.pdb';outside.write_bytes(b'matching')
+                with self.assertRaises(AssertionError):
+                    self.assert_companions_inside([['escaped','unused',str(outside)]],build)
+
+    @unittest.skipUnless(os.name=='nt', '8.3 aliases require native Windows')
+    def test_native_windows_short_paths_for_both_brands(self):
+        import ctypes
+        from ctypes import wintypes
+        kernel=ctypes.WinDLL('kernel32',use_last_error=True)
+        kernel.GetShortPathNameW.argtypes=[wintypes.LPCWSTR,wintypes.LPWSTR,wintypes.DWORD]
+        kernel.GetShortPathNameW.restype=wintypes.DWORD
+        for brand in ('OmoFly','Daishu'):
+            build,bundle,hook,manifest=self.fixture()
+            source=str(build.resolve(strict=True))
+            size=kernel.GetShortPathNameW(source,None,0)
+            if not size:raise ctypes.WinError(ctypes.get_last_error())
+            buffer=ctypes.create_unicode_buffer(size)
+            count=kernel.GetShortPathNameW(source,buffer,size)
+            if not count or count>=size:raise ctypes.WinError(ctypes.get_last_error())
+            short=Path(buffer.value)
+            if str(short).casefold()==source.casefold():
+                self.skipTest('8.3 aliases unavailable on this volume; junction regression is separate')
+            self.assertTrue(os.path.samefile(short,build))
+            (bundle/'FlClash.exe').rename(bundle/(brand+'.exe'))
+            (bundle/'FlClashHelperService.exe').rename(bundle/(brand+'HelperService.exe'))
+            manifest.write_text(f'{brand}\t{bundle/(brand+".exe")}\t{bundle/(brand+".pdb")}\n',encoding='utf-8')
+            with mock.patch('prepare_sentry_windows_assets.check_symbol',side_effect=self.check):
+                prepare_windows_assets(short,'fixture-cli');first=manifest.read_bytes()
+                prepare_windows_assets(short,'fixture-cli')
+            self.assertEqual(first,manifest.read_bytes())
+            self.assert_companions_inside([r.split('\t') for r in first.decode().splitlines()],short)
 
     def test_both_brand_executable_names_preserve_logical_symbol_roles(self):
         for brand in ('OmoFly','Daishu'):
@@ -132,6 +194,49 @@ class RustManifestTests(unittest.TestCase):
                  mock.patch.object(postbuild,'run_checked',side_effect=audit):
                 self.assertEqual(postbuild.main(['--project-root',str(root),'--platform','windows','--flavor',brand,'--audit-only']),0)
             self.assertIn('FlClashHelperService',manifest.read_text())
+
+    def test_uploader_cli_accepts_hook_siblings_but_rejects_outside_build(self):
+        # Exercise the real CLI dispatch and Windows inventory audit together.
+        # Only DIF parsing and the separately tested Dart companion parser are
+        # replaced; a successful mocked run_checked would miss the root bug.
+        for flavor, runner in [('brand_a', 'OmoFly'), ('brand_b', 'Daishu')]:
+            with self.subTest(flavor=flavor):
+                build, bundle, hook, manifest = self.fixture()
+                (bundle/'FlClash.exe').rename(bundle/(runner+'.exe'))
+                (bundle/'FlClashHelperService.exe').rename(bundle/(runner+'HelperService.exe'))
+                (bundle/(runner+'.pdb')).write_bytes(b'matching')
+                rows = [[runner, str(bundle/(runner+'.exe')), str(bundle/(runner+'.pdb'))]]
+                for target in sorted(uploader.REQUIRED_WINDOWS_TARGETS - {'FlClash'}):
+                    binary, pdb = bundle/(target+'.dll'), manifest.parent/(target+'.pdb')
+                    binary.write_bytes(b'matching'); pdb.write_bytes(b'matching')
+                    rows.append([target, str(binary), str(pdb)])
+                manifest.write_text(''.join('\t'.join(row)+'\n' for row in rows), encoding='utf-8')
+                with mock.patch('prepare_sentry_windows_assets.check_symbol', side_effect=self.check):
+                    prepare_windows_assets(build, 'fixture')
+                self.assertFalse(hook.resolve().is_relative_to((build/'windows').resolve()))
+                report = build/'uploader-cli-evidence.json'
+                arguments = ['--platform', 'windows', '--flavor', flavor, '--build-root', str(build),
+                             '--evidence', str(report), '--sentry-cli', 'fixture', '--audit-only']
+
+                def dif(cli, path, kind, **kwargs):
+                    return {**self.check(cli, path, kind), 'features': 'debug', 'format': kind}
+
+                with mock.patch.object(uploader.shutil, 'which', return_value='fixture'), \
+                     mock.patch.object(uploader, 'run_cli', return_value='sentry-cli '+uploader.CLI_VERSION), \
+                     mock.patch.object(uploader, 'check_symbol', side_effect=dif), \
+                     mock.patch.object(uploader, 'collect_companions', return_value=([], [])), \
+                     contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                    self.assertEqual(uploader.main(arguments), 0)
+                    data = json.loads(report.read_text(encoding='utf-8'))
+                    self.assertEqual(data['status'], 'audited')
+                    self.assertTrue({'rust_api', 'FlClashHelperService'} <= {row['target'] for row in data['native']})
+                    # The same bytes outside the actual build root remain
+                    # forbidden; the fix must not disable containment checks.
+                    outside = build.parent/'outside.pdb'; outside.write_bytes(b'matching')
+                    text = manifest.read_text(encoding='utf-8')
+                    manifest.write_text(text.replace(str(hook/'rust_api.pdb'), str(outside)), encoding='utf-8')
+                    self.assertEqual(uploader.main(arguments), 1)
+                    self.assertIn('escaped its build root', json.loads(report.read_text())['error'])
 
     @unittest.skipUnless(shutil.which('cmake') and (os.name=='nt' or shutil.which('c++')), 'CMake compiler unavailable')
     def test_cmake_owns_native_targets_but_has_no_deleted_cargokit_target(self):

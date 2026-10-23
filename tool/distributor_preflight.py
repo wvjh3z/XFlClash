@@ -118,7 +118,7 @@ def platform_commands(target, *, dart, wine=None, iscc=None):
                      ('android-artifacts', [sys.executable, 'tool/test/android_artifact_pipeline_test.py'], 180)]
     elif target == 'linux':
         commands += [('appimage-contract', [sys.executable, '-m', 'unittest', 'tool.test.appimagetool_contract_test'], 180),
-                     ('linux-maker', [sys.executable, '-m', 'unittest', 'tool.test.linux_appimage_packaging_test', 'tool.test.linux_package_permissions_test', 'tool.test.linux_release_packages_test', 'tool.test.linux_webview_identity_test'], 480)]
+                     ('linux-maker', [sys.executable, '-m', 'unittest', 'tool.test.linux_appimage_packaging_test', 'tool.test.linux_package_permissions_test', 'tool.test.linux_release_packages_test', 'tool.test.linux_appimage_readback_test', 'tool.test.linux_webview_identity_test'], 480)]
     elif target == 'windows':
         args = [sys.executable, 'tool/test/windows_iscc_preflight.py', '--dart', dart]
         if wine: args += ['--wine', str(wine)]

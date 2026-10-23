@@ -1,7 +1,8 @@
 """Offline regression of the pinned patch and the actual Dart AppImage maker.
 
 Fake ldd/locate/appimagetool operate on synthetic ELF files; cp is the real system cp.
-No pub get, Flutter compilation, native build, or network operations are run.
+No pub get, Flutter/client/core compilation, or network operations are run.
+The real-ldd cases compile tiny public C fixtures on an authorized build host.
 CI sets LINUX_PACKAGER_REQUIRE_DART=1 to make missing prerequisites a failure.
 """
 from __future__ import annotations
@@ -30,6 +31,37 @@ PACKAGER = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(PACKAGER)
 SOURCE = REPO / ".local-build/tool-sources/flutter_distributor" / "cdeeef2d8f8325bb6ae0bc86b39f56e4325d1a58"
 FIXTURE = REPO / "tool/test/fixtures/linux_appimage_maker.dart"
+
+
+def is_shell_parent(executable, comm, argv):
+    """Identify the actual shell, including binfmt's explicit QEMU interpreter."""
+    shells = {'dash', 'sh', 'bash'}
+    if comm not in shells or not argv:
+        return False
+    if Path(executable).name in shells:
+        return len(argv) >= 2 and Path(argv[0]).name in shells and argv[1] == '-c'
+    return (Path(executable).name == 'qemu-aarch64' and len(argv) >= 3
+            and argv[0] == executable and Path(argv[1]).name in shells
+            and argv[2] == '-c')
+
+
+class ShellParentIdentityTests(unittest.TestCase):
+    def test_native_and_explicit_emulated_shell(self):
+        self.assertTrue(is_shell_parent('/usr/bin/dash', 'sh', ['sh', '-c', 'fixture']))
+        self.assertTrue(is_shell_parent('/tools/qemu-aarch64', 'sh',
+                        ['/tools/qemu-aarch64', '/usr/bin/sh', '-c', 'fixture']))
+
+    def test_interpreter_name_alone_cannot_hide_a_non_shell_parent(self):
+        for executable, comm, argv in [
+            ('/tools/qemu-aarch64', 'sh', ['/tools/qemu-aarch64', '/usr/bin/python3', '-c', 'fixture']),
+            ('/tools/qemu-aarch64', 'sh', ['/different/qemu-aarch64', '/bin/sh', '-c', 'fixture']),
+            ('/tools/qemu-aarch64', 'python3', ['/tools/qemu-aarch64', '/bin/sh', '-c', 'fixture']),
+            ('/tools/qemu-aarch64', 'sh', ['/tools/qemu-aarch64', '/bin/sh', 'fixture']),
+            ('/tools/python3', 'sh', ['sh', '-c', 'fixture']),
+            ('/usr/bin/dash', 'sh', ['python3', '-c', 'fixture']),
+        ]:
+            with self.subTest(argv=argv):
+                self.assertFalse(is_shell_parent(executable, comm, argv))
 
 
 def command(*args: str, **kwargs) -> subprocess.CompletedProcess:
@@ -345,6 +377,8 @@ elif tool == 'appimagetool':
         'ARCH': os.environ.get('ARCH'),
         'modes': {{str(p.relative_to(args[0])): p.stat().st_mode & 0o777 for p in pathlib.Path(args[0]).rglob('*') if not p.is_symlink()}},
         'executor_parent': os.readlink('/proc/' + str(os.getppid()) + '/exe'),
+        'executor_parent_comm': pathlib.Path('/proc/' + str(os.getppid()) + '/comm').read_text().strip(),
+        'executor_parent_argv': pathlib.Path('/proc/' + str(os.getppid()) + '/cmdline').read_bytes().decode().strip('\0').split('\0'),
         'libraries': {{p.name: base64.b64encode(p.read_bytes()).decode() for p in libraries.iterdir()}},
     }}))
 elif tool == 'flutter':
@@ -437,6 +471,68 @@ class LinuxAppImageMakerTest(unittest.TestCase):
         self.commands = [json.loads(line) for line in (self.work / "commands.jsonl").read_text().splitlines()] if (self.work / "commands.jsonl").exists() else []
         self.last_result = json.loads(results[0])
         return self.last_result
+
+    def real_ldd_bundle(self):
+        """Compile only a tiny public shared object, never the client."""
+        source=self.work/'public.c'
+        source.write_text('#include <stdio.h>\nvoid fixture(void) { puts("fixture"); }\n')
+        library=self.work/'public.so'
+        command('cc','-shared','-fPIC',str(source),'-o',str(library))
+        header = library.read_bytes()[:20]
+        self.assertEqual(header[:6], b'\x7fELF\x02\x01')
+        machine = int.from_bytes(header[18:20], 'little')
+        self.assertIn(machine, (62, 183))
+        self.real_machine = 'x86_64' if machine == 62 else 'aarch64'
+        self.real_appimage_arch = 'x86_64' if machine == 62 else 'arm_aarch64'
+        for file in (self.work/'bundle/lib').iterdir():
+            if file.is_file():shutil.copyfile(library,file)
+        # Exercise the system ldd instead of the permissive fake used elsewhere.
+        (self.bin/'ldd').unlink()
+        for folder in ('cmake/Sentry','pkgconfig'):
+            target=self.work/'bundle/lib'/folder;target.mkdir(parents=True)
+            (target/'metadata.txt').write_text('public build metadata')
+        (self.work/'bundle/lib/README').write_text('not an ELF library')
+        (self.work/'bundle/lib/libsentry.a').write_bytes(b'!<arch>\n')
+        (self.work/'bundle/lib/libalias.so.1').symlink_to('libplugin_a.so')
+
+    def test_real_ldd_metadata_both_brand_names_and_old_scan_negative(self):
+        self.real_ldd_bundle()
+        for brand in ('omofly','daishu'):
+            with self.subTest(brand=brand):
+                shutil.rmtree(self.work/'dist',ignore_errors=True)
+                (self.work/'distribute_options.yaml').write_text('app_name: '+brand+'\n')
+                result=self.run_maker(machine=self.real_machine)
+                self.assertTrue(result['ok'],result)
+                self.assertEqual(self.artifact()['ARCH'],self.real_appimage_arch)
+        wrong_machine = 'aarch64' if self.real_machine == 'x86_64' else 'x86_64'
+        mismatch = self.run_maker(machine=wrong_machine)
+        self.assertFalse(mismatch['ok'], mismatch)
+        self.assertIn('ELF architecture mismatch', mismatch['error'])
+        maker=self.tools/'packages/flutter_app_packager/lib/src/makers/appimage/app_package_maker_appimage.dart'
+        original=maker.read_text()
+        guard='          if (!await _isDependencyInput(so)) return <String>{};\n'
+        self.assertIn(guard,original)
+        try:
+            maker.write_text(original.replace(guard,''))
+            result=self.run_maker(machine=self.real_machine)
+            self.assertFalse(result['ok'],result)
+            self.assertRegex(result['error'],r'not regular file|not a dynamic executable')
+            self.assertFalse([entry for entry in self.commands if entry[0]=='appimagetool'])
+        finally:maker.write_text(original)
+
+    def test_real_ldd_missing_library_is_not_hidden_by_metadata_filter(self):
+        self.real_ldd_bundle()
+        dep=self.work/'dependency';dep.mkdir()
+        (dep/'dep.c').write_text('void required_fixture(void) {}\n')
+        command('cc','-shared','-fPIC',str(dep/'dep.c'),'-o',str(dep/'librequired_fixture.so'))
+        (dep/'plugin.c').write_text('extern void required_fixture(void); void fixture(void) { required_fixture(); }\n')
+        command('cc','-shared','-fPIC',str(dep/'plugin.c'),'-L'+str(dep),
+                '-lrequired_fixture','-Wl,-rpath,'+str(dep),'-o',str(self.work/'bundle/lib/libplugin_a.so'))
+        (dep/'librequired_fixture.so').unlink()
+        result=self.run_maker(machine=self.real_machine)
+        self.assertFalse(result['ok'],result)
+        self.assertIn('Missing shared dependency',result['error'])
+        self.assertFalse([entry for entry in self.commands if entry[0]=='appimagetool'])
 
     def test_restrictive_umask_keeps_packaged_dirs_traversable(self):
         (self.work / 'bundle/data').mkdir()
@@ -584,7 +680,8 @@ class LinuxAppImageMakerTest(unittest.TestCase):
         self.assertEqual(len(audit["elf_files"]), 3)
         self.assertTrue(all(entry["class"] == 2 and entry["endianness"] == 1 and entry["machine"] == 62 for entry in audit["elf_files"]))
         self.assertNotIn(str(self.work), audit_path.read_text())
-        self.assertIn(Path(artifact["executor_parent"]).name, ("dash", "sh", "bash"))
+        self.assertTrue(is_shell_parent(artifact['executor_parent'],
+                        artifact['executor_parent_comm'], artifact['executor_parent_argv']), artifact)
         executor = (self.tools / "packages/flutter_distributor/lib/src/utils/default_shell_executor.dart").read_text()
         production_class = executor[executor.index("class DefaultShellExecutor extends ShellExecutor {"):]
         self.assertIn(production_class, self.fixture.read_text())

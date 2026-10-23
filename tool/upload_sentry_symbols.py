@@ -781,9 +781,12 @@ def main(argv: list[str] | None = None) -> int:
         if version != f"sentry-cli {CLI_VERSION}":
             raise SymbolError(f"Expected sentry-cli {CLI_VERSION}")
         if args.platform == "windows":
-            native, native_evidence = audit_windows(cli, args.build_root / "windows")
+            # CMake inventory lives below build/windows, while captured Native
+            # Assets/helper companions live below build/sentry-hook-inputs.
+            # Both producers use this same build root as their trust boundary.
+            native, native_evidence = audit_windows(cli, args.build_root)
             evidence["native_coverage"] = "explicit_manifest_audited"
-            evidence["native_limitations"] = _windows_native_limits(args.build_root / "windows", native_evidence)
+            evidence["native_limitations"] = _windows_native_limits(args.build_root, native_evidence)
         elif args.platform in ("android", "linux"):
             native, native_evidence, limitations = audit_elf_native(cli, args.build_root, args.platform)
             evidence["native_coverage"] = "explicit_manifest_audited"

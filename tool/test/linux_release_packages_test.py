@@ -15,6 +15,7 @@ ROOT=Path(__file__).resolve().parents[2]
 sys.path.insert(0,str(ROOT/'tool'))
 from distributor_graph import resolved_packages
 from verify_linux_packages import verify, PackageError, cpio_members, verify_members
+from prepare_appimagetool import OUTPUT as APPIMAGE_TOOLS
 
 
 class ArchiveSafetyTests(unittest.TestCase):
@@ -41,6 +42,10 @@ class RealLinuxReleaseTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.has_rpm=platform.machine() in ('x86_64','amd64')
+        cls.arch='amd64' if cls.has_rpm else 'arm64'
+        cls.build_arch='x64' if cls.has_rpm else 'arm64'
+        cls.appimagetool=Path(os.environ.get('APPIMAGETOOL_DIRECTORY', str(APPIMAGE_TOOLS)))/'bin/appimagetool'
+        if not cls.appimagetool.is_file():raise RuntimeError('Pinned real appimagetool required')
         for tool in ('dpkg-deb','cc','mksquashfs','unsquashfs',*(('rpm','rpm2cpio','rpmbuild') if cls.has_rpm else ())):
             if not shutil.which(tool): raise RuntimeError('Required real package tool missing: '+tool)
         cls.temp=tempfile.TemporaryDirectory(prefix='linux-release-')
@@ -59,7 +64,7 @@ import 'package:flutter_distributor/src/utils/default_shell_executor.dart';
 Future<void> main(List<String> args) async {
  ShellExecutor.global=DefaultShellExecutor();
  final maker=args[0]=='rpm' ? AppPackageMakerRPM() : AppPackageMakerDeb();
- final config=maker.configLoader.load({'arch':'x64','build_mode':'release'},Directory('dist'),buildOutputDirectory:Directory('build/linux/x64/release/bundle'),buildOutputFiles:[]);
+ final config=maker.configLoader.load({'arch':args[1],'build_mode':'release'},Directory('dist'),buildOutputDirectory:Directory('build/linux/${args[1]}/release/bundle'),buildOutputFiles:[]);
  await maker.make(config);
 }
 """, encoding='utf-8')
@@ -71,7 +76,7 @@ Future<void> main(List<String> args) async {
         for brand,app,display in [('brand_a','omofly','OmoFly'),('brand_b','daishu','袋鼠加速')]:
             for number in (26,27):
                 with self.subTest(brand=brand,number=number):
-                    case=self.root/(brand+str(number));bundle=case/'build/linux/x64/release/bundle'
+                    case=self.root/(brand+str(number));bundle=case/f'build/linux/{self.build_arch}/release/bundle'
                     (bundle/'lib').mkdir(parents=True)
                     for name in ('FlClash','FlClashCore','FlClashHelperService','lib/test.so'):
                         shutil.copyfile(self.elf,bundle/name);(bundle/name).chmod(0o700 if '/' not in name else 0o600)
@@ -85,9 +90,9 @@ Future<void> main(List<String> args) async {
                     self.assertEqual(identity_result.returncode,0,identity_result.stderr)
                     formats=['deb',*(['rpm'] if self.has_rpm else [])]
                     for kind in formats:
-                        result=subprocess.run([str(self.dart),'--packages='+str(self.graph),str(self.probe),kind],cwd=case,umask=0o077,capture_output=True,text=True,timeout=90)
+                        result=subprocess.run([str(self.dart),'--packages='+str(self.graph),str(self.probe),kind,self.build_arch],cwd=case,umask=0o077,capture_output=True,text=True,timeout=90)
                         self.assertEqual(result.returncode,0,result.stdout+result.stderr)
-                    context={'arch':'amd64','product_version':'0.0.1','build_number':number,'package_app_name':app,'targets':formats}
+                    context={'arch':self.arch,'product_version':'0.0.1','build_number':number,'package_app_name':app,'targets':formats}
                     self.assertEqual(len(verify(context,case/'dist',case/'build')),len(formats))
                     deb=next((case/'dist').glob('*.deb'))
                     version=subprocess.check_output(['dpkg-deb','-f',str(deb),'Version']).decode().strip()
@@ -118,12 +123,12 @@ Future<void> main(List<String> args) async {
                         original=config_path.read_text(encoding='utf-8')
                         config_path.write_text(original.replace('%global __os_install_post %{nil}',
                             '%global __os_install_post /usr/bin/strip --strip-debug %{buildroot}%{_datadir}/%{name}/FlClashCore'), encoding='utf-8')
-                        result=subprocess.run([str(self.dart),'--packages='+str(self.graph),str(self.probe),'rpm'],cwd=case,capture_output=True,text=True,timeout=90)
+                        result=subprocess.run([str(self.dart),'--packages='+str(self.graph),str(self.probe),'rpm',self.build_arch],cwd=case,capture_output=True,text=True,timeout=90)
                         self.assertEqual(result.returncode,0,result.stdout+result.stderr)
                         with self.assertRaisesRegex(PackageError,'bytes_changed'):
                             verify(context,case/'dist',case/'build')
                         config_path.write_text(original, encoding='utf-8')
-                        result=subprocess.run([str(self.dart),'--packages='+str(self.graph),str(self.probe),'rpm'],cwd=case,capture_output=True,text=True,timeout=90)
+                        result=subprocess.run([str(self.dart),'--packages='+str(self.graph),str(self.probe),'rpm',self.build_arch],cwd=case,capture_output=True,text=True,timeout=90)
                         self.assertEqual(result.returncode,0,result.stdout+result.stderr)
                     # Existing success evidence cannot mask a repackaged/changed native binary.
                     (bundle/'FlClashCore').write_bytes(b'\x7fELFchanged')
@@ -135,9 +140,19 @@ Future<void> main(List<String> args) async {
                     with self.assertRaisesRegex(PackageError,'version_mismatch'):
                         verify(wrong,case/'dist',case/'build')
                     # Execute the formal CLI entry, including normalized names and fail-closed evidence.
-                    # Tiny readable SquashFS fixture supplies the third formal format;
-                    # AppImage maker/tool execution is covered by its own real suite.
-                    subprocess.run(['mksquashfs',str(bundle),str(case/'dist/fixture.AppImage'),'-noappend','-quiet','-processors','1'],check=True,stdout=subprocess.DEVNULL)
+                    # Use the real pinned type-2 writer: raw SquashFS is not an AppImage.
+                    appdir=case/'public.AppDir';shutil.copytree(bundle,appdir)
+                    (appdir/'AppRun').symlink_to('FlClash')
+                    (appdir/'fixture.desktop').write_text('[Desktop Entry]\nType=Application\nName=Fixture\nExec=AppRun\nIcon=fixture\nCategories=Utility;\n',encoding='utf-8')
+                    (appdir/'fixture.svg').write_text('<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16"><rect width="16" height="16"/></svg>',encoding='utf-8')
+                    image=case/'dist/fixture.AppImage'
+                    env={k:v for k,v in os.environ.items() if k not in ('APPIMAGE','APPDIR','VERSION','SOURCE_DATE_EPOCH')}
+                    env['ARCH']='x86_64' if self.has_rpm else 'arm_aarch64'
+                    made=subprocess.run([str(self.appimagetool),'--no-appstream','--mksquashfs-opt=-processors',
+                        '--mksquashfs-opt=1',str(appdir),str(image)],env=env,capture_output=True,timeout=90)
+                    self.assertEqual(made.returncode,0,made.stderr)
+                    old=subprocess.run(['unsquashfs','-cat',str(image),'FlClash'],capture_output=True,timeout=30)
+                    self.assertNotEqual(old.returncode,0,'Old offset-free reader must reject real AppImage')
                     full={**context,'targets':['deb','appimage',*(['rpm'] if self.has_rpm else [])],'schema_version':1,'platform':'linux','flavor':brand,
                           'base_version':'0.9.1','source_revision':'a'*40,'build_tag':'202610230503',
                           'package_prefix':'omo' if brand=='brand_a' else 'ds'}

@@ -7,6 +7,7 @@ No Flutter, Go core build, network upload, signing or real APK is invoked.
 from __future__ import annotations
 
 import contextlib
+import base64
 import hashlib
 import io
 import json
@@ -24,6 +25,34 @@ import zipfile
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import build_android_local as android
 import postbuild_sentry_symbols as postbuild
+
+
+def pem_certificate(certificate):
+    return '-----BEGIN CERTIFICATE-----\n' + base64.b64encode(certificate).decode() + '\n-----END CERTIFICATE-----\n'
+
+
+class CertificateOutputTests(unittest.TestCase):
+    def test_legacy_and_scheme_labels_use_certificate_bytes(self):
+        certificate = b'public certificate fixture'
+        digest = hashlib.sha256(certificate).hexdigest()
+        for label in ('Signer #1', 'V2 Signer:', 'V3.1 Signer:'):
+            with self.subTest(label=label):
+                output = label + ' certificate SHA-256 digest: ' + '0'*64 + '\r\n' + pem_certificate(certificate)
+                self.assertEqual(android.apk_certificate_sha256(output), digest)
+
+    def test_repeated_scheme_certificate_is_same_identity(self):
+        pem = pem_certificate(b'public certificate fixture')
+        self.assertEqual(android.apk_certificate_sha256(pem + pem),
+                         android.apk_certificate_sha256(pem))
+
+    def test_missing_malformed_empty_or_different_certificates_fail(self):
+        valid = pem_certificate(b'public certificate fixture')
+        for output in ('Signer #1 certificate SHA-256 digest: ' + 'a'*64,
+                       '-----BEGIN CERTIFICATE-----\n!bad!\n-----END CERTIFICATE-----',
+                       pem_certificate(b''), valid + '-----BEGIN CERTIFICATE-----',
+                       valid + pem_certificate(b'different certificate')):
+            with self.subTest(output=output), self.assertRaises(android.ReleaseError):
+                android.apk_certificate_sha256(output)
 
 
 class LocalCounterTests(unittest.TestCase):
@@ -716,11 +745,15 @@ class AndroidLocalTests(unittest.TestCase):
         inputs = {"flavor": "brand_a", "arch": "arm64", "packageName": "com.example.test", "baseVersion": "0.8.93", "buildNumber": 18, "displayName": "Test Brand"}
         certificate = b"original-der-certificate"
         outputs = [b"package: name='com.example.test' versionCode='18' versionName='0.8.93'\napplication-label:'Test Brand'\n", certificate,
-                   ("Signer #1 certificate SHA-256 digest: " + hashlib.sha256(certificate).hexdigest()).encode(), b""]
+                   ("V2 Signer: certificate SHA-256 digest: " + hashlib.sha256(certificate).hexdigest() + '\n' + pem_certificate(certificate)).encode(), b""]
         with mock.patch.object(android, "captured", side_effect=outputs):
             report = android.verify_apk(self.root, apk, inputs, self.base, {})
         self.assertTrue(report["signatureVerified"])
         self.assertTrue(report["aotCodeMatchesFlutterOutput"])
+        wrong = list(outputs)
+        wrong[2] = pem_certificate(b'wrong-signing-certificate').encode()
+        with mock.patch.object(android, "captured", side_effect=wrong), self.assertRaisesRegex(android.ReleaseError, 'original brand keystore'):
+            android.verify_apk(self.root, apk, inputs, self.base, {})
         legacy = self.root / "build/app/intermediates/flutter/brand_aRelease/jniLibs/arm64-v8a/libapp.so"
         legacy.parent.mkdir(parents=True)
         fresh.rename(legacy)
@@ -741,7 +774,7 @@ class AndroidLocalTests(unittest.TestCase):
         sdk_tools = self.base / "android-sdk/build-tools/35.0.0"
         sdk_tools.mkdir(parents=True)
         script = "#!" + sys.executable + "\n" + '''
-import hashlib, json, os
+import base64, hashlib, json, os
 from pathlib import Path
 import shutil, sys, zipfile
 root = Path(os.environ['FAKE_RELEASE_ROOT'])
@@ -779,7 +812,11 @@ elif name == 'aapt':
     print("package: name='com.example.test' versionCode='18' versionName='0.8.93'")
     print("application-label:'Test Brand'")
 elif name == 'apksigner':
+    assert '--print-certs-pem' in args
     print('Signer #1 certificate SHA-256 digest: ' + hashlib.sha256(b'original-der-certificate').hexdigest())
+    print('-----BEGIN CERTIFICATE-----')
+    print(base64.b64encode(b'original-der-certificate').decode())
+    print('-----END CERTIFICATE-----')
 '''
         implementation = binary_dir / "fake-tool"
         implementation.write_text(script)
