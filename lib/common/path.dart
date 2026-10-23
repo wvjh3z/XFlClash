@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'package:fl_clash/xboard/storage/brand_paths.dart';
 
 import 'package:fl_clash/common/common.dart';
 import 'package:flutter/foundation.dart';
@@ -41,10 +42,10 @@ class AppPath {
   }
 
   void _bind() {
-    _dataDir = ResolveOnce(supportDirectory);
+    _dataDir = ResolveOnce(() => brandSupportDirectory(supportDirectory));
     _downloadDir = ResolveOnce(downloadDirectory);
-    _tempDir = ResolveOnce(temporaryDirectory);
-    cacheDirectory().then(cacheDir.complete);
+    _tempDir = ResolveOnce(() => brandTemporaryRoot(temporaryDirectory));
+    brandCacheRoot(cacheDirectory).then(cacheDir.complete);
   }
 
   factory AppPath() {
@@ -62,11 +63,25 @@ class AppPath {
   }
 
   String get corePath {
-    return join(executableDirPath, 'FlClashCore$executableExtension');
+    const windowsCore = String.fromEnvironment(
+      'XB_WINDOWS_CORE_NAME',
+      defaultValue: 'FlClashCore',
+    );
+    return join(
+      executableDirPath,
+      '${Platform.isWindows ? windowsCore : 'FlClashCore'}$executableExtension',
+    );
   }
 
   String get helperPath {
-    return join(executableDirPath, '$appHelperService$executableExtension');
+    const windowsHelper = String.fromEnvironment(
+      'XB_WINDOWS_HELPER_NAME',
+      defaultValue: appHelperService,
+    );
+    return join(
+      executableDirPath,
+      '${Platform.isWindows ? windowsHelper : appHelperService}$executableExtension',
+    );
   }
 
   Future<String> get downloadDirPath async {

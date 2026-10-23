@@ -81,7 +81,9 @@ def inspect_elf(path: Path) -> dict:
                     name_size, value_size, note_type = struct.unpack_from(endian + "III", data, cursor)
                     cursor += 12
                     name_end = cursor + name_size
-                    value_start = (name_end + 3) & ~3
+                    # Notes align fields within their section. GNU objcopy can
+                    # relocate a debug-only NOTE to an unaligned file offset.
+                    value_start = start + ((name_end - start + 3) & ~3)
                     value_end = value_start + value_size
                     if name_end > stop or value_end > stop:
                         raise ElfError("Invalid ELF note bounds")
@@ -89,7 +91,7 @@ def inspect_elf(path: Path) -> dict:
                         if not 4 <= value_size <= 64:
                             raise ElfError("Invalid GNU build identifier")
                         build_ids.add(data[value_start:value_end].hex())
-                    cursor = (value_end + 3) & ~3
+                    cursor = start + ((value_end - start + 3) & ~3)
             if len(build_ids) > 1:
                 raise ElfError("Conflicting GNU build identifiers")
             return {

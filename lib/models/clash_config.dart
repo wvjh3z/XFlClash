@@ -40,7 +40,7 @@ const defaultGeoXUrl = {
       'https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/geosite.dat',
 };
 
-const defaultMixedPort = 7890;
+const defaultMixedPort = int.fromEnvironment('XB_DEFAULT_MIXED_PORT', defaultValue: 7890);
 const defaultKeepAliveInterval = 30;
 const defaultTunMtu = 9000;
 const minTunMtu = 1280;

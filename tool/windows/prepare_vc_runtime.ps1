@@ -40,7 +40,9 @@ function Assert-XbToolchainRuntime([string]$Directory, $Config) {
 }
 
 function Test-XbBundleArchitecture([string]$Path) {
-    $stream = [IO.File]::OpenRead((Join-Path $Path 'FlClash.exe'))
+    $runners = @('FlClash.exe','OmoFly.exe','Daishu.exe') | Where-Object { Test-Path -LiteralPath (Join-Path $Path $_) -PathType Leaf }
+    if (@($runners).Count -ne 1) { throw 'Expected exactly one branded Windows runner' }
+    $stream = [IO.File]::OpenRead((Join-Path $Path @($runners)[0]))
     $reader = New-Object IO.BinaryReader($stream)
     try {
         if ($reader.ReadUInt16() -ne 0x5a4d) { throw 'Not a PE executable' }

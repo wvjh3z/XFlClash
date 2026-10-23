@@ -5,6 +5,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 import platform
 import plistlib
@@ -55,12 +56,28 @@ def prepare_macos_renderer(root, architecture):
     path.write_bytes(plistlib.dumps(value, sort_keys=False))
 
 
+def prepare_android_names(root):
+    # Windows brand outputs must not leak into a subsequent Android build.
+    path = root / 'build_config.yaml'
+    if not path.is_file():
+        return  # Upstream defaults already use these names.
+    source = path.read_text(encoding='utf-8')
+    for key, value in (('core_name','FlClashCore'),('helper_name','FlClashHelperService')):
+        pattern = re.compile(r'^'+key+r':[^\r\n]*',re.M)
+        if len(pattern.findall(source)) != 1:
+            raise RuntimeError('Native output identity missing or ambiguous')
+        source = pattern.sub(key+': "'+value+'"',source)
+    path.write_text(source,encoding='utf-8')
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('--platform', required=True, choices=('android','linux','macos','windows'))
     p.add_argument('--architecture', default=platform.machine().lower())
     p.add_argument('--install-rust-targets', action='store_true')
     args = p.parse_args()
+    if args.platform == 'android':
+        prepare_android_names(ROOT)
     prepare_ca(ROOT)
     if args.platform == 'macos':
         prepare_macos_renderer(ROOT, args.architecture)

@@ -1,6 +1,7 @@
 /// Platform boundary for Crisp 3.0.0. Keep plugin-specific calls out of UI/session logic.
 library;
 
+import 'package:fl_clash/xboard/storage/brand_paths.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -8,7 +9,6 @@ import 'dart:io';
 import 'package:crisp_chat/crisp_chat.dart';
 import 'package:crypto/crypto.dart';
 import 'package:path/path.dart' as p;
-import 'package:path_provider/path_provider.dart';
 import 'package:desktop_webview_window/desktop_webview_window.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -117,7 +117,7 @@ class DesktopCrispChatDriver implements CrispChatDriver {
            create ??
            ((configuration) =>
                WebviewWindow.create(configuration: configuration)),
-       _cacheDirectory = cacheDirectory ?? getApplicationCacheDirectory,
+       _cacheDirectory = cacheDirectory ?? brandCacheDirectory,
        _preferences = preferences ?? SharedPreferences.getInstance,
        _isWindows = isWindowsOverride ?? Platform.isWindows,
        _ioTimeout = ioTimeout,

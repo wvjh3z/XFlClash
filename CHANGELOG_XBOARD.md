@@ -26,6 +26,14 @@
 - 本地Linux品牌A原生业务冒烟与非golden业务回归通过；品牌B独立原生验收按用户决定跳过。平台发行、Native Assets符号采集、真实设备升级仍在进行，未发布新安装包。
 
 ### Fixed
+- 为两个品牌分离桌面安装标识、数据/缓存/索引、服务及启动/协议注册；Windows主进程/Core/Helper独立命名，安装清理只作用于所属路径，符号清单保留真实二进制匹配。Linux客服WebKit上下文明确按品牌隔离。
+- 旧共享数据只迁移已确认品牌的加密登录记录，保留原目录；不再读取或删除无归属旧Token。Android保留包名签名与私有数据，协议使用applicationId；默认代理端口分品牌，不承诺同时接管系统网络。
+- 修复Linux RPM品牌启动链接、内核二次裁剪保护及DEB/RPM卸载Helper归属检查；Linux包管理版本使用产品版本和实际构建号，epoch衔接历史版本。正式入口解读最终DEB/RPM/AppImage，比对全部bundle原生文件后才允许符号上传与发布。
+- 两品牌四平台将重复的“基本配置／应用程序”入口合并为“通用设置”，实际导航到v0.9.1的GeneralView；保留Android包名、签名、底座versionName和既有ABI编号规则。
+- Linux正式制包在受限umask下规范DEB/AppImage临时树权限，AppImage复制bundle内容以兼容目录别名；私密输入权限保持。修复GNU调试伴随文件的ELF note相对对齐，保留损坏边界拒绝。
+- 修复固定打包器与Flutter3.47保留版本常量的冲突，保留标准版本参数；两品牌真实CLI参数和公开Flutter bundle正负控纳入正式cold预检。
+- 补齐Windows Loader夹具的新内核/助手输入和UTF8读取；Android NDK绑定安装输出并按矩阵目标执行回归，避免旧NDK环境或Linux误入交叉测试。
+- 本地桌面打包要求显式`--build-number=N`，缺失或无效输入提前停止，不再静默回退1，不修改远端或Android计数。
 - 修复升级后的Android打包：显式开启两品牌resValues，用受摘要校验的项目副本兼容教程插件AGP 9配置，并在DSL收尾前统一Java 17以保留Android系统类路径。
 - 修复Flutter 3.47的AOT成品校验路径，并为Android Rust桥接库生成Build ID；补齐真实AGP、三ABI NDK和发布失败保护回归。品牌A构建26原签名/fallback/AOT核验通过，7份必需符号已获Sentry服务端确认。
 - 补齐Go符号的外层文件依赖与内容校验，修复增量恢复；相同Rust符号捕获保留时间戳。Windows坏交接清单统一生成失败报告，本机桌面统一python3，CI入口改用命令语义回归。

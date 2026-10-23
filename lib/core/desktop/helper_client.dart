@@ -128,12 +128,14 @@ final class HelperClient {
     try {
       final key = LOCAL_MACHINE.open(helperPortKey);
       try {
-        return key.getInt(helperPortValue) ?? helperPort;
+        return key.getInt(helperPortValue) ??
+            (helperServiceIdentity == appHelperService ? helperPort : 0);
       } finally {
         key.close();
       }
     } catch (_) {
-      return helperPort;
+      // A brand must not fall back to the upstream helper's historical port.
+      return helperServiceIdentity == appHelperService ? helperPort : 0;
     }
   }
 
@@ -151,7 +153,9 @@ final class HelperClient {
     final context = _pathContext;
     return context.join(
       context.dirname(Platform.resolvedExecutable),
-      Platform.isWindows ? '$appHelperService.exe' : appHelperService,
+      Platform.isWindows
+          ? '${const String.fromEnvironment('XB_WINDOWS_HELPER_NAME', defaultValue: appHelperService)}.exe'
+          : appHelperService,
     );
   }
 

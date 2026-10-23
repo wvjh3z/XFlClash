@@ -217,6 +217,15 @@ set(CMAKE_CXX_COMPILER "$($fixture.Replace('\','/'))/VS/VC/Tools/MSVC/14.44.3520
         $data[64] = 0x50; $data[65] = 0x45; $data[68] = 0x64; $data[69] = 0x86
         $path = Join-Path $fixture 'FlClash.exe'
         [IO.File]::WriteAllBytes($path,$data); Test-XbBundleArchitecture $fixture
+        foreach ($name in @('OmoFly.exe','Daishu.exe')) {
+            $brandPath=Join-Path $fixture $name
+            Move-Item -LiteralPath $path -Destination $brandPath
+            Test-XbBundleArchitecture $fixture
+            [IO.File]::WriteAllBytes($path,$data)
+            Assert-Throws { Test-XbBundleArchitecture $fixture }
+            Remove-Item -LiteralPath $brandPath
+        }
+
         $data[68] = 0x4c; $data[69] = 0x01
         [IO.File]::WriteAllBytes($path,$data); Assert-Throws { Test-XbBundleArchitecture $fixture }
         $data[68] = 0x64; $data[69] = 0xaa

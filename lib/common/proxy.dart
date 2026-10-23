@@ -15,17 +15,34 @@ class SystemProxyQueue {
   final Proxy _proxy;
   Future<void> _tail = Future.value();
   bool _closed = false;
+  bool _startedHere = false;
+  final bool _ownedOnly;
 
-  SystemProxyQueue(this._proxy);
+  SystemProxyQueue(
+    this._proxy, {
+    bool ownedOnly = const String.fromEnvironment('XB_NATIVE_ID') != '',
+  }) : _ownedOnly = ownedOnly;
+
+  Future<bool> _stopOwned() async {
+    if (_ownedOnly && !_startedHere) return true;
+    final stopped = await _proxy.stopProxy();
+    if (stopped) _startedHere = false;
+    return stopped;
+  }
 
   Future<void> apply(ProxyState state) {
     return _enqueue(() async {
       if (_closed) {
         return;
       }
-      final applied = state.isStart && state.systemProxy
-          ? await _proxy.startProxy(state.port, state.bassDomain)
-          : await _proxy.stopProxy();
+      final bool applied;
+      if (state.isStart && state.systemProxy) {
+        // A failed start can still have changed the OS setting; retain cleanup ownership.
+        _startedHere = true;
+        applied = await _proxy.startProxy(state.port, state.bassDomain);
+      } else {
+        applied = await _stopOwned();
+      }
       if (!applied) {
         commonPrint.log(
           'update system proxy failed',
@@ -38,7 +55,7 @@ class SystemProxyQueue {
   Future<void> close() {
     _closed = true;
     return _enqueue(() async {
-      await _proxy.stopProxy();
+      await _stopOwned();
     });
   }
 

@@ -51,14 +51,11 @@ class XbNativePageAdapter {
   Future<void> openAccessControl(BuildContext context) =>
       _push(context, const AccessView());
 
-  Future<void> openBasicConfig(BuildContext context) =>
+  Future<void> openGeneralSettings(BuildContext context) =>
       _push(context, const GeneralView());
 
   Future<void> openAdvancedConfig(BuildContext context) =>
       _push(context, const AdvancedConfigView());
-
-  Future<void> openApplicationSetting(BuildContext context) =>
-      _push(context, const GeneralView());
 
   /// FlClash 原生「请求」页（流量请求列表）。
   Future<void> openRequests(BuildContext context) =>
@@ -102,7 +99,10 @@ class XbNativePageAdapter {
               ListTile(
                 title: Text(labelOf(l)),
                 trailing: (l?.toString() ?? '') == (current ?? '')
-                    ? Icon(Icons.check, color: Theme.of(ctx).colorScheme.primary)
+                    ? Icon(
+                        Icons.check,
+                        color: Theme.of(ctx).colorScheme.primary,
+                      )
                     : null,
                 onTap: () => Navigator.of(ctx).pop(l ?? 'null'),
               ),
@@ -137,9 +137,9 @@ class XbNativePageAdapter {
   bool get isAndroid => system.isAndroid;
 
   Future<void> _push(BuildContext context, Widget page) {
-    return Navigator.of(context).push<void>(
-      MaterialPageRoute<void>(builder: (_) => page),
-    );
+    return Navigator.of(
+      context,
+    ).push<void>(MaterialPageRoute<void>(builder: (_) => page));
   }
 }
 

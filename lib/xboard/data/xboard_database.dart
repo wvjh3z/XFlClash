@@ -8,6 +8,10 @@
 /// schemaVersion=1 + MigrationStrategy 占位（DD-22）。
 library;
 
+import 'dart:io';
+import 'package:fl_clash/common/path.dart' show appPath;
+import '../storage/brand_paths.dart';
+
 import 'package:drift/drift.dart';
 import 'package:drift_flutter/drift_flutter.dart';
 
@@ -32,7 +36,18 @@ class XboardProfileIndexV1 extends Table {
 @DriftDatabase(tables: [XboardProfileIndexV1])
 class XboardDatabase extends _$XboardDatabase {
   XboardDatabase([QueryExecutor? executor])
-    : super(executor ?? driftDatabase(name: 'xboard_index'));
+    : super(
+        executor ??
+            driftDatabase(
+              name: 'xboard_index',
+              native: isolatedDesktopBrand
+                  ? DriftNativeOptions(
+                      databaseDirectory: () async =>
+                          Directory(await appPath.homeDirPath),
+                    )
+                  : null,
+            ),
+      );
 
   @override
   int get schemaVersion => 1;

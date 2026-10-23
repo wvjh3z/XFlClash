@@ -10,13 +10,37 @@ installed_size: 6604
 essential: false
 icon: ./assets/images/icon.png
 
-# 运行时依赖（Fedora/RHEL 包名，与 Debian 不同）。webkit 为桌面 WebView（客服）必需，
-# 缺它客服页会崩。⚠️ 包名以实际 Fedora 测试为准（rpm 为次要目标，CI 未覆盖 Fedora 运行）。
 requires:
+  - libsecret
   - webkit2gtk4.1
   - libsoup3
   - libcurl
-  - libsecret
+
+# rpmbuild's find-debuginfo and brp-strip rewrite the Core, and the Helper only
+# starts a Core whose SHA256 matches the value built into it.
+spec_macros:
+  - '%global debug_package %{nil}'
+  - '%global __os_install_post %{nil}'
+
+postinstall_scripts:
+  - 'update-desktop-database %{_datadir}/applications &> /dev/null || :'
+
+# The Helper unit is written on demand by the app, not at install time, so only
+# its teardown belongs here; the binary is already gone when %postun runs.
+postuninstall_scripts:
+  - '[ "$1" = 0 ] || exit 0'
+  - 'unit=/etc/systemd/system/flclash-helper.service'
+  - 'if [ ! -L "$unit" ] && grep -Fqx ''ExecStart="%{_datadir}/%{name}/FlClashHelperService"'' "$unit" 2>/dev/null; then'
+  - '  systemctl disable --now flclash-helper.service >/dev/null 2>&1 || true'
+  - '  rm -f "$unit"'
+  - '  systemctl daemon-reload >/dev/null 2>&1 || true'
+  - 'fi'
+
+
+supported_mime_type:
+  - x-scheme-handler/clash
+  - x-scheme-handler/clashmeta
+  - x-scheme-handler/flclash
 
 keywords:
   - FlClash
@@ -29,3 +53,5 @@ generic_name: FlClash
 group: Applications/Internet
 
 startup_notify: true
+
+startup_wm_class: com.follow.clash

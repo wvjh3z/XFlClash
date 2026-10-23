@@ -201,9 +201,22 @@ def main(argv=None):
             print('Private build defines composed; values not printed')
         elif args.action == 'normalize':
             report = normalize(c,args.dist,args.manifest)
+            if c['platform'] == 'linux':
+                from verify_linux_packages import verify, PackageError
+                try:
+                    verify(c, Path(args.dist))
+                except (PackageError, OSError, ValueError, subprocess.SubprocessError) as error:
+                    write_json(args.manifest, {'schema_version': 1, 'passed': False, 'artifacts': []})
+                    raise PipelineError('linux_package_verification_failed') from error
             print('Verified distribution files: '+str(len(report['artifacts'])))
         elif args.action in ('verify','upload'):
             files = verified_files(c,args.dist,args.manifest)
+            if c['platform'] == 'linux':
+                from verify_linux_packages import verify, PackageError
+                try:
+                    verify(c, Path(args.dist))
+                except (PackageError, OSError, ValueError, subprocess.SubprocessError) as error:
+                    raise PipelineError('linux_package_verification_failed') from error
             if args.action == 'upload':
                 tag,repo = os.environ.get('TAG',''),os.environ.get('GITHUB_REPOSITORY','')
                 expected_tag = 'pkg-'+c['flavor']+'-v'+c['product_version']
@@ -217,6 +230,8 @@ def main(argv=None):
             dist = Path(args.dist)
             if dist.is_symlink() or (dist.exists() and any(p.name.endswith(('.apk','.exe','.zip','.dmg','.deb','.AppImage','.rpm')) for p in dist.iterdir())):
                 raise PipelineError('dist_contains_existing_packages_use_clean_output_workspace')
+            from verify_brand_identity import verify as verify_identity
+            verify_identity(Path.cwd(), c['flavor'], c['platform'])
             native = Path(os.environ.get('FLUTTER_ROOT',''))/'bin/cache/dart-sdk/bin/dart.exe'
             dart = str(native) if os.name == 'nt' and native.is_file() else shutil.which('dart')
             if not dart: raise PipelineError('dart_missing')

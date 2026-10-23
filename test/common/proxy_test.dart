@@ -41,6 +41,36 @@ ProxyState _state({required bool isStart}) {
 }
 
 void main() {
+  test(
+    'opening and closing an idle brand does not stop another client proxy',
+    () async {
+      final proxy = _FakeProxy();
+      final active = SystemProxyQueue(proxy, ownedOnly: true);
+      final idle = SystemProxyQueue(proxy, ownedOnly: true);
+      await active.apply(_state(isStart: true));
+      await idle.apply(_state(isStart: false));
+      await idle.close();
+      expect(proxy.calls, ['start 7890']);
+      await active.close();
+      expect(proxy.calls, ['start 7890', 'stop']);
+    },
+  );
+
+  test(
+    'a partial failed brand start still permits cleanup and retries failed stop',
+    () async {
+      final proxy = _FakeProxy();
+      final queue = SystemProxyQueue(proxy, ownedOnly: true);
+      proxy.failure = StateError('partial start');
+      await queue.apply(_state(isStart: true));
+      proxy.held = Future.value(false);
+      await queue.apply(_state(isStart: false));
+      await queue.apply(_state(isStart: false));
+      await queue.close();
+      expect(proxy.calls, ['start 7890', 'stop', 'stop']);
+    },
+  );
+
   test('applies changes in the order they come', () async {
     final proxy = _FakeProxy();
     final queue = SystemProxyQueue(proxy);

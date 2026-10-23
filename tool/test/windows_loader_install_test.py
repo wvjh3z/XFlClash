@@ -19,6 +19,7 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tempfile
 import time
 import unittest
@@ -212,6 +213,9 @@ set(PLUGIN_BUNDLED_LIBRARIES
   "${CMAKE_CURRENT_LIST_DIR}/old/WebView2Loader.dll")
 """,
         )
+        # v0.9.1's real install rules also consume these hook outputs.
+        for name in ("FlClashCore.exe", "FlClashHelperService.exe", "manifest.json"):
+            write_file(source.parent / "libclash/windows" / name, f"fixture: {name}\n")
         self.new_loader = source / "flutter" / "new" / "WebView2Loader.dll"
         write_file(self.new_loader, NEW_LOADER)
         write_file(source / "flutter" / "old" / "WebView2Loader.dll", OLD_LOADER)
@@ -228,6 +232,35 @@ set(PLUGIN_BUNDLED_LIBRARIES
         os.utime(self.new_loader, (source_time, source_time))
         self.source = source
         self.build = self.fixture / "build with spaces"
+
+    def check_brand_installation(self, flavor, name):
+        if os.environ.get('XFLCLASH_BRAND_CMAKE') != '1':
+            self.skipTest('Deferred to cold preflight after Flutter/distributor activation')
+        temporary = tempfile.TemporaryDirectory(prefix='brand-cmake-')
+        self.addCleanup(temporary.cleanup)
+        self.fixture = Path(temporary.name).resolve()
+        self.create_fixture(msvc=False)
+        root=WINDOWS_CMAKE.parent.parent
+        dart=Path(os.environ['FLUTTER_ROOT'])/('bin/cache/dart-sdk/bin/dart.exe' if os.name=='nt' else 'bin/cache/dart-sdk/bin/dart')
+        graph=root/'build/packaging-tools/flutter_distributor/packages/flutter_distributor/.dart_tool/package_config.json'
+        result=subprocess.run([str(dart),'--packages='+str(graph),str(root/'tool/test/brand_identity_transform.dart'),
+            str(self.source/'CMakeLists.txt'),'windows/CMakeLists.txt',flavor,'windows'],capture_output=True,text=True,encoding='utf-8',timeout=60)
+        self.assertEqual(result.returncode,0,result.stderr)
+        artifacts=self.source.parent/'libclash/windows'
+        for suffix in ('Core.exe','HelperService.exe'):
+            (artifacts/('FlClash'+suffix)).rename(artifacts/(name+suffix))
+        prefix=self.configure_and_build('Release',explicit_prefix=True)
+        self.run_cmake('--install',str(self.build),'--config','Release')
+        self.assertTrue((prefix/(name+('.exe' if os.name=='nt' else ''))).is_file())
+        for suffix in ('Core.exe','HelperService.exe'):
+            self.assertTrue((prefix/(name+suffix)).is_file())
+            self.assertFalse((prefix/('FlClash'+suffix)).exists())
+
+    def test_brand_a_native_cmake_installs_only_its_named_binaries(self):
+        self.check_brand_installation('brand_a','OmoFly')
+
+    def test_brand_b_native_cmake_installs_only_its_named_binaries(self):
+        self.check_brand_installation('brand_b','Daishu')
 
     def configure_and_build(
         self, configuration: str, *, explicit_prefix: bool = False
@@ -313,6 +346,9 @@ set(PLUGIN_BUNDLED_LIBRARIES
                         "flutter_windows.dll",
                         "data/icudtl.dat",
                         "fixture_native.dll",
+                        "FlClashCore.exe",
+                        "FlClashHelperService.exe",
+                        "manifest.json",
                         "data/flutter_assets/fixture_asset.txt",
                     ):
                         self.assertTrue(
@@ -329,6 +365,15 @@ set(PLUGIN_BUNDLED_LIBRARIES
                         if "$<TARGET_FILE_DIR:" in path.name
                     ]
                     self.assertEqual(literal_paths, [])
+
+    def test_missing_core_input_still_fails_install(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="missing-core-install-") as directory:
+            self.fixture = Path(directory).resolve()
+            self.create_fixture()
+            self.configure_and_build("Release")
+            (self.source.parent / "libclash/windows/FlClashCore.exe").unlink()
+            with self.assertRaisesRegex(AssertionError, "FlClashCore.exe"):
+                self.run_cmake("--install", str(self.build), "--config", "Release")
 
     def test_default_prefix_debug(self) -> None:
         self.check_install("Debug", explicit_prefix=False)
@@ -364,4 +409,11 @@ set(PLUGIN_BUNDLED_LIBRARIES
 
 
 if __name__ == "__main__":
-    unittest.main(verbosity=2)
+    if '--brand-only' in sys.argv:
+        sys.argv.remove('--brand-only')
+        os.environ['XFLCLASH_BRAND_CMAKE'] = '1'
+        unittest.main(defaultTest=[
+            'WindowsLoaderInstallTest.test_brand_a_native_cmake_installs_only_its_named_binaries',
+            'WindowsLoaderInstallTest.test_brand_b_native_cmake_installs_only_its_named_binaries'],verbosity=2)
+    else:
+        unittest.main(verbosity=2)

@@ -140,6 +140,45 @@ void main() {
               as Map;
       expect(c['product_version'], '1.2.3+test');
       expect(c['build_number'], 30);
+      // Same formal CLI: Linux product/build metadata, then no leakage to Android.
+      for (final target in ['linux', 'linux', 'android']) {
+        final again = await Process.run(
+          dart,
+          [
+            '--packages=$root/.dart_tool/package_config.json',
+            '$root/tool/prepare_release_context.dart',
+            '--flavor',
+            'brand_b',
+            '--platform',
+            target,
+            '--arch',
+            target == 'android' ? '' : 'amd64',
+            '--build-number',
+            '31',
+            '--source-revision',
+            'a' * 40,
+            '--build-tag',
+            '202610182200',
+            '--align-package-name',
+          ],
+          workingDirectory: temp.path,
+          environment: {
+            for (final e in Platform.environment.entries)
+              if (e.key != 'GITHUB_ENV') e.key: e.value,
+          },
+          includeParentEnvironment: false,
+        );
+        expect(again.exitCode, 0, reason: '${again.stdout} ${again.stderr}');
+        final options = File(
+          '${temp.path}/distribute_options.yaml',
+        ).readAsStringSync();
+        expect(
+          options,
+          target == 'linux'
+              ? 'app_name: "daishu"\nlinux_package_version: "1.2.3+31"\n'
+              : 'app_name: "ds"\n',
+        );
+      }
       expect(counter.readAsStringSync(), '50\n');
       expect(
         File('${temp.path}/distribute_options.yaml').readAsStringSync(),

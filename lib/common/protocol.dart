@@ -3,8 +3,12 @@ import 'dart:io';
 import 'package:win32_registry/win32_registry.dart';
 
 import 'print.dart';
+import 'constant.dart' show appName, packageName;
 
-const protocolSchemes = ['clash', 'clashmeta', 'flclash'];
+const _brandScheme = String.fromEnvironment('XB_URL_SCHEME');
+const protocolSchemes = _brandScheme == ''
+    ? ['clash', 'clashmeta', 'flclash']
+    : [_brandScheme];
 
 class ProtocolRegistrationPlan {
   final String scheme;
@@ -40,7 +44,9 @@ class LinuxProtocolRegistrationPlan {
     required this.applicationsDir,
   });
 
-  String get desktopId => 'flclash-url-handler.desktop';
+  String get desktopId => _brandScheme == ''
+      ? 'flclash-url-handler.desktop'
+      : '$packageName-url-handler.desktop';
 
   String get desktopPath => '$applicationsDir/$desktopId';
 
@@ -52,7 +58,7 @@ class LinuxProtocolRegistrationPlan {
   String get desktopEntry => [
     '[Desktop Entry]',
     'Type=Application',
-    'Name=FlClash',
+    'Name=$appName',
     'NoDisplay=true',
     'Exec=$exec',
     'MimeType=${mimeTypes.join(';')};',

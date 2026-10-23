@@ -107,6 +107,7 @@ class Charset {
                            "if '--android-arm64' in args:\n"
                            "    print('Could not find an option named android-arm64', file=sys.stderr)\n"
                            "    sys.exit(64)\n"
+                           "assert not any(a.startswith(('FLUTTER_BUILD_NAME=', 'FLUTTER_BUILD_NUMBER=')) for a in args), args\n"
                            "assert args[:2] == ['build', 'apk'], args\n"
                            "pathlib.Path('build/app/outputs/flutter-apk').mkdir(parents=True, exist_ok=True)\n")
         flutter.chmod(0o755)
@@ -124,35 +125,52 @@ class Charset {
                               text=True, capture_output=True, timeout=60)
 
     def test_workflow_preserves_the_complete_android_flutter_argv(self):
-        # Execute the real workflow Bash block to obtain its exact distributor args.
-        dart = self.bin / "dart"
-        dart.write_text("#!/usr/bin/env python3\nimport json, os, pathlib, sys\n"
-                        "pathlib.Path(os.environ['RECORDED_ARGS']).write_text(json.dumps(sys.argv[1:]))\n")
-        dart.chmod(0o755)
-        from tool.test.release_pipeline_test import context
-        python = self.bin / "python"
-        python.write_text("#!/bin/sh\nexec " + shlex.quote(sys.executable) + ' "$@"\n')
-        python.chmod(0o755)
-        (self.root / "tool").mkdir(exist_ok=True)
-        shutil.copyfile(Path(__file__).resolve().parents[2] / "tool/release_pipeline.py", self.root / "tool/release_pipeline.py")
-        (self.root / "build").mkdir(exist_ok=True)
-        (self.root / "build/release-context.json").write_text(json.dumps(context("android", "", base_version="0.0.0", build_number=101)))
-        script = step_script("Package (flutter_distributor)").replace("${{ matrix.platform }}", "android").replace(
-            "${{ matrix.arch }}", "")
-        shell = subprocess.run(["bash", "-c", script], cwd=self.root, env=self.env,
-                               text=True, capture_output=True, timeout=10)
-        self.assertEqual(shell.returncode, 0, shell.stderr)
-        outer_args = json.loads(self.record.read_text())
-        self.assertEqual(outer_args[:4], ["pub", "global", "run", "flutter_distributor:main"])
-        result = self.run_distributor(outer_args[4:])
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        actual = json.loads(self.record.read_text())
-        self.assertEqual(actual, [
-            "build", "apk", "--target-platform", "android-arm,android-arm64", "--flavor", "brand_a",
-            "--dart-define-from-file", "env.json", "--build-name", "0.0.0", "--build-number", "101",
-            "--split-debug-info", "build/debug-info", "--split-per-abi",
-            "--dart-define", "FLUTTER_BUILD_NAME=0.0.0", "--dart-define", "FLUTTER_BUILD_NUMBER=101",
-        ])
+        for selected in ("brand_a", "brand_b"):
+            self.env["FLAVOR"] = selected
+            # Execute the real workflow Bash block to obtain its exact distributor args.
+            dart = self.bin / "dart"
+            dart.write_text("#!/usr/bin/env python3\nimport json, os, pathlib, sys\n"
+                            "pathlib.Path(os.environ['RECORDED_ARGS']).write_text(json.dumps(sys.argv[1:]))\n")
+            dart.chmod(0o755)
+            from tool.test.release_pipeline_test import context
+            python = self.bin / "python"
+            python.write_text("#!/bin/sh\nexec " + shlex.quote(sys.executable) + ' "$@"\n')
+            python.chmod(0o755)
+            (self.root / "tool").mkdir(exist_ok=True)
+            shutil.copyfile(Path(__file__).resolve().parents[2] / "tool/release_pipeline.py", self.root / "tool/release_pipeline.py")
+            (self.root / "build").mkdir(exist_ok=True)
+            (self.root / "build/release-context.json").write_text(json.dumps(context("android", "", base_version="0.0.0", build_number=101, flavor=selected)))
+            script = step_script("Package (flutter_distributor)").replace("${{ matrix.platform }}", "android").replace(
+                "${{ matrix.arch }}", "")
+            shell = subprocess.run(["bash", "-c", script], cwd=self.root, env=self.env,
+                                   text=True, capture_output=True, timeout=10)
+            self.assertEqual(shell.returncode, 0, shell.stderr)
+            outer_args = json.loads(self.record.read_text())
+            self.assertEqual(outer_args[:4], ["pub", "global", "run", "flutter_distributor:main"])
+            result = self.run_distributor(outer_args[4:])
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            actual = json.loads(self.record.read_text())
+            self.assertEqual(actual, [
+                "build", "apk", "--target-platform", "android-arm,android-arm64", "--flavor", selected,
+                "--dart-define-from-file", "env.json", "--build-name", "0.0.0", "--build-number", "101",
+                "--split-debug-info", "build/debug-info", "--split-per-abi",
+            ])
+
+    def test_old_builder_injection_is_rejected_at_flutter_boundary(self):
+        local = self.root / 'old_builder'
+        shutil.copytree(VENDORED / 'flutter_app_builder', local)
+        source = local / 'lib/src/builders/app_builder.dart'
+        text = source.read_text(encoding='utf-8')
+        text = text.replace('    ProcessResult processResult =',
+            "    buildArguments.addAll(['--dart-define', 'FLUTTER_BUILD_NAME=legacy']);\n    ProcessResult processResult =", 1)
+        source.write_text(text, encoding='utf-8')
+        config = json.loads(self.config.read_text(encoding='utf-8'))
+        for package in config['packages']:
+            if package['name'] == 'flutter_app_builder': package['rootUri'] = local.as_uri()
+        self.config.write_text(json.dumps(config), encoding='utf-8')
+        result = self.run_distributor(['package','--skip-clean','--platform','android','--targets','apk'])
+        self.assertNotEqual(result.returncode,0)
+        self.assertIn('FLUTTER_BUILD_NAME=legacy', result.stdout+result.stderr)
 
     def test_old_comma_delimited_target_platform_reaches_flutter_as_an_invalid_flag(self):
         # Mutation guard: the old workflow must fail through the same real parser/builder.

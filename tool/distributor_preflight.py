@@ -110,18 +110,21 @@ def activate(root, environment, runner):
 
 
 def platform_commands(target, *, dart, wine=None, iscc=None):
-    commands = [('context', [sys.executable, 'tool/test/packager_context_test.py'], 180)]
+    commands = [('brand-identity', [sys.executable, 'tool/test/brand_identity_cli_test.py'], 180),
+                ('context', [sys.executable, 'tool/test/packager_context_test.py'], 180),
+                ('flutter-defines', [sys.executable, 'tool/test/flutter_reserved_defines_test.py'], 480)]
     if target == 'android':
         commands += [('android-arguments', [sys.executable, 'tool/test/android_package_arguments_test.py'], 180),
                      ('android-artifacts', [sys.executable, 'tool/test/android_artifact_pipeline_test.py'], 180)]
     elif target == 'linux':
         commands += [('appimage-contract', [sys.executable, '-m', 'unittest', 'tool.test.appimagetool_contract_test'], 180),
-                     ('linux-maker', [sys.executable, '-m', 'unittest', 'tool.test.linux_appimage_packaging_test'], 480)]
+                     ('linux-maker', [sys.executable, '-m', 'unittest', 'tool.test.linux_appimage_packaging_test', 'tool.test.linux_package_permissions_test', 'tool.test.linux_release_packages_test', 'tool.test.linux_webview_identity_test'], 480)]
     elif target == 'windows':
         args = [sys.executable, 'tool/test/windows_iscc_preflight.py', '--dart', dart]
         if wine: args += ['--wine', str(wine)]
         if iscc: args += ['--iscc', str(iscc)]
-        commands += [('windows-iscc', args, 300)]
+        commands += [('windows-branded-cmake', [sys.executable, 'tool/test/windows_loader_install_test.py', '--brand-only'], 300),
+                     ('windows-iscc', args, 300)]
     # macOS checks the real CLI, graph and Git context. DMG/Xcode builds remain
     # the separate production Package step, not a pretend Linux substitute.
     return commands

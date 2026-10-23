@@ -294,6 +294,19 @@ class ReleaseWorkflowTests(unittest.TestCase):
         (self.root / "build/release-context.json").write_text(json.dumps(data))
         (self.root / "tool").mkdir(exist_ok=True)
         shutil.copyfile(WORKFLOW.parents[2] / "tool/release_pipeline.py", self.root / "tool/release_pipeline.py")
+        # This suite isolates argv forwarding; native injection is exercised by
+        # brand_identity_cli_test using actual sources and the real Dart tool.
+        from tool.verify_brand_identity import identity_fields, native_checks
+        catalog=WORKFLOW.parents[2]/'tool/identity/brands.json'
+        identity=json.loads(catalog.read_text(encoding='utf-8'))['brand_a']
+        shutil.copyfile(WORKFLOW.parents[2]/'tool/verify_brand_identity.py',self.root/'tool/verify_brand_identity.py')
+        (self.root/'tool/identity').mkdir(exist_ok=True)
+        shutil.copyfile(catalog,self.root/'tool/identity/brands.json')
+        (self.root/'env.json').write_text(json.dumps(identity_fields(identity)),encoding='utf-8')
+        for name,needles in native_checks(identity,platform).items():
+            path=self.root/name;path.parent.mkdir(parents=True,exist_ok=True)
+            path.write_text('\n'.join(needles),encoding='utf-8')
+
 
     def stub(self, name):
         path = self.bin / name

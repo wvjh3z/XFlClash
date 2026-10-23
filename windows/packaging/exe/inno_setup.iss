@@ -1,6 +1,11 @@
 ; Both brands use this shared prerequisite gate before app files are replaced.
 #define XbBundle "{{SOURCE_DIR}}"
+; xboard-service-identity: injected before packaging
+#define XbServiceName "UNCONFIGURED"
 #include "..\windows\packaging\exe\vc_runtime.iss"
+
+[Files]
+Source: "{#XbRoot}tool\windows\stop_brand_installation.ps1"; Flags: dontcopy
 
 [Setup]
 MinVersion=10.0
@@ -28,44 +33,25 @@ ArchitecturesInstallIn64BitMode={{ARCH}}
 [CustomMessages]
 chineseSimplified.XbBuildLabel=构建
 english.XbBuildLabel=build
+chineseSimplified.XbOwnedInstallError=无法安全关闭当前客户端，请先退出此客户端后重试。
+english.XbOwnedInstallError=Cannot stop this installation safely. Close this client and retry.
 
 [Code]
-procedure KillProcesses;
+function StopOwnedInstallation(): Boolean;
 var
-  Processes: TArrayOfString;
-  i: Integer;
   ResultCode: Integer;
+  PowerShellPath: String;
 begin
-  Processes := ['FlClash.exe', 'FlClashCore.exe', 'FlClashHelperService.exe'];
-
-  for i := 0 to GetArrayLength(Processes)-1 do
-  begin
-    Exec('taskkill', '/f /im ' + Processes[i], '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
-  end;
-end;
-
-procedure UnregisterHelperService;
-var
-  HelperPath: String;
-  ResultCode: Integer;
-begin
-  HelperPath := ExpandConstant('{app}\\FlClashHelperService.exe');
-  if FileExists(HelperPath) then
-  begin
-    Exec(HelperPath, 'uninstall', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
-  end;
-end;
-
-procedure ClearStaleProxy;
-var
-  AppPath: String;
-  ResultCode: Integer;
-begin
-  AppPath := ExpandConstant('{app}\\{{EXECUTABLE_NAME}}');
-  if FileExists(AppPath) then
-  begin
-    Exec(AppPath, '--clear-stale-proxy', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
-  end;
+  ExtractTemporaryFile('stop_brand_installation.ps1');
+  PowerShellPath := ExpandConstant('{sysnative}\WindowsPowerShell\v1.0\powershell.exe');
+  if not FileExists(PowerShellPath) then
+    PowerShellPath := ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe');
+  Result := Exec(PowerShellPath,
+    '-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "' +
+    ExpandConstant('{tmp}\stop_brand_installation.ps1') + '" -InstallDirectory "' +
+    ExpandConstant('{app}') + '" -ServiceName "{#XbServiceName}"',
+    ExpandConstant('{tmp}'), SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  Result := Result and (ResultCode = 0);
 end;
 
 function PointsIntoApp(Value: String): Boolean;
@@ -87,7 +73,7 @@ begin
     RegDeleteValue(HKCU, 'Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run', '{{APP_NAME}}');
   end;
 
-  Schemes := ['clash', 'clashmeta', 'flclash'];
+  Schemes := ['XBOARD_SCHEME'];
   for i := 0 to GetArrayLength(Schemes)-1 do
   begin
     if RegQueryStringValue(HKCU, 'Software\Classes\' + Schemes[i] + '\shell\open\command', '', Value) and PointsIntoApp(Value) then
@@ -101,25 +87,13 @@ function PrepareToInstall(var NeedsRestart: Boolean): String;
 begin
   Result := XbPrepareVCRuntime(NeedsRestart);
   if Result <> '' then exit;
-  UnregisterHelperService;
-  KillProcesses;
-  Result := '';
-end;
-
-procedure CurStepChanged(CurStep: TSetupStep);
-begin
-  if CurStep = ssPostInstall then
-  begin
-    ClearStaleProxy;
-  end;
+  if not StopOwnedInstallation() then
+    Result := CustomMessage('XbOwnedInstallError');
 end;
 
 function InitializeUninstall(): Boolean;
 begin
-  UnregisterHelperService;
-  KillProcesses;
-  ClearStaleProxy;
-  Result := True;
+  Result := StopOwnedInstallation();
 end;
 
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);

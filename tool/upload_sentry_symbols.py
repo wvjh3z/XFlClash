@@ -130,7 +130,7 @@ def audit_windows(cli: str, build_root: Path) -> tuple[list[Path], list[dict]]:
         raise SymbolError("Windows manifest omitted a distributed native plugin")
     if (bundle / "rust_api.dll").is_file() and "rust_api" not in targets:
         raise SymbolError("Windows manifest omitted the distributed Rust PDB")
-    if (bundle / "FlClashHelperService.exe").is_file() and "FlClashHelperService" not in targets:
+    if (bundle / (binaries["FlClash"].stem + "HelperService.exe")).is_file() and "FlClashHelperService" not in targets:
         raise SymbolError("Windows manifest omitted the distributed helper PDB")
     for target, binary in binaries.items():
         if target == "FlClash" or target in {"rust_api", "librust_api.dylib", "rust_api.dylib"} or target.endswith("_plugin") or (bundle / binary.name).is_file():
@@ -151,8 +151,8 @@ def _windows_native_limits(build_root: Path, evidence: list[dict]) -> list[dict]
     for path in bundle.iterdir():
         if not path.is_file():
             continue
-        if path.name in {"FlClashCore.exe", "FlClashHelperService.exe"}:
-            source, reason = ("go" if path.name == "FlClashCore.exe" else "rust_helper"), "separate_process_no_sentry_sdk"
+        if path.name in {stem + suffix for stem in ("FlClash", "OmoFly", "Daishu") for suffix in ("Core.exe", "HelperService.exe")}:
+            source, reason = ("go" if path.name.endswith("Core.exe") else "rust_helper"), "separate_process_no_sentry_sdk"
         elif path.suffix.lower() == ".dll" and path.name not in owned:
             source, reason = "prebuilt", "external_debug_companion_unavailable"
         else:

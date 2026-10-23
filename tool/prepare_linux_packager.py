@@ -21,36 +21,38 @@ import tempfile
 REPO = Path(__file__).resolve().parents[1]
 PINNED_REVISION = "cdeeef2d8f8325bb6ae0bc86b39f56e4325d1a58"
 PATCH = REPO / "tool/patches/flutter_distributor_appimage.patch"
-PATCH_SHA256 = "454be6d30c8d9f95a6a905f89f43ecdbe967b534206e8a2b10afba23ce518116"
+PATCH_SHA256 = "9e96bb884f4cdc6628065b95957dfa5bbe1ad88d4d0d6c4d99417895e128e7da"
 OUTPUT = REPO / "build/packaging-tools/flutter_distributor"
 # Both sides are intentional: reject changed upstream input and changed patch
 # output, including an accidentally partial or already applied patch.
-SOURCE_HASHES = {
-    "packages/flutter_app_builder/lib/src/builders/linux/build_linux_result.dart": (
-        "154150d8ce1de02f466789825996967a3a537ffa1e5d49d1cb10e5a115323cd4",
-        "fdba179fe680e0a97586b4458128611015da7a715bff8c4ea38603262df2e4e0",
-    ),
-    "packages/flutter_app_packager/lib/src/makers/appimage/app_package_maker_appimage.dart": (
-        "3ff1a24f3496d1f885ba69b57fbba7fbe77be4ba1a21383c264aab5a79608cdd",
-        "465f3e38b9f7ef7bc16226f84b377eaf45dc90600f6a63018ae87e1f28419bd6",
-    ),
-    "packages/flutter_distributor/lib/src/flutter_distributor.dart": (
-        "02f826c354adf53c4026d4172640d5d2b7c70fb151fd2ae9ca079bc8e1815b25",
-        "b18e39fcf75e907254db661276fd19ed910536e0931ae2008873984800827dc5",
-    ),
-    'packages/shell_executor/lib/src/shell_executor.dart': (
-        "698185a991c2c1d87f0a3ec82f3aec68771cbccf176ec972c008ded90ca9782c",
-        "b648774899064b65850683dab99abd95a2b78a66a80fa205dc28500614bdad72",
-    ),
-    'packages/flutter_distributor/lib/src/utils/default_shell_executor.dart': (
-        "b87021fd0fe2efdd8ba5df39fd9d19d35e14bad67d23e3a25d3a07ff1e862366",
-        "925b77f4d3304f5239820051c4f33bed540a86619ace62ed0fe468bbfa2605bb",
-    ),
-    'packages/flutter_distributor/pubspec.yaml': (
-        "3e4b81d10fbc920795871510c3d34f442c2173a6d376d678cc5ca039d5a3666b",
-        "d35e99715ff0982b433977baf2eae1adeb3719cdbd411eb5b621ff70b239dcce",
-    ),
-}
+SOURCE_HASHES = {'packages/flutter_app_builder/lib/src/builders/app_builder.dart': ('39340543d89e6b9f5b98ea35bb6575dc355becf45365866c567fe1708b7c6581',
+                                                                    '606fdd052397852b20b0ad076ce77c08bc9e79bf5b5c6ce969e58642c5807fa3'),
+ 'packages/flutter_app_builder/lib/src/builders/linux/build_linux_result.dart': ('154150d8ce1de02f466789825996967a3a537ffa1e5d49d1cb10e5a115323cd4',
+                                                                                 'fdba179fe680e0a97586b4458128611015da7a715bff8c4ea38603262df2e4e0'),
+ 'packages/flutter_app_packager/lib/src/api/app_package_maker.dart': ('4316a046688467d7d998e4844f5e823dc241b0903e2adf46ec9247e801291523',
+                                                                      '099b62ccfb7763593e4366e65e8a5f2521ef33e3777ed9df175a03658e2a04e0'),
+ 'packages/flutter_app_packager/lib/src/api/distribute_options_base.dart': ('c1f3fbe6de6277a059aa2edaa7bb37af56f1e4790e2d3d07f6a519a518796adc',
+                                                                            'f82efe4a431c6434714db02452c86ecb764eab537d0e532dfbd168954331731c'),
+ 'packages/flutter_app_packager/lib/src/api/make_config.dart': ('68bb37f1805dae3a26b4fdb0afe3803ab0c433b84a27d1d65e720a706c7381c9',
+                                                                '0ed58bc958cc0369447e371569ba3d9cdf8fd3ae72cdef1ce6ef59a7e14eab4b'),
+ 'packages/flutter_app_packager/lib/src/makers/appimage/app_package_maker_appimage.dart': ('3ff1a24f3496d1f885ba69b57fbba7fbe77be4ba1a21383c264aab5a79608cdd',
+                                                                                           '575b5398facf6aebe24bfbc66437cc33e6c047fa8144ba260a0e400e27997444'),
+ 'packages/flutter_app_packager/lib/src/makers/deb/app_package_maker_deb.dart': ('d8d497fbb25f4fe132a442e3ae8bc04282222ecd2c737cf0c4d22941f8121678',
+                                                                                 '5dd313d14e98e7c8dc12c1ff8bbf2239822b81d621cde62e14feb2b2331759e1'),
+ 'packages/flutter_app_packager/lib/src/makers/deb/make_deb_config.dart': ('bd4308391d84087937b66febd0623050ec0ceb248480814999275b53e153d22f',
+                                                                           'f4f4f0abda0aa13f9583cd0470dd05a186e2836d5ce0256a5bbe35a631dc9595'),
+ 'packages/flutter_app_packager/lib/src/makers/rpm/app_package_maker_rpm.dart': ('37ec008108ea634cfe26ab771474c0d3470f934b58e11cc0d4645a1f1630c0a7',
+                                                                                 '12c81e45952789838e6fdaf6cdd4c9cda6e5fc67bfdb8de6b1a0a7adef711b8e'),
+ 'packages/flutter_app_packager/lib/src/makers/rpm/make_rpm_config.dart': ('3aadd9f823cbfb640dd1891d130ef4f1a631316840dae261044c2fa51866003c',
+                                                                           '9af015cd0e3cf7e60b1d3678c0e3b4ad864f121a11622bf0aa70e96467c52350'),
+ 'packages/flutter_distributor/lib/src/flutter_distributor.dart': ('02f826c354adf53c4026d4172640d5d2b7c70fb151fd2ae9ca079bc8e1815b25',
+                                                                   'b18e39fcf75e907254db661276fd19ed910536e0931ae2008873984800827dc5'),
+ 'packages/flutter_distributor/lib/src/utils/default_shell_executor.dart': ('b87021fd0fe2efdd8ba5df39fd9d19d35e14bad67d23e3a25d3a07ff1e862366',
+                                                                            '925b77f4d3304f5239820051c4f33bed540a86619ace62ed0fe468bbfa2605bb'),
+ 'packages/flutter_distributor/pubspec.yaml': ('3e4b81d10fbc920795871510c3d34f442c2173a6d376d678cc5ca039d5a3666b',
+                                               'd35e99715ff0982b433977baf2eae1adeb3719cdbd411eb5b621ff70b239dcce'),
+ 'packages/shell_executor/lib/src/shell_executor.dart': ('698185a991c2c1d87f0a3ec82f3aec68771cbccf176ec972c008ded90ca9782c',
+                                                         'b648774899064b65850683dab99abd95a2b78a66a80fa205dc28500614bdad72')}
 
 
 def git(source: Path, *arguments: str) -> bytes:

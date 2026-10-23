@@ -42,6 +42,7 @@ import 'package:yaml/yaml.dart';
 
 import 'windows_installer_metadata.dart';
 import 'system_icon_assets.dart';
+import 'brand_identity.dart';
 
 Future<void> main(List<String> argv) async {
   final parser = ArgParser()
@@ -143,7 +144,18 @@ Future<void> main(List<String> argv) async {
   }
 
   // (相对路径, 纯变换) 表。变换幂等：已是品牌名则原样返回。
+  final identity = brandIdentity(flavor);
   final jobs = <String, String Function(String, String)>{
+    for (final path in [
+      'build_config.yaml',
+      'windows/CMakeLists.txt',
+      'linux/CMakeLists.txt',
+      'macos/Runner.xcodeproj/project.pbxproj',
+      'services/helper/src/service/windows.rs',
+      'services/helper/src/service/linux.rs',
+      'services/helper/src/service/peer.rs',
+    ])
+      path: (source, _) => source,
     'windows/runner/main.cpp': injectWindowsTitle,
     'windows/runner/Runner.rc': injectWindowsRc,
     'linux/runner/my_application.cc': injectLinuxTitle,
@@ -172,7 +184,12 @@ Future<void> main(List<String> argv) async {
     for (final entry in jobs.entries) {
       final file = File(entry.key);
       if (file.existsSync()) {
-        prepared[entry.key] = entry.value(file.readAsStringSync(), name);
+        prepared[entry.key] = injectStableIdentity(
+          entry.value(file.readAsStringSync(), name),
+          entry.key,
+          identity,
+          platform: platform,
+        );
       } else if (entry.key.startsWith('windows/packaging/exe/')) {
         throw const FormatException('Windows installer input is missing');
       }

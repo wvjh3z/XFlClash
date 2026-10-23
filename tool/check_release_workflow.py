@@ -16,11 +16,15 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 MODULES = (
     "tool.test.release_request_test",
+    "tool.test.brand_identity_cli_test.CatalogTests",
+    "tool.test.android_ndk_environment_test",
+    "tool.test.desktop_build_number_test",
     "tool.test.release_entry_contract_test",
     "tool.test.release_build_number_test",
     "tool.test.sentry_release_workflow_test",
     "tool.test.release_preflight_test",
     "tool.test.release_pipeline_test",
+    "tool.test.linux_release_packages_test.ArchiveSafetyTests",
     "tool.test.fallback_assets_test",
     "tool.test.windows_webview_shutdown_test",
     "tool.test.packager_context_test",

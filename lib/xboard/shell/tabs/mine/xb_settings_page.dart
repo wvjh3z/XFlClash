@@ -134,10 +134,10 @@ class XbSettingsPage extends ConsumerWidget {
                   ),
                 XbListRow(
                   icon: Icons.edit_outlined,
-                  label: '基本配置',
-                  subtitle: '全局修改基本配置',
+                  label: '通用设置',
+                  subtitle: '启动、连接及应用设置',
                   large: large,
-                  onTap: () => adapter.openBasicConfig(context),
+                  onTap: () => adapter.openGeneralSettings(context),
                 ),
                 XbListRow(
                   icon: Icons.build_outlined,
@@ -145,13 +145,6 @@ class XbSettingsPage extends ConsumerWidget {
                   subtitle: '提供多样化配置',
                   large: large,
                   onTap: () => adapter.openAdvancedConfig(context),
-                ),
-                XbListRow(
-                  icon: Icons.settings_applications_outlined,
-                  label: '应用程序',
-                  subtitle: '修改应用程序相关设置',
-                  large: large,
-                  onTap: () => adapter.openApplicationSetting(context),
                 ),
               ],
             ),

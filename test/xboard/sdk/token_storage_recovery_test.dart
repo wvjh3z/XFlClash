@@ -123,6 +123,20 @@ void main() {
     SharedPreferences.setMockInitialValues({});
   });
 
+  test('isolated desktop storage never adopts or clears unowned legacy credentials', () async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.windows;
+    secure.values[kXbAccessTokenKey] = 'other-product-token';
+    final storage = await SecureStorageTokenStorage.create(
+      fallbackAesKey: key, namespace: 'brand_a', allowUnscopedLegacy: false,
+    );
+    await storage.ready;
+    expect(await storage.readToken(), isNull);
+    await storage.writeToken('brand-a-token');
+    await storage.deleteToken();
+    expect(secure.values[kXbAccessTokenKey], 'other-product-token');
+    expect(secure.calls.where((call) => (call.arguments as Map)['key'] == kXbAccessTokenKey), isEmpty);
+  });
+
   test(
     'locked plugin options use traditional macOS keychain and Android encryption',
     () {

@@ -23,6 +23,33 @@ from prepare_sentry_native_symbols import Preparer, PreparationError
 
 
 class NativeInputTests(unittest.TestCase):
+    def test_windows_names_reset_before_android_source_capture(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);path=root/'build_config.yaml'
+            path.write_text('core_name: "DaishuCore"\nhelper_name: "DaishuHelperService"\ncore_version: keep\n',encoding='utf-8')
+            native.prepare_android_names(root)
+            self.assertEqual(path.read_text(encoding='utf-8'),'core_name: "FlClashCore"\nhelper_name: "FlClashHelperService"\ncore_version: keep\n')
+            before=path.read_bytes();native.prepare_android_names(root);self.assertEqual(path.read_bytes(),before)
+            path.write_text('core_name: a\ncore_name: b\nhelper_name: c\n',encoding='utf-8')
+            with self.assertRaises(RuntimeError):native.prepare_android_names(root)
+
+    def test_source_reads_are_explicit_utf8_under_windows_default(self):
+        original = Path.read_text
+        def cp1252_default(path, *args, **kwargs):
+            if not args and not kwargs.get('encoding'):
+                kwargs['encoding'] = 'cp1252'
+            return original(path, *args, **kwargs)
+        with self.assertRaises(UnicodeDecodeError):
+            original(ROOT/'windows/packaging/exe/vc_runtime.iss', encoding='cp1252')
+        names = ['test_arm_flutter_source_ref_and_macos_pods_follow_pinned_baseline',
+                 'test_installer_checks_runtime_before_owned_cleanup',
+                 'test_formal_entries_have_no_deleted_native_build_commands']
+        with mock.patch.object(Path, 'read_text', cp1252_default):
+            result = unittest.TestResult()
+            unittest.TestSuite(NativeInputTests(name) for name in names).run(result)
+        self.assertEqual(result.errors, [])
+        self.assertEqual(result.failures, [])
+
     def test_ca_atomic_verification_and_cache(self):
         with tempfile.TemporaryDirectory() as folder:
             root=Path(folder);output=root/'core/Clash.Meta/component/ca/ca-certificates.crt';output.parent.mkdir(parents=True)
@@ -79,20 +106,20 @@ class NativeInputTests(unittest.TestCase):
             self.assertEqual(plistlib.loads(path.read_bytes()),value)
 
     def test_arm_flutter_source_ref_and_macos_pods_follow_pinned_baseline(self):
-        text=(ROOT/'.github/workflows/release-package.yml').read_text()
+        text=(ROOT/'.github/workflows/release-package.yml').read_text(encoding='utf-8')
         self.assertIn(native.PINS['flutter_revision'],text)
         self.assertIn("matrix.platform == 'linux' && matrix.arch == 'arm64' && 'master' || 'stable'",text)
-        self.assertIn("platform :osx, '12.0'",(ROOT/'macos/Podfile').read_text())
+        self.assertIn("platform :osx, '12.0'",(ROOT/'macos/Podfile').read_text(encoding='utf-8'))
         for mode in ('Debug','Release'):
-            self.assertIn(f'Pods-Runner.{mode.lower()}.xcconfig',(ROOT/f'macos/Flutter/Flutter-{mode}.xcconfig').read_text())
+            self.assertIn(f'Pods-Runner.{mode.lower()}.xcconfig',(ROOT/f'macos/Flutter/Flutter-{mode}.xcconfig').read_text(encoding='utf-8'))
 
-    def test_installer_has_one_event_and_preserves_upstream_cleanup_order(self):
-        template=(ROOT/'windows/packaging/exe/inno_setup.iss').read_text()
-        include=(ROOT/'windows/packaging/exe/vc_runtime.iss').read_text()
+    def test_installer_checks_runtime_before_owned_cleanup(self):
+        template=(ROOT/'windows/packaging/exe/inno_setup.iss').read_text(encoding='utf-8')
+        include=(ROOT/'windows/packaging/exe/vc_runtime.iss').read_text(encoding='utf-8')
         self.assertEqual((template+include).count('function PrepareToInstall('),1)
         entry=template.split('function PrepareToInstall(',1)[1].split('procedure CurStepChanged',1)[0]
-        self.assertLess(entry.index('XbPrepareVCRuntime'),entry.index('UnregisterHelperService'))
-        self.assertLess(entry.index('if Result <>'),entry.index('KillProcesses'))
+        self.assertLess(entry.index('XbPrepareVCRuntime'),entry.index('StopOwnedInstallation'))
+        self.assertLess(entry.index('if Result <>'),entry.index('StopOwnedInstallation'))
         self.assertIn('CurUninstallStepChanged',template)
 
     def test_real_hook_regression_is_on_formal_path_after_dependencies(self):
@@ -107,16 +134,19 @@ class NativeInputTests(unittest.TestCase):
             text=(ROOT/name).read_text(encoding='utf-8')
             self.assertNotIn('plugins/setup/buildkit',text)
             self.assertIn('prepare_native_build.py',text)
-        profiles=[tomllib.loads((ROOT/path).read_text())['profile']['release'] for path in ('plugins/rust_api/rust/Cargo.toml','services/helper/Cargo.toml')]
+        profiles=[tomllib.loads((ROOT/path).read_text(encoding='utf-8'))['profile']['release'] for path in ('plugins/rust_api/rust/Cargo.toml','services/helper/Cargo.toml')]
         for profile in profiles:
             self.assertEqual(profile['debug'],2);self.assertFalse(profile['strip'])
             self.assertNotEqual(profile.get('split-debuginfo'),'packed', 'Linux must retain DWARF in ELF, not external DWP')
 
 
-@unittest.skipUnless(sys.platform=='linux' and shutil.which('cargo') and shutil.which('objcopy'), 'Linux Rust/ELF fixture tools required')
-class RealRustProfileTests(unittest.TestCase):
-    @unittest.skipUnless(os.environ.get('ANDROID_NDK') and os.environ.get('FLUTTER_ROOT'), 'Android NDK and Flutter graph required')
+class AndroidRustBuildIdTests(unittest.TestCase):
+    @unittest.skipUnless(os.environ.get('XFLCLASH_TEST_PLATFORM') == 'android', 'Android-only target regression')
     def test_android_rust_actual_ndk_build_ids_match_stripped_runtime_and_debug(self):
+        from android_ndk_environment import validate_ndk
+        validate_ndk(os.environ.get('ANDROID_NDK', ''))
+        self.assertTrue(os.environ.get('FLUTTER_ROOT'), 'Android regression requires Flutter')
+        self.assertTrue(shutil.which('cargo'), 'Android regression requires Cargo')
         with tempfile.TemporaryDirectory(prefix='android-rust-id-') as folder:
             root=Path(folder);crate=root/'crate';(crate/'src').mkdir(parents=True)
             probe=root/'environment.dart'
@@ -129,7 +159,7 @@ class RealRustProfileTests(unittest.TestCase):
             environments=json.loads(result.stdout)
             self.assertEqual(environments['linux'],{});self.assertEqual(environments['windows'],{})
             self.assertEqual(environments['macos'],{'CARGO_PROFILE_RELEASE_SPLIT_DEBUGINFO':'packed'})
-            profile=(ROOT/'plugins/rust_api/rust/Cargo.toml').read_text().split('[profile.release]',1)[1].split('[profile.dev]',1)[0]
+            profile=(ROOT/'plugins/rust_api/rust/Cargo.toml').read_text(encoding='utf-8').split('[profile.release]',1)[1].split('[profile.dev]',1)[0]
             (crate/'Cargo.toml').write_text('[package]\nname="fixture"\nversion="0.0.1"\nedition="2021"\n[lib]\ncrate-type=["cdylib"]\n[profile.release]\n'+profile)
             (crate/'src/lib.rs').write_text('#[no_mangle]\npub extern "C" fn native_fixture(x:i32)->i32 {x+42}\n')
             ndk=next((Path(os.environ['ANDROID_NDK'])/'toolchains/llvm/prebuilt').glob('*/bin'))
@@ -157,10 +187,13 @@ class RealRustProfileTests(unittest.TestCase):
                     self.assertEqual(inspect_elf(debug)['build_id'],original['build_id'])
                     self.assertFalse(inspect_elf(debug)['has_executable_text'])
 
+
+@unittest.skipUnless(sys.platform=='linux' and shutil.which('cargo') and shutil.which('objcopy'), 'Linux Rust/ELF fixture tools required')
+class RealRustProfileTests(unittest.TestCase):
     def test_release_profile_retains_line_info_for_native_assets_and_matching_debug_only(self):
         with tempfile.TemporaryDirectory(prefix='rust-symbol-') as folder:
             root=Path(folder);crate=root/'crate';(crate/'src').mkdir(parents=True)
-            profile=(ROOT/'plugins/rust_api/rust/Cargo.toml').read_text().split('[profile.release]',1)[1].split('[profile.dev]',1)[0]
+            profile=(ROOT/'plugins/rust_api/rust/Cargo.toml').read_text(encoding='utf-8').split('[profile.release]',1)[1].split('[profile.dev]',1)[0]
             (crate/'Cargo.toml').write_text('[package]\nname="fixture"\nversion="0.0.1"\nedition="2021"\n[lib]\ncrate-type=["cdylib"]\n[profile.release]\n'+profile)
             (crate/'src/lib.rs').write_text('#[no_mangle]\npub extern "C" fn native_fixture(x:i32)->i32 {x+42}\n')
             result=subprocess.run(['cargo','build','--release','--offline'],cwd=crate,capture_output=True,text=True,encoding='utf-8',errors='replace',timeout=120)
@@ -171,7 +204,7 @@ class RealRustProfileTests(unittest.TestCase):
             build=root/'build';runtime=build/'runtime/librust_api.so';runtime.parent.mkdir(parents=True);shutil.copyfile(binary,runtime)
             subprocess.run(['objcopy','--strip-debug',str(runtime)],check=True)
             preparer=Preparer(build,'linux','objcopy');preparer.add('librust_api.so',arch,runtime,[binary],'rust',True)
-            report=json.loads(preparer.finish().read_text());debug=inspect_elf(build/report['artifacts'][0]['debug_file'])
+            report=json.loads(preparer.finish().read_text(encoding='utf-8'));debug=inspect_elf(build/report['artifacts'][0]['debug_file'])
             self.assertFalse(debug['has_executable_text']);self.assertTrue(debug['has_debug_info']);self.assertEqual(debug['build_id'],info['build_id'])
             from upload_sentry_symbols import check_symbol
             cli=os.environ.get('SENTRY_CLI') or shutil.which('sentry-cli')

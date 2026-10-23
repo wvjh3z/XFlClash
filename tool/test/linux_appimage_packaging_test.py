@@ -343,6 +343,7 @@ elif tool == 'appimagetool':
     libraries = pathlib.Path(args[0]) / 'usr/lib'
     pathlib.Path(args[1]).write_text(json.dumps({{
         'ARCH': os.environ.get('ARCH'),
+        'modes': {{str(p.relative_to(args[0])): p.stat().st_mode & 0o777 for p in pathlib.Path(args[0]).rglob('*') if not p.is_symlink()}},
         'executor_parent': os.readlink('/proc/' + str(os.getppid()) + '/exe'),
         'libraries': {{p.name: base64.b64encode(p.read_bytes()).decode() for p in libraries.iterdir()}},
     }}))
@@ -421,6 +422,7 @@ class LinuxAppImageMakerTest(unittest.TestCase):
 
     def run_maker(self, dependencies=None, include=None, **request):
         (self.work / "commands.jsonl").unlink(missing_ok=True)
+        process_umask = request.pop("umask", -1)
         request["dependencies"] = dependencies or {}
         config = {"display_name": "Fixture", "icon": "icon.png", "include": list((include or {}).keys())}
         (self.work / "linux/packaging/appimage/make_config.yaml").write_text(json.dumps(config))
@@ -428,13 +430,25 @@ class LinuxAppImageMakerTest(unittest.TestCase):
         request_file = self.work / "request.json"
         request_file.write_text(json.dumps(request))
         env = dict(os.environ, PATH=str(self.bin) + os.pathsep + os.environ["PATH"], XFL_FAKE_REQUEST=str(request_file))
-        process = subprocess.run([self.dart, "--packages=" + str(self.config), str(self.fixture), str(request_file)], cwd=self.work, env=env, capture_output=True, text=True, timeout=60)
+        process = subprocess.run([self.dart, "--packages=" + str(self.config), str(self.fixture), str(request_file)], cwd=self.work, env=env, umask=process_umask, capture_output=True, text=True, timeout=60)
         results = [line.removeprefix("XFL_RESULT:") for line in process.stdout.splitlines() if line.startswith("XFL_RESULT:")]
         self.assertEqual(len(results), 1, process.stdout + process.stderr)
         self.last_returncode = process.returncode
         self.commands = [json.loads(line) for line in (self.work / "commands.jsonl").read_text().splitlines()] if (self.work / "commands.jsonl").exists() else []
         self.last_result = json.loads(results[0])
         return self.last_result
+
+    def test_restrictive_umask_keeps_packaged_dirs_traversable(self):
+        (self.work / 'bundle/data').mkdir()
+        asset=self.work/'bundle/data/file';asset.write_text('public fixture');asset.chmod(0o600)
+        (self.work/'bundle/data').chmod(0o700)
+        result=self.run_maker(umask=0o077)
+        self.assertTrue(result['ok'],result)
+        modes=self.artifact()['modes']
+        self.assertEqual(modes['data'],0o755)
+        self.assertEqual(modes['data/file'],0o644)
+        self.assertEqual(modes['AppRun'],0o755)
+        self.assertEqual(asset.stat().st_mode & 0o777,0o600)
 
     def dependency_copies(self):
         return [args for tool, args in self.commands if tool == "cp" and args[0] != "-r"]

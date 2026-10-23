@@ -12,7 +12,8 @@ def prepare_windows_assets(build_root: Path, cli: str):
         raise SymbolError('Expected one fresh Windows target inventory')
     manifest = manifests[0]
     rows = [row.split('\t') for row in manifest.read_text(encoding='utf-8').splitlines()]
-    runner = [row for row in rows if len(row) == 3 and row[0] == 'FlClash']
+    runner = [row for row in rows if len(row) == 3 and row[0] in {'FlClash','OmoFly','Daishu'}]
+    if len(runner) == 1: runner[0][0] = 'FlClash' # Stable logical role; actual PE/PDB names stay intact.
     if len(runner) != 1:
         raise SymbolError('Windows runner inventory is missing')
     bundle = Path(runner[0][1]).resolve().parent
@@ -39,7 +40,7 @@ def prepare_windows_assets(build_root: Path, cli: str):
             raise SymbolError('Windows native module architecture differs from runner')
     paired(installed, pdb[0])
     additions = [['rust_api', str(installed), str(pdb[0])]]
-    helper = bundle / 'FlClashHelperService.exe'
+    helper = bundle / (Path(runner[0][1]).stem + 'HelperService.exe')
     if not helper.is_file():
         raise SymbolError('Windows helper missing from final bundle')
     helper_id = check_symbol(cli, helper, 'pe')['debug_ids']

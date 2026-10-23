@@ -9,6 +9,7 @@ import 'package:yaml/yaml.dart';
 
 import '../inject_desktop_brand.dart' as brand;
 import '../windows_installer_metadata.dart';
+import '../brand_identity.dart';
 
 Future<void> main(List<String> args) async {
   if (args.length != 3) {
@@ -48,15 +49,16 @@ Future<void> main(List<String> args) async {
         'tool/windows/prepare_vc_runtime.ps1',
         'tool/windows/vc_runtime.ps1',
         'tool/windows/vc_runtime.json',
+        'tool/windows/stop_brand_installation.ps1',
       ]) {
         File(relative).parent.createSync(recursive: true);
         File('$repo/$relative').copySync(relative);
       }
       File('windows/packaging/exe/make_config.yaml').writeAsStringSync(
-        injectWindowsInstallerConfig(
+        injectStableIdentity(injectWindowsInstallerConfig(
           brand.injectMakeConfigNames(configSource, entry.value),
           metadata,
-        ),
+        ), 'windows/packaging/exe/make_config.yaml', brandIdentity(entry.key, root: repo)),
       );
       final version = WindowsInstallerVersion(
         entry.key == 'brand_a' ? '0.1.2' : '1.2.3-rc.1+fixture',
@@ -64,7 +66,8 @@ Future<void> main(List<String> args) async {
       );
       File('windows/packaging/exe/inno_setup.iss').writeAsStringSync(
         injectWindowsInstallerVersion(
-          injectWindowsInstallerLinks(templateSource, metadata),
+          injectStableIdentity(injectWindowsInstallerLinks(templateSource, metadata),
+            'windows/packaging/exe/inno_setup.iss', brandIdentity(entry.key,root:repo)),
           version,
         ),
       );
@@ -73,7 +76,7 @@ Future<void> main(List<String> args) async {
       ).writeAsStringSync('name: iscc_fixture\nversion: 0.8.93+2026052901\n');
       File(
         'distribute_options.yaml',
-      ).writeAsStringSync('app_name: iscc_fixture\n');
+      ).writeAsStringSync('app_name: ${brandIdentity(entry.key, root: repo)['name']}\n');
       final loader = MakeExeConfigLoader()
         ..platform = 'windows'
         ..packageFormat = 'exe';
@@ -87,7 +90,7 @@ Future<void> main(List<String> args) async {
               as MakeExeConfig;
       // Harmless byte fixtures, never executed. /O- prevents installer output.
       File(
-        '${config.packagingDirectory.path}/FlClash.exe',
+        '${config.packagingDirectory.path}/${config.executableName}',
       ).writeAsStringSync('preflight fixture only');
       final payload = File('build/windows-prerequisites/vc_redist.x64.exe');
       payload.parent.createSync(recursive: true);

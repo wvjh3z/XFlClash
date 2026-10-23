@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import struct
 import sys
 import tempfile
 import unittest
@@ -15,12 +16,39 @@ import zipfile
 TOOL = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(TOOL))
 from prepare_sentry_native_symbols import Preparer, PreparationError, resolve_objcopy  # noqa: E402
-from sentry_elf import inspect_elf  # noqa: E402
+from sentry_elf import ElfError, inspect_elf  # noqa: E402
 
 
 @unittest.skipUnless(sys.platform == "linux" and shutil.which("cc") and shutil.which("objcopy"),
                      "Linux C/ELF fixture tools unavailable")
 class GenerationTests(unittest.TestCase):
+    def test_note_alignment_is_relative_to_section_and_bounds_still_fail(self):
+        original = self.elf.read_bytes()
+        self.assertEqual(original[4:6], b'\x02\x01')
+        offset = struct.unpack_from('<Q', original, 40)[0]
+        width, count = struct.unpack_from('<HH', original, 58)
+        for index in range(count):
+            header = struct.unpack_from('<IIQQQQIIQQ', original, offset + width * index)
+            if header[1] == 7:
+                note = original[header[4]:header[4]+header[5]]
+                if struct.unpack_from('<III', note) == (4, 20, 3) and note[12:16] == b'GNU\0':
+                    break
+        else:
+            self.fail('Real compiler must produce the GNU build-id note')
+        expected = inspect_elf(self.elf)['build_id']
+        for alignment in range(4):
+            with self.subTest(file_offset_mod4=alignment):
+                data = bytearray(original)
+                data.extend(b'\0' * ((alignment - len(data)) % 4))
+                relocated = len(data); data.extend(note)
+                struct.pack_into('<Q', data, offset + width * index + 24, relocated)
+                output = self.repo / f'note-{alignment}.so'; output.write_bytes(data)
+                self.assertEqual(inspect_elf(output)['build_id'], expected)
+                struct.pack_into('<I', data, relocated + 4, len(note) + 100)
+                output.write_bytes(data)
+                with self.assertRaisesRegex(ElfError, 'note bounds'):
+                    inspect_elf(output)
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)

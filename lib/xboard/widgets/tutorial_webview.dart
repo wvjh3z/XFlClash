@@ -1,6 +1,7 @@
 /// Native tutorial view; SDK authentication stays outside this component.
 library;
 
+import 'package:fl_clash/xboard/storage/brand_paths.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -10,7 +11,6 @@ import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:path/path.dart' as p;
-import 'package:path_provider/path_provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../util/html_link.dart';
@@ -88,7 +88,7 @@ class _TutorialWebViewState extends State<TutorialWebView> {
           });
           return;
         }
-        final cache = await getApplicationCacheDirectory();
+        final cache = await brandCacheDirectory();
         final root = Directory(p.join(cache.path, 'tutorial', 'webview2'));
         await root.create(recursive: true);
         profile = await root.createTemp('reader-');

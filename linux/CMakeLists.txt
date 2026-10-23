@@ -75,6 +75,15 @@ set_target_properties(${BINARY_NAME}
 # them to the application.
 include(flutter/generated_plugins.cmake)
 
+# Brand-owned WebKit context for Crisp windows and clearAll (no Pub-cache edits).
+if(TARGET desktop_webview_window_plugin)
+  target_compile_definitions(desktop_webview_window_plugin PRIVATE
+    XBOARD_WEBVIEW_APP_ID="${APPLICATION_ID}")
+  target_compile_options(desktop_webview_window_plugin PRIVATE
+    "-include${CMAKE_CURRENT_SOURCE_DIR}/xboard_webview_identity.h")
+endif()
+
+
 # Retain line information in local ELF intermediates for later companions;
 # the install step below strips only the distributed runtime copies.
 include("xboard_sentry_symbols.cmake")

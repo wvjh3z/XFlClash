@@ -22,6 +22,7 @@ import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 
 import 'sentry_bootstrap.dart';
+import '../storage/brand_paths.dart';
 import 'xboard_release_dio.dart';
 
 /// 下载进度回调。
@@ -62,7 +63,7 @@ class XbApkDownloader {
       final cacheDir = await getExternalCacheDirectories();
       baseDir = cacheDir?.firstOrNull ?? await getTemporaryDirectory();
     } else {
-      baseDir = await getTemporaryDirectory();
+      baseDir = await brandTemporaryDirectory();
     }
     final updateDir = Directory('${baseDir.path}/update');
     if (!updateDir.existsSync()) updateDir.createSync(recursive: true);

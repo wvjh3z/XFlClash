@@ -21,6 +21,7 @@ import 'package:yaml/yaml.dart';
 import 'package:fl_clash/xboard/util/tutorial_resource_base.dart';
 import 'fallback_assets.dart';
 import 'android_brand_identity.dart';
+import 'brand_identity.dart';
 
 // 🔴 W0.5 实施期 spec 订正：design §E 校验项写「调 SDK HttpConfig.hasSingleFlclashFlag」，
 // 但 SDK barrel 透传 import package:flutter（http_service.dart），纯 Dart CLI（dart run）
@@ -46,13 +47,26 @@ const _requiredStringKeys = <String>[
 
 Future<void> main(List<String> argv) async {
   final parser = ArgParser()
-    ..addOption('flavor', help: 'flavor 名（对应 flavors/<flavor>/）', defaultsTo: 'brand_a')
-    ..addOption('target', help: 'build target（test 注入 kIsTest=true）', defaultsTo: 'prod')
-    ..addFlag('android-identity',
-        help: '为 Android 生成经完整 YAML 解码的公开品牌身份', negatable: false)
-    ..addFlag('android-signing',
-        help: '落地 androidSigning 块（keystore.jks + local.properties），Android 构建用',
-        negatable: false)
+    ..addOption(
+      'flavor',
+      help: 'flavor 名（对应 flavors/<flavor>/）',
+      defaultsTo: 'brand_a',
+    )
+    ..addOption(
+      'target',
+      help: 'build target（test 注入 kIsTest=true）',
+      defaultsTo: 'prod',
+    )
+    ..addFlag(
+      'android-identity',
+      help: '为 Android 生成经完整 YAML 解码的公开品牌身份',
+      negatable: false,
+    )
+    ..addFlag(
+      'android-signing',
+      help: '落地 androidSigning 块（keystore.jks + local.properties），Android 构建用',
+      negatable: false,
+    )
     ..addFlag('help', abbr: 'h', negatable: false);
 
   final ArgResults args;
@@ -75,18 +89,26 @@ Future<void> main(List<String> argv) async {
   final flavorDir = p.join('flavors', flavor);
   final yamlPath = p.join(flavorDir, 'flavor.yaml');
 
-  final errors = validateFlavor(yamlPath: yamlPath, flavorDir: flavorDir, isTest: isTest);
+  final errors = validateFlavor(
+    yamlPath: yamlPath,
+    flavorDir: flavorDir,
+    isTest: isTest,
+  );
 
   if (errors.isNotEmpty) {
-    stderr.writeln('[prepare_flavor] ✗ flavor "$flavor" 校验失败（${errors.length} 项）：');
+    stderr.writeln(
+      '[prepare_flavor] ✗ flavor "$flavor" 校验失败（${errors.length} 项）：',
+    );
     for (final e in errors) {
       stderr.writeln('  • $e');
     }
     exit(1);
   }
 
-  stdout.writeln('[prepare_flavor] ✓ flavor "$flavor" 校验通过'
-      '${isTest ? '（test target）' : ''}。');
+  stdout.writeln(
+    '[prepare_flavor] ✓ flavor "$flavor" 校验通过'
+    '${isTest ? '（test target）' : ''}。',
+  );
 
   // W8.5：生成 flavor_defines.json（gitignored，含 CI 注入 aesKey/sentryDsn）。
   //   用法：flutter build apk --flavor $flavor --dart-define-from-file=flavor_defines.json
@@ -95,7 +117,8 @@ Future<void> main(List<String> argv) async {
   final doc = loadYaml(utf8.decode(yamlBytes)) as YamlMap;
   String? androidIdentity;
   try {
-    if ((args['android-identity'] as bool) || (args['android-signing'] as bool)) {
+    if ((args['android-identity'] as bool) ||
+        (args['android-signing'] as bool)) {
       androidIdentity = generateAndroidBrandIdentities(
         root: Directory.current,
         selectedFlavor: flavor,
@@ -108,7 +131,10 @@ Future<void> main(List<String> argv) async {
   }
   // Validate all generated inputs before writing them.
   final pubspec = File('pubspec.yaml');
-  final selectedAssets = injectFallbackAsset(pubspec.readAsStringSync(), flavor);
+  final selectedAssets = injectFallbackAsset(
+    pubspec.readAsStringSync(),
+    flavor,
+  );
   if (!isTest) {
     await verifyFallbackInput(
       File(p.join(flavorDir, 'assets', 'fallback.bin')).readAsStringSync(),
@@ -117,15 +143,31 @@ Future<void> main(List<String> argv) async {
   }
   const genPath = 'flavor_defines.json';
   File(genPath).writeAsStringSync(
-      generateFlavorDefinesJson(doc, flavorId: flavor, isTest: isTest));
+    generateFlavorDefinesJson(doc, flavorId: flavor, isTest: isTest),
+  );
   if (androidIdentity != null) {
     final identityFile = File(androidBrandIdentityPath);
     identityFile.parent.createSync(recursive: true);
     identityFile.writeAsStringSync(androidIdentity);
   }
+  if (args['android-identity'] as bool) {
+    final nativeConfig = File('build_config.yaml');
+    if (nativeConfig.existsSync()) {
+      nativeConfig.writeAsStringSync(
+        injectStableIdentity(
+          nativeConfig.readAsStringSync(),
+          'build_config.yaml',
+          brandIdentity(flavor),
+          platform: 'android',
+        ),
+      );
+    }
+  }
   pubspec.writeAsStringSync(selectedAssets);
-  stdout.writeln('[prepare_flavor] ✓ 已生成 $genPath'
-      '（用 --dart-define-from-file=$genPath 注入构建）');
+  stdout.writeln(
+    '[prepare_flavor] ✓ 已生成 $genPath'
+    '（用 --dart-define-from-file=$genPath 注入构建）',
+  );
 
   // 出厂 fallback 不再拷贝：直接打包 flavors/<flavor>/assets/fallback.bin（pubspec 声明），
   // 运行时 BootstrapLocalLoader 按 flavorId 加载。存在性已由 validateFlavor 校验项⑤ 保证。
@@ -136,7 +178,9 @@ Future<void> main(List<String> argv) async {
   if (args['android-signing'] as bool) {
     final signErrors = materializeAndroidSigning(doc);
     if (signErrors.isNotEmpty) {
-      stderr.writeln('[prepare_flavor] ✗ Android 签名落地失败（${signErrors.length} 项）：');
+      stderr.writeln(
+        '[prepare_flavor] ✗ Android 签名落地失败（${signErrors.length} 项）：',
+      );
       for (final e in signErrors) {
         stderr.writeln('  • $e');
       }
@@ -155,8 +199,11 @@ Future<void> main(List<String> argv) async {
 /// **零硬编码**（NFR-2 / Property 19）：所有「随发行变化」的值来自 flavor.yaml。
 /// aesKey 原样传 base64（fromEnvironment 运行时解码 + 32 字节校验；空→null 降级）。
 /// devApi/devSub endpoint 是 Bootstrap 解密前 stub 占位，取 bootstrapUrls 首项 origin。
-String generateFlavorDefinesJson(YamlMap doc,
-    {required String flavorId, required bool isTest}) {
+String generateFlavorDefinesJson(
+  YamlMap doc, {
+  required String flavorId,
+  required bool isTest,
+}) {
   String s(String key) => (doc[key] as String?) ?? '';
 
   final brandColorHex = s('brandColor').replaceAll('#', '');
@@ -164,7 +211,8 @@ String generateFlavorDefinesJson(YamlMap doc,
       ? 0xFFD92E1A
       : int.parse('FF${brandColorHex.toUpperCase()}', radix: 16);
 
-  final urls = (doc['bootstrapUrls'] as YamlList?)
+  final urls =
+      (doc['bootstrapUrls'] as YamlList?)
           ?.map((e) => (e as String).trim())
           .where((e) => e.isNotEmpty)
           .join(',') ??
@@ -175,7 +223,9 @@ String generateFlavorDefinesJson(YamlMap doc,
       : 'https://api.example.com';
   final origin = (() {
     final u = Uri.tryParse(firstUrl);
-    return u != null && u.host.isNotEmpty ? '${u.scheme}://${u.host}' : firstUrl;
+    return u != null && u.host.isNotEmpty
+        ? '${u.scheme}://${u.host}'
+        : firstUrl;
   })();
 
   // Crisp 在线客服 websiteId（可选嵌套 `crisp: { websiteId: "..." }`，D9）。
@@ -189,6 +239,8 @@ String generateFlavorDefinesJson(YamlMap doc,
   final formA = (doc['form_a'] as bool?) ?? false; // 形态 A 开关（可选，默认 false）
   final defines = <String, String>{
     'XB_FLAVOR_ID': flavorId,
+    ...brandDefines(brandIdentity(flavorId)),
+    'XB_URL_SCHEME': s('appId'),
     'XB_APP_NAME': s('appName'),
     'XB_SUBSCRIBE_UA': s('subscribeUserAgent'),
     'XB_API_ENDPOINT': origin,
@@ -203,7 +255,9 @@ String generateFlavorDefinesJson(YamlMap doc,
     'XB_SUPPORT_EMAIL': s('supportEmail'),
     'XB_BOOTSTRAP_URLS': urls,
     'XB_AES_KEY_B64': s('aesKey'), // CI secrets 注入；空→fromEnvironment 降级 null
-    'XB_SENTRY_DSN': s('sentryDsn'), // NFR-7 Sentry DSN（可选；空→SentryBootstrap no-op）
+    'XB_SENTRY_DSN': s(
+      'sentryDsn',
+    ), // NFR-7 Sentry DSN（可选；空→SentryBootstrap no-op）
     'XB_FORM_A': formA ? 'true' : 'false', // 形态 A 外壳开关（flavor.yaml form_a，可选）
     'XB_CRISP_WEBSITE_ID': crispWebsiteId, // D9 在线客服 websiteId（空→入口隐藏）
     'XB_TUTORIAL_BASE_URL': s('tutorialBaseUrl').trim(),
@@ -212,6 +266,7 @@ String generateFlavorDefinesJson(YamlMap doc,
   const encoder = JsonEncoder.withIndent('  ');
   return '${encoder.convert(defines)}\n';
 }
+
 ///
 /// **零硬编码**（NFR-2 / Property 19）：所有「随发行变化」的值来自 flavor.yaml。
 /// 校验 flavor.yaml，返回错误列表（空 = 通过）。
@@ -254,11 +309,15 @@ List<String> validateFlavor({
   // Optional canonical resource base; do not mix it with API mirror URLs.
   final tutorialBase = doc['tutorialBaseUrl'];
   if (tutorialBase != null) {
-    final uri = tutorialBase is String ? Uri.tryParse(tutorialBase.trim()) : null;
+    final uri = tutorialBase is String
+        ? Uri.tryParse(tutorialBase.trim())
+        : null;
     if (tutorialBase is! String ||
         (tutorialBase.trim().isNotEmpty &&
-            (uri == null || tutorialResourceBase(tutorialBase) == null ||
-                uri.hasQuery || uri.hasFragment ||
+            (uri == null ||
+                tutorialResourceBase(tutorialBase) == null ||
+                uri.hasQuery ||
+                uri.hasFragment ||
                 !(uri.isScheme('https') || uri.isScheme('http'))))) {
       errors.add('tutorialBaseUrl 须为空或无凭据、查询和片段的 HTTP(S) 地址');
     }
@@ -283,7 +342,9 @@ List<String> validateFlavor({
       try {
         final bytes = base64.decode(aesKey);
         if (bytes.length != 32) {
-          errors.add('aesKey base64 解码后须 == 32 字节（AES-256），实为 ${bytes.length} 字节');
+          errors.add(
+            'aesKey base64 解码后须 == 32 字节（AES-256），实为 ${bytes.length} 字节',
+          );
         }
       } on FormatException {
         errors.add('aesKey 不是合法 base64');
@@ -336,8 +397,10 @@ List<String> validateFlavor({
   //      versionName 非法会污染最终 app 版本号 + 破坏 v0.3 自更新版本比较。
   final versionName = doc['versionName'];
   if (versionName is String && !_isSemVer(versionName)) {
-    errors.add('versionName 须为合法 SemVer（如 0.1.0），实为 "$versionName"'
-        '（conventions §2.8 — 注入 pubspec version=<versionName>+flclash<底座>）');
+    errors.add(
+      'versionName 须为合法 SemVer（如 0.1.0），实为 "$versionName"'
+      '（conventions §2.8 — 注入 pubspec version=<versionName>+flclash<底座>）',
+    );
   }
 
   return errors;
@@ -393,8 +456,10 @@ List<String> materializeAndroidSigning(YamlMap doc) {
     ..add('XB_TARGET_ABI=arm64-v8a'); // 单 ABI：versionCode 不被偏移、等于 build-number
   lpFile.writeAsStringSync('${kept.join('\n')}\n');
 
-  stdout.writeln('[prepare_flavor] ✓ Android 签名已落地'
-      '（keystore.jks + local.properties，单 ABI arm64-v8a）');
+  stdout.writeln(
+    '[prepare_flavor] ✓ Android 签名已落地'
+    '（keystore.jks + local.properties，单 ABI arm64-v8a）',
+  );
   return [];
 }
 

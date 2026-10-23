@@ -47,6 +47,23 @@ class RustManifestTests(unittest.TestCase):
         self.assertTrue(all(Path(row[2]).is_relative_to(build) for row in rows))
         self.assertEqual((build/'sentry-hook-inputs/windows/helper/helper.pdb').read_bytes(),b'matching')
 
+    def test_both_brand_executable_names_preserve_logical_symbol_roles(self):
+        for brand in ('OmoFly','Daishu'):
+            with self.subTest(brand=brand):
+                build,bundle,hook,manifest=self.fixture()
+                (bundle/'FlClash.exe').rename(bundle/(brand+'.exe'))
+                (bundle/'FlClashHelperService.exe').rename(bundle/(brand+'HelperService.exe'))
+                manifest.write_text(f'{brand}\t{bundle/(brand+".exe")}\t{bundle/(brand+".pdb")}\n',encoding='utf-8')
+                with mock.patch('prepare_sentry_windows_assets.check_symbol',side_effect=self.check):
+                    prepare_windows_assets(build,'fixture-cli')
+                    first=manifest.read_bytes()
+                    prepare_windows_assets(build,'fixture-cli')
+                self.assertEqual(first,manifest.read_bytes())
+                text=manifest.read_text(encoding='utf-8')
+                self.assertTrue(text.startswith('FlClash\t'))
+                self.assertIn(brand+'HelperService.exe',text)
+                self.assertNotIn('FlClash.exe',text)
+
     def test_missing_or_wrong_runtime_and_pdb_fail_before_success(self):
         for mode in ('missing_pdb','wrong_pdb','wrong_runtime','missing_helper'):
             with self.subTest(mode=mode):

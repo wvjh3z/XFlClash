@@ -1,3 +1,19 @@
+--- a/packages/flutter_app_builder/lib/src/builders/app_builder.dart
++++ b/packages/flutter_app_builder/lib/src/builders/app_builder.dart
+@@ -57,13 +57,6 @@
+       }
+     }
+
+-    buildArguments.addAll([
+-      '--dart-define',
+-      'FLUTTER_BUILD_NAME=$appBuildName',
+-      '--dart-define',
+-      'FLUTTER_BUILD_NUMBER=$appBuildNumber',
+-    ]);
+-
+     ProcessResult processResult = await flutter.withEnv(environment).build(
+       [buildSubcommand, ...buildArguments],
+     );
 --- a/packages/flutter_app_builder/lib/src/builders/linux/build_linux_result.dart
 +++ b/packages/flutter_app_builder/lib/src/builders/linux/build_linux_result.dart
 @@ -18,10 +18,16 @@
@@ -19,6 +35,84 @@
        }
      }
      return _arch!;
+--- a/packages/flutter_app_packager/lib/src/api/app_package_maker.dart
++++ b/packages/flutter_app_packager/lib/src/api/app_package_maker.dart
+@@ -1,5 +1,7 @@
+ import 'dart:convert';
+ import 'dart:io';
++
++import 'package:flutter_app_packager/src/api/make_error.dart';
+
+ import 'package:flutter_app_packager/src/api/make_config.dart';
+ import 'package:flutter_app_packager/src/api/make_result.dart';
+@@ -17,6 +19,22 @@
+
+ abstract class AppPackageMaker {
+   List<Command> get requirements => [];
++
++  // Only normalize the disposable package tree, never source/private inputs.
++  // GNU chmod -R ignores descendant symlinks; reject a symlink root too.
++  Future<void> normalizeLinuxStagingPermissions(Directory directory) async {
++    if (FileSystemEntity.typeSync(directory.path, followLinks: false) !=
++        FileSystemEntityType.directory) {
++      throw MakeError('Unsafe Linux packaging directory');
++    }
++    final result = await $('chmod', [
++      '-R', 'u+rwX,go=rX', directory.path,
++    ]);
++    if (result.exitCode != 0) {
++      throw MakeError('Failed to normalize Linux package permissions');
++    }
++  }
++
+
+   String get name => throw UnimplementedError();
+   String get platform => throw UnimplementedError();
+--- a/packages/flutter_app_packager/lib/src/api/distribute_options_base.dart
++++ b/packages/flutter_app_packager/lib/src/api/distribute_options_base.dart
+@@ -1,14 +1,13 @@
+ class DistributeOptionsBase {
+-
+-  DistributeOptionsBase({
+-    this.appName,
+-  });
++  DistributeOptionsBase({this.appName, this.linuxPackageVersion});
+
+   factory DistributeOptionsBase.fromJson(Map<String, dynamic> json) {
+     return DistributeOptionsBase(
+-      appName: json['app_name']
++      appName: json['app_name'],
++      linuxPackageVersion: json['linux_package_version'] as String?,
+     );
+   }
+
+   final String? appName;
+-}
+\ No newline at end of file
++  final String? linuxPackageVersion;
++}
+--- a/packages/flutter_app_packager/lib/src/api/make_config.dart
++++ b/packages/flutter_app_packager/lib/src/api/make_config.dart
+@@ -201,6 +201,19 @@
+   String? _appBinaryName;
+
+   @override
++  Version get appVersion {
++    final configured = distributeOptionsBase.linuxPackageVersion;
++    return configured == null ? super.appVersion : Version.parse(configured);
++  }
++
++  // Epoch 1 orders the product-version scheme after legacy base+timestamp packages.
++  int get packageEpoch =>
++      distributeOptionsBase.linuxPackageVersion == null ? 0 : 1;
++  String get packageVersion =>
++      '${appVersion.major}.${appVersion.minor}.${appVersion.patch}'
++      '${appVersion.preRelease.isEmpty ? "" : "~${appVersion.preRelease.join('.')}"}';
++
++  @override
+   String get appBinaryName {
+     if (_appBinaryName == null) {
+       final cMakeListsFile = File('linux/CMakeLists.txt');
 --- a/packages/flutter_app_packager/lib/src/makers/appimage/app_package_maker_appimage.dart
 +++ b/packages/flutter_app_packager/lib/src/makers/appimage/app_package_maker_appimage.dart
 @@ -1,4 +1,6 @@
@@ -205,7 +299,7 @@
    @override
    Future<MakeResult> make(MakeConfig config) {
      return _make(
-@@ -64,6 +225,17 @@
+@@ -64,9 +225,20 @@
      required MakeAppImageConfig makeConfig,
    }) async {
      try {
@@ -222,8 +316,12 @@
 +
        await $('cp', [
          '-r',
-         appDirectory.path,
-@@ -183,61 +355,77 @@
+-        appDirectory.path,
++        '${appDirectory.path}/.',
+         path.join(
+           makeConfig.packagingDirectory.path,
+           '${makeConfig.appName}.AppDir',
+@@ -183,62 +355,82 @@
          ),
        );
 
@@ -287,7 +385,7 @@
 +              ..removeWhere((lib) => lib.contains('libflutter_linux_gtk.so')),
            );
          }),
-+      );
+       );
 +      final included = await Future.wait(
 +        makeConfig.include.map((so) async {
 +          final result = await $('locate', [so]);
@@ -349,10 +447,15 @@
 +          ),
 +        ),
 +        makeConfig.arch!,
-       );
++      );
++
++      await normalizeLinuxStagingPermissions(Directory(path.join(
++        makeConfig.packagingDirectory.path, '${makeConfig.appName}.AppDir',
++      )));
 
        await $(
-@@ -249,9 +437,7 @@
+         'appimagetool',
+@@ -249,9 +441,7 @@
            ),
            makeConfig.outputFile.path.replaceAll('.appimage', '.AppImage'),
          ],
@@ -363,6 +466,495 @@
        ).then((value) {
          if (value.exitCode != 0) {
            throw MakeError(value.stderr as String);
+--- a/packages/flutter_app_packager/lib/src/makers/deb/app_package_maker_deb.dart
++++ b/packages/flutter_app_packager/lib/src/makers/deb/app_package_maker_deb.dart
+@@ -61,7 +61,7 @@
+     final mkdirProcessResult = await $('mkdir', [
+       '-p',
+       debianDir,
+-      path.join(packagingDirectory.path, 'usr/share', makeConfig.appBinaryName),
++      path.join(packagingDirectory.path, 'usr/share', makeConfig.installName),
+       applicationsDir,
+       if (makeConfig.icon != null) ...[icon128Dir, icon256Dir],
+     ]);
+@@ -77,13 +77,13 @@
+       await iconFile.copy(
+         path.join(
+           icon128Dir,
+-          makeConfig.appBinaryName + path.extension(makeConfig.icon!),
++          makeConfig.installName + path.extension(makeConfig.icon!),
+         ),
+       );
+       await iconFile.copy(
+         path.join(
+           icon256Dir,
+-          makeConfig.appBinaryName + path.extension(makeConfig.icon!),
++          makeConfig.installName + path.extension(makeConfig.icon!),
+         ),
+       );
+     }
+@@ -93,7 +93,7 @@
+     final postinstFile = File(path.join(debianDir, 'postinst'));
+     final postrmFile = File(path.join(debianDir, 'postrm'));
+     final desktopEntryFile =
+-        File(path.join(applicationsDir, '${makeConfig.appBinaryName}.desktop'));
++        File(path.join(applicationsDir, '${makeConfig.installName}.desktop'));
+
+     if (!controlFile.existsSync()) controlFile.createSync();
+     if (!postinstFile.existsSync()) postinstFile.createSync();
+@@ -112,8 +112,10 @@
+     await $('cp', [
+       '-fr',
+       '${appDirectory.path}/.',
+-      '${packagingDirectory.path}/usr/share/${makeConfig.appBinaryName}/',
++      '${packagingDirectory.path}/usr/share/${makeConfig.installName}/',
+     ]);
++
++    await normalizeLinuxStagingPermissions(packagingDirectory);
+
+     ProcessResult processResult = await $('dpkg-deb', [
+       '--build',
+--- a/packages/flutter_app_packager/lib/src/makers/deb/make_deb_config.dart
++++ b/packages/flutter_app_packager/lib/src/makers/deb/make_deb_config.dart
+@@ -126,6 +126,7 @@
+     required this.installedSize,
+     required this.maintainer,
+     this.startupNotify = true,
++    this.startupWmClass,
+     this.essential = false,
+     List<String>? postinstallScripts,
+     List<String>? postuninstallScripts,
+@@ -149,11 +150,12 @@
+     this.replaces,
+     this.conflicts,
+     this.supportedMimeType,
+-  })  : _postinstallScripts = postinstallScripts ?? [],
+-        _postuninstallScripts = postuninstallScripts ?? [];
++  }) : _postinstallScripts = postinstallScripts ?? [],
++       _postuninstallScripts = postuninstallScripts ?? [];
+
+   factory MakeDebConfig.fromJson(Map<String, dynamic> map) {
+     return MakeDebConfig(
++      startupWmClass: map['startup_wm_class'] as String?,
+       displayName: map['display_name'],
+       packageName: map['package_name'],
+       maintainer:
+@@ -223,6 +225,7 @@
+   }
+
+   String displayName;
++  String? startupWmClass;
+   String packageName;
+   String maintainer;
+   String priority;
+@@ -251,16 +254,19 @@
+   List<String>? actions;
+   List<String>? categories;
+
++  String get installName => packageEpoch == 0 ? appBinaryName : packageName;
++
+   List<String> get postinstallScripts => [
+-        'ln -s /usr/share/$appBinaryName/$appBinaryName /usr/bin/$appBinaryName',
+-        'chmod +x /usr/bin/$appBinaryName',
+-        ..._postinstallScripts,
+-      ];
++    'ln -sfn /usr/share/$installName/$appBinaryName /usr/bin/$installName',
++    'chmod +x /usr/bin/$installName',
++    ..._postinstallScripts,
++  ];
+
+   List<String> get postuninstallScripts => [
+-        'rm /usr/bin/$appBinaryName',
+-        ..._postuninstallScripts,
+-      ];
++    'case "\${1:-}" in remove|purge) ;; *) exit 0 ;; esac',
++    'rm -f /usr/bin/$installName',
++    ..._postuninstallScripts,
++  ];
+
+   @override
+   Map<String, dynamic> toJson() {
+@@ -268,12 +274,15 @@
+       'CONTROL': {
+         'Maintainer': maintainer,
+         'Package': packageName,
+-        'Version': appVersion.toString(),
++        'Version': packageEpoch == 0
++            ? appVersion.toString()
++            : '$packageEpoch:$packageVersion+${appVersion.build.join('.')}',
+         'Section': section,
+         'Priority': priority,
+         'Architecture': _getArchitecture(),
+-        'Essential':
+-            essential != null ? (essential == true ? 'yes' : 'no') : null,
++        'Essential': essential != null
++            ? (essential == true ? 'yes' : 'no')
++            : null,
+         'Installed-Size': installedSize,
+         'Description': pubspec.description,
+         'Homepage': pubspec.homepage,
+@@ -292,11 +301,11 @@
+       }..removeWhere((key, value) => value == null),
+       'DESKTOP': {
+         'Type': 'Application',
+-        'Version': appVersion.toString(),
++        'Version': '1.0',
+         'Name': displayName,
+         'GenericName': genericName,
+-        'Icon': appBinaryName,
+-        'Exec': '$appBinaryName %U',
++        'Icon': installName,
++        'Exec': '$installName %U',
+         'Actions': actions != null && actions!.isNotEmpty
+             ? '${actions!.join(';')};'
+             : null,
+@@ -310,6 +319,7 @@
+             ? '${keywords!.join(';')};'
+             : null,
+         'StartupNotify': startupNotify,
++        'StartupWMClass': startupWmClass,
+       }..removeWhere((key, value) => value == null),
+     };
+   }
+@@ -317,32 +327,22 @@
+   Map<String, String> toFilesString() {
+     final json = toJson();
+     final controlFile =
+-        '${(json['CONTROL'] as Map<String, dynamic>).entries.map(
+-              (e) => '${e.key}: ${e.value}',
+-            ).join('\n')}\n';
++        '${(json['CONTROL'] as Map<String, dynamic>).entries.map((e) => '${e.key}: ${e.value}').join('\n')}\n';
+
+     final desktopFile = [
+       '[Desktop Entry]',
+       ...(json['DESKTOP'] as Map<String, dynamic>).entries.map(
+-            (e) => '${e.key}=${e.value}',
+-          ),
++        (e) => '${e.key}=${e.value}',
++      ),
+     ].join('\n');
+     final map = {
+       'CONTROL': controlFile,
+       'DESKTOP': desktopFile,
+       'postinst': postinstallScripts.isNotEmpty
+-          ? [
+-              '#!/usr/bin/env sh',
+-              ...postinstallScripts,
+-              'exit 0',
+-            ].join('\n')
++          ? ['#!/usr/bin/env sh', ...postinstallScripts, 'exit 0'].join('\n')
+           : null,
+       'postrm': postuninstallScripts.isNotEmpty
+-          ? [
+-              '#!/usr/bin/env sh',
+-              ...postuninstallScripts,
+-              'exit 0',
+-            ].join('\n')
++          ? ['#!/usr/bin/env sh', ...postuninstallScripts, 'exit 0'].join('\n')
+           : null,
+     }..removeWhere((key, value) => value == null);
+     return Map.castFrom<String, String?, String, String>(map);
+--- a/packages/flutter_app_packager/lib/src/makers/rpm/app_package_maker_rpm.dart
++++ b/packages/flutter_app_packager/lib/src/makers/rpm/app_package_maker_rpm.dart
+@@ -54,10 +54,14 @@
+       'SOURCES',
+       'SPECS',
+       'SRPMS',
++      'TMP',
++      'DB',
+     ];
+
+-    final rpmbuildDirPath =
+-        path.join(packagingDirectory.absolute.path, 'rpmbuild');
++    final rpmbuildDirPath = path.join(
++      packagingDirectory.absolute.path,
++      'rpmbuild',
++    );
+
+     for (final dir in rpmbuild) {
+       final dirPath = path.join(rpmbuildDirPath, dir);
+@@ -71,8 +75,11 @@
+     final buildPath = path.join(rpmbuildDirPath, 'BUILD');
+     final buildRoot = path.join(buildPath, makeConfig.appName);
+     final specsPath = path.join(rpmbuildDirPath, 'SPECS');
+-    final rpmPath =
+-        path.join(rpmbuildDirPath, 'RPMS', makeConfig.buildArch ?? 'x86_64');
++    final rpmPath = path.join(
++      rpmbuildDirPath,
++      'RPMS',
++      makeConfig.buildArch ?? 'x86_64',
++    );
+     final buildWivesDirFile = Directory(buildRoot);
+     if (!buildWivesDirFile.existsSync()) {
+       buildWivesDirFile.createSync(recursive: true);
+@@ -81,52 +88,21 @@
+     /// copying app files to rpmbuild/BUILD/[appName] directory
+     final bundleFiles = appDirectory.listSync();
+     for (final file in bundleFiles) {
+-      await $(
+-        'cp',
+-        [
+-          '-r',
+-          file.path,
+-          buildRoot,
+-        ],
+-      );
++      await $('cp', ['-r', file.path, buildRoot]);
+     }
+
+-    // fix lib_*_plugin.so rpath
+-    //
+-    // more details: https://github.com/flutter/flutter/issues/65400
+-    final libFiles = Directory(path.join(buildRoot, 'lib')).listSync();
+-    for (final file in libFiles) {
+-      if (file is! File) continue;
+-      if (!file.path.endsWith('.so')) continue;
+-      // check if points to /home dir
+-      final processResult = await $(
+-        'patchelf',
+-        [
+-          '--print-rpath',
+-          file.path,
+-        ],
+-      );
+-      if (processResult.stdout.toString().contains('/home')) {
+-        await $(
+-          'patchelf',
+-          [
+-            '--set-rpath',
+-            '\$ORIGIN',
+-            file.path,
+-          ],
+-        );
+-      }
+-    }
++    // The finalized bundle already carries its intended rpaths and Core hash.
++    // Packaging must preserve those bytes (including all native modules).
++    await normalizeLinuxStagingPermissions(Directory(buildRoot));
++    final runner = File(path.join(buildRoot, makeConfig.appBinaryName));
++    if (!runner.existsSync()) throw MakeError('Missing Linux runner');
+
+     final iconFile = makeConfig.icon != null
+         ? File(path.join(Directory.current.path, makeConfig.icon!))
+         : null;
+
+-    iconFile?.copy(
+-      path.join(
+-        buildPath,
+-        makeConfig.appName + path.extension(iconFile.path),
+-      ),
++    await iconFile?.copy(
++      path.join(buildPath, makeConfig.appName + path.extension(iconFile.path)),
+     );
+
+     if (makeConfig.icon != null) {
+@@ -138,8 +114,9 @@
+
+     // create & write the files got from makeConfig
+     final specFile = File(path.join(specsPath, '${makeConfig.appName}.spec'));
+-    final desktopEntryFile =
+-        File(path.join(buildPath, '${makeConfig.appName}.desktop'));
++    final desktopEntryFile = File(
++      path.join(buildPath, '${makeConfig.appName}.desktop'),
++    );
+
+     if (!specFile.existsSync()) specFile.createSync();
+     if (!desktopEntryFile.existsSync()) desktopEntryFile.createSync();
+@@ -150,12 +127,7 @@
+     // make the rpm
+     final processResult = await $(
+       'rpmbuild',
+-      [
+-        '--define',
+-        '_topdir $rpmbuildDirPath',
+-        '-bb',
+-        specFile.path,
+-      ],
++      ['--define', '_topdir $rpmbuildDirPath', '--define', '_tmppath $rpmbuildDirPath/TMP', '--define', '_dbpath $rpmbuildDirPath/DB', '-bb', specFile.path],
+       environment: {'QA_RPATHS': (0x0001 | 0x0010).toString()},
+     );
+
+@@ -166,13 +138,7 @@
+     final rpms = Directory(rpmPath).listSync();
+     for (var rpm in rpms) {
+       if (rpm is! File) continue;
+-      await $(
+-        'cp',
+-        [
+-          rpm.path,
+-          makeConfig.outputFile.path,
+-        ],
+-      );
++      await $('cp', [rpm.path, makeConfig.outputFile.path]);
+       break;
+     }
+     packagingDirectory.deleteSync(recursive: true);
+--- a/packages/flutter_app_packager/lib/src/makers/rpm/make_rpm_config.dart
++++ b/packages/flutter_app_packager/lib/src/makers/rpm/make_rpm_config.dart
+@@ -2,11 +2,15 @@
+
+ import 'package:flutter_app_packager/src/api/app_package_maker.dart';
+
+-class MakeRPMConfig extends MakeConfig {
++class MakeRPMConfig extends MakeLinuxPackageConfig {
+   MakeRPMConfig({
+     // Desktop file
+     required this.displayName,
+     this.startupNotify = true,
++    this.startupWmClass,
++    this.specMacros = const [],
++    this.postinstallScripts = const [],
++    this.postuninstallScripts = const [],
+     this.actions,
+     this.categories,
+     this.genericName,
+@@ -38,13 +42,22 @@
+
+   factory MakeRPMConfig.fromJson(Map<String, dynamic> json) {
+     return MakeRPMConfig(
++      startupWmClass: json['startup_wm_class'] as String?,
++      specMacros:
++          (json['spec_macros'] as List<dynamic>?)?.cast<String>() ?? const [],
++      postinstallScripts:
++          (json['postinstall_scripts'] as List<dynamic>?)?.cast<String>() ??
++          const [],
++      postuninstallScripts:
++          (json['postuninstall_scripts'] as List<dynamic>?)?.cast<String>() ??
++          const [],
+       displayName: json['display_name'] as String,
+       icon: json['icon'] as String?,
+       genericName: json['generic_name'] as String?,
+       startupNotify: json['startup_notify'] as bool?,
+       keywords: (json['keywords'] as List<dynamic>?)?.cast<String>(),
+-      supportedMimeType:
+-          (json['supported_mime_type'] as List<dynamic>?)?.cast<String>(),
++      supportedMimeType: (json['supported_mime_type'] as List<dynamic>?)
++          ?.cast<String>(),
+       actions: (json['actions'] as List<dynamic>?)?.cast<String>(),
+       categories: (json['categories'] as List<dynamic>?)?.cast<String>(),
+       summary: json['summary'] as String?,
+@@ -70,6 +83,10 @@
+   }
+
+   String displayName;
++  String? startupWmClass;
++  List<String> specMacros;
++  List<String> postinstallScripts;
++  List<String> postuninstallScripts;
+   String? icon;
+   String? genericName;
+   bool? startupNotify;
+@@ -106,14 +123,16 @@
+       'SPEC': {
+         'preamble': {
+           'Name': appName,
+-          'Version': appVersion.toString(),
++          'Version': packageVersion,
++          'Epoch': packageEpoch,
+           'Release':
+               "${appVersion.build.isNotEmpty ? appVersion.build.first : "1"}%{?dist}",
+           'Summary': summary ?? pubspec.description,
+           'Group': group,
+           'Vendor': vendor,
+-          'Packager':
+-              packagerEmail != null ? '$packager <$packagerEmail>' : packager,
++          'Packager': packagerEmail != null
++              ? '$packager <$packagerEmail>'
++              : packager,
+           'License': license,
+           'URL': url,
+           'Requires': requires?.join(', '),
+@@ -127,28 +146,27 @@
+             'mkdir -p %{buildroot}%{_datadir}/%{name}',
+             'mkdir -p %{buildroot}%{_datadir}/applications',
+             'mkdir -p %{buildroot}%{_datadir}/pixmaps',
+-            'cp -r %{name}/* %{buildroot}%{_datadir}/%{name}',
+-            'ln -s %{_datadir}/%{name}/%{name} %{buildroot}%{_bindir}/%{name}',
++            'cp -r "%{name}/." "%{buildroot}%{_datadir}/%{name}"',
++            'ln -s %{_datadir}/%{name}/$appBinaryName %{buildroot}%{_bindir}/%{name}',
+             'cp -r %{name}.desktop %{buildroot}%{_datadir}/applications',
+             'cp -r %{name}.png %{buildroot}%{_datadir}/pixmaps',
+-            'update-mime-database %{_datadir}/mime &> /dev/null || :',
+           ].join('\n'),
+-          '%postun': ['update-mime-database %{_datadir}/mime &> /dev/null || :']
+-              .join('\n'),
++          if (postinstallScripts.isNotEmpty)
++            '%post': postinstallScripts.join('\n'),
++          if (postuninstallScripts.isNotEmpty)
++            '%postun': postuninstallScripts.join('\n'),
+           '%files': [
+             '%{_bindir}/%{name}',
+             '%{_datadir}/%{name}',
+             '%{_datadir}/applications/%{name}.desktop',
++            if (icon != null) '%{_datadir}/pixmaps/%{name}.png',
+           ].join('\n'),
+         }..removeWhere((key, value) => value == null),
+-        'inline-body': {
+-          '%defattr': '(-,root,root)',
+-          '%attr': '(4755, root, root) %{_datadir}/pixmaps/%{name}.png',
+-        },
++        'inline-body': {'%defattr': '(-,root,root)'},
+       },
+       'DESKTOP': {
+         'Type': 'Application',
+-        'Version': appVersion.toString(),
++        'Version': '1.0',
+         'Name': displayName,
+         'GenericName': genericName,
+         'Icon': appName,
+@@ -166,6 +184,7 @@
+             ? '${keywords!.join(';')};'
+             : null,
+         'StartupNotify': startupNotify,
++        'StartupWMClass': startupWmClass,
+       }..removeWhere((key, value) => value == null),
+     };
+   }
+@@ -173,30 +192,29 @@
+   Map<String, String> toFilesString() {
+     final json = toJson();
+
+-    final preamble = (json['SPEC']['preamble'] as Map)
+-        .entries
++    final preamble = (json['SPEC']['preamble'] as Map).entries
+         .map((e) => '${e.key}: ${e.value}')
+         .join('\n');
+-    final body = (json['SPEC']['body'] as Map).entries.map(
+-      (e) {
+-        return '${e.key}\n${e.value}\n';
+-      },
+-    ).join('\n');
+-    final inlineBody = (json['SPEC']['inline-body'] as Map).entries.map(
+-      (e) {
+-        return '${e.key}${e.value}\n';
+-      },
+-    ).join('\n');
++    final body = (json['SPEC']['body'] as Map).entries
++        .map((e) {
++          return '${e.key}\n${e.value}\n';
++        })
++        .join('\n');
++    final inlineBody = (json['SPEC']['inline-body'] as Map).entries
++        .map((e) {
++          return '${e.key}${e.value}\n';
++        })
++        .join('\n');
+
+     final desktopFile = [
+       '[Desktop Entry]',
+       ...(json['DESKTOP'] as Map<String, dynamic>).entries.map(
+-            (e) => '${e.key}=${e.value}',
+-          ),
++        (e) => '${e.key}=${e.value}',
++      ),
+     ].join('\n');
+     final map = {
+       'DESKTOP': desktopFile,
+-      'SPEC': '$preamble\n\n$body\n\n$inlineBody',
++      'SPEC': '${specMacros.join('\n')}\n$preamble\n\n$body\n\n$inlineBody',
+     };
+     return Map.castFrom<String, String?, String, String>(map);
+   }
 --- a/packages/flutter_distributor/lib/src/flutter_distributor.dart
 +++ b/packages/flutter_distributor/lib/src/flutter_distributor.dart
 @@ -185,6 +185,7 @@
@@ -373,50 +965,6 @@
            };
            MakeResult makeResult = await _packager.package(
              platform,
---- a/packages/shell_executor/lib/src/shell_executor.dart
-+++ b/packages/shell_executor/lib/src/shell_executor.dart
-@@ -31,21 +31,17 @@
-       environment: environment,
-     );
-
--    String? stdoutStr;
--    String? stderrStr;
--
--    process.stdout.listen((event) {
--      String msg = utf8.decoder.convert(event);
--      stdoutStr = '${stdoutStr ?? ''}$msg';
--      stdout.write(msg);
--    });
--    process.stderr.listen((event) {
--      String msg = utf8.decoder.convert(event);
--      stderrStr = '${stderrStr ?? ''}$msg';
--      stderr.write(msg);
--    });
--    int exitCode = await process.exitCode;
--    return ProcessResult(process.pid, exitCode, stdoutStr, stderrStr);
-+    final stdoutText = StringBuffer();
-+    final stderrText = StringBuffer();
-+    final out = process.stdout
-+        .transform(const Utf8Decoder(allowMalformed: true))
-+        .forEach((msg) { stdoutText.write(msg); stdout.write(msg); });
-+    final err = process.stderr
-+        .transform(const Utf8Decoder(allowMalformed: true))
-+        .forEach((msg) { stderrText.write(msg); stderr.write(msg); });
-+    final results = await Future.wait<Object?>([process.exitCode, out, err]);
-+    return ProcessResult(process.pid, results.first as int,
-+        stdoutText.toString(), stderrText.toString());
-   }
-
-   ProcessResult execSync(
-@@ -61,6 +57,8 @@
-       workingDirectory: workingDirectory,
-       environment: environment,
-       runInShell: runInShell,
-+      stdoutEncoding: utf8,
-+      stderrEncoding: const Utf8Codec(allowMalformed: true),
-     );
-     return processResult;
-   }
 --- a/packages/flutter_distributor/lib/src/utils/default_shell_executor.dart
 +++ b/packages/flutter_distributor/lib/src/utils/default_shell_executor.dart
 @@ -1,21 +1,9 @@
@@ -484,3 +1032,47 @@
 +dependency_overrides:
 +  shell_executor:
 +    path: ../shell_executor
+--- a/packages/shell_executor/lib/src/shell_executor.dart
++++ b/packages/shell_executor/lib/src/shell_executor.dart
+@@ -31,21 +31,17 @@
+       environment: environment,
+     );
+
+-    String? stdoutStr;
+-    String? stderrStr;
+-
+-    process.stdout.listen((event) {
+-      String msg = utf8.decoder.convert(event);
+-      stdoutStr = '${stdoutStr ?? ''}$msg';
+-      stdout.write(msg);
+-    });
+-    process.stderr.listen((event) {
+-      String msg = utf8.decoder.convert(event);
+-      stderrStr = '${stderrStr ?? ''}$msg';
+-      stderr.write(msg);
+-    });
+-    int exitCode = await process.exitCode;
+-    return ProcessResult(process.pid, exitCode, stdoutStr, stderrStr);
++    final stdoutText = StringBuffer();
++    final stderrText = StringBuffer();
++    final out = process.stdout
++        .transform(const Utf8Decoder(allowMalformed: true))
++        .forEach((msg) { stdoutText.write(msg); stdout.write(msg); });
++    final err = process.stderr
++        .transform(const Utf8Decoder(allowMalformed: true))
++        .forEach((msg) { stderrText.write(msg); stderr.write(msg); });
++    final results = await Future.wait<Object?>([process.exitCode, out, err]);
++    return ProcessResult(process.pid, results.first as int,
++        stdoutText.toString(), stderrText.toString());
+   }
+
+   ProcessResult execSync(
+@@ -61,6 +57,8 @@
+       workingDirectory: workingDirectory,
+       environment: environment,
+       runInShell: runInShell,
++      stdoutEncoding: utf8,
++      stderrEncoding: const Utf8Codec(allowMalformed: true),
+     );
+     return processResult;
+   }

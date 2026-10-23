@@ -6,6 +6,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
 import 'dart:typed_data';
+import '../storage/brand_paths.dart';
 
 import 'package:cryptography/cryptography.dart';
 import 'package:flutter/foundation.dart'
@@ -36,6 +37,7 @@ abstract final class SecureStorageTokenStorage {
     String namespace = 'default',
     void Function()? onDegraded,
     Duration operationTimeout = const Duration(seconds: 5),
+    bool? allowUnscopedLegacy,
   }) async {
     final result = _RecoveringTokenStorage(
       storage ?? defaultStorage,
@@ -43,6 +45,7 @@ abstract final class SecureStorageTokenStorage {
       namespace,
       onDegraded,
       operationTimeout,
+      allowUnscopedLegacy ?? !isolatedDesktopBrand,
     );
     // ready/read/write触发同一初始化；失败保留此实例，下一次操作可重试。
     // 不能因初始化失败返回null，让SDK意外选择默认明文SharedPreferences。
@@ -72,6 +75,7 @@ class _RecoveringTokenStorage implements TokenStorage {
     String namespace,
     this._onDegraded,
     this._timeout,
+    this._allowUnscopedLegacy,
   ) : _prefix = '${kXbAccessTokenKey}_${Uri.encodeComponent(namespace)}',
       _cipher = AesEncryptedSharedPrefsTokenStorage(aesKey: key);
 
@@ -80,6 +84,7 @@ class _RecoveringTokenStorage implements TokenStorage {
   final String _prefix;
   final void Function()? _onDegraded;
   final Duration _timeout;
+  final bool _allowUnscopedLegacy;
   final _random = Random.secure();
   Future<void> _pending = Future.value();
   bool _initialized = false;
@@ -212,6 +217,18 @@ class _RecoveringTokenStorage implements TokenStorage {
       if (record['backend'] == 'fallback') _degraded();
       return; // 持久化的后端选择优先；不因系统恢复重新读旧安全存储。
     }
+    if (!_allowUnscopedLegacy) {
+      // A shared historical key has no brand ownership. Start a new backend;
+      // positively attributed encrypted records were migrated before SDK init.
+      try {
+        await _probe();
+        await _commit('secure');
+      } catch (_) {
+        await _commit('fallback');
+        _degraded();
+      }
+      return;
+    }
     // 兼容此前Linux等平台的加密回退，成功迁移前不删除旧密文。
     final preferences = await SharedPreferences.getInstance();
     final legacyCiphertext = preferences.getString(
@@ -316,11 +333,11 @@ class _RecoveringTokenStorage implements TokenStorage {
     // 先提交空会话，再删除凭据。原生删除失败/超时也不会在重启时恢复旧账号。
     await _commit(previous?['backend'] == 'fallback' ? 'fallback' : 'secure');
     unawaited(_cleanup(previous?['key'] as String?));
-    if (defaultTargetPlatform != TargetPlatform.macOS) {
+    if (_allowUnscopedLegacy && defaultTargetPlatform != TargetPlatform.macOS) {
       unawaited(_cleanup(kXbAccessTokenKey));
     }
     // 旧版本AES数据已不再权威，清理失败不能让已提交的退出变成未退出。
-    unawaited(_cleanupLegacyFallback());
+    if (_allowUnscopedLegacy) unawaited(_cleanupLegacyFallback());
   });
 
   Future<void> _cleanupLegacyFallback() async {

@@ -15,12 +15,13 @@
 #     target  : auto（默认，按主机 OS+架构推断）| linux-amd64 | linux-arm64
 #               | windows-amd64 | macos-amd64 | macos-arm64
 #   选项:
+#     --build-number=N : 必填本地开发编号（1..65535），不读取/修改GitHub或Android计数
 #     --install-deps : 先装本平台打包依赖（Linux apt / macOS brew+npm；需要 sudo/brew）
 #     --audit-only   : 显式离线诊断：准备和校验符号，不上传
 #     --no-sentry    : 显式诊断：跳过 Sentry；默认各平台缺 token/CLI/符号都失败
 #   例：
-#     bash scripts/package_desktop_local.sh brand_a auto
-#     bash scripts/package_desktop_local.sh brand_b linux-amd64 --install-deps
+#     bash scripts/package_desktop_local.sh brand_a auto --build-number=26
+#     bash scripts/package_desktop_local.sh brand_b linux-amd64 --build-number=26 --install-deps
 #
 # 产物（统一收口为 AppVersion 插件/CI 同款命名，供 v0.3 自更新拼下载 URL）：
 #   dist/{updatePackageName}-{产品版本}-{平台}-{arch}{后缀}
@@ -41,7 +42,7 @@
 # 版本号（与 build_local.sh / CI 一致）:
 #   产品版本 XB_PRODUCT_VERSION ← flavor.yaml versionName（关于页显示，自有）
 #   底座 build-name            ← pubspec.yaml version（FlClash，喂 packageInfo）
-#   versionCode build-number   ← scripts/build_number.txt
+#   versionCode build-number   ← 显式 --build-number=N（不静默回退）
 set -euo pipefail
 
 # Sentry upload credential isolation: only the controlled postbuild inherits it.
@@ -62,10 +63,16 @@ TARGET="auto"
 INSTALL_DEPS=0
 NO_SENTRY=0
 AUDIT_ONLY=0
+BUILD_NUMBER=""
+BUILD_NUMBER_SET=0
 for arg in "$@"; do
   case "${arg}" in
     brand_a|brand_b)                         FLAVOR="${arg}" ;;
     auto|linux-amd64|linux-arm64|windows-amd64|macos-amd64|macos-arm64) TARGET="${arg}" ;;
+    --build-number=*)
+      [ "${BUILD_NUMBER_SET}" = "0" ] || { echo "✗ --build-number 只能指定一次"; exit 2; }
+      BUILD_NUMBER_SET=1
+      BUILD_NUMBER="${arg#*=}" ;;
     --install-deps)                          INSTALL_DEPS=1 ;;
     --no-sentry)                             NO_SENTRY=1 ;;
     --audit-only)                            AUDIT_ONLY=1 ;;
@@ -73,6 +80,14 @@ for arg in "$@"; do
   esac
 done
 [ "${NO_SENTRY}" = "0" ] || [ "${AUDIT_ONLY}" = "0" ] || { echo "✗ --no-sentry 与 --audit-only 不能同时使用"; exit 2; }
+
+# Reject missing/ambiguous input before downloads, cleaning or brand injection.
+case "${BUILD_NUMBER}" in
+  ''|*[!0-9]*|0*) echo "✗ 必须指定 --build-number=N，范围 1..65535"; exit 2 ;;
+esac
+[ "${#BUILD_NUMBER}" -le 5 ] && [ "${BUILD_NUMBER}" -le 65535 ] || {
+  echo "✗ --build-number 超出 1..65535"; exit 2;
+}
 
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "${REPO_DIR}"
@@ -172,7 +187,6 @@ fi
 python3 tool/prepare_native_build.py --platform "${PLATFORM}" --architecture "${ARCH}" --install-rust-targets
 
 # ───────── 版本号 ─────────
-BUILD_NUMBER="$(cat scripts/build_number.txt 2>/dev/null || echo 1)"
 echo "=== package: flavor=${FLAVOR} target=${TARGET} build=${BUILD_NUMBER} ==="
 
 # ───────── 依赖 + codegen（与 CI 同序：SDK build_runner → client codegen）─────────

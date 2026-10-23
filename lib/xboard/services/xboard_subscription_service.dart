@@ -389,6 +389,7 @@ class XboardSubscriptionService {
     final live = _port.currentProfileIds().toSet();
     final rows = await _db.allRows();
     for (final row in rows) {
+      if (row.flavorId != _flavorId) continue;
       if (!live.contains(row.profileId)) {
         await _db.deleteByProfileId(row.profileId);
       }

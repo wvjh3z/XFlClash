@@ -227,9 +227,9 @@ class ColdStartTests(unittest.TestCase):
 
 class EntryContractTests(unittest.TestCase):
     def test_platform_plans_include_real_preflights_and_never_client_builds(self):
-        expected={'android':['context','android-arguments','android-artifacts'],
-                  'linux':['context','appimage-contract','linux-maker'],
-                  'windows':['context','windows-iscc'],'macos':['context']}
+        expected={'android':['brand-identity','context','flutter-defines','android-arguments','android-artifacts'],
+                  'linux':['brand-identity','context','flutter-defines','appimage-contract','linux-maker'],
+                  'windows':['brand-identity','context','flutter-defines','windows-branded-cmake','windows-iscc'],'macos':['brand-identity','context','flutter-defines']}
         for platform,labels in expected.items():
             plan=entry.platform_commands(platform,dart='native-dart')
             self.assertEqual([row[0] for row in plan],labels)

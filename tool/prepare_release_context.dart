@@ -1,6 +1,7 @@
 // Public build inputs shared by CI and the local desktop entry. No secret export.
 import 'dart:convert';
 import 'dart:io';
+import 'brand_identity.dart';
 import 'package:args/args.dart';
 import 'package:yaml/yaml.dart';
 
@@ -119,6 +120,11 @@ Future<void> main(List<String> args) async {
       includeZip: options['include-zip'] as bool,
       includeRpm: options['include-rpm'] as bool,
     );
+    if (data['platform'] == 'linux') {
+      data['package_app_name'] = brandIdentity(id)['slug'] as String;
+    } else if (data['platform'] == 'windows') {
+      data['package_app_name'] = brandIdentity(id)['name'] as String;
+    }
     if (options['align-package-name'] as bool) {
       final file = File('distribute_options.yaml');
       final source = file.readAsStringSync();
@@ -126,12 +132,23 @@ Future<void> main(List<String> args) async {
       if (pattern.allMatches(source).length != 1) {
         throw const FormatException('Package name entry missing or ambiguous');
       }
-      file.writeAsStringSync(
-        source.replaceFirst(
-          pattern,
-          'app_name: ${jsonEncode(data['package_app_name'])}',
-        ),
+      var aligned = source.replaceFirst(
+        pattern,
+        'app_name: ${jsonEncode(data['package_app_name'])}',
       );
+      // Linux package metadata is independent of Flutter's base version.
+      // Remove stale values when a checkout switches to another target.
+      aligned = aligned.replaceAll(
+        RegExp(r'^linux_package_version:[^\r\n]*(?:\r?\n|$)', multiLine: true),
+        '',
+      );
+      if (data['platform'] == 'linux') {
+        final product = (data['product_version'] as String).split('+').first;
+        aligned =
+            '${aligned.trimRight()}\nlinux_package_version: '
+            '${jsonEncode('$product+${data['build_number']}')}\n';
+      }
+      file.writeAsStringSync(aligned);
     }
     final output = File(options['output'] as String);
     output.parent.createSync(recursive: true);
