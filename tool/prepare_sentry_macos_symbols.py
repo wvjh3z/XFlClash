@@ -25,7 +25,7 @@ from owned_process_cleanup import CleanupError, cleanup_owned_group, safe_cleanu
 
 from sentry_macho import MachoError, inspect_macho, is_macho, read_slices, static_archive_architectures
 from sentry_macos_inventory import (
-    InventoryError, load_inventory, required_source_targets, source_line_limitations,
+    INVENTORY_CHECKS, InventoryError, load_inventory, required_source_targets, source_line_limitations,
 )
 
 MAX_DEBUG_SECTION = 512 * 1024 * 1024
@@ -78,6 +78,8 @@ def exception_kind(error):
 def safe_diagnostic(value):
     """Project only fixed enum values, booleans and bounded numbers."""
     result = {}
+    if value.get("inventory_check") in INVENTORY_CHECKS:
+        result["inventory_check"] = value["inventory_check"]
     for key in ("phase", "exception_kind", "cleanup_exception_kind", "cleanup"):
         allowed = (DIAGNOSTIC_PHASES if key == "phase" else
                    {"not_started", "complete", "failed"} if key == "cleanup" else EXCEPTION_KINDS)
@@ -710,7 +712,9 @@ class Preparer:
             owned = {item["product"]: item for item in metadata["products"]}
             with (self.app / "Contents/Info.plist").open("rb") as stream:
                 executable = plistlib.load(stream)["CFBundleExecutable"]
-        except (OSError, KeyError, ValueError, TypeError, InventoryError):
+        except InventoryError as error:
+            raise PreparationError("macos_owned_or_bundle_metadata_missing", diagnostic=error.diagnostic) from None
+        except (OSError, KeyError, ValueError, TypeError):
             raise PreparationError("macos_owned_or_bundle_metadata_missing") from None
         runner = (self.app / "Contents/MacOS" / executable).resolve()
         inventory = macho_inventory(self.app)
@@ -882,6 +886,8 @@ def main(argv=None):
         return 0
     except PreparationError as error:
         print(preparation_code(error), file=sys.stderr)
+        if error.diagnostic:
+            print(json.dumps(safe_diagnostic(error.diagnostic), sort_keys=True), file=sys.stderr)
         return 1
     except (OSError, ValueError, MachoError):
         print("macos_symbol_preparation_failed", file=sys.stderr)

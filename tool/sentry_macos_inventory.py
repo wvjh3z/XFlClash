@@ -21,6 +21,7 @@ import signal
 import subprocess
 import sys
 import time
+import tempfile
 from urllib.parse import urlparse
 
 from sentry_macho import MachoError, inspect_macho, is_macho, static_archive_architectures
@@ -80,7 +81,34 @@ SAFE_ERROR_CODES = frozenset({
 
 
 class InventoryError(RuntimeError):
-    pass
+    def __init__(self, code, *, diagnostic=None):
+        super().__init__(code)
+        self.diagnostic = diagnostic
+
+
+VALIDATION_REPORT = "macos/sentry-inventory-validation.json"
+INVENTORY_CHECKS = frozenset({
+    'paths', 'inventory_read', 'receipt_read', 'schema', 'managers', 'configuration',
+    'inventory_digest', 'app_identity', 'runtime_read', 'runtime_match', 'record_lists',
+    'products', 'target_hosts', 'binary_hosts', 'spm_graph', 'link_helper_schema',
+    'link_helper_manifest', 'link_helper_sources', 'link_helper_bindings', 'source_ownership', 'complete',
+})
+
+
+def _validation_report(root, state):
+    path = root / VALIDATION_REPORT
+    if path.is_symlink() or not path.resolve().is_relative_to(root):
+        raise InventoryError('unsafe_macos_inventory_validation_destination')
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, temporary = tempfile.mkstemp(prefix='.inventory-validation-', dir=path.parent)
+    try:
+        with os.fdopen(fd, 'w', encoding='utf-8') as stream:
+            json.dump(state, stream, indent=2, sort_keys=True)
+            stream.write('\n')
+        os.replace(temporary, path)
+    finally:
+        Path(temporary).unlink(missing_ok=True)
+
 
 
 class _VerifiedLinkHelper(dict):
@@ -225,7 +253,10 @@ def _helper_manifest_sha(package):
     return hashlib.sha256(raw).hexdigest()
 
 
-def _validate_link_helper(item, project, binaries):
+def _validate_link_helper(item, project, binaries, diagnostic=None):
+    def mark(check):
+        if diagnostic is not None: diagnostic["inventory_check"] = check
+    mark("link_helper_schema")
     proof = item["linker_only"]
     fields = {"schema_version", "reason", "package_path", "manifest_sha256", "target_path", "declared_sources",
               "sources", "linker_settings", "product", "product_targets", "binary_targets"}
@@ -238,9 +269,13 @@ def _validate_link_helper(item, project, binaries):
             or any(not isinstance(source, dict) or set(source) != {"path", "language", "bytes", "sha256"}
                    or type(source["bytes"]) is not int for source in sources)):
         raise ValueError()
-    if (_helper_manifest_sha(package) != proof["manifest_sha256"]
-            or _helper_sources(package, proof["target_path"], proof["declared_sources"]) != proof["sources"]):
+    mark("link_helper_manifest")
+    if _helper_manifest_sha(package) != proof["manifest_sha256"]:
         raise ValueError()
+    mark("link_helper_sources")
+    if _helper_sources(package, proof["target_path"], proof["declared_sources"]) != proof["sources"]:
+        raise ValueError()
+    mark("link_helper_bindings")
     # This remains within the existing build-receipt trust model. The manifest
     # digest binds the selected, evaluated descriptor; it is not a signature
     # against an actor rewriting every build input and both receipt files.
@@ -640,6 +675,29 @@ def write_inventory(build_root: Path, app: Path, configuration: str, managers, p
 
 
 def load_inventory(build_root: Path, app: Path, configuration="Release"):
+    """Keep exact receipts strict, but retain the specific validation boundary."""
+    root = build_root.resolve()
+    state = dict(schema_version=1, status='running', inventory_check='paths')
+    _validation_report(root, state)  # Invalidates any prior success before reading.
+    try:
+        result = _load_inventory(build_root, app, configuration, state)
+        state.pop('record_index', None)
+        state.update(status='complete', inventory_check='complete')
+        return result
+    except (InventoryError, OSError, ValueError, TypeError, KeyError, MachoError) as error:
+        cause = error.__cause__ if error.__cause__ is not None else error
+        kind = ('file_not_found' if isinstance(cause, FileNotFoundError) else
+                'permission' if isinstance(cause, PermissionError) else
+                'os_error' if isinstance(cause, OSError) else
+                'type_error' if isinstance(cause, TypeError) else 'value_error')
+        state.update(status='failed', exception_kind=kind)
+        diagnostic = dict(phase='inventory', inventory_check=state['inventory_check'], exception_kind=kind)
+        raise InventoryError('macos_dependency_inventory_missing_or_mismatched', diagnostic=diagnostic) from None
+    finally:
+        _validation_report(root, state)
+
+
+def _load_inventory(build_root: Path, app: Path, configuration, state):
     """Shared preparation/upload gate; never fall back to the old Pods file."""
     try:
         root = build_root.resolve()
@@ -647,23 +705,44 @@ def load_inventory(build_root: Path, app: Path, configuration="Release"):
         if any(path.is_symlink() or not path.resolve().is_relative_to(root)
                for path in (inventory_path, receipt_path)):
             raise ValueError()
+        state['inventory_check'] = 'inventory_read'
         raw = inventory_path.read_bytes()
-        value, receipt = json.loads(raw), json.loads(receipt_path.read_bytes())
-        managers = value["dependency_managers"]
-        if (value["schema_version"] != 2 or receipt["schema_version"] != 1
-                or managers not in (["pods"], ["spm"], ["pods", "spm"])
-                or receipt["dependency_managers"] != managers
-                or receipt["configuration"] != configuration
-                or receipt["inventory_sha256"] != hashlib.sha256(raw).hexdigest()
-                or receipt["app"] != app.resolve().relative_to(root).as_posix()
-                or receipt["runtime"] != runtime_modules(root, app)):
+        value = json.loads(raw)
+        state['inventory_check'] = 'receipt_read'
+        receipt = json.loads(receipt_path.read_bytes())
+        state['inventory_check'] = 'schema'
+        if value["schema_version"] != 2 or receipt["schema_version"] != 1:
             raise ValueError()
+        state['inventory_check'] = 'managers'
+        managers = value["dependency_managers"]
+        if managers not in (["pods"], ["spm"], ["pods", "spm"]) or receipt["dependency_managers"] != managers:
+            raise ValueError()
+        state['inventory_check'] = 'configuration'
+        if receipt["configuration"] != configuration: raise ValueError()
+        state['inventory_check'] = 'inventory_digest'
+        if receipt["inventory_sha256"] != hashlib.sha256(raw).hexdigest(): raise ValueError()
+        state['inventory_check'] = 'app_identity'
+        if receipt["app"] != app.resolve().relative_to(root).as_posix(): raise ValueError()
+        state['inventory_check'] = 'runtime_read'
+        actual = runtime_modules(root, app)
+        state['inventory_check'] = 'runtime_match'
+        expected = receipt['runtime']
+        state.update(expected_runtime_count=len(expected), actual_runtime_count=len(actual))
+        if expected != actual:
+            old = {row['target']: row for row in expected}
+            new = {row['target']: row for row in actual}
+            state.update(added_modules=len(new.keys()-old.keys()), removed_modules=len(old.keys()-new.keys()),
+                         changed_modules=sum(old[key] != new[key] for key in old.keys() & new.keys()))
+            raise ValueError()
+        state['inventory_check'] = 'record_lists'
         records, sources, binaries = value["products"], value["source_targets"], value["binary_targets"]
         if any(not isinstance(items, list) for items in (records, sources, binaries)):
             raise ValueError()
         runtime = {item["product"]: item for item in receipt["runtime"]}
         seen = set()
-        for item in records:
+        state['inventory_check'] = 'products'
+        for index, item in enumerate(records):
+            state['record_index'] = index
             product, target, source = label(item["product"]), label(item["target"]), item["source"]
             if (product in seen or source not in managers or product not in runtime
                     or target != runtime[product]["target"]):
@@ -671,24 +750,36 @@ def load_inventory(build_root: Path, app: Path, configuration="Release"):
             seen.add(product)
         seen = set()
         runtime_targets = {item["target"] for item in receipt["runtime"]}
-        for item in sources + binaries:
+        state['inventory_check'] = 'target_hosts'
+        for index, item in enumerate(sources + binaries):
+            state['record_index'] = index
             identity = (label(item["package"]), label(item["target"]))
             hosts = item["hosts"]
             if ("spm" not in managers or identity in seen or not isinstance(hosts, list)
                     or not hosts or len(set(hosts)) != len(hosts) or not set(hosts) <= runtime_targets):
                 raise ValueError()
             seen.add(identity)
-        for item in binaries:
+        state['inventory_check'] = 'binary_hosts'
+        for index, item in enumerate(binaries):
+            state['record_index'] = index
             if (not isinstance(item["dynamic_hosts"], list)
                     or not set(item["dynamic_hosts"]) <= set(item["hosts"])):
                 raise ValueError()
+        state['inventory_check'] = 'spm_graph'
         if "spm" in managers and not sources and not binaries:
             raise ValueError()
-        sources = [_validate_link_helper(item, root.parent, binaries) if "linker_only" in item else item for item in sources]
+        checked_sources = []
+        for index, item in enumerate(sources):
+            state['record_index'] = index
+            checked_sources.append(_validate_link_helper(item, root.parent, binaries, state) if "linker_only" in item else item)
+        sources = checked_sources
         value["source_targets"] = sources
+        state['inventory_check'] = 'source_ownership'
         owned_targets = {item["target"] for item in records} | {"runner", "rust_api", "librust_api.dylib", "rust_api.dylib", "FlClashCore"}
-        if any(not set(item["hosts"]) <= owned_targets for item in required_source_targets(sources)):
-            raise ValueError()
+        for index, item in enumerate(sources):
+            state['record_index'] = index
+            if not _verified_link_helper(item) and not set(item["hosts"]) <= owned_targets:
+                raise ValueError()
         return value
     except (OSError, ValueError, TypeError, KeyError, MachoError) as error:
         raise InventoryError("macos_dependency_inventory_missing_or_mismatched") from error

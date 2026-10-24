@@ -1,5 +1,7 @@
 # Xboard 客户端产品 CHANGELOG
 
+- macOS Sentry 库存校验保留具体失败检查项和安全报告，补齐 #125 元数据结构的双品牌/双架构回归；严格收据规则不放宽，生产触发分支仍待确认。
+
 - macOS 正式分架构打包向 Xcode 显式传递对应架构，避免通用包目标与单架构 Go 内核不一致；保留 Core slice 检查。
 
 - 修复 Windows Flutter 检查子进程启动；rustup 准备与真实 hook 回归统一按 PATH 定位，补齐正式入口的真实工具检查。

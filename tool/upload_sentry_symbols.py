@@ -28,7 +28,7 @@ from sentry_android_prefab import SENTRY_ANDROID_TARGETS
 from sentry_linux_inventory import LinuxInventoryError, collect_linux_inventory
 from sentry_macho import MachoError, inspect_macho, is_macho, static_archive_architectures
 from sentry_macos_inventory import (
-    InventoryError, LINKER_ONLY_LIMITATION, SOURCE_LINE_LIMITATION, load_inventory,
+    INVENTORY_CHECKS, InventoryError, LINKER_ONLY_LIMITATION, SOURCE_LINE_LIMITATION, load_inventory,
     required_source_targets, source_line_limitations,
 )
 from prepare_sentry_macos_symbols import contains_rust_debug, resolve_apple_tool
@@ -394,7 +394,9 @@ def audit_macos(cli: str, build_root: Path) -> tuple[list[Path], list[dict], lis
     try:
         owned = load_inventory(build_root, app)
     except InventoryError as error:
-        raise SymbolError("macOS dependency inventory/build receipt is missing or does not match the final app") from error
+        check = (error.diagnostic or {}).get('inventory_check')
+        suffix = ' [' + check + ']' if check in INVENTORY_CHECKS else ''
+        raise SymbolError("macOS dependency inventory/build receipt is missing or does not match the final app" + suffix) from error
     owned_products = {item["product"] for item in owned["products"]}
     owned_sources = {item["product"]: item["source"] for item in owned["products"]}
     try:

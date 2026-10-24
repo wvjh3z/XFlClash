@@ -1,0 +1,214 @@
+{
+  "binary_targets": [
+    {
+      "dynamic_hosts": [],
+      "hosts": [
+        "Sentry"
+      ],
+      "package": "Sentry",
+      "target": "Sentry"
+    }
+  ],
+  "dependency_managers": [
+    "spm"
+  ],
+  "products": [],
+  "schema_version": 2,
+  "source_targets": [
+    {
+      "hosts": [
+        "runner"
+      ],
+      "package": "FlutterFramework",
+      "target": "FlutterFramework"
+    },
+    {
+      "hosts": [
+        "runner"
+      ],
+      "package": "FlutterGeneratedPluginSwiftPackage",
+      "target": "FlutterGeneratedPluginSwiftPackage"
+    },
+    {
+      "hosts": [
+        "runner"
+      ],
+      "package": "LaunchAtLogin",
+      "target": "LaunchAtLogin"
+    },
+    {
+      "hosts": [
+        "Sentry"
+      ],
+      "linker_only": {
+        "binary_targets": [
+          {
+            "host": "Sentry",
+            "package": "Sentry",
+            "target": "Sentry"
+          }
+        ],
+        "declared_sources": null,
+        "linker_settings": [
+          {
+            "kind": "linkedLibrary",
+            "value": "c++"
+          }
+        ],
+        "manifest_sha256": "a5dc53530978e529415a658315fba6b97ae66a1fdf907e6b9c13b3412c773c25",
+        "package_path": "build/macos/SourcePackages/checkouts/sentry-cocoa",
+        "product": "Sentry",
+        "product_targets": [
+          "Sentry",
+          "SentryCppHelper"
+        ],
+        "reason": "comments_only_binary_link_helper_no_target_lines",
+        "schema_version": 1,
+        "sources": [
+          {
+            "bytes": 51,
+            "language": "swift",
+            "path": "Sources/SentryCppHelper/SentryCppHelper.swift",
+            "sha256": "de9fe1fd0ff090164c5ca0b91a52470bf84a73d8e42e1182d767794b75fa5981"
+          }
+        ],
+        "target_path": "Sources/SentryCppHelper"
+      },
+      "package": "Sentry",
+      "target": "SentryCppHelper"
+    },
+    {
+      "hosts": [
+        "runner"
+      ],
+      "package": "app_links",
+      "target": "app_links"
+    },
+    {
+      "hosts": [
+        "runner"
+      ],
+      "package": "connectivity_plus",
+      "target": "connectivity_plus"
+    },
+    {
+      "hosts": [
+        "runner"
+      ],
+      "package": "desktop_webview_window",
+      "target": "desktop_webview_window"
+    },
+    {
+      "hosts": [
+        "runner"
+      ],
+      "package": "device_info_plus",
+      "target": "device_info_plus"
+    },
+    {
+      "hosts": [
+        "runner"
+      ],
+      "package": "dynamic_color",
+      "target": "dynamic_color"
+    },
+    {
+      "hosts": [
+        "runner"
+      ],
+      "package": "file_picker_darwin",
+      "target": "file_picker_darwin"
+    },
+    {
+      "hosts": [
+        "runner"
+      ],
+      "package": "file_selector_macos",
+      "target": "file_selector_macos"
+    },
+    {
+      "hosts": [
+        "runner"
+      ],
+      "package": "flutter_secure_storage_darwin",
+      "target": "flutter_secure_storage_darwin"
+    },
+    {
+      "hosts": [
+        "runner"
+      ],
+      "package": "mobile_scanner",
+      "target": "mobile_scanner"
+    },
+    {
+      "hosts": [
+        "runner"
+      ],
+      "package": "package_info_plus",
+      "target": "package_info_plus"
+    },
+    {
+      "hosts": [
+        "runner"
+      ],
+      "package": "screen_retriever_macos",
+      "target": "screen_retriever_macos"
+    },
+    {
+      "hosts": [
+        "runner"
+      ],
+      "package": "sentry_flutter",
+      "target": "sentry_flutter"
+    },
+    {
+      "hosts": [
+        "runner"
+      ],
+      "package": "sentry_flutter",
+      "target": "sentry_flutter_objc"
+    },
+    {
+      "hosts": [
+        "runner"
+      ],
+      "package": "shared_preferences_foundation",
+      "target": "shared_preferences_foundation"
+    },
+    {
+      "hosts": [
+        "runner"
+      ],
+      "package": "sqflite_darwin",
+      "target": "sqflite_darwin"
+    },
+    {
+      "hosts": [
+        "runner"
+      ],
+      "package": "tray",
+      "target": "tray"
+    },
+    {
+      "hosts": [
+        "runner"
+      ],
+      "package": "url_launcher_macos",
+      "target": "url_launcher_macos"
+    },
+    {
+      "hosts": [
+        "runner"
+      ],
+      "package": "wifi_ssid",
+      "target": "wifi_ssid"
+    },
+    {
+      "hosts": [
+        "runner"
+      ],
+      "package": "window",
+      "target": "window"
+    }
+  ]
+}

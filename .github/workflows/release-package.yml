@@ -270,6 +270,7 @@ jobs:
           python tool/test/sentry_android_prefab_test.py
           python tool/test/sentry_macos_generation_test.py
           python tool/test/sentry_macos_spm_inventory_test.py
+          python tool/test/sentry_macos_receipt_validation_test.py
           python tool/test/sentry_macos_symbols_test.py
           if [ "${{ matrix.platform }}" = 'macos' ]; then
             python tool/test/sentry_macos_reader_test.py
@@ -646,6 +647,7 @@ jobs:
             build/toolchain-versions.json
             build/appimage-elf-audit.json
             build/linux-package-audit.json
+            build/macos/sentry-inventory-validation.json
             build/macos/sentry-native-inventory.json
             build/macos/sentry-native-build.json
             build/macos/sentry-manifest-diagnostics.json

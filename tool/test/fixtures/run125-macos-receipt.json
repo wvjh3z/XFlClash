@@ -1,0 +1,99 @@
+{
+  "app": "macos/Build/Products/Release/OmoFly.app",
+  "configuration": "Release",
+  "dependency_managers": [
+    "spm"
+  ],
+  "inventory_sha256": "8b5e602a0686ad67f3a39a758f22cb122ab88e1d55458b0c0e25123f25eabb36",
+  "runtime": [
+    {
+      "binary": "macos/Build/Products/Release/OmoFly.app/Contents/Frameworks/App.framework/Versions/A/App",
+      "product": "App.framework",
+      "target": "App",
+      "variants": [
+        {
+          "architecture": "arm64",
+          "uuid": "2d1cc969-71cf-e453-eb39-8f9c44525224"
+        }
+      ]
+    },
+    {
+      "binary": "macos/Build/Products/Release/OmoFly.app/Contents/MacOS/FlClashCore",
+      "product": "FlClashCore",
+      "target": "FlClashCore",
+      "variants": [
+        {
+          "architecture": "arm64",
+          "uuid": "9c6d0dcd-b5c1-3547-9298-63e86fab7901"
+        }
+      ]
+    },
+    {
+      "binary": "macos/Build/Products/Release/OmoFly.app/Contents/Frameworks/FlutterMacOS.framework/Versions/A/FlutterMacOS",
+      "product": "FlutterMacOS.framework",
+      "target": "FlutterMacOS",
+      "variants": [
+        {
+          "architecture": "arm64",
+          "uuid": "4c4c448d-5555-3144-a1c3-dc84bf75c22d"
+        }
+      ]
+    },
+    {
+      "binary": "macos/Build/Products/Release/OmoFly.app/Contents/Frameworks/Sentry.framework/Versions/A/Sentry",
+      "product": "Sentry.framework",
+      "target": "Sentry",
+      "variants": [
+        {
+          "architecture": "arm64",
+          "uuid": "2a8984b6-e8fd-3f81-bc44-d84a2650795c"
+        }
+      ]
+    },
+    {
+      "binary": "macos/Build/Products/Release/OmoFly.app/Contents/Frameworks/objective_c.framework/Versions/A/objective_c",
+      "product": "objective_c.framework",
+      "target": "objective_c",
+      "variants": [
+        {
+          "architecture": "arm64",
+          "uuid": "19755377-6c1b-30c6-abe1-bbfa3688749e"
+        }
+      ]
+    },
+    {
+      "binary": "macos/Build/Products/Release/OmoFly.app/Contents/MacOS/OmoFly",
+      "product": "runner",
+      "target": "runner",
+      "variants": [
+        {
+          "architecture": "arm64",
+          "uuid": "36416f74-abb4-31a2-a9cb-3ab1fb6ef48f"
+        }
+      ]
+    },
+    {
+      "binary": "macos/Build/Products/Release/OmoFly.app/Contents/Frameworks/rust_api.framework/Versions/A/rust_api",
+      "product": "rust_api.framework",
+      "target": "rust_api",
+      "variants": [
+        {
+          "architecture": "arm64",
+          "uuid": "c7bd4e0c-5b6f-3648-9079-75eb7b36fa3a"
+        }
+      ]
+    },
+    {
+      "binary": "macos/Build/Products/Release/OmoFly.app/Contents/Frameworks/sqlite3.framework/Versions/A/sqlite3",
+      "product": "sqlite3.framework",
+      "target": "sqlite3",
+      "variants": [
+        {
+          "architecture": "arm64",
+          "uuid": "6bd6c573-8e29-3bed-8e00-48c168787a39"
+        }
+      ]
+    }
+  ],
+  "schema_version": 1
+}
