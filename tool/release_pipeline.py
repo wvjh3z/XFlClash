@@ -59,6 +59,19 @@ def read_context(path):
     return c
 
 
+def package_environment(c, environment=None):
+    result = dict(os.environ if environment is None else environment)
+    if c['platform'] == 'macos':
+        arch = {'amd64': 'x86_64', 'arm64': 'arm64'}[c['arch']]
+        # Flutter forwards FLUTTER_XCODE_* as command-line build settings.
+        # Each release matrix row ships one architecture, not a universal app.
+        result.update(FLUTTER_XCODE_ARCHS=arch,
+                      FLUTTER_XCODE_EXCLUDED_ARCHS='arm64' if arch == 'x86_64' else 'x86_64',
+                      FLUTTER_XCODE_ONLY_ACTIVE_ARCH='NO',
+                      FLUTTER_MACOS_ARM64_ONLY='false')
+    return result
+
+
 def package_arguments(c):
     options = ['dart-define-from-file=env.json', 'build-name='+c['base_version'],
                'build-number='+str(c['build_number']), 'split-debug-info=build/debug-info']
@@ -236,7 +249,7 @@ def main(argv=None):
             native = Path(os.environ.get('FLUTTER_ROOT',''))/'bin/cache/dart-sdk/bin/dart.exe'
             dart = str(native) if os.name == 'nt' and native.is_file() else shutil.which('dart')
             if not dart: raise PipelineError('dart_missing')
-            return subprocess.run([dart,*package_arguments(c)], check=False).returncode
+            return subprocess.run([dart,*package_arguments(c)], env=package_environment(c), check=False).returncode
         return 0
     except (OSError, ValueError, TypeError, KeyError, PipelineError) as error:
         reason = str(error) if isinstance(error, PipelineError) else type(error).__name__

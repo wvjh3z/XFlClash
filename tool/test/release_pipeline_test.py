@@ -31,6 +31,27 @@ class PipelineTests(unittest.TestCase):
         self.root=Path(self.temp.name);self.dist=self.root/'dist';self.dist.mkdir()
         self.report=self.root/'report.json'
 
+    def test_mac_architecture_reaches_real_package_subprocess_for_both_brands(self):
+        for flavor in ('brand_a','brand_b'):
+            for arch, expected, excluded in [('amd64','x86_64','arm64'),('arm64','arm64','x86_64')]:
+                c=context('macos',arch,flavor=flavor)
+                path=self.root/'context.json';path.write_text(json.dumps(c))
+                inherited={'FLUTTER_XCODE_ARCHS':'arm64 x86_64','FLUTTER_XCODE_EXCLUDED_ARCHS':expected,
+                           'FLUTTER_MACOS_ARM64_ONLY':'true','KEEP':'sentinel'}
+                with mock.patch.dict(os.environ,inherited),mock.patch('verify_brand_identity.verify'), \
+                     mock.patch.object(pipeline.shutil,'which',return_value='dart-fixture'), \
+                     mock.patch.object(pipeline.subprocess,'run',return_value=mock.Mock(returncode=0)) as run:
+                    self.assertEqual(pipeline.main(['package','--context',str(path),'--dist',str(self.dist)]),0)
+                    env=run.call_args.kwargs['env']
+                    self.assertEqual(env['FLUTTER_XCODE_ARCHS'],expected)
+                    self.assertEqual(env['FLUTTER_XCODE_EXCLUDED_ARCHS'],excluded)
+                    self.assertEqual(env['FLUTTER_XCODE_ONLY_ACTIVE_ARCH'],'NO')
+                    self.assertEqual(env['FLUTTER_MACOS_ARM64_ONLY'],'false')
+                    self.assertEqual(env['KEEP'],'sentinel')
+                    self.assertEqual(os.environ['FLUTTER_XCODE_ARCHS'],'arm64 x86_64')
+        for platform,arch in [('android',''),('linux','amd64'),('windows','amd64')]:
+            self.assertEqual(pipeline.package_environment(context(platform,arch),{'KEEP':'value'}),{'KEEP':'value'})
+
     def test_context_rejects_unknown_secret_fields_and_invalid_identity(self):
         path=self.root/'context.json'
         for changes in ({'secret':'sensitive'}, {'build_number':0},{'build_number':True},{'platform':'windows','arch':'arm64'},
