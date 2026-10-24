@@ -38,7 +38,7 @@ class PipelineTests(unittest.TestCase):
                 path=self.root/'context.json';path.write_text(json.dumps(c))
                 inherited={'FLUTTER_XCODE_ARCHS':'arm64 x86_64','FLUTTER_XCODE_EXCLUDED_ARCHS':expected,
                            'FLUTTER_MACOS_ARM64_ONLY':'true','KEEP':'sentinel'}
-                with mock.patch.dict(os.environ,inherited),mock.patch('verify_brand_identity.verify'), \
+                with mock.patch.dict(os.environ,inherited),mock.patch('verify_brand_identity.verify'), mock.patch.object(pipeline,'record_final_macos_inventory'), \
                      mock.patch.object(pipeline.shutil,'which',return_value='dart-fixture'), \
                      mock.patch.object(pipeline.subprocess,'run',return_value=mock.Mock(returncode=0)) as run:
                     self.assertEqual(pipeline.main(['package','--context',str(path),'--dist',str(self.dist)]),0)

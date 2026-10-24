@@ -26,6 +26,7 @@ MODULES = (
     "tool.test.sentry_release_workflow_test",
     "tool.test.release_preflight_test",
     "tool.test.release_pipeline_test",
+    "tool.test.macos_final_inventory_test",
     "tool.test.linux_release_packages_test.ArchiveSafetyTests",
     "tool.test.fallback_assets_test",
     "tool.test.windows_webview_shutdown_test",

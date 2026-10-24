@@ -59,6 +59,36 @@ def read_context(path):
     return c
 
 
+def record_final_macos_inventory(root):
+    """Produce the receipt only after Flutter/Xcode and packaging have finished.
+
+    Prepare/upload never call this producer: their existing receipt validation
+    must continue to reject any later runtime mutation instead of rebasing it.
+    """
+    from sentry_macos_inventory import (collect_inventory, load_inventory, INVENTORY,
+                                        RECEIPT, VALIDATION_REPORT)
+    root = root.resolve()
+    build = root / 'build'
+    products = build / 'macos/Build/Products/Release'
+    apps = [path for path in products.glob('*.app') if path.is_dir()]
+    if len(apps) != 1 or not apps[0].resolve().is_relative_to(products.resolve()):
+        raise PipelineError('one_final_macos_app_required_for_inventory')
+    # A failed new collection must not leave a usable old success receipt.
+    paths = [build / name for name in (INVENTORY, RECEIPT, VALIDATION_REPORT)]
+    if any(path.is_symlink() or not path.resolve().is_relative_to(build.resolve()) for path in paths):
+        raise PipelineError('unsafe_macos_inventory_destination')
+    for path in paths:
+        path.unlink(missing_ok=True)
+    try:
+        collect_inventory(root, build, apps[0], 'Release', pods_root=root/'macos/Pods')
+        load_inventory(build, apps[0], 'Release')
+    except Exception:
+        for path in paths[:2]:
+            if not path.is_symlink() and path.resolve().is_relative_to(build.resolve()):
+                path.unlink(missing_ok=True)
+        raise PipelineError('macos_final_inventory_failed') from None
+
+
 def package_environment(c, environment=None):
     result = dict(os.environ if environment is None else environment)
     if c['platform'] == 'macos':
@@ -249,7 +279,10 @@ def main(argv=None):
             native = Path(os.environ.get('FLUTTER_ROOT',''))/'bin/cache/dart-sdk/bin/dart.exe'
             dart = str(native) if os.name == 'nt' and native.is_file() else shutil.which('dart')
             if not dart: raise PipelineError('dart_missing')
-            return subprocess.run([dart,*package_arguments(c)], env=package_environment(c), check=False).returncode
+            result = subprocess.run([dart,*package_arguments(c)], env=package_environment(c), check=False)
+            if result.returncode == 0 and c['platform'] == 'macos':
+                record_final_macos_inventory(Path.cwd())
+            return result.returncode
         return 0
     except (OSError, ValueError, TypeError, KeyError, PipelineError) as error:
         reason = str(error) if isinstance(error, PipelineError) else type(error).__name__

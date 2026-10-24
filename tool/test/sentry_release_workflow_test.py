@@ -317,6 +317,19 @@ class ReleaseWorkflowTests(unittest.TestCase):
         (self.root / "build/release-context.json").write_text(json.dumps(data))
         (self.root / "tool").mkdir(exist_ok=True)
         shutil.copyfile(WORKFLOW.parents[2] / "tool/release_pipeline.py", self.root / "tool/release_pipeline.py")
+        if platform == 'macos':
+            # This fixture tests command forwarding, not Swift graph evaluation.
+            # The real collector/receipt lifecycle is covered by macos_final_inventory_test.
+            (self.root/'build/macos/Build/Products/Release/Fixture.app').mkdir(parents=True,exist_ok=True)
+            (self.root/'tool/sentry_macos_inventory.py').write_text(
+                "INVENTORY='macos/sentry-native-inventory.json'\n"
+                "RECEIPT='macos/sentry-native-build.json'\n"
+                "VALIDATION_REPORT='macos/sentry-inventory-validation.json'\n"
+                "def collect_inventory(root,build,app,configuration,**kwargs):\n"
+                "    (build/'fixture-inventory-called').write_text('collected')\n"
+                "def load_inventory(build,app,configuration):\n"
+                "    assert (build/'fixture-inventory-called').read_text() == 'collected'\n",
+                encoding='utf-8')
         # This suite isolates argv forwarding; native injection is exercised by
         # brand_identity_cli_test using actual sources and the real Dart tool.
         from tool.verify_brand_identity import identity_fields, native_checks

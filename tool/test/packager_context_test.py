@@ -27,8 +27,17 @@ SOURCE = ROOT / '.local-build/tool-sources/flutter_distributor' / PACKAGER.PINNE
 
 
 def command(args, **kwargs):
-    return subprocess.run([str(x) for x in args], capture_output=True, check=True,
-                          timeout=60, **kwargs)
+    try:
+        return subprocess.run([str(x) for x in args], capture_output=True, check=True,
+                              timeout=60, **kwargs)
+    except subprocess.CalledProcessError as error:
+        # Preserve the real exit status, but do not dump arbitrary Git output.
+        text = (error.stderr or b'').decode('utf-8', errors='replace').lower()
+        category = ('path_too_long' if 'filename too long' in text or 'file name too long' in text else
+                    'invalid_revision' if 'invalid reference' in text or 'reference is not a tree' in text else
+                    'permission' if 'permission denied' in text else 'git_command_failed')
+        error.add_note('Git fixture diagnostic: ' + category)
+        raise
 
 
 class PackagerContextTests(unittest.TestCase):
@@ -149,7 +158,7 @@ class PackagerContextTests(unittest.TestCase):
 
     def test_default_cli_with_shallow_source_like_matrix_setup(self):
         shallow = self.root / 'shallow-source'
-        command(['git', 'clone', '--quiet', '--depth', '1', '--no-local', SOURCE.as_uri(), shallow])
+        command(['git', 'clone', '--quiet', '--depth', '1', '--no-local', '--config', 'core.longpaths=true', SOURCE.as_uri(), shallow])
         self.assertEqual(command(['git', 'rev-parse', '--is-shallow-repository'], cwd=shallow).stdout.strip(), b'true')
         with mock.patch(__name__ + '.SOURCE', shallow):
             self.test_real_cli_default_output_and_external_output_are_identical()
@@ -213,6 +222,7 @@ class PackagerContextTests(unittest.TestCase):
                                          PACKAGER.SOURCE_HASHES[name][0])
                 self.assertFalse(case.exists(), 'TemporaryDirectory must remove read-only files')
                 self.assertEqual(snapshot(), before, 'SOURCE object bytes/permissions/index/config changed')
+        self.assertEqual(len(snapshots), 3, 'All three independent checkout cases must succeed')
         self.assertEqual(snapshots, [snapshots[0]] * 3)
 
     def install_cli_fixture(self, *, repo=None, autocrlf=None):
@@ -228,9 +238,9 @@ class PackagerContextTests(unittest.TestCase):
         source = repo / '.local-build/tool-sources/flutter_distributor' / PACKAGER.PINNED_REVISION
         source.parent.mkdir(parents=True)
         if autocrlf is None:
-            command(['git', 'clone', '--quiet', '--shared', '--no-checkout', SOURCE, source])
+            command(['git', 'clone', '--quiet', '--shared', '--no-checkout', '--config', 'core.longpaths=true', SOURCE, source])
         else:
-            command(['git', 'clone', '--quiet', '--no-local', '--no-checkout', SOURCE.as_uri(), source])
+            command(['git', 'clone', '--quiet', '--no-local', '--no-checkout', '--config', 'core.longpaths=true', SOURCE.as_uri(), source])
             command(['git', 'config', 'core.autocrlf', autocrlf], cwd=source)
             command(['git', 'config', 'core.eol', 'crlf'], cwd=source)
         command(['git', 'checkout', '--quiet', '--detach', PACKAGER.PINNED_REVISION], cwd=source)
@@ -239,6 +249,35 @@ class PackagerContextTests(unittest.TestCase):
         if repo == self.repo:
             self.index = (repo / '.git/index').read_bytes()
         return tools
+
+    def test_nested_cold_clone_has_local_longpaths_without_global_config(self):
+        environment={**os.environ,'GIT_CONFIG_NOSYSTEM':'1','GIT_CONFIG_GLOBAL':os.devnull,'LC_ALL':'C'}
+        with mock.patch.dict(os.environ,environment):
+            repo=self.root/('nested-'+('n'*45))/'checkout'
+            command(['git','init','--quiet','--template=',repo])
+            self.install_cli_fixture(repo=repo)
+            source=repo/'.local-build/tool-sources/flutter_distributor'/PACKAGER.PINNED_REVISION
+            self.assertEqual(command(['git','config','--local','--get','core.longpaths'],cwd=source).stdout.strip(),b'true')
+            self.assertEqual(command(['git','rev-parse','HEAD'],cwd=source).stdout.decode().strip(),PACKAGER.PINNED_REVISION)
+            # A separate old-policy clone is a real Windows negative control.
+            # No index/config/object permissions in SOURCE are altered.
+            if os.name=='nt':
+                # Keep Git's own metadata paths below its internal PATH_MAX;
+                # only tracked worktree files should exceed Win32 MAX_PATH.
+                width=210-len(str(self.root))-1
+                self.assertGreater(width,len('old-policy-'))
+                bad=self.root/('old-policy-'+('n'*(width-len('old-policy-'))))
+                command(['git','clone','--quiet','--shared','--no-checkout','--config','core.longpaths=true',SOURCE,bad])
+                names=command(['git','ls-tree','-r','--name-only',PACKAGER.PINNED_REVISION],cwd=bad).stdout.decode().splitlines()
+                self.assertGreater(max(len(str(bad/name)) for name in names),260)
+                # Prepare metadata with long paths, then reproduce the old
+                # policy specifically at checkout (not during clone setup).
+                command(['git','config','core.longpaths','false'],cwd=bad)
+                with self.assertRaises(subprocess.CalledProcessError) as error:
+                    command(['git','checkout','--quiet','--detach',PACKAGER.PINNED_REVISION],cwd=bad)
+                self.assertIn('path_too_long',' '.join(error.exception.__notes__))
+            with self.assertRaises(subprocess.CalledProcessError):
+                command(['git','checkout','--quiet','--detach','xflclash-missing-revision-control'],cwd=source)
 
     def test_real_cli_default_output_and_external_output_are_identical(self):
         tools = self.install_cli_fixture()
