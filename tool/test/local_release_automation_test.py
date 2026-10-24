@@ -302,6 +302,20 @@ class PostbuildTests(unittest.TestCase):
                 for call in run.call_args_list:
                     self.assertNotIn("SENTRY_AUTH_TOKEN", call.kwargs["environment"])
 
+    def test_expected_abis_forwarded_to_preparer_for_both_brands(self):
+        for brand in ('brand_a', 'brand_b'):
+            self.defines.write_text(json.dumps({'XB_FLAVOR_ID': brand, 'XB_DEBUG': 'false', 'XB_SENTRY_DSN': 'fixture'}))
+            arguments = ['--project-root', str(self.root), '--platform', 'android', '--flavor', brand,
+                         '--package', 'arm.apk', '--package', 'arm64.apk',
+                         '--expected-abi', 'armeabi-v7a', '--expected-abi', 'arm64-v8a']
+            with mock.patch.object(postbuild, 'resolve_cli', return_value='fixture'), mock.patch.object(
+                    postbuild, 'run_checked', side_effect=postbuild.ReleaseError('controlled stop')) as run:
+                self.assertEqual(postbuild.main(arguments), 1)
+            command = run.call_args.args[0]
+            self.assertEqual([command[i+1] for i,x in enumerate(command) if x == '--expected-abi'],
+                             ['armeabi-v7a', 'arm64-v8a'])
+            self.assertEqual(run.call_count, 1)
+
     def test_prepare_failure_prevents_upload(self):
         with mock.patch.object(postbuild, "prepare_windows_assets"), mock.patch.object(postbuild, "resolve_cli", return_value="fake-cli"), mock.patch.object(postbuild, "run_checked", side_effect=postbuild.ReleaseError("prepared failed")) as run:
             self.assertEqual(postbuild.main([*self.arguments, "--package", "final.apk"]), 1)

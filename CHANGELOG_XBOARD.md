@@ -1,5 +1,7 @@
 # Xboard 客户端产品 CHANGELOG
 
+- Android 双 ABI 符号准备增加逐库 ELF 清单、区分架构/Build ID 失败并保留安全报告；GitHub 显式校验 ARM32/ARM64 集合。#122 具体库根因仍待成品诊断复验。
+
 > **本文件是 XFlclash「产品」变更记录**，当前为形态 A「首页 / 节点 / 我的」商业客户端。
 > 与上游 `CHANGELOG.md`（FlClash 自身发版）分开维护；同步上游时保留本 fork 的产品记录。
 >

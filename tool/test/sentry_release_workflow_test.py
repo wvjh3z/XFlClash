@@ -538,6 +538,8 @@ class ReleaseWorkflowTests(unittest.TestCase):
                 self.assertNotIn("fixture-credential-only", " ".join(arguments))
                 if platform == "android":
                     self.assertEqual(arguments.count("--package"), 2)
+                    self.assertEqual([arguments[i+1] for i,x in enumerate(arguments) if x == '--expected-abi'],
+                                     ['armeabi-v7a', 'arm64-v8a'])
                 elif platform == "linux":
                     self.assertEqual(arguments[arguments.index("--architecture") + 1],
                                      "x64" if architecture == "amd64" else "arm64")

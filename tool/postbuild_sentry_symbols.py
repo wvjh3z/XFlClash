@@ -91,6 +91,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--build-root", type=Path, default=Path("build"))
     parser.add_argument("--defines", type=Path, default=Path("flavor_defines.json"))
     parser.add_argument("--package", type=Path, action="append", default=[])
+    parser.add_argument("--expected-abi", action="append", choices=("armeabi-v7a", "arm64-v8a", "x86_64"), default=[])
     parser.add_argument("--architecture", choices=("x64", "arm64"))
     parser.add_argument("--app", type=Path)
     parser.add_argument("--sentry-cli")
@@ -156,6 +157,8 @@ def main(argv: list[str] | None = None) -> int:
             if args.platform == "android":
                 if not args.package:
                     raise ReleaseError("Android release symbols require the final APK path(s)")
+                for abi in args.expected_abi:
+                    prepare.extend(["--expected-abi", abi])
                 for package in args.package:
                     prepare.extend(["--package", str(package)])
             elif args.architecture:

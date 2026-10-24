@@ -78,6 +78,7 @@ class Preparer:
         self.limitations = []
         self.required = set()
         self._seen = set()
+        self.current = {}
 
     def limitation(self, target: str, architecture: str, source: str, reason: str):
         item = dict(target=target, architecture=architecture, source=source, reason=reason)
@@ -94,15 +95,16 @@ class Preparer:
 
     def add(self, target: str, architecture: str, binary: Path,
             candidates: list[Path], source: str, required: bool):
+        self.current.update(module=target, abi=architecture, source=source)
         if required:
             self.required.add((target, architecture))
         actual = self._info(binary)
         expected_arch = (ANDROID_ARCH if self.platform == "android" else LINUX_ARCH)[architecture]
         if actual["architecture"] != expected_arch:
-            raise PreparationError("missing_or_invalid_runtime_build_id")
+            raise PreparationError("runtime_architecture_mismatch")
         if not actual["build_id"]:
             if required:
-                raise PreparationError("missing_or_invalid_runtime_build_id")
+                raise PreparationError("runtime_build_id_missing")
             self.limitation(target, architecture, source, "prebuilt_build_id_unavailable")
             return
         key = (target, architecture)
@@ -198,6 +200,7 @@ class Preparer:
                     if not REQUIRED_ANDROID <= modules.keys():
                         raise PreparationError("required_apk_native_module_missing")
                     for name, binary in sorted(modules.items()):
+                        self.current = dict(package_index=package_index, abi=abi, module=name)
                         if name == "libapp.so":
                             self.limitation(name, abi, "dart", "split_debug_info_managed_separately")
                             continue
@@ -275,26 +278,56 @@ def main(argv=None):
     parser.add_argument("--package", type=Path, action="append", default=[])
     parser.add_argument("--architecture", choices=list(LINUX_ARCH), default="x64")
     parser.add_argument("--configuration", choices=["release", "profile"], default="release")
+    parser.add_argument("--expected-abi", action="append", choices=list(ANDROID_ARCH), default=[])
     args = parser.parse_args(argv)
+    report_path = args.build_root / "sentry-native-preparation.json"
+    report = dict(schema_version=1, platform=args.platform, status="failed", errors=[])
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    report_path.unlink(missing_ok=True)
+    preparer = None
     try:
         objcopy = args.objcopy or resolve_objcopy(args.platform, args.build_root.resolve().parent)
         preparer = Preparer(args.build_root, args.platform, objcopy)
+        if args.platform == "android":
+            from sentry_android_inventory import inventory
+            report = inventory(args.package, args.expected_abi)
+            if report["errors"]:
+                raise PreparationError(report["errors"][0]["code"])
         if args.platform == "android":
             preparer.android(args.package)
         else:
             preparer.linux(args.architecture, args.configuration)
         preparer.finish()
+        report["status"] = "prepared"
         print("native_debug_companions_prepared")
         return 0
     except PreparationError as error:
         code = str(error)
         if not re.fullmatch(r"[a-z_]+", code):
             code = "native_debug_companion_preparation_failed"
+        report["status"] = "failed"
+        report["failure_code"] = code
+        if not report["errors"]:
+            report["errors"].append(dict(code=code, **(preparer.current if preparer else {})))
         print(code, file=sys.stderr)
+        for detail in report["errors"]:
+            print(json.dumps(detail, ensure_ascii=True), file=sys.stderr)
         return 1
     except (OSError, ValueError, zipfile.BadZipFile):
+        report["status"] = "failed"
+        report["failure_code"] = "native_debug_companion_preparation_failed"
         print("native_debug_companion_preparation_failed", file=sys.stderr)
         return 1
+
+    finally:
+        descriptor, temporary = tempfile.mkstemp(prefix=".native-preparation-", dir=report_path.parent)
+        try:
+            with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+                json.dump(report, stream, indent=2)
+                stream.write("\n")
+            os.replace(temporary, report_path)
+        finally:
+            Path(temporary).unlink(missing_ok=True)
 
 
 if __name__ == "__main__":
