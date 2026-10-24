@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 import re
+import shutil
 from pathlib import Path
 import platform
 import plistlib
@@ -70,6 +71,14 @@ def prepare_android_names(root):
     path.write_text(source,encoding='utf-8')
 
 
+def resolve_rustup(environment=None):
+    environment = os.environ if environment is None else environment
+    executable = shutil.which('rustup', path=environment.get('PATH', ''))
+    if not executable:
+        raise RuntimeError('rustup unavailable on the native preparation PATH')
+    return str(Path(executable).absolute())
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('--platform', required=True, choices=('android','linux','macos','windows'))
@@ -82,8 +91,9 @@ def main():
     if args.platform == 'macos':
         prepare_macos_renderer(ROOT, args.architecture)
     if args.install_rust_targets:
-        subprocess.run(['rustup','toolchain','install',PINS['rust'],'--profile','minimal'],check=True,timeout=600)
-        subprocess.run(['rustup','target','add','--toolchain',PINS['rust'],*targets(args.platform,args.architecture)],check=True,timeout=600)
+        rustup = resolve_rustup()
+        subprocess.run([rustup,'toolchain','install',PINS['rust'],'--profile','minimal'],check=True,timeout=600)
+        subprocess.run([rustup,'target','add','--toolchain',PINS['rust'],*targets(args.platform,args.architecture)],check=True,timeout=600)
     print('Native inputs ready for '+args.platform+' (fixed CA checksum and Rust target policy)')
 
 

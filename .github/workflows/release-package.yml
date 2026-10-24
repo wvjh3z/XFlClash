@@ -397,7 +397,10 @@ jobs:
         timeout-minutes: 5
         env:
           XFLCLASH_TEST_PLATFORM: ${{ matrix.platform }}
-        run: python tool/test/native_release_migration_test.py
+          XFLCLASH_REAL_LAUNCHER_TEST: '1'
+        run: |
+          python tool/test/native_release_migration_test.py
+          python tool/test/native_launcher_test.py
 
       # µ-8 顺序：SDK build_runner → client build_runner。
       - name: SDK build_runner

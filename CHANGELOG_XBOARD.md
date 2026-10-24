@@ -1,5 +1,7 @@
 # Xboard 客户端产品 CHANGELOG
 
+- 修复 Windows Flutter 检查子进程启动；rustup 准备与真实 hook 回归统一按 PATH 定位，补齐正式入口的真实工具检查。
+
 - Android 双 ABI 符号准备增加逐库 ELF 清单、区分架构/Build ID 失败并保留安全报告；GitHub 显式校验 ARM32/ARM64 集合。#123 已定位 ARM32 Go 库缺 Build ID，修复外链参数并增加 Flutter 编译前双 ABI 实际链接门禁；修正 macOS 路径别名预期和 Windows 越界负控的清单注入。正式成品仍待复验。
 
 > **本文件是 XFlclash「产品」变更记录**，当前为形态 A「首页 / 节点 / 我的」商业客户端。

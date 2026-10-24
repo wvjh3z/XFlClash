@@ -99,6 +99,17 @@ def flutter_test_commands(script):
 
 
 class ReleaseWorkflowStructureTests(unittest.TestCase):
+    def test_formal_launcher_gate_runs_real_tools_after_dependencies(self):
+        workflow=WORKFLOW.read_text(encoding='utf-8')
+        start=workflow.index('name: Check build tool encoding and launchers')
+        block=workflow[start:workflow.index('      - name:',start)]
+        self.assertLess(workflow.index('name: Client pub get'),start)
+        self.assertLess(start,workflow.index('name: Check Rust Native Assets symbol handoff'))
+        self.assertIn("XFLCLASH_REAL_LAUNCHER_TEST: '1'",block)
+        self.assertEqual([shlex.split(line) for line in step_script('Check build tool encoding and launchers').splitlines()],
+                         [['python','tool/test/native_release_migration_test.py'],['python','tool/test/native_launcher_test.py']])
+        self.assertNotIn('continue-on-error',block)
+
     def test_android_go_link_gate_has_tools_and_precedes_flutter(self):
         workflow = WORKFLOW.read_text(encoding='utf-8')
         gate = workflow.index('name: Check Android Go symbol link contract')

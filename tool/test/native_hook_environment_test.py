@@ -17,6 +17,9 @@ from urllib.parse import urlparse
 from urllib.request import url2pathname
 
 ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT/'tool'))
+from prepare_native_build import resolve_rustup
+
 PINS = json.loads((ROOT/'tool/native_toolchain.json').read_text(encoding='utf-8'))
 
 
@@ -103,13 +106,11 @@ class HookBoundaryTests(unittest.TestCase):
         self.assertIn('differs from the fixed version',result.stderr)
 
     def test_real_rustup_runs_fixed_toolchain_after_actual_filtering(self):
-        cargo_home = Path(os.environ.get('CARGO_HOME', str(Path.home()/'.cargo')))
-        rustup = cargo_home/('bin/rustup.exe' if os.name == 'nt' else 'bin/rustup')
-        self.assertTrue(rustup.is_file(), 'Formal native preparation must install rustup')
         environment = dict(self.environment)
         # Do not use this developer machine's wrapper or the fake executable.
         environment['PATH'] = os.pathsep.join(part for part in environment.get('PATH','').split(os.pathsep)
                                              if part != str(self.fake_bin) and 'native-launchers' not in part)
+        rustup = resolve_rustup(environment)
         rustup_home = Path(os.environ.get('RUSTUP_HOME', str(Path.home()/'.rustup')))
         if rustup_home.resolve() != (Path.home()/'.rustup').resolve():
             # Test the default-home lookup used by a clean Runner without
