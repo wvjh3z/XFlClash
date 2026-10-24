@@ -27,7 +27,12 @@ def production_flags():
     flags = json.loads('[' + match[1] + ']')
     if not all(isinstance(flag, str) for flag in flags):
         raise ValueError('Invalid Android Go linker policy')
-    return flags
+    # Match Gradle: shared config precedes the Android symbol-preserving overrides.
+    configured = re.search(r'^go_ldflags:\s*("[^"\n]*")\s*$',
+                           (ROOT/'build_config.yaml').read_text(encoding='utf-8'), re.M)
+    if not configured:
+        raise ValueError('Shared Go linker flags missing')
+    return json.loads(configured[1]).split() + flags
 
 
 class AndroidGoBuildIdTests(unittest.TestCase):
@@ -77,6 +82,7 @@ class AndroidGoBuildIdTests(unittest.TestCase):
                     for path in [runtime,debug]:
                         self.assertEqual(inspect_elf(path)['build_id'],info['build_id'])
                         self.assertEqual(inspect_elf(path)['architecture'],expected)
+                    self.assertFalse(inspect_elf(runtime)['has_debug_info'])
                     self.assertTrue(inspect_elf(debug)['has_debug_info'])
                     self.assertFalse(inspect_elf(debug)['has_executable_text'])
                     if arch=='arm':

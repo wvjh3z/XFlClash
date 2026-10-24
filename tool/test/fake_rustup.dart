@@ -18,6 +18,9 @@ void main(List<String> args) {
     return;
   }
   if (args.isNotEmpty && args.first == 'build') {
+    File('${control.parent.path}/go-arguments.json').writeAsStringSync(
+      jsonEncode(args),
+    );
     final output = File(args[args.indexOf('-o') + 1]);
     output.parent.createSync(recursive: true);
     if (config['failBuild'] == true) {

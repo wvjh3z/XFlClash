@@ -1,5 +1,7 @@
 # Xboard 客户端产品 CHANGELOG
 
+- 恢复上游 Go 内核精简配置，两个品牌 Windows 发布内核移除调试信息；Linux/macOS/Android 保留各自生成匹配 Sentry 符号的覆盖参数，补齐正式 hook 参数及缓存失效回归。
+
 - macOS 库存改在正式打包完成后生成，移除过早的 Xcode 库存阶段；Windows 冷缓存夹具独立设置 longpaths，保留真实失败并补全正负控。
 
 - macOS Sentry 库存校验保留具体失败检查项和安全报告，补齐 #125 元数据结构的双品牌/双架构回归；严格收据规则不放宽，生产触发分支仍待确认。

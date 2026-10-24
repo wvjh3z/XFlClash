@@ -229,6 +229,75 @@ class HookBoundaryTests(unittest.TestCase):
                 self.assertFalse(run()['rebuilt'])
                 self.assertEqual(next(path for path in files if path.name=='FlClashCore'+('.exe' if platform=='windows' else '')).read_bytes(),before)
 
+    def test_release_go_flags_and_cache_recovery_preserve_symbol_platforms(self):
+        # Drive the real CoreBuilder -> config -> GoBuilder command, not a copy
+        # of its flag assembly. Fake Go records argv; no client is compiled.
+        for name in ('prepare_sentry_macos_symbols.py', 'sentry_macho.py'):
+            shutil.copyfile(ROOT/'tool'/name, self.root/'tool'/name)
+        production = (ROOT/'build_config.yaml').read_text(encoding='utf-8')
+        config = self.root/'build_config.yaml'
+        argv_file = self.fake_bin/'go-arguments.json'
+        def flags():
+            argv = json.loads(argv_file.read_text(encoding='utf-8'))
+            return next(a.partition('=')[2] for a in argv if a.startswith('-ldflags='))
+        def switches(value):
+            # Go boolean flag semantics: the last occurrence wins.
+            values = {}
+            for token in value.split():
+                key, _, val = token.partition('=')
+                if key in ('-w', '-s'):
+                    values[key] = val != 'false'
+            return values
+        for flavor in ('brand_a', 'brand_b'):
+            for platform in ('windows', 'linux', 'macos'):
+                with self.subTest(flavor=flavor, platform=platform):
+                    # Brand does not alter linker policy. Use its release name
+                    # to also cover the branded build-config fingerprint.
+                    text = production.replace('core_name: FlClashCore',
+                                              'core_name: '+flavor+'Core')
+                    config.write_text(text.replace('go_ldflags: "-w -s"',
+                                                   'go_ldflags: ""'), encoding='utf-8')
+                    self.fixture('go', platform)
+                    old = switches(flags())
+                    if platform == 'windows':
+                        self.assertFalse(old.get('-w', False))
+                        self.assertFalse(old.get('-s', False))
+                    config.write_text(text, encoding='utf-8')
+                    self.assertTrue(self.fixture('go', platform)['rebuilt'])
+                    self.assertEqual(switches(flags()),
+                                     {'-w': platform == 'windows', '-s': platform == 'windows'})
+                    self.assertIn('-X github.com/metacubex/mihomo/constant.Version=', flags())
+                    self.assertFalse(self.fixture('go', platform)['rebuilt'])
+
+    def test_windows_real_go_pe_strips_debug_with_production_arguments(self):
+        import struct
+        go = shutil.which('go')
+        self.assertIsNotNone(go, 'Pinned Go is required for the PE regression')
+        shutil.copyfile(ROOT/'build_config.yaml', self.root/'build_config.yaml')
+        self.fixture('go', 'windows')
+        argv = json.loads((self.fake_bin/'go-arguments.json').read_text(encoding='utf-8'))
+        flags = next(a for a in argv if a.startswith('-ldflags='))
+        source = self.root/'minimal.go'
+        source.write_text('package main\nfunc main() { println("fixture") }\n', encoding='utf-8')
+        env = {**os.environ, 'GOOS':'windows', 'GOARCH':'amd64', 'CGO_ENABLED':'0', 'GOWORK':'off'}
+        def sections(path):
+            data = path.read_bytes()
+            pe = struct.unpack_from('<I', data, 0x3c)[0]
+            self.assertEqual(data[pe:pe+4], b'PE\0\0')
+            count = struct.unpack_from('<H', data, pe+6)[0]
+            optional = struct.unpack_from('<H', data, pe+20)[0]
+            start = pe+24+optional
+            return [data[start+i*40:start+i*40+8].rstrip(b'\0') for i in range(count)]
+        # Go's Windows DWARF uses .zdebug_* section names and PE long-name
+        # references (/offset). Both disappear with the release -w -s policy.
+        paths = [self.root/'old.exe', self.root/'release.exe']
+        for path, argument in zip(paths, ['-ldflags=', flags]):
+            result = invoke([go, 'build', argument, '-o', path, source], env=env, cwd=self.root)
+            self.assertEqual(result.returncode, 0, result.stdout+result.stderr)
+        self.assertTrue(any(n.startswith((b'/', b'.debug', b'.zdebug')) for n in sections(paths[0])))
+        self.assertFalse(any(n.startswith((b'/', b'.debug', b'.zdebug')) for n in sections(paths[1])))
+        self.assertLess(paths[1].stat().st_size, paths[0].stat().st_size)
+
     def test_rust_capture_settles_with_the_real_pre_run_timestamp(self):
         for platform in ('android','linux','windows','macos'):
             with self.subTest(platform=platform):
