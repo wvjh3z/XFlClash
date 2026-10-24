@@ -1,5 +1,7 @@
 # Xboard 客户端产品 CHANGELOG
 
+- Linux WebKit 品牌隔离预检改为显式等待 Xvfb 就绪、独立 D-Bus 会话及阶段诊断，统一清理测试进程组；补齐受控时钟和真实超时/退出负控，客户端运行逻辑不变。
+
 - 恢复上游 Go 内核精简配置，两个品牌 Windows 发布内核移除调试信息；Linux/macOS/Android 保留各自生成匹配 Sentry 符号的覆盖参数，补齐正式 hook 参数及缓存失效回归。
 
 - macOS 库存改在正式打包完成后生成，移除过早的 Xcode 库存阶段；Windows 冷缓存夹具独立设置 longpaths，保留真实失败并补全正负控。

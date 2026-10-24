@@ -525,7 +525,7 @@ jobs:
         run: |
           set -euo pipefail
           sudo apt-get update -y
-          sudo apt-get install -y xvfb ninja-build libgtk-3-dev libayatana-appindicator3-dev libkeybinder-3.0-dev locate file squashfs-tools
+          sudo apt-get install -y xvfb dbus-daemon ninja-build libgtk-3-dev libayatana-appindicator3-dev libkeybinder-3.0-dev locate file squashfs-tools
           # 桌面 WebView（desktop_webview_window）需 webkit2gtk-4.1 + libsoup-3.0（插件 CMake REQUIRED）。
           # sentry-native（原生崩溃上报）CMake find_package(CURL) 需 libcurl dev。
           # flutter_secure_storage_linux 需 libsecret-1 + jsoncpp（arm64 runner 不自带）。

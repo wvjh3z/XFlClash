@@ -15,6 +15,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 MODULES = (
+    "tool.test.webkit_probe_support_test",
     "tool.test.release_request_test",
     "tool.test.brand_identity_cli_test.CatalogTests",
     "tool.test.android_ndk_environment_test",
