@@ -245,7 +245,7 @@ val bindCore =
         tags.set(buildConfig.map { it["tags"].orEmpty() })
         ldflags.set(
             buildConfig.map { config ->
-                val flags = config["go_ldflags"].orEmpty().split(" ").filter { it.isNotEmpty() } + listOf("-s=false", "-w=false", "-B", "gobuildid")
+                val flags = config["go_ldflags"].orEmpty().split(" ").filter { it.isNotEmpty() } + listOf("-s=false", "-w=false", "-B", "gobuildid", "-extldflags=-Wl,--build-id=sha1")
                 val version = config["core_version"].orEmpty()
                 (flags + listOfNotNull(version.takeIf { it.isNotEmpty() }?.let { "-X=github.com/metacubex/mihomo/constant.Version=$it" }))
                     .joinToString(" ")

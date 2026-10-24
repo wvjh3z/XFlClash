@@ -99,6 +99,18 @@ def flutter_test_commands(script):
 
 
 class ReleaseWorkflowStructureTests(unittest.TestCase):
+    def test_android_go_link_gate_has_tools_and_precedes_flutter(self):
+        workflow = WORKFLOW.read_text(encoding='utf-8')
+        gate = workflow.index('name: Check Android Go symbol link contract')
+        self.assertLess(workflow.index('name: Setup Go'), gate)
+        self.assertLess(workflow.index('name: Bind pinned NDK environment (Android)'), gate)
+        self.assertLess(gate, workflow.index('name: Setup Flutter (pinned)'))
+        self.assertEqual(shlex.split(step_script('Check Android Go symbol link contract')),
+                         ['python', 'tool/test/android_go_build_id_test.py'])
+        block = workflow[gate:workflow.index('      - name:', gate)]
+        self.assertIn("if: matrix.platform == 'android'", block)
+        self.assertNotIn('continue-on-error', block)
+
     def test_fallback_checks_precede_compilation_and_symbol_upload(self):
         workflow = WORKFLOW.read_text(encoding='utf-8')
         before = workflow.index('name: Check fallback selection before brand injection')

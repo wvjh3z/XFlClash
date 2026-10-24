@@ -232,11 +232,21 @@ class RustManifestTests(unittest.TestCase):
                     self.assertTrue({'rust_api', 'FlClashHelperService'} <= {row['target'] for row in data['native']})
                     # The same bytes outside the actual build root remain
                     # forbidden; the fix must not disable containment checks.
-                    outside = build.parent/'outside.pdb'; outside.write_bytes(b'matching')
-                    text = manifest.read_text(encoding='utf-8')
-                    manifest.write_text(text.replace(str(hook/'rust_api.pdb'), str(outside)), encoding='utf-8')
-                    self.assertEqual(uploader.main(arguments), 1)
-                    self.assertIn('escaped its build root', json.loads(report.read_text())['error'])
+                    outside = build.parent/'outside 中文.pdb'; outside.write_bytes(b'matching')
+                    original = manifest.read_text(encoding='utf-8')
+                    for spelling in (str(outside), outside.as_posix()):
+                        rows = [line.split('\t') for line in original.splitlines()]
+                        targets = [row for row in rows if row[0] == 'rust_api']
+                        self.assertEqual(len(targets), 1)
+                        self.assertEqual(Path(targets[0][2]).resolve(), (hook/'rust_api.pdb').resolve())
+                        targets[0][2] = spelling
+                        changed = ''.join('\t'.join(row)+'\n' for row in rows)
+                        self.assertNotEqual(changed, original, 'Negative control must actually alter the manifest')
+                        manifest.write_text(changed, encoding='utf-8', newline='\n')
+                        actual = [line.split('\t') for line in manifest.read_text(encoding='utf-8').splitlines()]
+                        self.assertEqual(Path(next(row[2] for row in actual if row[0]=='rust_api')).resolve(), outside.resolve())
+                        self.assertEqual(uploader.main(arguments), 1)
+                        self.assertIn('escaped its build root', json.loads(report.read_text(encoding='utf-8'))['error'])
 
     @unittest.skipUnless(shutil.which('cmake') and (os.name=='nt' or shutil.which('c++')), 'CMake compiler unavailable')
     def test_cmake_owns_native_targets_but_has_no_deleted_cargokit_target(self):

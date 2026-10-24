@@ -346,6 +346,11 @@ jobs:
           SELECTED_NDK: ${{ steps.android_ndk.outputs.ndk-path }}
         run: python tool/android_ndk_environment.py --path "$SELECTED_NDK" --github-env
 
+      # gomobile uses clang --target; Go's ARM32 flag probe can miss Build ID.
+      - name: Check Android Go symbol link contract
+        if: matrix.platform == 'android'
+        run: python tool/test/android_go_build_id_test.py
+
       - name: Enable git long paths (Windows)
         if: matrix.platform == 'windows'
         run: git config --global core.longpaths true

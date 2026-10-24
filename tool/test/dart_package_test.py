@@ -22,10 +22,34 @@ class DartPackageTests(unittest.TestCase):
             flutter=root/'flutter';dart=flutter/('bin/cache/dart-sdk/bin/dart.exe' if os.name=='nt' else 'bin/cache/dart-sdk/bin/dart');dart.parent.mkdir(parents=True);dart.touch()
             graph.write_text(json.dumps({'packages':[{'name':'build_runner','rootUri':package.as_uri()}]}),encoding='utf-8')
             argv=dart_package.command('build_runner',['build','中文参数'],root=root,flutter=flutter)
-            self.assertEqual(argv,[str(dart),'--packages='+str(graph),str(source),'build','中文参数'])
+            self.assertEqual(argv,[str(dart),'--packages='+str(graph.resolve()),str(source),'build','中文参数'])
             source.unlink()
             with self.assertRaises(ValueError):dart_package.command('build_runner',[],root=root,flutter=flutter)
             with self.assertRaises(ValueError):dart_package.command('arbitrary',[],root=root,flutter=flutter)
+
+    def test_directory_alias_preserves_arguments_and_resolves_package_graph(self):
+        with tempfile.TemporaryDirectory(prefix='dart-alias-中文-') as folder:
+            real=Path(folder)/'real space'; real.mkdir()
+            alias=Path(folder)/'alias space'
+            if os.name == 'nt':
+                result=subprocess.run(['cmd','/c','mklink','/J',str(alias),str(real)],capture_output=True)
+                self.assertEqual(result.returncode,0)
+            else:
+                alias.symlink_to(real,target_is_directory=True)
+            try:
+                graph=alias/'.dart_tool/package_config.json';graph.parent.mkdir()
+                package=alias/'package space';(package/'bin').mkdir(parents=True)
+                source=package/'bin/build_runner.dart';source.write_text('fixture',encoding='utf-8')
+                flutter=alias/'flutter';dart=flutter/('bin/cache/dart-sdk/bin/dart.exe' if os.name=='nt' else 'bin/cache/dart-sdk/bin/dart')
+                dart.parent.mkdir(parents=True);dart.touch()
+                graph.write_text(json.dumps({'packages':[{'name':'build_runner','rootUri':package.as_uri()}]}),encoding='utf-8')
+                argv=dart_package.command('build_runner',['build','中文参数','two words'],root=alias,flutter=flutter)
+                self.assertEqual(argv,[str(dart),'--packages='+str(graph.resolve()),str(source),'build','中文参数','two words'])
+                source.unlink()
+                with self.assertRaises(ValueError):dart_package.command('build_runner',[],root=alias,flutter=flutter)
+            finally:
+                if os.name == 'nt': alias.rmdir()
+                else: alias.unlink()
 
     def test_real_vm_does_not_execute_a_failing_native_hook(self):
         flutter=Path(os.environ['FLUTTER_ROOT'])
