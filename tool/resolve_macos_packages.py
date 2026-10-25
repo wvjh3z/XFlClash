@@ -8,10 +8,10 @@ List targets Runner.xcodeproj and skips package updates only. Plugin and package
 signature validation retain Xcode defaults. Both commands use the existing
 build/macos/SourcePackages cache, and ARM uses Flutter's arch -arm64e prefix.
 
-Only fixed progress categories and allowlisted public repository labels leave
-the child-output reader. Arbitrary stdout/stderr, command lines, environment,
-local paths and source/configuration contents are never printed or saved.
-The JSON report contains phase status, numeric exit/timeout/counters and PIDs.
+Progress uses fixed categories and allowlisted public repository labels. Failed
+phases also retain bounded sanitized head/tail output, suppressing sensitive
+fields and continuations, URLs and user paths. Raw output is not persisted.
+The JSON report includes status, exit/timeout/counters, PIDs and error context.
 Version/local-manifest/public-ref diagnostics are independent and never gate
 the main resolver. Public HEAD checks establish connectivity, not the revision
 selected by the project's actual dependency graph. Optional timeout sampling is
@@ -21,6 +21,7 @@ disabled by default; raw stacks stay in bounded memory and only fixed hints leav
 from __future__ import annotations
 
 import argparse
+from collections import deque
 import json
 import os
 from pathlib import Path
@@ -102,6 +103,83 @@ def safe_progress(line: str) -> str | None:
         except ValueError:
             labels.add("[redacted-url]")
     return category + (" " + " ".join(sorted(labels)) if labels else "")
+
+
+# Preserve useful failure text rather than only an exit code. Never emit raw
+# output: credentials, URLs and user paths are removed before retention.
+MAX_ERROR_CONTEXT_LINES = 24
+MAX_ERROR_LINE_CHARS = 800
+
+SENSITIVE_FIELD = re.compile(
+    r"(?i)\b(?:[a-z0-9]+[_-])*(?:token|password|secret|authorization|dart_defines|aes_key|sentry_dsn)\b[\"']?\s*[:=]")
+AUTH_VALUE = re.compile(r"(?i)\b(?:bearer|basic)\s+\S+")
+DIAGNOSTIC_START = re.compile(r"(?i)^\s*(?:(?:xcodebuild|swift|git):\s*)?(?:error:|fatal:|warning:|fetching\b|resolved source packages\b)")
+
+
+def safe_error_context(line: str) -> str:
+    if len(line) > MAX_ERROR_LINE_CHARS:
+        return "[oversized diagnostic omitted]"
+    line = re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "", line)
+    if SENSITIVE_FIELD.search(line) or AUTH_VALUE.search(line):
+        return "[sensitive diagnostic omitted]"
+    line = URL.sub("[url]", line)
+    line = re.sub(r"[\w.+-]+@[\w.-]+", "[identity]", line)
+    line = re.sub(r"(?:/Users/|/home/|/private/|/var/|/tmp/|/root/)[^\s\"']+", "[path]", line)
+    line = ''.join(c if c >= ' ' else ' ' for c in line).strip()
+    return line[:MAX_ERROR_LINE_CHARS]
+
+
+class ErrorContext:
+    """Bounded sanitized head/tail, including causes before a generic error.
+
+    A sensitive field opens a suppressed continuation block. Only a recognizable
+    diagnostic boundary resumes capture; blank lines alone are not sufficient.
+    """
+    def __init__(self):
+        self.head = []
+        self.tail = deque(maxlen=MAX_ERROR_CONTEXT_LINES - 8)
+        self.count = 0
+        self.sensitive_block = False
+        self.line_truncated = False
+
+    def add(self, text: str):
+        if len(text) > MAX_ERROR_LINE_CHARS:
+            # Discard before regex work; truncated fragments may be credentials.
+            self.line_truncated = True
+            self.sensitive_block = True
+            safe = "[oversized diagnostic omitted]"
+        else:
+            text = re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "", text)
+            if SENSITIVE_FIELD.search(text):
+                self.sensitive_block = True
+                safe = "[sensitive diagnostic omitted]"
+            elif self.sensitive_block and not DIAGNOSTIC_START.search(text):
+                safe = "[sensitive continuation omitted]"
+            else:
+                self.sensitive_block = False
+                safe = safe_error_context(text)
+        self.count += 1
+        if len(self.head) < 8:
+            self.head.append(safe)
+        else:
+            self.tail.append(safe)
+
+    def report(self):
+        return {"error_context": self.head + list(self.tail),
+                "error_context_truncated": self.count > MAX_ERROR_CONTEXT_LINES or self.line_truncated}
+
+
+def failure_hint(lines: list[str]) -> str:
+    text = '\n'.join(lines).lower()
+    if any(x in text for x in ('checksum', 'fingerprint', 'signature verification')):
+        return 'integrity_or_trust_failure'
+    if any(x in text for x in ('could not resolve host', 'connection reset', 'connection timed out',
+                               'network connection was lost', 'failed to connect', 'http 502', 'http 503', 'http 504')):
+        return 'possible_transient_network_failure'
+    if any(x in text for x in ('version conflict', 'no versions of', 'requires minimum platform',
+                               'missing package product', 'could not find package', 'invalid manifest')):
+        return 'package_configuration_failure'
+    return 'unclassified_dependency_failure'
 
 
 def commands(root: Path, *, arm: bool, xcrun: str, explicit_project: bool = False,
@@ -501,6 +579,7 @@ def run_stage(name: str, argv: list[str], cwd: Path, environment: dict[str, str]
         return summary
     summary["pid"] = process.pid
     pending = bytearray()
+    discarding_long_line = False
     next_heartbeat = started + heartbeat
 
     def observe():
@@ -510,12 +589,15 @@ def run_stage(name: str, argv: list[str], cwd: Path, environment: dict[str, str]
             summary.setdefault("process_snapshots", []).append(snapshot)
             emit(name + ": process_snapshot " + json.dumps(snapshot, sort_keys=True), flush=True)
 
+    context = ErrorContext()
+
     def consume(line: bytes):
         summary["output_lines"] += 1
         text = line.decode("utf-8", errors="replace")
         lower = text.lower()
         summary["warning_lines"] += int("warning:" in lower)
         summary["error_lines"] += int("error:" in lower)
+        context.add(text)
         safe = safe_progress(text)
         if safe is not None:
             summary["progress_messages"] += 1
@@ -551,6 +633,11 @@ def run_stage(name: str, argv: list[str], cwd: Path, environment: dict[str, str]
                         continue
                     if capture is not None and len(capture) < MAX_CAPTURE_BYTES:
                         capture.extend(chunk[:MAX_CAPTURE_BYTES - len(capture)])
+                    if discarding_long_line:
+                        _, newline, chunk = chunk.partition(b"\n")
+                        if not newline:
+                            continue
+                        discarding_long_line = False
                     pending.extend(chunk)
                     while b"\n" in pending:
                         line, _, rest = pending.partition(b"\n")
@@ -560,6 +647,8 @@ def run_stage(name: str, argv: list[str], cwd: Path, environment: dict[str, str]
                         # Unbounded/no-newline output is discarded wholesale;
                         # partial credentials must not be emitted across chunks.
                         summary["output_lines"] += 1
+                        context.add("x" * (MAX_ERROR_LINE_CHARS + 1))
+                        discarding_long_line = True
                         pending.clear()
             if pending:
                 consume(bytes(pending))
@@ -574,6 +663,13 @@ def run_stage(name: str, argv: list[str], cwd: Path, environment: dict[str, str]
         summary.update(status="failed", reason="process_output_or_cleanup_failed", exit_code=process.returncode)
     finally:
         process.stdout.close()
+    if summary["status"] != "complete":
+        summary.update(context.report())
+        lines = summary["error_context"]
+        summary["failure_hint"] = failure_hint(lines)
+        summary["root_cause_established"] = False
+        for line in lines:
+            emit(name + ": diagnostic " + line, flush=True)
     summary["elapsed_seconds"] = round(time.monotonic() - started, 2)
     emit(name + ": " + summary["status"], flush=True)
     return summary
@@ -648,7 +744,7 @@ def preflight_diagnostics(root: Path, xcrun_prefix: list[str], environment: dict
             # selected by Xcode; the resolver's own result remains independent.
             summary["required_revision"] = CSQLITE_REQUIRED_REVISION
         summaries.append(summary)
-        # These summaries contain no arbitrary child output, source paths or URLs.
+        # Failed summaries may include bounded sanitized diagnostic context.
         print("diagnostic: " + json.dumps(summary, sort_keys=True), flush=True)
     return summaries
 

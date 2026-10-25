@@ -1318,7 +1318,7 @@ class CrispComposerGraphTests(unittest.TestCase):
     actual Xcode compilation and UUID matching are separate platform checks.
     """
     def test_both_brands_and_architectures_keep_composer_in_owning_dsym(self):
-        manifest = (TOOL/'test/fixtures/desktop_webview_window_0_4_0/macos/desktop_webview_window/Package.swift').read_text()
+        manifest = (TOOL/'test/fixtures/desktop_webview_window_0_4_0/macos/desktop_webview_window/Package.swift').read_text(encoding='utf-8')
         self.assertIn('dependencies: ["desktop_webview_window_composer",', manifest)
         self.assertIn('.library(name: "desktop-webview-window", targets: ["desktop_webview_window"])', manifest)
         for brand in ('OmoFly', 'Daishu'):

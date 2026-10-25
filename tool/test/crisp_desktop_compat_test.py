@@ -1,21 +1,50 @@
 """Lightweight source invariants; native focus probes are explicit opt-in tests."""
 from pathlib import Path
+from unittest import mock
 import hashlib,json,os,shlex,shutil,subprocess,tempfile,unittest
 ROOT=Path(__file__).resolve().parents[2]
 
 class CrispCompatibilityTests(unittest.TestCase):
     def test_mobile_source_matches_original_archive(self):
         root=ROOT/'plugins/crisp_chat'
-        expected=json.loads((root/'upstream-mobile-sha256.json').read_text())
+        expected=json.loads((root/'upstream-mobile-sha256.json').read_text(encoding="utf-8"))
         actual={str(p.relative_to(root)).replace('\\','/'):hashlib.sha256(p.read_bytes()).hexdigest()
                 for folder in ('android','ios') for p in (root/folder).rglob('*') if p.is_file()}
         self.assertEqual(actual,expected)
 
     def test_pinned_dependency_and_retired_title_engine(self):
-        self.assertIn('desktop_webview_window: 0.4.0',(ROOT/'pubspec.yaml').read_text())
-        self.assertIn('desktop_webview_window: 0.4.0',(ROOT/'plugins/crisp_chat/pubspec.yaml').read_text())
-        self.assertNotIn('runWebViewTitleBarWidget',(ROOT/'lib/main.dart').read_text())
-        self.assertNotIn('$<TARGET_FILE:Webview2>',(ROOT/'windows/CMakeLists.txt').read_text())
+        self.assertIn('desktop_webview_window: 0.4.0',(ROOT/'pubspec.yaml').read_text(encoding="utf-8"))
+        self.assertIn('desktop_webview_window: 0.4.0',(ROOT/'plugins/crisp_chat/pubspec.yaml').read_text(encoding="utf-8"))
+        self.assertNotIn('runWebViewTitleBarWidget',(ROOT/'lib/main.dart').read_text(encoding="utf-8"))
+        self.assertNotIn('$<TARGET_FILE:Webview2>',(ROOT/'windows/CMakeLists.txt').read_text(encoding="utf-8"))
+
+    def test_repository_text_is_explicit_utf8_under_legacy_locale(self):
+        original = Path.read_text
+        def legacy_read(path, encoding=None, errors=None):
+            return original(path, encoding=encoding or 'cp1252', errors=errors)
+        # Exercise the same production test entry, not just an encoding literal.
+        with mock.patch.object(Path, 'read_text', legacy_read):
+            self.test_mobile_source_matches_original_archive()
+            self.test_pinned_dependency_and_retired_title_engine()
+        # Fixed fixture guarantees a CP1252 failure independently of comments
+        # in the production pubspec. Run the actual checker on that fixture.
+        with tempfile.TemporaryDirectory(prefix='crisp-encoding-') as temp:
+            fixture = Path(temp)
+            for name, content in {
+                'pubspec.yaml': 'desktop_webview_window: 0.4.0\n# 中文”\n',
+                'plugins/crisp_chat/pubspec.yaml': 'desktop_webview_window: 0.4.0\n',
+                'lib/main.dart': '// fixture\n',
+                'windows/CMakeLists.txt': '# fixture\n',
+            }.items():
+                path = fixture/name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(content, encoding='utf-8')
+            with mock.patch.dict(self.test_pinned_dependency_and_retired_title_engine.__globals__, ROOT=fixture):
+                with mock.patch.object(Path, 'read_text', legacy_read):
+                    self.test_pinned_dependency_and_retired_title_engine()
+                # Negative control: reproduce the old default-code-page read.
+                with self.assertRaises(UnicodeDecodeError):
+                    legacy_read(fixture/'pubspec.yaml')
 
     @unittest.skipUnless(os.environ.get('XBOARD_NATIVE_FOCUS_TEST') == '1','native focus test requires an explicitly authorized test host')
     def test_real_window_focus_rejects_invalid_and_destroyed_handles(self):

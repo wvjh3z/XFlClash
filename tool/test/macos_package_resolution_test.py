@@ -45,6 +45,122 @@ class PackageResolutionTests(unittest.TestCase):
         self.assertEqual(diagnostic.safe_progress("Fetching https://private-token@github.com/simolus3/CSQLite.git?token=private-query"),
                          "fetching_package github.com/simolus3/CSQLite")
 
+    def test_error_context_filters_credentials_paths_and_is_bounded(self):
+        for value in ('error: token=hidden', 'Authorization: Bearer hidden',
+                      'DART_DEFINES=hidden', 'password=hidden'):
+            self.assertNotIn('hidden', diagnostic.safe_error_context(value))
+        value = diagnostic.safe_error_context('error: manifest at /Users/person/project/Package.swift from https://user:pass@host/repo?key=value')
+        for hidden in ('person', 'user:pass', 'key=value'):
+            self.assertNotIn(hidden, value)
+        self.assertIn('manifest', value)
+        self.assertLessEqual(len(diagnostic.safe_error_context('x'*10000)), diagnostic.MAX_ERROR_LINE_CHARS)
+        self.assertEqual(diagnostic.failure_hint(['error: checksum mismatch']), 'integrity_or_trust_failure')
+        self.assertEqual(diagnostic.failure_hint(['error: connection reset']), 'possible_transient_network_failure')
+        self.assertEqual(diagnostic.failure_hint(['error: missing package product']), 'package_configuration_failure')
+        self.assertEqual(diagnostic.failure_hint(['error: unspecified']), 'unclassified_dependency_failure')
+
+    @unittest.skipIf(os.name == "nt", "Process-group fixtures require POSIX")
+    def test_real_exit_74_keeps_multiline_reason_after_resolved_progress(self):
+        messages = []
+        with tempfile.TemporaryDirectory() as temporary:
+            script = "print('Resolved source packages');print('xcodebuild: error: Could not resolve package dependencies:');print('missing package product desktop_webview_window');raise SystemExit(74)"
+            result = diagnostic.run_stage('resolve', [sys.executable, '-c', script],
+                Path(temporary), diagnostic.child_environment(dict(os.environ)), 10,
+                emit=lambda message, **kwargs: messages.append(message))
+        self.assertEqual(result['exit_code'], 74)
+        self.assertEqual(result['status'], 'failed')
+        self.assertFalse(result['timed_out'])
+        self.assertIn('missing package product desktop_webview_window', result['error_context'])
+        self.assertEqual(result['failure_hint'], 'package_configuration_failure')
+        self.assertTrue(any('diagnostic' in line for line in messages))
+        self.assertFalse(result['root_cause_established'])
+
+    @unittest.skipIf(os.name == "nt", "Process-group fixtures require POSIX")
+    def test_error_storm_is_bounded_and_success_is_not_changed(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            result = diagnostic.run_stage('resolve', [sys.executable, '-c',
+                "[print('error: repeated') for _ in range(100)];raise SystemExit(74)"],
+                Path(temporary), dict(os.environ), 10, emit=lambda *a, **k: None)
+            good = diagnostic.run_stage('resolve', [sys.executable, '-c', "print('Resolved source packages')"],
+                Path(temporary), dict(os.environ), 10, emit=lambda *a, **k: None)
+        self.assertEqual(len(result['error_context']), diagnostic.MAX_ERROR_CONTEXT_LINES)
+        self.assertTrue(result['error_context_truncated'])
+        self.assertEqual(good['status'], 'complete')
+        self.assertNotIn('error_context', good)
+
+    def test_precise_fields_keep_token_package_names_and_filter_auth_values(self):
+        for line in ('error: missing package product TokenKit',
+                     'error: invalid manifest for SecretStorage',
+                     'error: version conflict in password-manager'):
+            self.assertEqual(diagnostic.safe_error_context(line), line)
+        for line in ('Bearer SYNTHETIC_VALUE', 'Basic SYNTHETIC_VALUE',
+                     'GITHUB_TOKEN=SYNTHETIC_VALUE', '\"password\": \"SYNTHETIC_VALUE\"'):
+            self.assertNotIn('SYNTHETIC_VALUE', diagnostic.safe_error_context(line))
+
+    @unittest.skipIf(os.name == 'nt', 'Process-group fixtures require POSIX')
+    def test_multiline_sensitive_blocks_are_filtered_in_report_and_console(self):
+        lines = ['error: Authorization:', 'Bearer SYNTHETIC_CREDENTIAL', '',
+                 'SYNTHETIC_CONTINUATION', 'xcodebuild: error: missing package product TokenKit',
+                 'password=', 'SYNTHETIC_PASSWORD', 'SYNTHETIC_PASSWORD_CONTINUATION',
+                 'error: invalid manifest for SecretStorage']
+        messages = []
+        with tempfile.TemporaryDirectory() as temp:
+            result = diagnostic.run_stage('resolve', [sys.executable, '-c',
+                'import json;[print(x) for x in json.loads(' + repr(json.dumps(lines)) + ')];raise SystemExit(74)'],
+                Path(temp), dict(os.environ), 10, emit=lambda line, **kw: messages.append(line))
+        combined = json.dumps(result) + json.dumps(messages)
+        self.assertNotIn('SYNTHETIC_', combined)
+        self.assertIn('missing package product TokenKit', combined)
+        self.assertIn('invalid manifest for SecretStorage', combined)
+        self.assertEqual(result['exit_code'], 74)
+
+    @unittest.skipIf(os.name == 'nt', 'Process-group fixtures require POSIX')
+    def test_head_tail_preserves_preceding_cause_and_terminal_failure(self):
+        cases = [
+            ['Downloading binary artifact failed: checksum mismatch',
+             'xcodebuild: error: Could not resolve package dependencies'],
+            ['error: preliminary diagnostic'] * 30 +
+             ['error: missing package product FINAL_ROOT_CAUSE'],
+            ['connection reset by peer'],
+        ]
+        for lines in cases:
+            with self.subTest(lines=len(lines)), tempfile.TemporaryDirectory() as temp:
+                result = diagnostic.run_stage('resolve', [sys.executable, '-c',
+                    '[print(x) for x in ' + repr(lines) + '];raise SystemExit(74)'],
+                    Path(temp), dict(os.environ), 10, emit=lambda *a, **kw: None)
+                self.assertIn(lines[0], result['error_context'])
+                self.assertIn(lines[-1], result['error_context'])
+                self.assertLessEqual(len(result['error_context']), diagnostic.MAX_ERROR_CONTEXT_LINES)
+                self.assertEqual(result['error_context_truncated'], len(lines) > diagnostic.MAX_ERROR_CONTEXT_LINES)
+                self.assertNotEqual(result['failure_hint'], 'unclassified_dependency_failure')
+                self.assertEqual(result['exit_code'], 74)
+
+    @unittest.skipIf(os.name == 'nt', 'Process-group fixtures require POSIX')
+    def test_long_line_across_pipe_chunks_does_not_leak_suffix(self):
+        messages = []
+        script = "import sys;sys.stdout.write('x'*200000+'SYNTHETIC_SUFFIX\\nSYNTHETIC_CONTINUATION\\nerror: missing package product FinalPackage\\n');raise SystemExit(74)"
+        with tempfile.TemporaryDirectory() as temp:
+            result = diagnostic.run_stage('resolve', [sys.executable, '-c', script],
+                Path(temp), dict(os.environ), 10, emit=lambda line, **kw: messages.append(line))
+        combined = json.dumps(result) + json.dumps(messages)
+        self.assertNotIn('SYNTHETIC_', combined)
+        self.assertIn('FinalPackage', combined)
+        self.assertTrue(result['error_context_truncated'])
+        self.assertEqual(result['exit_code'], 74)
+
+    def test_context_memory_and_long_line_truncation_are_bounded(self):
+        context = diagnostic.ErrorContext()
+        for _ in range(10000):
+            context.add('error: ' + 'x'*10000)
+        report = context.report()
+        self.assertEqual(len(report['error_context']), diagnostic.MAX_ERROR_CONTEXT_LINES)
+        self.assertTrue(report['error_context_truncated'])
+        self.assertTrue(all(len(line) <= diagnostic.MAX_ERROR_LINE_CHARS for line in report['error_context']))
+        context.add('SYNTHETIC_FRAGMENT')
+        context.add('error: missing package product FinalPackage')
+        self.assertNotIn('SYNTHETIC_FRAGMENT', str(context.report()))
+        self.assertIn('FinalPackage', str(context.report()))
+
     def test_cleanup_matches_only_same_user_exact_flutter_prefetch_and_its_children(self):
         cache = Path("/fixture/build/macos/SourcePackages")
         rows = "\n".join((
