@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:crisp_chat/crisp_chat.dart';
 import 'package:desktop_webview_window/desktop_webview_window.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter/services.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:fl_clash/xboard/config/xboard_config.dart';
@@ -12,6 +13,8 @@ import 'package:fl_clash/xboard/services/crisp_support_service.dart';
 
 class FakeDriver implements CrispChatDriver {
   final calls = <String>[];
+  // Closed by each test tearDown.
+  // ignore: close_sinks
   final events = StreamController<void>.broadcast();
   Completer<String?>? pendingId;
   Completer<void>? pendingWrite;
@@ -88,19 +91,26 @@ class DelayedPreferencesStore {
 }
 
 class DesktopWindowHarness {
+  static final instances = <int, DesktopWindowHarness>{};
+  final handle = instances.length + 1;
+  OnUrlRequestCallback? navigate;
+  final loadErrors = StreamController<WebviewLoadError>.broadcast();
   DesktopWindowHarness({bool autoClose = true}) {
+    instances[handle] = this;
+    when(() => window.nativeWindowHandle).thenReturn(handle);
+    when(() => window.onLoadError).thenAnswer((_) => loadErrors.stream);
+    when(() => window.setOnUrlRequestCallback(any())).thenAnswer((call) async {
+      navigate = call.positionalArguments.first as OnUrlRequestCallback?;
+    });
     when(() => window.onClose).thenAnswer((_) => closed.future);
-    when(() => window.launch(any())).thenAnswer((invocation) {
+    when(() => window.launch(any())).thenAnswer((invocation) async {
       page = invocation.positionalArguments.first as String;
     });
-    when(() => window.close()).thenAnswer((_) {
+    when(() => window.close()).thenAnswer((_) async {
       closeCalls++;
       if (autoClose && !closed.isCompleted) closed.complete();
     });
-    when(() => window.bringToForeground()).thenAnswer((_) async {
-      foregroundCalls++;
-      await pendingForeground?.future;
-    });
+
     when(() => window.reload()).thenAnswer((_) async {
       reloadCalls++;
     });
@@ -108,6 +118,10 @@ class DesktopWindowHarness {
       final script = invocation.positionalArguments.first as String;
       if (script.contains('__xbCrispBootstrap=false')) return 'ok';
       if (script.contains('__xbCrispBootstrap')) return bootstrapReply;
+      if (script.contains('chat:show')) {
+        revealCalls++;
+        return 'ok';
+      }
       if (script.contains('"session:data"')) {
         return pendingWrite == null ? writeReply : pendingWrite!.future;
       }
@@ -127,6 +141,7 @@ class DesktopWindowHarness {
   int closeCalls = 0;
   int foregroundCalls = 0;
   int reloadCalls = 0;
+  int revealCalls = 0;
 
   File get pageFile => File.fromUri(Uri.parse(page!));
 
@@ -141,13 +156,27 @@ class DesktopWindowHarness {
   }
 
   Future<void> dispose() async {
+    await loadErrors.close();
     if (!closed.isCompleted) closed.complete();
     if (page != null) await waitForPageRemoval();
   }
 }
 
 void main() {
-  TestWidgetsFlutterBinding.ensureInitialized();
+  final binding = TestWidgetsFlutterBinding.ensureInitialized();
+  registerFallbackValue((String _) => false);
+  binding.defaultBinaryMessenger.setMockMethodCallHandler(
+    const MethodChannel('window'),
+    (call) async {
+      if (call.method != 'focusBorrowedWindow') {
+        throw StateError('unexpected method');
+      }
+      final harness = DesktopWindowHarness.instances[call.arguments['handle']]!;
+      harness.foregroundCalls++;
+      await harness.pendingForeground?.future;
+      return null;
+    },
+  );
   late FakeDriver driver;
   setUp(() async {
     SharedPreferences.setMockInitialValues({});
@@ -372,26 +401,26 @@ void main() {
   });
 
   test(
-    'JSON and plain scalars preserve empty session and reset acknowledgement',
+    'decoded scalars preserve empty session and reset acknowledgement',
     () async {
       final harness = DesktopWindowHarness();
       addTearDown(harness.dispose);
-      harness.bootstrapReply = '"loaded"';
+      harness.bootstrapReply = 'loaded';
       final desktop = desktopFor(harness);
       await desktop.reset('test');
       await desktop.open(CrispConfig(websiteID: 'test'));
       final prefs = await SharedPreferences.getInstance();
-      for (final empty in ['""', '', 'null']) {
+      for (final empty in ['', 'null']) {
         harness.sessionReply = empty;
         expect(await desktop.sessionId(), isNull);
         expect(prefs.getBool('xb_crisp_desktop_reset_test'), isTrue);
       }
-      harness.sessionReply = '"new-session"';
+      harness.sessionReply = 'new-session';
       expect(await desktop.sessionId(), 'new-session');
       expect(prefs.getBool('xb_crisp_desktop_reset_test'), isNull);
-      harness.writeReply = '"ok"';
+      harness.writeReply = 'ok';
       await desktop.setString('Source', 'test');
-      harness.writeReply = '"failed"';
+      harness.writeReply = 'failed';
       await expectLater(
         desktop.setString('Source', 'test'),
         failure(CrispChatFailure.sessionDataFailed),
@@ -431,7 +460,7 @@ void main() {
   });
 
   test('page that never produced a session reloads on the next open', () async {
-    final harness = DesktopWindowHarness()..sessionReply = '""';
+    final harness = DesktopWindowHarness()..sessionReply = '';
     addTearDown(harness.dispose);
     final desktop = desktopFor(harness);
     await desktop.open(CrispConfig(websiteID: 'test'));
@@ -452,7 +481,7 @@ void main() {
       final desktop = desktopFor(harness);
       await desktop.open(CrispConfig(websiteID: 'test'));
       expect(await desktop.sessionId(), 'new-session');
-      harness.sessionReply = '""';
+      harness.sessionReply = '';
       expect(await desktop.sessionId(), isNull);
       await desktop.open(CrispConfig(websiteID: 'test'));
       expect(harness.foregroundCalls, 1);
@@ -615,7 +644,7 @@ void main() {
   test(
     'missing inline bootstrap times out and closes the created view',
     () async {
-      final harness = DesktopWindowHarness()..bootstrapReply = '""';
+      final harness = DesktopWindowHarness()..bootstrapReply = '';
       addTearDown(harness.dispose);
       final desktop = desktopFor(
         harness,
@@ -781,7 +810,7 @@ void main() {
         available: () async => true,
         cacheDirectory: () async => root,
         create: (configuration) async {
-          profiles.add(configuration.userDataFolderWindows);
+          profiles.add(configuration.windows.userDataFolder);
           final harness = DesktopWindowHarness();
           harnesses.add(harness);
           return harness.window;
@@ -876,4 +905,122 @@ void main() {
     expect(html, isNot(contains('</script><script>alert(1)')));
     expect(html, contains(r'\u003c/script>'));
   });
+  test('0.4.0 launch errors retire only the failed window', () async {
+    final h = DesktopWindowHarness();
+    addTearDown(h.dispose);
+    when(
+      () => h.window.launch(any()),
+    ).thenAnswer((_) async => throw StateError('navigation failed'));
+    await expectLater(
+      desktopFor(h).open(CrispConfig(websiteID: 'test')),
+      failure(CrispChatFailure.startupFailed),
+    );
+    expect(h.closeCalls, 1);
+  });
+
+  test(
+    'navigation stays synchronous and old-window links cannot launch browser',
+    () async {
+      final h = DesktopWindowHarness();
+      addTearDown(h.dispose);
+      final launched = <Uri>[];
+      final d = DesktopCrispChatDriver(
+        isWindowsOverride: false,
+        available: () async => true,
+        create: (_) async => h.window,
+        openExternal: (uri) async {
+          launched.add(uri);
+          return true;
+        },
+      );
+      await d.open(CrispConfig(websiteID: 'test'));
+      expect(h.navigate!(h.page!), isTrue);
+      expect(h.navigate!('https://example.invalid/help'), isFalse);
+      expect(launched, isEmpty);
+      await Future<void>.delayed(Duration.zero);
+      expect(launched.single.host, 'example.invalid');
+      await d.reset('test');
+      expect(h.navigate!('https://example.invalid/old-account'), isFalse);
+      await Future<void>.delayed(Duration.zero);
+      expect(launched, hasLength(1));
+    },
+  );
+
+  test(
+    'top-level load error invalidates ready session and retry reloads',
+    () async {
+      final h = DesktopWindowHarness();
+      addTearDown(h.dispose);
+      final d = desktopFor(h);
+      await d.open(CrispConfig(websiteID: 'test'));
+      expect(await d.sessionId(), 'new-session');
+      h.loadErrors.add(
+        const WebviewLoadError(
+          url: 'file:///test',
+          kind: WebviewLoadErrorKind.connection,
+          description: 'test',
+        ),
+      );
+      await Future<void>.delayed(Duration.zero);
+      await expectLater(
+        d.sessionId(),
+        failure(CrispChatFailure.sessionNotReady),
+      );
+      await d.open(CrispConfig(websiteID: 'test'));
+      expect(h.reloadCalls, 1);
+      expect(await d.sessionId(), 'new-session');
+    },
+  );
+
+  test('decoded session strings are not decoded a second time', () async {
+    final h = DesktopWindowHarness();
+    addTearDown(h.dispose);
+    final d = desktopFor(h);
+    await d.open(CrispConfig(websiteID: 'test'));
+    for (final id in ['123', 'true', '"quoted"']) {
+      h.sessionReply = id;
+      expect(await d.sessionId(), id);
+    }
+  });
+  test(
+    'desktop chat is revealed only after current account context succeeds',
+    () async {
+      final h = DesktopWindowHarness();
+      addTearDown(h.dispose);
+      await CrispSupportService.setDriverForTest(desktopFor(h));
+      h.pendingWrite = Completer<String?>();
+      final opening = CrispSupportService.openWithResult();
+      while (h.page == null) {
+        await Future<void>.delayed(Duration.zero);
+      }
+      expect(h.revealCalls, 0);
+      h.pendingWrite!.complete('ok');
+      expect((await opening).opened, isTrue);
+      expect(h.revealCalls, 1);
+    },
+  );
+
+  test('failed context never reveals the desktop chat', () async {
+    final h = DesktopWindowHarness()..writeReply = 'failed';
+    addTearDown(h.dispose);
+    await CrispSupportService.setDriverForTest(desktopFor(h));
+    expect(
+      (await CrispSupportService.openWithResult()).failure,
+      CrispChatFailure.sessionDataFailed,
+    );
+    expect(h.revealCalls, 0);
+  });
+
+  test(
+    'failed online script closes child before recovery without clearing profile',
+    () async {
+      final h = DesktopWindowHarness()..sessionReply = '__xb_load_failed__';
+      addTearDown(h.dispose);
+      await CrispSupportService.setDriverForTest(desktopFor(h));
+      final result = await CrispSupportService.openWithResult();
+      expect(result.failure, CrispChatFailure.sessionNotReady);
+      expect(h.closeCalls, 1);
+      await h.waitForPageRemoval();
+    },
+  );
 }

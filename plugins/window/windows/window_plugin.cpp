@@ -4,6 +4,7 @@
 #include <variant>
 
 #include "running_instance.h"
+#include "xboard_borrowed_focus.h"
 
 namespace window {
 
@@ -119,6 +120,7 @@ void WindowPlugin::BuildHandlerTable() {
   handlers_["show"] = &WindowPlugin::HandleShow;
   handlers_["hide"] = &WindowPlugin::HandleHide;
   handlers_["isVisible"] = &WindowPlugin::HandleIsVisible;
+  handlers_["focusBorrowedWindow"] = &WindowPlugin::HandleFocusBorrowedWindow;
   handlers_["focus"] = &WindowPlugin::HandleFocus;
   handlers_["close"] = &WindowPlugin::HandleClose;
   handlers_["setPreventClose"] = &WindowPlugin::HandleSetPreventClose;
@@ -171,6 +173,16 @@ void WindowPlugin::HandleHide(const flutter::EncodableMap*,
 void WindowPlugin::HandleIsVisible(const flutter::EncodableMap*,
                                    std::unique_ptr<Result> result) {
   result->Success(flutter::EncodableValue(controller_.IsVisible()));
+}
+
+void WindowPlugin::HandleFocusBorrowedWindow(const flutter::EncodableMap* args,
+                                            std::unique_ptr<Result> result) {
+  const auto handle = GetInt(args, "handle");
+  if (!XboardFocusBorrowedWindow(handle.value_or(0))) {
+    result->Error("window_closed", "Borrowed window is no longer available");
+    return;
+  }
+  result->Success();
 }
 
 void WindowPlugin::HandleFocus(const flutter::EncodableMap*,

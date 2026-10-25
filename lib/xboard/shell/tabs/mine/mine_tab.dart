@@ -9,6 +9,10 @@
 library;
 
 import 'dart:async';
+import 'dart:io' show Platform;
+import 'package:fl_clash/xboard/config/xboard_config.dart';
+import 'package:fl_clash/xboard/services/crisp_navigation.dart';
+import 'package:fl_clash/xboard/widgets/crisp_recovery_dialog.dart';
 
 import 'package:fl_clash/xboard/widgets/xb_emoji_text.dart';
 import 'package:material_ui/material_ui.dart';
@@ -38,7 +42,7 @@ import 'package:fl_clash/xboard/widgets/xb_feedback.dart'
     show xbConfirm, xbBrandColor, xbToast;
 import 'package:fl_clash/xboard/widgets/xb_refresh_throttle_guard.dart';
 import 'package:fl_clash/xboard/widgets/xb_theme.dart'
-    show xbDialogRoute, xbPush, XbTokens;
+    show xbDialogRoute, xbPush, xbShowDialog, XbTokens;
 import 'package:fl_clash/xboard/pages/xb_about_page.dart';
 import '../../widgets/xb_content_header.dart';
 import '../../widgets/xb_responsive.dart';
@@ -1410,13 +1414,27 @@ class _SupportRow extends ConsumerStatefulWidget {
 
 class _SupportRowState extends ConsumerState<_SupportRow>
     with XbSubmitGuard<_SupportRow> {
-  /// 在线客服（D9 Crisp）：已登录透传账号订阅（邮箱/套餐/到期/流量/来源），游客匿名；
+  /// 在线客服：AppImage 使用隔离环境的系统浏览器；内嵌模式透传账号资料，游客匿名。
   /// 永不抛（失败 toast）。
   Future<void> _openSupport(BuildContext context, WidgetRef ref) async {
     final notifier = ref.read(authStateProvider.notifier);
     final revision = notifier.sessionRevision;
     bool current() => context.mounted && notifier.sessionRevision == revision;
     try {
+      if (CrispSupportService.usesExternalBrowser) {
+        var launched = false;
+        try {
+          launched = await CrispSupportService.openAppImageBrowser(
+            crispVisitorUri(XboardConfig.current.crispWebsiteId),
+          ).timeout(const Duration(seconds: 10));
+        } catch (_) {
+          // Native start errors and a bounded wait share actionable feedback.
+        }
+        if (!launched && context.mounted && current()) {
+          xbToast(context, '浏览器未能启动或未及时响应，请重试');
+        }
+        return;
+      }
       XbDomainSubscription? sub;
       if (!widget.isGuest) {
         sub = ref.read(userProfileProvider).asData?.value;
@@ -1434,29 +1452,64 @@ class _SupportRowState extends ConsumerState<_SupportRow>
         }
       }
       if (!context.mounted || !current()) return;
-      final result = await CrispSupportService.openWithResult(
-        sub: sub,
-        isCurrent: current,
-      );
-      if (!result.opened && context.mounted && current()) {
-        await _showSupportFailure(context, result.failure, current);
+      while (context.mounted && current()) {
+        final result = await CrispSupportService.openWithResult(
+          sub: sub,
+          isCurrent: current,
+        );
+        if (result.opened || !context.mounted || !current()) return;
+        if (!await _showSupportFailure(context, result.failure, current)) {
+          return;
+        }
       }
     } catch (_) {
       if (context.mounted && current()) xbToast(context, '客服暂时无法打开，请稍后再试');
     }
   }
 
-  Future<void> _showSupportFailure(
+  Future<bool> _showSupportFailure(
     BuildContext context,
     CrispChatFailure? failure,
     bool Function() current,
   ) async {
-    if (!context.mounted || !current()) return;
+    if (!context.mounted || !current()) return false;
+    if ((Platform.isWindows || Platform.isMacOS || Platform.isLinux) &&
+        failure != CrispChatFailure.cancelled &&
+        failure != CrispChatFailure.notConfigured &&
+        failure != CrispChatFailure.windowClosed) {
+      final site = XboardConfig.current.crispWebsiteId;
+      final action = await xbShowDialog<CrispRecovery>(
+        context: context,
+        brandColor: xbBrandColor(),
+        builder: (_) => CrispRecoveryDialog(failure: failure),
+      );
+      if (!context.mounted || !current()) return false;
+      if (action == CrispRecovery.retry) return true;
+      if (action == CrispRecovery.browser || action == CrispRecovery.runtime) {
+        final uri = action == CrispRecovery.browser
+            ? crispVisitorUri(site)
+            : Uri.parse(
+                'https://developer.microsoft.com/microsoft-edge/webview2/',
+              );
+        try {
+          final launched = await launchUrl(
+            uri,
+            mode: LaunchMode.externalApplication,
+          ).timeout(const Duration(seconds: 10));
+          if (!launched && context.mounted && current()) {
+            xbToast(context, '浏览器无法打开，请稍后重试');
+          }
+        } catch (_) {
+          if (context.mounted && current()) xbToast(context, '浏览器无法打开，请稍后重试');
+        }
+      }
+      return false;
+    }
     switch (failure) {
       case CrispChatFailure.cancelled:
       case CrispChatFailure.notConfigured:
       case CrispChatFailure.windowClosed:
-        return;
+        return false;
       case CrispChatFailure.webView2Unavailable:
         final download = await xbConfirm(
           context,
@@ -1467,7 +1520,7 @@ class _SupportRowState extends ConsumerState<_SupportRow>
           confirmLabel: '前往下载',
           icon: Icons.download_rounded,
         );
-        if (!download || !context.mounted || !current()) return;
+        if (!download || !context.mounted || !current()) return false;
         try {
           final launched = await launchUrl(
             Uri.parse(
@@ -1483,7 +1536,7 @@ class _SupportRowState extends ConsumerState<_SupportRow>
             xbToast(context, '下载页面无法打开，请使用浏览器访问微软 WebView2 官网');
           }
         }
-        return;
+        return false;
       default:
         final message = switch (failure) {
           CrispChatFailure.webViewUnavailable => '当前系统的客服组件不可用，请检查应用安装是否完整',
@@ -1498,6 +1551,7 @@ class _SupportRowState extends ConsumerState<_SupportRow>
         };
         xbToast(context, message);
     }
+    return false;
   }
 
   @override

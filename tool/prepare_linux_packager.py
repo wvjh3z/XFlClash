@@ -21,11 +21,12 @@ import tempfile
 REPO = Path(__file__).resolve().parents[1]
 PINNED_REVISION = "cdeeef2d8f8325bb6ae0bc86b39f56e4325d1a58"
 PATCH = REPO / "tool/patches/flutter_distributor_appimage.patch"
-PATCH_SHA256 = "5241064486913fd154f86f91f35d279f6a8fe44b84fb395823e0033cecfc77f3"
+PATCH_SHA256 = "81ecdfc3a997195a5b06a051fad92c7652b919dd8d3703c9e816372646fb3d2f"
 OUTPUT = REPO / "build/packaging-tools/flutter_distributor"
 # Both sides are intentional: reject changed upstream input and changed patch
 # output, including an accidentally partial or already applied patch.
-SOURCE_HASHES = {'packages/flutter_app_builder/lib/src/builders/app_builder.dart': ('39340543d89e6b9f5b98ea35bb6575dc355becf45365866c567fe1708b7c6581',
+SOURCE_HASHES = {'packages/flutter_app_packager/lib/src/makers/appimage/make_appimage_config.dart': ('50de5e7340123c45c1230578b6558dc80358bd330122311ca52e6062f2e676bc', 'c4fcb184a1d2fada58cdca6d5e9a66f26f25cd4aefb9ac7787e75c0951dc96cf'),
+ 'packages/flutter_app_builder/lib/src/builders/app_builder.dart': ('39340543d89e6b9f5b98ea35bb6575dc355becf45365866c567fe1708b7c6581',
                                                                     '606fdd052397852b20b0ad076ce77c08bc9e79bf5b5c6ce969e58642c5807fa3'),
  'packages/flutter_app_builder/lib/src/builders/linux/build_linux_result.dart': ('154150d8ce1de02f466789825996967a3a537ffa1e5d49d1cb10e5a115323cd4',
                                                                                  'fdba179fe680e0a97586b4458128611015da7a715bff8c4ea38603262df2e4e0'),

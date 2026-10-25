@@ -1,0 +1,3 @@
+# Preserve upstream mobile archive bytes, including gradlew.bat CRLF.
+android/** -text
+ios/** -text

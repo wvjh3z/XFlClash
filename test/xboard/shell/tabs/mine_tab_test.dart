@@ -49,11 +49,18 @@ Future<void> pumpMine(
   WidgetTester tester, {
   required AuthState auth,
   XbDomainSubscription? sub,
+  XboardService? service,
+  bool failProfile = false,
 }) async {
   await tester.pumpWidget(
     ProviderScope(
       overrides: [
         authStateProvider.overrideWith(() => _FakeAuth(auth)),
+        if (service != null) xboardServiceProvider.overrideWithValue(service),
+        if (failProfile)
+          userProfileProvider.overrideWith(
+            (ref) async => throw StateError('offline'),
+          ),
         if (sub != null) userProfileProvider.overrideWith((ref) async => sub),
       ],
       child: const MaterialApp(home: Scaffold(body: MineTab())),
@@ -126,15 +133,23 @@ void main() {
     });
     tearDown(XboardConfig.resetForTest);
 
-    Future<void> pumpFailure(
+    Future<_MockCrispDriver> pumpFailure(
       WidgetTester tester,
-      CrispChatFailure failure,
-    ) async {
+      CrispChatFailure failure, {
+      AuthState auth = AuthState.unauthenticated,
+      XboardService? service,
+      bool failProfile = false,
+    }) async {
       final driver = _MockCrispDriver();
       when(() => driver.sessionLoaded).thenAnswer((_) => const Stream.empty());
       when(() => driver.open(any())).thenThrow(CrispChatException(failure));
       await tester.runAsync(() => CrispSupportService.setDriverForTest(driver));
-      await pumpMine(tester, auth: AuthState.unauthenticated);
+      await pumpMine(
+        tester,
+        auth: auth,
+        service: service,
+        failProfile: failProfile,
+      );
       await tester.ensureVisible(find.text('在线客服'));
       await tester.runAsync(() async {
         await tester.tap(find.text('在线客服'));
@@ -143,6 +158,7 @@ void main() {
       await tester.pump();
       // 运行组件确认框等待用户决策时，提交 spinner 仍会转，不能 pumpAndSettle。
       await tester.pump(const Duration(milliseconds: 300));
+      return driver;
     }
 
     List<MethodCall> mockBrowser(
@@ -152,6 +168,12 @@ void main() {
       Future<bool>? pending,
     }) {
       final calls = <MethodCall>[];
+      CrispSupportService.appImageBrowserOverride = (uri) async {
+        calls.add(MethodCall('launch', {'url': uri.toString()}));
+        if (throws) throw PlatformException(code: 'launch_failed');
+        return pending ?? succeeds;
+      };
+      addTearDown(() => CrispSupportService.appImageBrowserOverride = null);
       tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
         urlChannel,
         (call) async {
@@ -190,6 +212,9 @@ void main() {
     }
 
     Future<void> finishToast(WidgetTester tester) async {
+      if (find.byType(AlertDialog).evaluate().isNotEmpty) {
+        await tester.tap(find.text('取消'));
+      }
       await pumpSupportIdle(tester);
       await tester.pump(const Duration(seconds: 3));
       await tester.pump(const Duration(milliseconds: 300));
@@ -209,6 +234,95 @@ void main() {
       expect(find.text('需要安装客服运行组件'), findsNothing);
       expect(find.text('在线客服'), findsOneWidget);
       expect(calls, isEmpty);
+    });
+
+    testWidgets('浏览器备用入口只打开访客客服且不携带账号资料', (tester) async {
+      final calls = mockBrowser(tester);
+      await pumpFailure(tester, CrispChatFailure.sessionNotReady);
+      await tester.tap(find.text('浏览器打开'));
+      await pumpSupportIdle(tester);
+      final uri = Uri.parse((calls.single.arguments as Map)['url'] as String);
+      expect(uri.host, 'go.crisp.chat');
+      expect(uri.path, '/chat/embed/');
+      expect(uri.queryParameters.keys, ['website_id']);
+    });
+
+    for (final site in ['brand-a-site', 'brand-b-site']) {
+      testWidgets(
+        'AppImage $site bypasses unavailable account data and native WebView',
+        (tester) async {
+          XboardConfig.bind(
+            XboardConfig(
+              subscribeUserAgent: 'test',
+              devApiEndpoint: 'https://test.invalid',
+              devSubscriptionEndpoint: 'https://test.invalid',
+              debug: false,
+              kIsTest: true,
+              crispWebsiteId: site,
+            ),
+          );
+          final calls = mockBrowser(tester);
+          CrispSupportService.externalBrowserOverride = true;
+          addTearDown(() => CrispSupportService.externalBrowserOverride = null);
+          final service = _MockService();
+          when(
+            () => service.getSubscription(),
+          ).thenThrow(StateError('must not fetch'));
+          final driver = await pumpFailure(
+            tester,
+            CrispChatFailure.startupFailed,
+            auth: AuthState.authenticated,
+            service: service,
+            failProfile: true,
+          );
+          expect(calls, hasLength(1));
+          final uri = Uri.parse(
+            (calls.single.arguments as Map)['url'] as String,
+          );
+          expect(uri.host, 'go.crisp.chat');
+          expect(uri.path, '/chat/embed/');
+          expect(uri.queryParameters, {'website_id': site});
+          verifyNever(() => driver.open(any()));
+          verifyNever(() => service.getSubscription());
+          expect(find.byType(AlertDialog), findsNothing);
+          await pumpSupportIdle(tester);
+        },
+      );
+    }
+
+    for (final throws in [false, true]) {
+      testWidgets('AppImage browser failure ($throws) restores support entry', (
+        tester,
+      ) async {
+        CrispSupportService.externalBrowserOverride = true;
+        addTearDown(() => CrispSupportService.externalBrowserOverride = null);
+        final calls = mockBrowser(tester, succeeds: false, throws: throws);
+        final driver = await pumpFailure(
+          tester,
+          CrispChatFailure.startupFailed,
+        );
+        expect(calls, hasLength(1));
+        verifyNever(() => driver.open(any()));
+        expect(find.byType(AlertDialog), findsNothing);
+        await finishToast(tester);
+      });
+    }
+
+    testWidgets('AppImage browser late failure after page disposal is silent', (
+      tester,
+    ) async {
+      CrispSupportService.externalBrowserOverride = true;
+      addTearDown(() => CrispSupportService.externalBrowserOverride = null);
+      final launched = Completer<bool>();
+      mockBrowser(tester, pending: launched.future);
+      await pumpFailure(tester, CrispChatFailure.startupFailed);
+      await tester.pumpWidget(const MaterialApp(home: SizedBox()));
+      launched.complete(false);
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 20)),
+      );
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(tester.takeException(), isNull);
     });
 
     testWidgets('用户点击下载 → 仅用系统浏览器打开微软官方页面', (tester) async {
@@ -237,7 +351,7 @@ void main() {
         await tester.tap(find.text('前往下载'));
         await pumpSupportIdle(tester);
         expect(calls, hasLength(1));
-        expect(find.text('下载页面无法打开，请使用浏览器访问微软 WebView2 官网'), findsOneWidget);
+        expect(find.text('浏览器无法打开，请稍后重试'), findsOneWidget);
         expect(find.text('在线客服'), findsOneWidget);
         await finishToast(tester);
       });
@@ -255,22 +369,25 @@ void main() {
         () => Future<void>.delayed(const Duration(milliseconds: 20)),
       );
       await tester.pump(const Duration(milliseconds: 300));
-      expect(find.text('下载页面无法打开，请使用浏览器访问微软 WebView2 官网'), findsNothing);
+      expect(find.text('浏览器无法打开，请稍后重试'), findsNothing);
       expect(tester.takeException(), isNull);
     });
 
     testWidgets('数据目录失败 → 提示存储权限，与网络加载失败区别', (tester) async {
       await pumpFailure(tester, CrispChatFailure.profileUnavailable);
-      expect(find.text('客服数据无法保存，请检查应用的存储权限或可用空间后重试'), findsOneWidget);
-      expect(find.text('客服加载失败，请检查网络后重试'), findsNothing);
+      expect(
+        find.textContaining('客服数据无法保存，请检查应用的存储权限或可用空间后重试'),
+        findsOneWidget,
+      );
+      expect(find.textContaining('客服加载失败，请检查网络后重试'), findsNothing);
       expect(find.text('需要安装客服运行组件'), findsNothing);
       await finishToast(tester);
     });
 
     testWidgets('会话网络未就绪 → 提示检查网络，不引导安装组件', (tester) async {
       await pumpFailure(tester, CrispChatFailure.sessionNotReady);
-      expect(find.text('客服加载失败，请检查网络后重试'), findsOneWidget);
-      expect(find.text('客服数据无法保存，请检查应用的存储权限或可用空间后重试'), findsNothing);
+      expect(find.textContaining('客服加载失败，请检查网络后重试'), findsOneWidget);
+      expect(find.textContaining('客服数据无法保存，请检查应用的存储权限或可用空间后重试'), findsNothing);
       expect(find.text('需要安装客服运行组件'), findsNothing);
       await finishToast(tester);
     });
@@ -278,7 +395,7 @@ void main() {
     testWidgets('macOS/Linux 组件不可用 → 不提供 Windows Runtime 下载', (tester) async {
       final calls = mockBrowser(tester);
       await pumpFailure(tester, CrispChatFailure.webViewUnavailable);
-      expect(find.text('当前系统的客服组件不可用，请检查应用安装是否完整'), findsOneWidget);
+      expect(find.textContaining('当前系统的客服组件不可用，请检查应用安装是否完整'), findsOneWidget);
       expect(find.text('需要安装客服运行组件'), findsNothing);
       expect(calls, isEmpty);
       await finishToast(tester);
@@ -391,62 +508,54 @@ void main() {
     expect(find.text('购买 / 更改套餐'), findsOneWidget);
   });
 
-  testWidgets(
-    '账号加载失败 → 点重新加载 → 黄横幅出现，重试落定后横幅消失（不卡死）',
-    (tester) async {
-      final svc = _MockService();
-      // 重试调反腐层 getSubscription：延迟后返失败（XbResult 永不抛、必落定）→ 横幅应能正常撤除。
-      when(svc.getSubscription).thenAnswer((_) async {
-        await Future<void>.delayed(const Duration(milliseconds: 100));
-        return XbResult.failure(const XbNetwork(XbNetworkKind.unknown, 'down'));
-      });
+  testWidgets('账号加载失败 → 点重新加载 → 黄横幅出现，重试落定后横幅消失（不卡死）', (tester) async {
+    final svc = _MockService();
+    // 重试调反腐层 getSubscription：延迟后返失败（XbResult 永不抛、必落定）→ 横幅应能正常撤除。
+    when(svc.getSubscription).thenAnswer((_) async {
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+      return XbResult.failure(const XbNetwork(XbNetworkKind.unknown, 'down'));
+    });
 
-      await tester.pumpWidget(
-        ProviderScope(
-          overrides: [
-            authStateProvider.overrideWith(
-              () => _FakeAuth(AuthState.authenticated),
-            ),
-            xboardServiceProvider.overrideWithValue(svc),
-            userProfileProvider.overrideWith(
-              (ref) async => throw Exception('down'),
-            ),
-          ],
-          child: const MaterialApp(home: Scaffold(body: MineTab())),
-        ),
-      );
-      // keepAlive 首次错误经 AsyncLoading(error:)→AsyncError，pumpAndSettle 落定到失败卡。
-      try {
-        await tester.pumpAndSettle(const Duration(milliseconds: 100));
-      } catch (_) {}
-      expect(find.text('账号信息加载失败'), findsOneWidget);
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          authStateProvider.overrideWith(
+            () => _FakeAuth(AuthState.authenticated),
+          ),
+          xboardServiceProvider.overrideWithValue(svc),
+          userProfileProvider.overrideWith(
+            (ref) async => throw Exception('down'),
+          ),
+        ],
+        child: const MaterialApp(home: Scaffold(body: MineTab())),
+      ),
+    );
+    // keepAlive 首次错误经 AsyncLoading(error:)→AsyncError，pumpAndSettle 落定到失败卡。
+    try {
+      await tester.pumpAndSettle(const Duration(milliseconds: 100));
+    } catch (_) {}
+    expect(find.text('账号信息加载失败'), findsOneWidget);
 
-      // 点重新加载 → 同步 setState(_retrying=true) → 黄横幅出现。
-      await tester.tap(find.text('重新加载'));
-      await tester.pump();
-      expect(find.text('正在刷新服务，请稍候…'), findsOneWidget);
-      // 11d：重试态与首次加载同布局——卡片不丢（骨架卡占位 + 禁用按钮行），不只是一条横幅。
-      expect(
-        find.byType(XbSkeletonBar),
-        findsWidgets,
-        reason: '重试态保留骨架卡占位（卡片不丢，原型 11d）',
-      );
-      expect(find.text('续费当前套餐'), findsOneWidget, reason: '重试态显示禁用的续费/购买按钮行');
+    // 点重新加载 → 同步 setState(_retrying=true) → 黄横幅出现。
+    await tester.tap(find.text('重新加载'));
+    await tester.pump();
+    expect(find.text('正在刷新服务，请稍候…'), findsOneWidget);
+    // 11d：重试态与首次加载同布局——卡片不丢（骨架卡占位 + 禁用按钮行），不只是一条横幅。
+    expect(
+      find.byType(XbSkeletonBar),
+      findsWidgets,
+      reason: '重试态保留骨架卡占位（卡片不丢，原型 11d）',
+    );
+    expect(find.text('续费当前套餐'), findsOneWidget, reason: '重试态显示禁用的续费/购买按钮行');
 
-      // 等 getSubscription 落定 + invalidate + setState(_retrying=false)。
-      // _retry await 的是反腐层（必返回），故横幅一定撤除（验证不卡死）。
-      try {
-        await tester.pumpAndSettle(const Duration(milliseconds: 100));
-      } catch (_) {}
-      expect(
-        find.text('正在刷新服务，请稍候…'),
-        findsNothing,
-        reason: '重试落定后横幅必须消失（不卡死）',
-      );
-      expect(find.text('账号信息加载失败'), findsOneWidget, reason: '重试仍失败 → 回到失败卡');
-    },
-    timeout: const Timeout(Duration(seconds: 30)),
-  );
+    // 等 getSubscription 落定 + invalidate + setState(_retrying=false)。
+    // _retry await 的是反腐层（必返回），故横幅一定撤除（验证不卡死）。
+    try {
+      await tester.pumpAndSettle(const Duration(milliseconds: 100));
+    } catch (_) {}
+    expect(find.text('正在刷新服务，请稍候…'), findsNothing, reason: '重试落定后横幅必须消失（不卡死）');
+    expect(find.text('账号信息加载失败'), findsOneWidget, reason: '重试仍失败 → 回到失败卡');
+  }, timeout: const Timeout(Duration(seconds: 30)));
 
   group('在线客服入口（D9 Crisp，按 crispWebsiteId 显隐）', () {
     tearDown(XboardConfig.resetForTest);

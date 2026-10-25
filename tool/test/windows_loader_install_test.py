@@ -195,9 +195,9 @@ file(GENERATE OUTPUT "${CMAKE_BINARY_DIR}/inapp-interface-definitions-$<CONFIG>.
         write_file(
             source / "flutter" / "generated_plugins.cmake",
             compiler_condition
-            + """add_library(Webview2 SHARED IMPORTED GLOBAL)
-set_target_properties(Webview2 PROPERTIES
-  IMPORTED_LOCATION "${CMAKE_CURRENT_LIST_DIR}/new/WebView2Loader.dll")
+            + """add_library(dww_webview2 STATIC IMPORTED GLOBAL)
+set_target_properties(dww_webview2 PROPERTIES
+  IMPORTED_LOCATION "${CMAKE_CURRENT_LIST_DIR}/new/WebView2LoaderStatic.lib")
 add_library(desktop_webview_window_plugin STATIC "${CMAKE_CURRENT_LIST_DIR}/desktop.cpp")
 target_link_libraries(${BINARY_NAME} PRIVATE desktop_webview_window_plugin)
 file(GENERATE OUTPUT "${CMAKE_BINARY_DIR}/runner-definitions-$<CONFIG>.txt"
@@ -207,8 +207,7 @@ file(GENERATE OUTPUT "${CMAKE_BINARY_DIR}/desktop-definitions-$<CONFIG>.txt"
 """
             + inapp_plugin
             + """
-# A regular install rule supplies the older plugin loader before the shared
-# loader override, just as the real bundle may already contain an older DLL.
+# Only the tutorial plugin bundles a dynamic loader. Crisp 0.4.0 is static.
 set(PLUGIN_BUNDLED_LIBRARIES
   "${CMAKE_CURRENT_LIST_DIR}/old/WebView2Loader.dll")
 """,
@@ -339,7 +338,7 @@ set(PLUGIN_BUNDLED_LIBRARIES
                     self.run_cmake(
                         "--install", str(self.build), "--config", configuration
                     )
-                    self.assertEqual(installed_loader.read_bytes(), NEW_LOADER)
+                    self.assertEqual(installed_loader.read_bytes(), OLD_LOADER)
                     self.assertFalse(stale_asset.exists())
                     for relative in (
                         "EnableLoopback.exe",

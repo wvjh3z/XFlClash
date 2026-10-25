@@ -89,8 +89,9 @@ dependencies:
   flutter_inappwebview_windows: 0.6.0 # Public environment adapter for this pinned Windows implementation.
   flutter_inappwebview_platform_interface: 1.3.0+1 # Channel extension used only by the Windows environment repair.
   html: 0.15.6                    # DOM preparation for authenticated tutorial HTML.
-  desktop_webview_window: 0.3.2   # Crisp desktop transport; keep native navigation fixes reproducible.
-  crisp_chat: 3.0.0               # D9 在线客服（Android 原生 SDK；mac/win/linux WebView 套 Web Chat）
+  desktop_webview_window: 0.4.0   # Crisp desktop transport; keep native navigation fixes reproducible.
+  crisp_chat:
+    path: plugins/crisp_chat # 3.0.0 mobile SDK + desktop 0.4.0 compatibility
 dev_dependencies:
   connectivity_plus_platform_interface: 2.1.0 # Native smoke: controlled network events.
   flutter_test:

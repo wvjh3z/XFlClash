@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:fl_clash/enum/enum.dart';
-import 'package:desktop_webview_window/desktop_webview_window.dart';
 import 'package:fl_clash/xboard/config/xboard_config.dart';
 import 'package:fl_clash/xboard/xboard_module.dart';
 import 'package:fl_clash/xboard/storage/legacy_brand_migration.dart';
@@ -32,8 +31,6 @@ void main(List<String> args) {
         });
       };
       try {
-        // Crisp's title-bar child must not claim the main process data lock.
-        if (system.isDesktop && runWebViewTitleBarWidget(args)) return;
         if (system.isDesktop && !await singleInstanceLock.acquire()) exit(0);
         if (Platform.isWindows || Platform.isLinux) {
           SharedPreferencesStorePlatform.instance = AtomicFilePreferencesStore(

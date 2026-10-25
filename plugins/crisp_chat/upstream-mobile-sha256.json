@@ -1,0 +1,20 @@
+{
+  "android/gradlew": "f96a757581fe5292465e3f3393380bd11fd8086d450b92e7c693da6513f583fe",
+  "android/settings.gradle": "098958b1a8cd61f44b2585e1b04bb18bd1870d9d3bd0f78ea2aff47feee4397b",
+  "android/gradlew.bat": "af835f98787e9269af5a046edcb821a592fed372139df7b947b471a63cfc236b",
+  "android/build.gradle": "868c3fc3f6dc0a305fa6fa61a3df15d76049ccca569e1f7d8a2cc74ddaa1fef8",
+  "android/src/main/AndroidManifest.xml": "2cf761178a89c2738f7ca66772c10a81170b622474bb8351801c773742720e4e",
+  "android/src/main/java/com/alaminkarno/flutter_crisp_chat/CrispChatNotificationService.java": "1afb9f50fa0e2c8520982a9005861e52f13bb0472a9a30bea554737c65601218",
+  "android/src/main/java/com/alaminkarno/flutter_crisp_chat/FlutterCrispChatPlugin.java": "75223480bcaca12293b4544fd5a0d9d451535d3b8013036713d3c836db1ed24c",
+  "android/src/main/java/com/alaminkarno/flutter_crisp_chat/config/Geolocation.java": "304d75bced6b09b75e9fd58bf1dfe7ab89eec7a6dd72bb36ba8a54c1dc57e386",
+  "android/src/main/java/com/alaminkarno/flutter_crisp_chat/config/CrispConfig.java": "08861ffe6477ea5a9b082a60d992ed82eda995c955d33a9cc2eada31828c34e5",
+  "android/src/main/java/com/alaminkarno/flutter_crisp_chat/config/User.java": "a18fc1e29fb4aa9fa8eaa807bc11e597ceec941537e11cf4dbca5e59fbf83d7b",
+  "android/src/main/java/com/alaminkarno/flutter_crisp_chat/config/Employment.java": "53ee2950ceb867bca7df78ddd08ac16f5acb284752b63a5b4eac4c3067ac5e1b",
+  "android/src/main/java/com/alaminkarno/flutter_crisp_chat/config/Company.java": "5e1d4f521e52b9da0f45af003439aa3d2fa77b8f8407bd0d29d7113a25ffb076",
+  "android/gradle/wrapper/gradle-wrapper.jar": "575098db54a998ff1c6770b352c3b16766c09848bee7555dab09afc34e8cf590",
+  "android/gradle/wrapper/gradle-wrapper.properties": "54b313786fe9dd7d801e4f40e0c7e40db3e1b3fbeff6c657a93b8a23c92a67ea",
+  "ios/crisp_chat.podspec": "795d209c0301b391610ee3eb52892a7f84a002602cf9ff18ff0a01dfbc355a03",
+  "ios/crisp_chat/Package.swift": "009ef4f8e2eaf7c94f35bea998d1c006c23cfab7f0823cdfbf827b000737fc18",
+  "ios/crisp_chat/Sources/crisp_chat/FlutterCrispChatPlugin.swift": "b10b6ad515c4acf16b08474f9509dd33c32a28816789cb0944ab8b1f99d2394c",
+  "ios/crisp_chat/Sources/crisp_chat/CrispConfig.swift": "5f354ce3e36028caa05c766320e9545c5af85e9a8fa67dc6e9efea2fd8d05060"
+}

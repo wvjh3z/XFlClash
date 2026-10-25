@@ -1,0 +1,231 @@
+import 'dart:async';
+
+import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter/widgets.dart';
+
+import 'config.dart';
+import 'crisp_event.dart';
+import 'crisp_message_content.dart';
+import 'flutter_crisp_chat_platform_interface.dart';
+
+/// An implementation of [FlutterCrispChatPlatform] that uses method channels.
+class MethodChannelFlutterCrispChat extends FlutterCrispChatPlatform {
+  /// The method channel used to interact with the native platform.
+  @visibleForTesting
+  final methodChannel = const MethodChannel('flutter_crisp_chat');
+
+  /// Callback invoked when a Crisp notification is tapped while the app
+  /// is running (background → foreground via onNewIntent).
+  VoidCallback? _onNotificationTappedCallback;
+
+  /// Whether the native method call handler has been set up.
+  bool _isHandlerRegistered = false;
+
+  /// Broadcast controller backing [onCrispEvent]. Created lazily on first
+  /// listen, and tells native to (un)register its SDK event callback in
+  /// [StreamController.onListen]/[StreamController.onCancel].
+  StreamController<CrispChatEvent>? _eventController;
+
+  /// Lazily registers the native → Dart method call handler.
+  /// This avoids calling [setMethodCallHandler] before the binding is ready.
+  void _ensureNativeHandlerRegistered() {
+    if (!_isHandlerRegistered) {
+      _isHandlerRegistered = true;
+      methodChannel.setMethodCallHandler(_handleNativeMethodCall);
+    }
+  }
+
+  /// Handles method calls from native platform to Dart.
+  Future<dynamic> _handleNativeMethodCall(MethodCall call) async {
+    switch (call.method) {
+      case 'onCrispNotificationTapped':
+        _onNotificationTappedCallback?.call();
+        break;
+      case 'onCrispEvent':
+        final args = call.arguments as Map<dynamic, dynamic>;
+        _eventController?.add(CrispChatEvent.fromMap(args));
+        break;
+    }
+  }
+
+  /// A broadcast stream of native Crisp SDK events. Registers the native
+  /// event callback on first listen, and unregisters it once the last
+  /// listener cancels — the native SDK keeps a strong reference to its
+  /// event callback, so it should not stay registered when unused.
+  @override
+  Stream<CrispChatEvent> get onCrispEvent {
+    _eventController ??= StreamController<CrispChatEvent>.broadcast(
+      onListen: () {
+        _ensureNativeHandlerRegistered();
+        methodChannel.invokeMethod('registerCrispEventListener');
+      },
+      onCancel: () {
+        methodChannel.invokeMethod('unregisterCrispEventListener');
+      },
+    );
+    return _eventController!.stream;
+  }
+
+  /// [openCrispChat] is use to invoke the Method Channel and call native
+  /// code with arguments `websiteID`.
+  @override
+  Future<void> openCrispChat({required CrispConfig config}) async {
+    await methodChannel.invokeMethod<CrispConfig>(
+        'openCrispChat', config.toJson());
+  }
+
+  /// [resetCrispChatSession] is use to invoke the Method Channel and call native
+  /// code with no arguments and this will reset the crisp chat session.
+  @override
+  Future<void> resetCrispChatSession() async {
+    await methodChannel.invokeMethod('resetCrispChatSession');
+  }
+
+  /// [setSessionString] is used to invoke the Method Channel and call native
+  /// code with arguments `key` and `value`.
+  @override
+  void setSessionString({required String key, required String value}) {
+    methodChannel.invokeMethod('setSessionString', <String, String>{
+      'key': key,
+      'value': value,
+    });
+  }
+
+  /// [setSessionInt] is used to invoke the Method Channel and call native
+  /// code with arguments `key` and `value`.
+  @override
+  void setSessionInt({required String key, required int value}) {
+    methodChannel.invokeMethod('setSessionInt', <String, dynamic>{
+      'key': key,
+      'value': value,
+    });
+  }
+
+  /// [getSessionIdentifier] retrieves the current session identifier from the native platform.
+  @override
+  Future<String?> getSessionIdentifier() async {
+    try {
+      final sessionId = await methodChannel.invokeMethod<String>(
+        'getSessionIdentifier',
+      );
+      return sessionId;
+    } on PlatformException catch (e) {
+      debugPrint("Failed to get session identifier: '${e.message}'.");
+      return null;
+    }
+  }
+
+  /// [setSessionSegments] Sets a collection of session segments
+  /// and optionally overwrite existing ones (default is false)
+  @override
+  void setSessionSegments({
+    required List<String> segments,
+    bool overwrite = false,
+  }) {
+    methodChannel.invokeMethod('setSessionSegments', <String, dynamic>{
+      'segments': segments,
+      'overwrite': overwrite,
+    });
+  }
+
+  /// [pushSessionEvent] is used to invoke the Method Channel and call native
+  /// code with arguments `name` and `color`.
+  @override
+  Future<void> pushSessionEvent({
+    required String name,
+    SessionEventColor color = SessionEventColor.blue,
+  }) async {
+    await methodChannel.invokeMethod('pushSessionEvent', <String, dynamic>{
+      'name': name,
+      'color': color.name.toString(),
+    });
+  }
+
+  /// [openChatboxFromNotification] attempts to open the Crisp chatbox from
+  /// a notification intent. Returns `true` if the chatbox was opened
+  /// successfully, `false` otherwise.
+  @override
+  Future<bool> openChatboxFromNotification() async {
+    _ensureNativeHandlerRegistered();
+    try {
+      final result = await methodChannel.invokeMethod<bool>(
+        'openChatboxFromNotification',
+      );
+      return result ?? false;
+    } on PlatformException catch (e) {
+      debugPrint("Failed to open chatbox from notification: '${e.message}'.");
+      return false;
+    }
+  }
+
+  /// [setOnNotificationTappedCallback] sets a callback that fires when a
+  /// Crisp notification is tapped while the app is running.
+  @override
+  void setOnNotificationTappedCallback(VoidCallback? callback) {
+    _ensureNativeHandlerRegistered();
+    _onNotificationTappedCallback = callback;
+  }
+
+  /// [openHelpdesk] opens the Crisp helpdesk search interface.
+  @override
+  Future<void> openHelpdesk({required String websiteId}) async {
+    await methodChannel.invokeMethod('openHelpdesk', <String, String>{
+      'websiteId': websiteId,
+    });
+  }
+
+  /// [openHelpdeskArticle] opens a specific helpdesk article identified by
+  /// [locale] and [slug].
+  @override
+  Future<void> openHelpdeskArticle({
+    required String websiteId,
+    required String locale,
+    required String slug,
+    String? title,
+    String? category,
+  }) async {
+    await methodChannel.invokeMethod(
+      'openHelpdeskArticle',
+      <String, dynamic>{
+        'websiteId': websiteId,
+        'locale': locale,
+        'slug': slug,
+        if (title != null) 'title': title,
+        if (category != null) 'category': category,
+      },
+    );
+  }
+
+  /// [runBotScenario] is used to invoke the Method Channel and call native
+  /// code with argument `scenarioId`.
+  @override
+  Future<void> runBotScenario({required String scenarioId}) async {
+    await methodChannel.invokeMethod('runBotScenario', <String, String>{
+      'scenarioId': scenarioId,
+    });
+  }
+
+  /// [showMessage] is used to invoke the Method Channel and call native
+  /// code with the serialized [content].
+  @override
+  Future<void> showMessage({required CrispMessageContent content}) async {
+    await methodChannel.invokeMethod('showMessage', content.toJson());
+  }
+
+  /// Returns whether the native build supports Crisp video/audio calls.
+  @override
+  Future<bool> isVideoCallsSupported() async {
+    try {
+      final result = await methodChannel.invokeMethod<bool>(
+        'isVideoCallsSupported',
+      );
+      return result ?? false;
+    } on PlatformException catch (e) {
+      debugPrint("Failed to check video call support: '${e.message}'.");
+      return false;
+    } on MissingPluginException {
+      return false;
+    }
+  }
+}

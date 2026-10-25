@@ -816,7 +816,7 @@ class NativeElfSymbolsTest(unittest.TestCase):
             symbols.audit_elf_native("sentry-cli", self.build, "android")
 
     def test_linux_cmake_plugin_cannot_disappear_from_both_manifest_lists_or_source_map(self):
-        source = self.binary.parent.parent / "plugins/example/libexample_plugin.so"
+        source = self.binary.parent.parent / "plugins/desktop_webview_window/libdesktop_webview_window_plugin.so"
         source.parent.mkdir(parents=True)
         shutil.copyfile(self.original, source)
         runtime = self.rust_binary.parent / source.name
@@ -828,7 +828,7 @@ class NativeElfSymbolsTest(unittest.TestCase):
                  "debug_file": debug.relative_to(self.build).as_posix()}
         self.manifest["artifacts"].append(entry)
         self.manifest["required"].append({"target": source.name, "architecture": self.architecture})
-        self.cmake_map.write_text(self.cmake_map.read_text() + f"example\t{source}\n")
+        self.cmake_map.write_text(self.cmake_map.read_text() + f"desktop_webview_window_plugin\t{source}\n")
         self.write_manifest()
         self.assertEqual(len(self.audit()[0]), 3)
         self.manifest["artifacts"].pop()
@@ -965,7 +965,11 @@ add_library(wrapper STATIC wrapper.cpp)
 add_executable(FlClash main.cpp)
 target_link_libraries(FlClash PRIVATE wrapper)
 add_library(flutter_inappwebview_windows_plugin SHARED plugin.cpp)
-add_library(desktop_webview_window_plugin SHARED plugin.cpp)
+# 0.4.0 compiles the common composer and a C Dart bridge into the plugin.
+add_library(desktop_webview_window_plugin SHARED plugin.cpp composer.cpp dart_bridge_api.c)
+# Imported static SDK archives must not become standalone upload requirements.
+add_library(dww_webview2 STATIC IMPORTED)
+set_target_properties(dww_webview2 PROPERTIES IMPORTED_LOCATION "${CMAKE_CURRENT_SOURCE_DIR}/WebView2LoaderStatic.lib")
 add_subdirectory(sqlite)
 include("''' + (windows / "xboard_sentry_symbols.cmake").as_posix() + '''")
 ''')
@@ -973,6 +977,8 @@ include("''' + (windows / "xboard_sentry_symbols.cmake").as_posix() + '''")
     (source / "main.cpp").write_text("int fixture_wrapper(); int main() { return fixture_wrapper(); }\n")
     export = '__declspec(dllexport) ' if os.name == "nt" else ''
     (source / "plugin.cpp").write_text(export + "int fixture_plugin() { return 9; }\n")
+    (source / "composer.cpp").write_text(export + "int fixture_composer() { return 11; }\n")
+    (source / "dart_bridge_api.c").write_text(export + "int fixture_bridge(void) { return 12; }\n")
     child = source / "sqlite"
     child.mkdir()
     (child / "CMakeLists.txt").write_text('''project(sqlite_fixture LANGUAGES C)

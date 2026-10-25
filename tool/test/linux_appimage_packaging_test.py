@@ -375,6 +375,7 @@ elif tool == 'appimagetool':
     libraries = pathlib.Path(args[0]) / 'usr/lib'
     pathlib.Path(args[1]).write_text(json.dumps({{
         'ARCH': os.environ.get('ARCH'),
+        'app_run': (pathlib.Path(args[0]) / 'AppRun').read_text(encoding='utf-8'),
         'modes': {{str(p.relative_to(args[0])): p.stat().st_mode & 0o777 for p in pathlib.Path(args[0]).rglob('*') if not p.is_symlink()}},
         'executor_parent': os.readlink('/proc/' + str(os.getppid()) + '/exe'),
         'executor_parent_comm': pathlib.Path('/proc/' + str(os.getppid()) + '/comm').read_text().strip(),
@@ -471,6 +472,49 @@ class LinuxAppImageMakerTest(unittest.TestCase):
         self.commands = [json.loads(line) for line in (self.work / "commands.jsonl").read_text().splitlines()] if (self.work / "commands.jsonl").exists() else []
         self.last_result = json.loads(results[0])
         return self.last_result
+
+    def test_generated_apprun_marks_both_brands_and_preserves_host_environment(self):
+        for brand in ('omofly', 'daishu'):
+            with self.subTest(brand=brand):
+                (self.work/'pubspec.yaml').write_text(f'name: {brand}\nversion: 1.0.0+1\n',encoding='utf-8')
+                (self.work/'distribute_options.yaml').write_text('app_name: '+brand+'\n',encoding='utf-8')
+                for artifact in (self.work/'dist').glob('*.AppImage'):artifact.unlink()
+                self.assertTrue(self.run_maker()['ok'])
+                # Preserve the actual emitted AppRun before the maker cleans staging.
+                root = self.work/(brand+" 中文 ' 空格.AppDir")
+                (root/'usr/lib').mkdir(parents=True)
+                script=root/'AppRun';script.write_text(self.artifact()['app_run'],encoding='utf-8');script.chmod(0o755)
+                output = self.work/(brand+'-env.json')
+                exe = root/brand
+                exe.write_text('#!'+sys.executable+'\nimport os,sys,json\nwith open(os.environ["CAPTURE"],"w") as f: json.dump({"env":dict(os.environ),"args":sys.argv[1:],"cwd":os.getcwd()},f)\n',encoding='utf-8')
+                exe.chmod(0o755)
+                env = {'PATH':os.defpath,'HOME':str(self.work),'CAPTURE':str(output),
+                       'LD_LIBRARY_PATH':'relative-host-lib','LANG':'C.UTF-8'}
+                arguments = ['argument with space', "literal'quote", '$not_a_command']
+                result = subprocess.run([str(root/'AppRun'),*arguments],cwd=self.work,env=env,capture_output=True,text=True,encoding='utf-8',timeout=30)
+                self.assertEqual(result.returncode,0,result.stderr)
+                value=json.loads(output.read_text());child=value['env']
+                self.assertEqual(child['XBOARD_APPIMAGE_ROOT'],str(root.resolve()))
+                self.assertEqual(child['XBOARD_APPIMAGE_EXECUTABLE'],str(exe.resolve()))
+                self.assertEqual(child['APPDIR'],str(root.resolve()))
+                self.assertEqual(child['XBOARD_APPIMAGE_ORIGINAL_LD'],'relative-host-lib')
+                self.assertEqual(child['XBOARD_APPIMAGE_ORIGINAL_LD_SET'],'x')
+                self.assertEqual(child['XBOARD_APPIMAGE_ORIGINAL_CWD'],str(self.work.resolve()))
+                self.assertEqual(child['LD_LIBRARY_PATH'],str(root/'usr/lib'))
+                self.assertEqual(value['args'],arguments)
+                alias=self.work/(brand+'-launcher');alias.symlink_to(root/'AppRun')
+                via_link=subprocess.run([str(alias),*arguments],cwd=self.work,env=env,capture_output=True,text=True,encoding='utf-8',timeout=30)
+                self.assertEqual(via_link.returncode,0,via_link.stderr)
+                self.assertEqual(json.loads(output.read_text())['env']['APPDIR'],str(root.resolve()))
+
+                # Negative control: the exact old launcher lacks markers and drops arguments.
+                legacy=root/'OldAppRun';legacy.write_text('#!/bin/bash\ncd "$(dirname "$0")"\nexport LD_LIBRARY_PATH=usr/lib\nexec ./'+brand+'\n',encoding='utf-8')
+                result=subprocess.run(['/bin/bash',str(legacy),*arguments],cwd=self.work,env=env,capture_output=True,text=True,encoding='utf-8',timeout=30)
+                self.assertEqual(result.returncode,0,result.stderr)
+                legacy_value=json.loads(output.read_text())
+                self.assertNotIn('APPDIR',legacy_value['env'])
+                self.assertNotIn('XBOARD_APPIMAGE_ROOT',legacy_value['env'])
+                self.assertEqual(legacy_value['args'],[])
 
     def real_ldd_bundle(self):
         """Compile only a tiny public shared object, never the client."""

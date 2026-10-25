@@ -12,6 +12,8 @@ import 'package:path/path.dart' as p;
 import 'package:desktop_webview_window/desktop_webview_window.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:url_launcher/url_launcher.dart';
+import 'crisp_navigation.dart';
 
 enum CrispChatFailure {
   notConfigured,
@@ -103,6 +105,8 @@ class NativeCrispChatDriver implements CrispChatDriver {
 /// directory. A timed-out close remains a barrier until the native close event.
 class DesktopCrispChatDriver implements CrispChatDriver {
   DesktopCrispChatDriver({
+    Future<void> Function(int)? focusWindow,
+    Future<bool> Function(Uri)? openExternal,
     Future<bool> Function()? available,
     Future<Webview> Function(CreateConfiguration)? create,
     Future<Directory> Function()? cacheDirectory,
@@ -112,7 +116,15 @@ class DesktopCrispChatDriver implements CrispChatDriver {
     Duration startupTimeout = const Duration(seconds: 10),
     Duration closeTimeout = const Duration(seconds: 3),
     Duration bootstrapPollInterval = const Duration(milliseconds: 100),
-  }) : _available = available ?? WebviewWindow.isWebviewAvailable,
+  }) : _focusWindow =
+           focusWindow ??
+           ((handle) => const MethodChannel(
+             'window',
+           ).invokeMethod<void>('focusBorrowedWindow', {'handle': handle})),
+       _openExternal =
+           openExternal ??
+           ((uri) => launchUrl(uri, mode: LaunchMode.externalApplication)),
+       _available = available ?? WebviewWindow.isWebviewAvailable,
        _create =
            create ??
            ((configuration) =>
@@ -125,6 +137,8 @@ class DesktopCrispChatDriver implements CrispChatDriver {
        _closeTimeout = closeTimeout,
        _bootstrapPollInterval = bootstrapPollInterval;
 
+  final Future<void> Function(int) _focusWindow;
+  final Future<bool> Function(Uri) _openExternal;
   final Future<bool> Function() _available;
   final Future<Webview> Function(CreateConfiguration) _create;
   final Future<Directory> Function() _cacheDirectory;
@@ -199,10 +213,16 @@ class DesktopCrispChatDriver implements CrispChatDriver {
     }
     return CreateConfiguration(
       title: '在线客服',
-      titleBarTopPadding: 0,
+      titleBar: const TitleBarOptions(
+        showNavigation: false,
+        showReload: false,
+        showHost: false,
+      ),
       windowWidth: 420,
       windowHeight: 720,
-      userDataFolderWindows: profilePath ?? 'webview_window_WebView2',
+      windows: WindowsWebviewOptions(
+        userDataFolder: profilePath ?? 'webview_window_WebView2',
+      ),
     );
   }
 
@@ -227,12 +247,13 @@ class DesktopCrispChatDriver implements CrispChatDriver {
       }
       try {
         await _bounded(
-          existing.window.bringToForeground(),
+          _focusWindow(existing.window.nativeWindowHandle),
           _ioTimeout,
           CrispChatFailure.startupFailed,
         );
         _checkWindow(existing, generation);
-        if (!existing.sessionReady) {
+        if (!existing.sessionReady || existing.loadFailed) {
+          existing.loadFailed = false;
           // Restart a page that exhausted the service's readiness budget. The
           // bootstrap marker is cleared first so reload cannot accept old HTML.
           await _bounded(
@@ -361,9 +382,53 @@ class DesktopCrispChatDriver implements CrispChatDriver {
       );
       _checkGeneration(generation);
       _active = view;
-      // launch is void async in the plugin: its Future cannot be awaited here.
-      // Only the page's own inline bootstrap confirms navigation and execution.
-      window.launch(file.uri.toString());
+      final ownedView = view;
+      final page = file.uri;
+      await _bounded(
+        window.setOnUrlRequestCallback((url) {
+          if (ownedView.closed ||
+              ownedView.closing ||
+              !identical(_active, ownedView)) {
+            return false;
+          }
+          final action = crispNavigation(url, page);
+          if (action == CrispNavigation.external) {
+            // Windows asks synchronously: never call a native channel inside the
+            // navigation decision. Dispatch only after it has returned.
+            unawaited(
+              Future<void>(() async {
+                if (ownedView.closed ||
+                    ownedView.closing ||
+                    !identical(_active, ownedView) ||
+                    ownedView.openingExternal) {
+                  return;
+                }
+                ownedView.openingExternal = true;
+                try {
+                  final opened = await _openExternal(
+                    Uri.parse(url),
+                  ).timeout(_ioTimeout);
+                  if (!opened) await _showExternalFailure(ownedView);
+                } catch (_) {
+                  await _showExternalFailure(ownedView);
+                } finally {
+                  ownedView.openingExternal = false;
+                }
+              }),
+            );
+          }
+          return action == CrispNavigation.internal;
+        }),
+        _ioTimeout,
+        CrispChatFailure.startupFailed,
+      );
+      _checkGeneration(generation);
+      await _bounded(
+        window.launch(page.toString()),
+        _startupTimeout,
+        CrispChatFailure.startupFailed,
+        timeoutFailure: CrispChatFailure.startupTimeout,
+      );
       await _waitForBootstrap(view, generation);
     } on CrispChatException {
       if (view != null) await _retire(view);
@@ -383,6 +448,9 @@ class DesktopCrispChatDriver implements CrispChatDriver {
     final elapsed = Stopwatch()..start();
     while (elapsed.elapsed < _startupTimeout) {
       _checkWindow(view, generation);
+      if (view.loadFailed) {
+        throw const CrispChatException(CrispChatFailure.startupFailed);
+      }
       final remaining = _startupTimeout - elapsed.elapsed;
       final budget = remaining < _ioTimeout ? remaining : _ioTimeout;
       final result = await _bounded(
@@ -410,6 +478,9 @@ class DesktopCrispChatDriver implements CrispChatDriver {
     final view = _active;
     if (view == null || view.closing || view.closed) {
       throw const CrispChatException(CrispChatFailure.windowClosed);
+    }
+    if (view.loadFailed) {
+      throw const CrispChatException(CrispChatFailure.sessionNotReady);
     }
     final generation = _generation;
     final value = _desktopString(
@@ -452,6 +523,38 @@ class DesktopCrispChatDriver implements CrispChatDriver {
     }
     view.sessionReady = true;
     return value;
+  }
+
+  /// A failed child window must not cover the main window's recovery dialog.
+  /// Keep the profile/reset marker and the existing close-confirmation barrier.
+  Future<void> dismissFailedOpen() async {
+    final view = _active;
+    if (view != null) await _retire(view);
+  }
+
+  /// Reveal only after this account's context has been written successfully.
+  Future<void> reveal() async {
+    final view = _active;
+    if (view == null || view.closed || view.closing) {
+      throw const CrispChatException(CrispChatFailure.windowClosed);
+    }
+    final generation = _generation;
+    try {
+      final result = await _bounded(
+        view.window.evaluateJavaScript(
+          r'(function(){document.getElementById("status").textContent="";$crisp.push(["do","chat:show"]);$crisp.push(["do","chat:open"]);return "ok";})();',
+        ),
+        _ioTimeout,
+        CrispChatFailure.sessionDataFailed,
+      );
+      _checkWindow(view, generation);
+      if (result != 'ok') {
+        throw const CrispChatException(CrispChatFailure.sessionDataFailed);
+      }
+    } catch (_) {
+      if (generation == _generation) await _retire(view);
+      rethrow;
+    }
   }
 
   @override
@@ -539,8 +642,20 @@ class DesktopCrispChatDriver implements CrispChatDriver {
       pendingResetKey,
     );
     _windows.add(view);
+    view.loadErrors = window.onLoadError.listen(
+      (_) {
+        if (!view.closed && !view.closing) {
+          view.loadFailed = true;
+          view.sessionReady = false;
+        }
+      },
+      onError: (Object _) {
+        view.loadFailed = true;
+      },
+    );
     view.nativeClose = window.onClose.then((_) {
       view.closed = true;
+      unawaited(view.loadErrors?.cancel());
       if (identical(_active, view)) _active = null;
       _windows.remove(view);
       view.cleanup = _deleteDirectory(directory);
@@ -566,7 +681,13 @@ class DesktopCrispChatDriver implements CrispChatDriver {
     view.closing = true;
     if (identical(_active, view)) _active = null;
     try {
-      if (!view.closed) view.window.close();
+      if (!view.closed) {
+        await _bounded(
+          view.window.close(),
+          _closeTimeout,
+          CrispChatFailure.closeFailed,
+        );
+      }
       await _bounded(
         view.nativeClose,
         _closeTimeout,
@@ -585,6 +706,17 @@ class DesktopCrispChatDriver implements CrispChatDriver {
       await _closeWindow(view);
     } on CrispChatException {
       // It stays in _windows until a close event; the next open/reset retries.
+    }
+  }
+
+  Future<void> _showExternalFailure(_DesktopCrispWindow view) async {
+    if (view.closed || view.closing || !identical(_active, view)) return;
+    try {
+      await view.window
+          .evaluateJavaScript('window.alert("无法打开外部链接，请复制链接后在浏览器打开。");')
+          .timeout(_ioTimeout);
+    } catch (_) {
+      /* A closed window cannot show feedback. */
     }
   }
 
@@ -611,6 +743,11 @@ class _DesktopCrispWindow {
   String? pendingResetKey;
   late final Future<void> nativeClose;
   Future<void>? cleanup;
+  // Owned by _track; cancelled when the native onClose event completes.
+  // ignore: cancel_subscriptions
+  StreamSubscription<WebviewLoadError>? loadErrors;
+  bool loadFailed = false;
+  bool openingExternal = false;
   bool closed = false;
   bool closing = false;
   bool sessionReady = false;
@@ -621,9 +758,11 @@ class _DesktopCrispWindow {
 String desktopCrispHtml(String websiteId, String? segment, bool reset) {
   String js(String value) => jsonEncode(value).replaceAll('<', r'\u003c');
   return '''<!doctype html><html><head><meta charset="utf-8">
+<title>在线客服</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<style>body{font:14px system-ui;padding:24px;color:#555}</style></head>
+<style>html,body{height:100%;margin:0}body{font:14px system-ui;color:#555}#status{padding:24px}</style></head>
 <body><p id="status">正在加载客服，请稍候…</p><script>
+window.CRISP_RUNTIME_CONFIG={lock_maximized:true,lock_full_view:true};
 window.\$crisp=[];window.CRISP_WEBSITE_ID=${js(websiteId)};
 window.__xbCrispReady=false;window.__xbCrispLoadFailed=false;
 var resetPending=${reset ? 'true' : 'false'};
@@ -631,9 +770,8 @@ var resetPending=${reset ? 'true' : 'false'};
 \$crisp.push(["on","session:loaded",function(id){
   if(resetPending){resetPending=false;\$crisp.push(["do","session:reset"]);return;}
   window.__xbCrispSession=id;window.__xbCrispReady=true;
-  document.getElementById("status").textContent="";
+  document.getElementById("status").textContent="正在同步客服资料…";
   ${segment == null ? '' : '\$crisp.push(["set","session:segments",[[${js(segment)}]]]);'}
-  \$crisp.push(["do","chat:show"]);\$crisp.push(["do","chat:open"]);
 }]);
 setTimeout(function(){if(!window.__xbCrispReady){document.getElementById("status").textContent="客服加载较慢，请检查网络，关闭窗口后重试。";}},15000);
 window.__xbCrispBootstrap=true;
@@ -641,14 +779,5 @@ window.__xbCrispBootstrap=true;
 onerror="window.__xbCrispLoadFailed=true;document.getElementById('status').textContent='客服加载失败，请检查网络后重试。';"></script></body></html>''';
 }
 
-/// WebView2/WebKit return JSON-encoded scalars; WKWebView returns plain strings.
-String? _desktopString(String? value) {
-  if (value == null) return null;
-  try {
-    final decoded = jsonDecode(value);
-    if (decoded == null || decoded is String) return decoded as String?;
-  } on FormatException {
-    // A plain macOS result is not necessarily JSON.
-  }
-  return value;
-}
+/// 0.4.0 decodes the native result once on every desktop platform.
+String? _desktopString(Object? value) => value is String ? value : null;

@@ -110,7 +110,8 @@ def activate(root, environment, runner):
 
 
 def platform_commands(target, *, dart, wine=None, iscc=None):
-    commands = [('brand-identity', [sys.executable, 'tool/test/brand_identity_cli_test.py'], 180),
+    commands = [('crisp-compatibility', [sys.executable, '-m', 'unittest', 'tool.test.crisp_desktop_compat_test', 'tool.test.crisp_native_dependency_test'], 180),
+                ('brand-identity', [sys.executable, 'tool/test/brand_identity_cli_test.py'], 180),
                 ('context', [sys.executable, 'tool/test/packager_context_test.py'], 180),
                 ('flutter-defines', [sys.executable, 'tool/test/flutter_reserved_defines_test.py'], 480)]
     if target == 'android':
@@ -119,6 +120,7 @@ def platform_commands(target, *, dart, wine=None, iscc=None):
     elif target == 'linux':
         commands += [('appimage-contract', [sys.executable, '-m', 'unittest', 'tool.test.appimagetool_contract_test'], 180),
                      ('update-handoff', [dart, '--packages=build/packaging-tools/flutter_distributor/packages/flutter_distributor/.dart_tool/package_config.json', 'tool/test/update_handoff_test.dart'], 180),
+                     ('crisp-appimage-browser', [dart, '--packages=build/packaging-tools/flutter_distributor/packages/flutter_distributor/.dart_tool/package_config.json', 'tool/test/crisp_appimage_browser_test.dart'], 180),
                      ('linux-maker', [sys.executable, '-m', 'unittest', 'tool.test.linux_appimage_packaging_test', 'tool.test.linux_package_permissions_test', 'tool.test.linux_release_packages_test', 'tool.test.linux_appimage_readback_test', 'tool.test.linux_webview_identity_test', 'tool.test.webkit_probe_support_test', 'tool.test.appimage_restart_test'], 480)]
     elif target == 'windows':
         args = [sys.executable, 'tool/test/windows_iscc_preflight.py', '--dart', dart]

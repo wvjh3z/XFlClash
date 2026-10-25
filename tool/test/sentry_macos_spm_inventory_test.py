@@ -1310,5 +1310,52 @@ class InventoryCliSafetyTests(unittest.TestCase):
                 self.assertNotIn("private", output.getvalue())
 
 
+
+class CrispComposerGraphTests(unittest.TestCase):
+    """0.4.0 target topology through the production inventory resolver.
+
+    The manifest evaluator and final Mach-O discovery are substituted here;
+    actual Xcode compilation and UUID matching are separate platform checks.
+    """
+    def test_both_brands_and_architectures_keep_composer_in_owning_dsym(self):
+        manifest = (TOOL/'test/fixtures/desktop_webview_window_0_4_0/macos/desktop_webview_window/Package.swift').read_text()
+        self.assertIn('dependencies: ["desktop_webview_window_composer",', manifest)
+        self.assertIn('.library(name: "desktop-webview-window", targets: ["desktop_webview_window"])', manifest)
+        for brand in ('OmoFly', 'Daishu'):
+            for arch in ('x86_64', 'arm64'):
+                for dynamic in (False, True):
+                    with self.subTest(brand=brand, arch=arch, dynamic=dynamic), tempfile.TemporaryDirectory() as tmp:
+                        root = Path(tmp).resolve()
+                        plugin, framework = root/'plugin', root/'FlutterFramework'
+                        for directory in (plugin, framework):
+                            directory.mkdir(); (directory/'Package.swift').write_text('// evaluated fixture')
+                        values = {
+                            plugin: package('desktop_webview_window', [library('desktop-webview-window', ['desktop_webview_window'])], [
+                                target('desktop_webview_window', [
+                                    {'byName': ['desktop_webview_window_composer', None]},
+                                    {'product': ['FlutterFramework', 'FlutterFramework', None, None]}]),
+                                target('desktop_webview_window_composer', publicHeadersPath='include'),
+                            ], [SpmInventoryTests.local_dependency('FlutterFramework', framework)]),
+                            framework: package('FlutterFramework', [library('FlutterFramework', ['FlutterFramework'])],
+                                               [target('FlutterFramework', kind='system')]),
+                        }
+                        modules = [dict(target='runner', product=brand, architecture=arch)]
+                        if dynamic: modules.append(dict(target='desktop_webview_window', product='desktop_webview_window.framework', architecture=arch))
+                        graph = inventory.PackageGraph(plugin, root/'cache', modules)
+                        with mock.patch.object(graph, 'dump', side_effect=lambda path: values[path]):
+                            products, sources, binaries = graph.collect([(plugin, 'desktop-webview-window')])
+                        expected = 'desktop_webview_window' if dynamic else 'runner'
+                        owned = {row['target']: row['hosts'] for row in sources}
+                        self.assertEqual(owned, {'desktop_webview_window': [expected], 'desktop_webview_window_composer': [expected]})
+                        self.assertEqual(len(products), int(dynamic))
+                        self.assertEqual(binaries, [])
+                        # Missing transitive target is a failure, never silently
+                        # declared covered merely because the wrapper exists.
+                        values[plugin]['targets'].pop()
+                        broken = inventory.PackageGraph(plugin, root/'cache', modules)
+                        with mock.patch.object(broken, 'dump', side_effect=lambda path: values[path]):
+                            with self.assertRaises(inventory.InventoryError):
+                                broken.collect([(plugin, 'desktop-webview-window')])
+
 if __name__ == "__main__":
     unittest.main()

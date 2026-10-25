@@ -1094,3 +1094,29 @@
      );
      return processResult;
    }
+--- a/packages/flutter_app_packager/lib/src/makers/appimage/make_appimage_config.dart
++++ b/packages/flutter_app_packager/lib/src/makers/appimage/make_appimage_config.dart
+@@ -98,8 +98,19 @@
+   String get appRunContent {
++    final escapedName = appName.replaceAll("'", "'\"'\"'");
+     return '''
+ #!/bin/bash
+-
+-cd "\$(dirname "\$0")"
+-export LD_LIBRARY_PATH=usr/lib
+-exec ./$appName
++set -e
++# Preserve the environment before changing cwd/library search paths.
++if [ "\${XBOARD_APPIMAGE_ENV_SAVED:-}" != "1" ]; then
++  export XBOARD_APPIMAGE_ORIGINAL_CWD="\$(pwd -P)"
++  export XBOARD_APPIMAGE_ORIGINAL_LD_SET="\${LD_LIBRARY_PATH+x}"
++  export XBOARD_APPIMAGE_ORIGINAL_LD="\${LD_LIBRARY_PATH-}"
++  export XBOARD_APPIMAGE_ENV_SAVED=1
++fi
++export APPDIR="\$(CDPATH= cd -- "\$(dirname -- "\$(readlink -f -- "\$0")")" && pwd -P)"
++export XBOARD_APPIMAGE_ROOT="\$APPDIR"
++export XBOARD_APPIMAGE_EXECUTABLE="\$APPDIR"/'$escapedName'
++cd -- "\$APPDIR"
++export LD_LIBRARY_PATH="\$APPDIR/usr/lib"
++exec "\$XBOARD_APPIMAGE_EXECUTABLE" "\$@"
+ ''';

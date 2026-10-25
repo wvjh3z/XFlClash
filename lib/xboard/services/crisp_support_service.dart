@@ -39,6 +39,8 @@ import '../models/xb_domain_subscription.dart';
 import '../util/app_version.dart' show myClientVersionLabel;
 import '../util/format.dart' show xbDate;
 import 'crisp_chat_driver.dart';
+import 'crisp_navigation.dart';
+import 'crisp_appimage_browser.dart';
 
 export 'crisp_chat_driver.dart' show CrispChatFailure;
 
@@ -54,6 +56,18 @@ class CrispOpenResult {
 /// Crisp 在线客服服务（静态门面，串行会话生命周期）。
 class CrispSupportService {
   CrispSupportService._();
+
+  @visibleForTesting
+  static bool? externalBrowserOverride;
+
+  @visibleForTesting
+  static Future<bool> Function(Uri)? appImageBrowserOverride;
+
+  static Future<bool> openAppImageBrowser(Uri uri) =>
+      (appImageBrowserOverride ?? openCrispAppImageBrowser)(uri);
+
+  static bool get usesExternalBrowser =>
+      externalBrowserOverride ?? crispUsesExternalBrowser();
 
   /// 当前 flavor 是否配置了 Crisp websiteId（决定「帮助与客服」入口是否显示）。
   static bool get isEnabled =>
@@ -127,6 +141,7 @@ class CrispSupportService {
       StreamSubscription<void>? events;
       var readySignal = Completer<void>();
       var failure = CrispChatFailure.startupFailed;
+      var opened = false;
       try {
         if (_resetFailed) {
           failure = CrispChatFailure.resetFailed;
@@ -179,7 +194,11 @@ class CrispSupportService {
               if (!current()) return cancelled;
               await _driver.setString(entry.key, entry.value);
             }
-            return current() ? const CrispOpenResult.opened() : cancelled;
+            if (!current()) return cancelled;
+            final driver = _driver;
+            if (driver is DesktopCrispChatDriver) await driver.reveal();
+            opened = current();
+            return opened ? const CrispOpenResult.opened() : cancelled;
           }
           await Future.any([
             cancellation,
@@ -203,6 +222,10 @@ class CrispSupportService {
         );
       } finally {
         await events?.cancel();
+        final driver = _driver;
+        if (!opened && current() && driver is DesktopCrispChatDriver) {
+          await driver.dismissFailedOpen();
+        }
       }
     });
     _resultOpening = future;

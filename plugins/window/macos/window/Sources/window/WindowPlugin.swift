@@ -120,6 +120,16 @@ public class WindowPlugin: NSObject, FlutterPlugin {
             "show": { args in try controller.show(inactive: args.bool("inactive")); return nil },
             "hide": { _ in try controller.hide(); return nil },
             "isVisible": { _ in try controller.isVisible() },
+            "focusBorrowedWindow": { args in
+                guard let handle = try args.optionalInt("handle"),
+                      let borrowed = NSApp.windows.first(where: {
+                          Int(bitPattern: Unmanaged.passUnretained($0).toOpaque()) == handle
+                      }) else { throw ArgumentError(key: "handle") }
+                if borrowed.isMiniaturized { borrowed.deminiaturize(nil) }
+                borrowed.makeKeyAndOrderFront(nil)
+                NSApp.activate(ignoringOtherApps: true)
+                return nil
+            },
             "focus": { _ in try controller.focus(); return nil },
             "close": { _ in try controller.close(); return nil },
             "setPreventClose": { args in try controller.setPreventClose(args.bool("value")); return nil },

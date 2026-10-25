@@ -98,13 +98,12 @@ void main() {
   });
 
   test(
-    'production startup gate precedes all data initialization and exempts WebView children',
+    'production startup gate precedes all data initialization without a WebView child engine',
     () {
       final main = File('lib/main.dart').readAsStringSync();
-      final helper = main.indexOf('runWebViewTitleBarWidget(args)');
+      expect(main, isNot(contains('runWebViewTitleBarWidget')));
       final gate = main.indexOf('!await singleInstanceLock.acquire()');
-      expect(helper, greaterThan(0));
-      expect(gate, greaterThan(helper));
+      expect(gate, greaterThan(0));
       for (final initialization in [
         'await XboardModule.initializeMonitoringEarly',
         'AtomicFilePreferencesStore(',
@@ -117,7 +116,6 @@ void main() {
         main,
         contains('system.isDesktop && !await singleInstanceLock.acquire()'),
       );
-      expect(main.substring(helper, gate), contains('return;'));
       expect(
         File('lib/common/window.dart').readAsStringSync(),
         isNot(contains('singleInstanceLock.acquire')),

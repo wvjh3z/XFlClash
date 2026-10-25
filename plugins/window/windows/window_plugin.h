@@ -44,6 +44,7 @@ class WindowPlugin : public flutter::Plugin {
   void HandleShow(const flutter::EncodableMap* args, std::unique_ptr<Result> result);
   void HandleHide(const flutter::EncodableMap* args, std::unique_ptr<Result> result);
   void HandleIsVisible(const flutter::EncodableMap* args, std::unique_ptr<Result> result);
+  void HandleFocusBorrowedWindow(const flutter::EncodableMap* args, std::unique_ptr<Result> result);
   void HandleFocus(const flutter::EncodableMap* args, std::unique_ptr<Result> result);
   void HandleClose(const flutter::EncodableMap* args, std::unique_ptr<Result> result);
   void HandleSetPreventClose(const flutter::EncodableMap* args, std::unique_ptr<Result> result);

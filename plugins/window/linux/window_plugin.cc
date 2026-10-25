@@ -9,6 +9,7 @@
 #include <cstring>
 
 #include "window_plugin_internal.h"
+#include "xboard_borrowed_focus.h"
 
 G_DEFINE_TYPE(WindowPlugin, window_plugin, g_object_get_type())
 
@@ -147,6 +148,15 @@ static FlMethodResponse* handle_is_visible(WindowPlugin* self, FlValue*) {
   GtkWindow* window = window_plugin_get_window(self);
   return success_bool(window != nullptr &&
                       gtk_widget_is_visible(GTK_WIDGET(window)));
+}
+
+static FlMethodResponse* handle_focus_borrowed(WindowPlugin*, FlValue* args) {
+  FlValue* value = args && fl_value_get_type(args) == FL_VALUE_TYPE_MAP
+      ? fl_value_lookup_string(args, "handle") : nullptr;
+  if (!value || fl_value_get_type(value) != FL_VALUE_TYPE_INT)
+    return bad_args_response("focusBorrowedWindow", "handle");
+  if (!xboard_focus_borrowed_window(fl_value_get_int(value))) return not_ready_response();
+  return success_null();
 }
 
 static FlMethodResponse* handle_focus(WindowPlugin* self, FlValue*) {
@@ -439,6 +449,7 @@ static const MethodEntry kMethods[] = {
     {"hide", handle_hide},
     {"isVisible", handle_is_visible},
     {"focus", handle_focus},
+    {"focusBorrowedWindow", handle_focus_borrowed},
     {"close", handle_close},
     {"setPreventClose", handle_set_prevent_close},
     {"isMaximized", handle_is_maximized},
