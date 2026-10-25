@@ -8,12 +8,13 @@
 /// 2. SHA256 校验（下载完成后本地算 hash 比对）
 /// 3. 按平台「应用」更新：
 ///    - Android：platform channel 调起系统安装器
-///    - Windows：`Process.start` 拉起 .exe 安装器（Inno 脚本会先杀进程再覆盖），调用方随后退出
-///    - Linux：用新 AppImage 覆盖当前 `$APPIMAGE` 文件 + chmod + 拉起新进程，调用方随后退出
-/// 4. 任何步骤失败 → 返回对应 [DownloadResult]（调用方回退到档1 浏览器）
+///    - Windows：`Process.start` 拉起 .exe 安装器（安装器按品牌及目录处理旧进程），由安装器接管旧进程
+///    - Linux：原子替换 AppImage，安排旧进程正常退出后启动新版
+/// 4. 失败返回对应 [DownloadResult]，由界面显示重试或手动安装提示。
 library;
 
 import 'dart:io';
+import 'dart:async';
 
 import 'package:crypto/crypto.dart';
 import 'package:dio/dio.dart';
@@ -22,6 +23,8 @@ import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 
 import 'sentry_bootstrap.dart';
+import 'xb_appimage_install.dart';
+import 'xb_update_lease.dart';
 import '../storage/brand_paths.dart';
 import 'xboard_release_dio.dart';
 
@@ -29,10 +32,12 @@ import 'xboard_release_dio.dart';
 typedef DownloadProgress = void Function(int received, int total);
 
 /// 下载结果。
-enum DownloadResult { success, hashMismatch, networkError, installFailed }
+enum DownloadResult { success, hashMismatch, networkError, installFailed, busy }
 
 class XbApkDownloader {
   XbApkDownloader._();
+
+  static final _gate = XbUpdateGate();
 
   static const _channel = MethodChannel('com.follow.clash/apk_installer');
 
@@ -47,12 +52,50 @@ class XbApkDownloader {
   /// [onProgress] — 进度回调（received, total bytes）。
   /// [cancelToken] — 取消令牌。
   ///
-  /// 返回 [DownloadResult]。Windows/Linux 成功后调用方应退出进程让安装器/新进程接管。
+  /// Windows 成功后保留客户端，由安装器接管；Linux 成功后调用方应正常退出。
   static Future<DownloadResult> downloadAndInstall({
     required List<String> urls,
     required String expectedSha256,
     required DownloadProgress onProgress,
     CancelToken? cancelToken,
+    Future<void> Function()? requestLinuxExit,
+  }) async {
+    final lease = _gate.acquire();
+    if (lease == null) return DownloadResult.busy;
+    var heldByInstaller = false;
+    try {
+      return await _downloadAndInstall(
+        urls: urls,
+        expectedSha256: expectedSha256,
+        onProgress: onProgress,
+        cancelToken: cancelToken,
+        requestLinuxExit: requestLinuxExit,
+        onWindowsStarted: (process) {
+          heldByInstaller = true;
+          unawaited(
+            xbWaitForInstaller(process, lease).catchError((Object _) {}),
+          );
+        },
+      );
+    } catch (error, stack) {
+      SentryBootstrap.captureException(
+        error,
+        stackTrace: stack,
+        where: 'self-update preparation',
+      );
+      return DownloadResult.installFailed;
+    } finally {
+      if (!heldByInstaller) lease.release();
+    }
+  }
+
+  static Future<DownloadResult> _downloadAndInstall({
+    required List<String> urls,
+    required String expectedSha256,
+    required DownloadProgress onProgress,
+    required void Function(Process) onWindowsStarted,
+    CancelToken? cancelToken,
+    Future<void> Function()? requestLinuxExit,
   }) async {
     if (urls.isEmpty) return DownloadResult.networkError;
     if (!isInAppInstallSupported) return DownloadResult.installFailed;
@@ -67,71 +110,88 @@ class XbApkDownloader {
     }
     final updateDir = Directory('${baseDir.path}/update');
     if (!updateDir.existsSync()) updateDir.createSync(recursive: true);
-    final fileName = _updateFileName();
-    final filePath = '${updateDir.path}/$fileName';
+    // Never delete an executable an earlier installer may still be reading.
+    final taskDirectory = await updateDir.createTemp('task-');
+    final filePath = '${taskDirectory.path}/${_updateFileName()}';
+    var handedOff = false;
+    try {
+      // 与 Bootstrap/加密订阅共用工厂，继承全局代理路由与证书/UA 策略。
+      // connectTimeout 5s 快速切换死源；大文件 receiveTimeout 放宽至5分钟。
+      final dio = buildReleasedIsolatedDio(timeout: const Duration(seconds: 5))
+        ..options.receiveTimeout = const Duration(minutes: 5);
 
-    // 清理旧文件
-    final oldFile = File(filePath);
-    if (oldFile.existsSync()) oldFile.deleteSync();
-
-    // 与 Bootstrap/加密订阅共用工厂，继承全局代理路由与证书/UA 策略。
-    // connectTimeout 5s 快速切换死源；大文件 receiveTimeout 放宽至5分钟。
-    final dio = buildReleasedIsolatedDio(timeout: const Duration(seconds: 5))
-      ..options.receiveTimeout = const Duration(minutes: 5);
-
-    bool downloaded = false;
-    for (final url in urls) {
+      bool downloaded = false;
       try {
-        await dio.download(
-          url,
-          filePath,
-          onReceiveProgress: onProgress,
-          cancelToken: cancelToken,
-        );
-        downloaded = true;
-        break;
-      } on DioException catch (e) {
-        debugPrint('[XbApkDownloader] source failed: $url → ${e.message}');
-        final partial = File(filePath);
-        if (partial.existsSync()) partial.deleteSync();
-        continue;
+        for (final url in urls) {
+          try {
+            await dio.download(
+              url,
+              filePath,
+              onReceiveProgress: onProgress,
+              cancelToken: cancelToken,
+            );
+            downloaded = true;
+            break;
+          } on DioException catch (e) {
+            debugPrint('[XbApkDownloader] source failed: $url → ${e.message}');
+            if (CancelToken.isCancel(e)) return DownloadResult.networkError;
+            final partial = File(filePath);
+            if (partial.existsSync()) partial.deleteSync();
+            continue;
+          }
+        }
+      } finally {
+        dio.close(force: true);
       }
-    }
-    dio.close();
 
-    if (!downloaded) {
-      // #2 监测：所有下载源都失败（每次更新仅报一次，非每源；Sentry 去重）→ 自更新档2 不可用。
-      SentryBootstrap.captureException(
-        'self-update download failed: all ${urls.length} source(s) unreachable',
-        where: 'self-update download',
-      );
-      return DownloadResult.networkError;
-    }
-
-    // SHA256 校验
-    if (expectedSha256.isNotEmpty) {
-      final file = File(filePath);
-      final bytes = await file.readAsBytes();
-      final hash = sha256.convert(bytes).toString();
-      if (hash != expectedSha256.toLowerCase()) {
-        debugPrint(
-          '[XbApkDownloader] SHA256 mismatch: expected=$expectedSha256, got=$hash',
-        );
-        file.deleteSync();
-        // #2 监测：hash 不符 = 下载损坏 / 后台配错 sha256 / 潜在篡改 → 高价值，必报。
+      if (!downloaded) {
+        // #2 监测：所有下载源都失败（每次更新仅报一次，非每源；Sentry 去重）→ 自更新档2 不可用。
         SentryBootstrap.captureException(
-          'self-update SHA256 mismatch (expected=$expectedSha256 got=$hash)',
-          where: 'self-update hash mismatch',
+          'self-update download failed: all ${urls.length} source(s) unreachable',
+          where: 'self-update download',
         );
-        return DownloadResult.hashMismatch;
+        return DownloadResult.networkError;
+      }
+
+      // SHA256 校验
+      if (expectedSha256.isNotEmpty) {
+        final file = File(filePath);
+        final bytes = await file.readAsBytes();
+        final hash = sha256.convert(bytes).toString();
+        if (hash != expectedSha256.toLowerCase()) {
+          debugPrint(
+            '[XbApkDownloader] SHA256 mismatch: expected=$expectedSha256, got=$hash',
+          );
+          file.deleteSync();
+          // #2 监测：hash 不符 = 下载损坏 / 后台配错 sha256 / 潜在篡改 → 高价值，必报。
+          SentryBootstrap.captureException(
+            'self-update SHA256 mismatch (expected=$expectedSha256 got=$hash)',
+            where: 'self-update hash mismatch',
+          );
+          return DownloadResult.hashMismatch;
+        }
+      }
+
+      if (cancelToken?.isCancelled ?? false) return DownloadResult.networkError;
+      final DownloadResult result;
+      if (Platform.isAndroid) {
+        result = await _installAndroid(filePath);
+      } else if (Platform.isWindows) {
+        result = await _installWindows(filePath, onWindowsStarted);
+      } else if (Platform.isLinux && requestLinuxExit != null) {
+        result = await _installLinux(filePath, requestLinuxExit);
+      } else {
+        result = DownloadResult.installFailed;
+      }
+      handedOff = result == DownloadResult.success;
+      return result;
+    } finally {
+      if (!handedOff && await taskDirectory.exists()) {
+        try {
+          await taskDirectory.delete(recursive: true);
+        } catch (_) {}
       }
     }
-
-    // 按平台安装
-    if (Platform.isAndroid) return _installAndroid(filePath);
-    if (Platform.isWindows) return _installWindows(filePath);
-    if (Platform.isLinux) return _installLinux(filePath);
-    return DownloadResult.installFailed;
   }
 
   /// 临时文件名（按平台扩展名）。
@@ -157,15 +217,19 @@ class XbApkDownloader {
     }
   }
 
-  /// Windows：拉起 Inno Setup .exe 安装器（脚本内 KillProcesses 会先杀运行中的程序再覆盖）。
-  /// detached 启动后返回 success；调用方随后退出本进程，让安装器接管。
-  static Future<DownloadResult> _installWindows(String filePath) async {
+  /// Windows：拉起品牌 Inno Setup 安装器，由其按品牌及目录停止旧进程。
+  /// 保留安装器进程句柄直到退出，防止重复启动；客户端由安装器准备安装时接管。
+  static Future<DownloadResult> _installWindows(
+    String filePath,
+    void Function(Process) started,
+  ) async {
     try {
-      await Process.start(
+      final process = await Process.start(
         filePath,
         const [], // 交互式安装（与 FlClash 安装器一致，用户可见进度/确认）。
-        mode: ProcessStartMode.detached,
+        mode: ProcessStartMode.normal,
       );
+      started(process);
       return DownloadResult.success;
     } catch (e, s) {
       debugPrint('[XbApkDownloader] windows installer launch failed: $e');
@@ -180,49 +244,25 @@ class XbApkDownloader {
 
   /// Linux（AppImage）：用新 AppImage 覆盖当前运行的 `$APPIMAGE` 文件 → chmod +x → 拉起新进程。
   /// 仅在以 AppImage 形式运行时可行（环境变量 `APPIMAGE` 存在）；否则返回 installFailed（走浏览器）。
-  static Future<DownloadResult> _installLinux(String downloadedPath) async {
+  static Future<DownloadResult> _installLinux(
+    String downloadedPath,
+    Future<void> Function() requestExit,
+  ) async {
     final appImagePath = Platform.environment['APPIMAGE'];
     if (appImagePath == null || appImagePath.isEmpty) {
-      debugPrint(
-        '[XbApkDownloader] not running as AppImage（无 \$APPIMAGE）→ 回退浏览器',
-      );
       return DownloadResult.installFailed;
     }
     try {
-      final target = File(appImagePath);
-      if (!target.existsSync()) return DownloadResult.installFailed;
-      // ⚠️ 不能直接覆盖正在运行的 AppImage：Linux 对运行中可执行文件 open(O_TRUNC) 写入
-      // 会报 ETXTBSY（text file busy）。改用「同目录写 stage 文件 → chmod → 原子 rename 替换」：
-      // rename 不打开运行中文件，运行中进程仍持旧 inode（安全），新进程将加载新文件。
-      // rename 要求同一文件系统，故 stage 必须落在 $APPIMAGE 同目录（不能用 /tmp 跨 fs）。
-      final stagePath = '${target.parent.path}/.xb_appimage_update.new';
-      final stage = File(stagePath);
-      if (stage.existsSync()) stage.deleteSync();
-      await File(downloadedPath).copy(stagePath);
-      // 赋可执行权限（在 stage 文件上）。
-      final chmod = await Process.run('chmod', ['+x', stagePath]);
-      if (chmod.exitCode != 0) {
-        debugPrint('[XbApkDownloader] chmod failed: ${chmod.stderr}');
-        if (stage.existsSync()) stage.deleteSync();
-        return DownloadResult.installFailed;
-      }
-      // 原子替换正在运行的 AppImage（同 fs rename，旧 inode 由运行中进程持有不受影响）。
-      await stage.rename(appImagePath);
-      // 拉起新 AppImage（detached）；调用方随后退出本进程。
-      // 显式传递环境变量（含 DISPLAY、WAYLAND_DISPLAY 等），
-      // 确保在各种启动器环境下新进程能继承正确的显示器配置。
-      await Process.start(
-        appImagePath,
-        const [],
-        mode: ProcessStartMode.detached,
-        environment: Platform.environment,
+      await xbInstallAppImage(
+        downloadedPath: downloadedPath,
+        appImagePath: appImagePath,
+        requestExit: requestExit,
       );
       return DownloadResult.success;
-    } catch (e, s) {
-      debugPrint('[XbApkDownloader] linux self-update failed: $e');
+    } catch (error, stack) {
       SentryBootstrap.captureException(
-        e,
-        stackTrace: s,
+        error,
+        stackTrace: stack,
         where: 'self-update install (linux)',
       );
       return DownloadResult.installFailed;

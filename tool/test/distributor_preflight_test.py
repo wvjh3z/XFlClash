@@ -228,12 +228,16 @@ class ColdStartTests(unittest.TestCase):
 class EntryContractTests(unittest.TestCase):
     def test_platform_plans_include_real_preflights_and_never_client_builds(self):
         expected={'android':['brand-identity','context','flutter-defines','android-arguments','android-artifacts'],
-                  'linux':['brand-identity','context','flutter-defines','appimage-contract','linux-maker'],
+                  'linux':['brand-identity','context','flutter-defines','appimage-contract','update-handoff','linux-maker'],
                   'windows':['brand-identity','context','flutter-defines','windows-branded-cmake','windows-iscc'],'macos':['brand-identity','context','flutter-defines']}
         for platform,labels in expected.items():
             plan=entry.platform_commands(platform,dart='native-dart')
             self.assertEqual([row[0] for row in plan],labels)
-            self.assertTrue(all(row[1][0]==sys.executable for row in plan))
+            self.assertTrue(all(row[1][0] == ('native-dart' if row[0] == 'update-handoff' else sys.executable) for row in plan))
+            if platform == 'linux':
+                handoff = next(row[1] for row in plan if row[0] == 'update-handoff')
+                self.assertEqual(handoff[1], '--packages=build/packaging-tools/flutter_distributor/packages/flutter_distributor/.dart_tool/package_config.json')
+                self.assertEqual(handoff[2], 'tool/test/update_handoff_test.dart')
             self.assertTrue(all('release_pipeline.py' not in ' '.join(map(str,row[1])) for row in plan))
             if platform == 'linux':
                 maker = next(row[1] for row in plan if row[0] == 'linux-maker')

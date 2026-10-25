@@ -22,6 +22,17 @@ def native_checks(identity, platform):
       'windows/packaging/exe/make_config.yaml':[identity['installerId'],f'executable_name: "{identity["name"]}.exe"'],
       'windows/packaging/exe/inno_setup.iss':[f'#define XbServiceName "{identity["windowsService"]}"'],
       'macos/Runner/Configs/AppInfo.xcconfig':['PRODUCT_BUNDLE_IDENTIFIER = '+identity['id']],
+      'macos/Runner/Info.plist':[f"<string>{identity['scheme']}</string>"],
+      'linux/packaging/deb/make_config.yaml':[
+          f'package_name: "{identity["slug"]}"',
+          f'unit=/etc/systemd/system/{identity["linuxService"]}.service',
+          f'/usr/share/{identity["slug"]}/FlClashHelperService',
+          f'startup_wm_class: "{identity["id"]}"'],
+      'linux/packaging/rpm/make_config.yaml':[
+          f'unit=/etc/systemd/system/{identity["linuxService"]}.service',
+          f'startup_wm_class: "{identity["id"]}"'],
+      'linux/packaging/appimage/make_config.yaml':[
+          f'startup_wm_class: "{identity["id"]}"'],
       'linux/CMakeLists.txt':[f'set(APPLICATION_ID "{identity["id"]}")'],
       'services/helper/src/service/windows.rs':[f'const SERVICE_NAME: &str = "{identity["windowsService"]}";'],
       'services/helper/src/service/peer.rs':[f'Services\\{identity["windowsService"]}\\Runtime'],

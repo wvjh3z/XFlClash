@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:crypto/crypto.dart';
 import 'package:yaml/yaml.dart';
+import 'identity/brands.dart';
 
 const androidBrandIdentityPath =
     '.dart_tool/xboard/android_brand_identity.json';
@@ -37,6 +38,12 @@ Map<String, Object> androidBrandIdentity(List<int> bytes, String flavor) {
       ).hasMatch(id)) {
     throw FormatException('Invalid appId for $flavor');
   }
+  final expected = brandIdentities[flavor]?['id'];
+  if (expected == null || id != expected) {
+    throw FormatException(
+      'appId does not match registered identity for $flavor',
+    );
+  }
   return {
     'appName': name,
     'appId': id,
@@ -59,6 +66,14 @@ String generateAndroidBrandIdentities({
     } else if (file.existsSync()) {
       brands[flavor] = androidBrandIdentity(file.readAsBytesSync(), flavor);
     }
+  }
+  final ids = <String>{};
+  for (final identity in brands.values) {
+    final id = (identity as Map<String, Object>)['appId'] as String;
+    if (ids.contains(id) || ids.contains('$id.dev')) {
+      throw const FormatException('Duplicate Android brand appId');
+    }
+    ids.addAll([id, '$id.dev']);
   }
   return '${jsonEncode({'schemaVersion': 1, 'brands': brands})}\n';
 }

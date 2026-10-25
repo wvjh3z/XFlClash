@@ -5,7 +5,8 @@
 library;
 
 import 'dart:async';
-import 'dart:io' show Platform, exit;
+import 'dart:io' show Platform;
+import 'package:fl_clash/providers/providers.dart' show systemActionProvider;
 
 import 'package:fl_clash/xboard/widgets/xb_emoji_text.dart';
 import 'package:dio/dio.dart';
@@ -96,13 +97,21 @@ class _UpdateDialogState extends ConsumerState<_UpdateDialog> {
     // 按 region 排序 URL（不探活,直接传给 downloader）
     final urls = _getSortedUrls();
     if (urls.isEmpty) {
-      _fallbackToBrowser();
+      await _fallbackToBrowser();
       return;
     }
 
     _cancelToken = CancelToken();
 
+    // Capture the long-lived action before awaiting download. Installation
+    // must not depend on this dialog still being mounted at completion.
+    final exitAction = Platform.isLinux
+        ? ref.read(systemActionProvider.notifier)
+        : null;
     final result = await XbApkDownloader.downloadAndInstall(
+      requestLinuxExit: exitAction == null
+          ? null
+          : () => exitAction.handleExit(),
       urls: urls,
       expectedSha256: _info.sha256,
       onProgress: (received, total) {
@@ -124,11 +133,9 @@ class _UpdateDialogState extends ConsumerState<_UpdateDialog> {
 
     switch (result) {
       case DownloadResult.success:
-        // Windows/Linux：安装器 / 新 AppImage 已拉起 → 退出当前进程让其接管覆盖并重启。
-        if (Platform.isWindows || Platform.isLinux) {
-          await Future.delayed(const Duration(milliseconds: 400));
-          exit(0);
-        }
+        // Windows follows upstream: the interactive installer owns shutdown.
+        // Cancelling its UAC/wizard must not make this client exit prematurely.
+        if (Platform.isLinux) return;
         // Android：安装器已调起，延迟关弹窗（给系统时间展示安装界面）
         await Future.delayed(const Duration(milliseconds: 500));
         if (mounted) Navigator.of(context).pop();
@@ -141,6 +148,11 @@ class _UpdateDialogState extends ConsumerState<_UpdateDialog> {
         setState(() {
           _state = _DialogState.failed;
           _errorMsg = '下载失败，网络异常';
+        });
+      case DownloadResult.busy:
+        setState(() {
+          _state = _DialogState.failed;
+          _errorMsg = '更新正在进行，请先完成或关闭已打开的安装器';
         });
       case DownloadResult.installFailed:
         setState(() {

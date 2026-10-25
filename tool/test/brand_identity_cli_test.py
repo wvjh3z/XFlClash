@@ -21,6 +21,13 @@ class CatalogTests(unittest.TestCase):
         for key in a:self.assertNotEqual(a[key],b[key],key)
         self.assertEqual(a['id'],'com.cloud.app.omofly')
         self.assertEqual(b['id'],'com.cloud.app.daishu')
+        # Neither brand may claim upstream's machine-wide identifiers.
+        for identity in (a,b):
+            self.assertNotEqual(identity['id'],'com.follow.clash')
+            self.assertNotEqual(identity['name'],'FlClash')
+            self.assertNotEqual(identity['linuxService'],'flclash-helper')
+            self.assertNotEqual(identity['windowsService'],'FlClashHelperService')
+            self.assertNotEqual(identity['runtimeDirectory'],'flclash')
 
 class IdentityCliTests(unittest.TestCase):
     def test_real_cli_windows_linux_mac_both_brands_and_missing_inputs(self):
@@ -51,6 +58,17 @@ class IdentityCliTests(unittest.TestCase):
                         'XB_URL_SCHEME':id['scheme'],'XB_DEFAULT_MIXED_PORT':str(id['mixedPort']),
                         'XB_WINDOWS_CORE_NAME':id['name']+'Core','XB_WINDOWS_HELPER_NAME':id['name']+'HelperService'}), encoding='utf-8')
                     verify(root,brand,platform)
+                    for name, expected, wrong in [
+                        ('linux/packaging/deb/make_config.yaml', '/usr/share/'+id['slug']+'/', '/usr/share/FlClash/'),
+                        ('linux/packaging/rpm/make_config.yaml', 'unit=/etc/systemd/system/'+id['linuxService']+'.service', 'unit=/etc/systemd/system/flclash-helper.service'),
+                        ('macos/Runner/Info.plist', '<string>'+id['scheme']+'</string>', '<string>flclash</string>'),
+                    ]:
+                        path=root/name;original=path.read_text(encoding='utf-8')
+                        self.assertIn(expected,original)
+                        path.write_text(original.replace(expected,wrong),encoding='utf-8')
+                        try:
+                            with self.assertRaises(ValueError):verify(root,brand,platform)
+                        finally:path.write_text(original,encoding='utf-8')
                     self.assertIn('package_name: "'+id['slug']+'"',(root/'linux/packaging/deb/make_config.yaml').read_text(encoding='utf-8'))
                     self.assertNotIn('x-scheme-handler/clash\n',(root/'linux/packaging/rpm/make_config.yaml').read_text(encoding='utf-8'))
             peer=root/'services/helper/src/service/peer.rs';peer.write_text(peer.read_text(encoding='utf-8').replace('OmoFlyHelperService','FlClashHelperService'), encoding='utf-8')

@@ -228,13 +228,14 @@ android {{
                         elif style == 'unicode':
                             value = json.dumps(name, ensure_ascii=True)
                             if brand == 'brand_a': value = r'"\u004FmoFly"'
-                        expected[brand] = {'appName': name, 'appId': 'com.example.' + brand}
+                        app_id = json.loads((ROOT / 'tool/identity/brands.json').read_text(encoding='utf-8'))[brand]['id']
+                        expected[brand] = {'appName': name, 'appId': app_id}
                         folder = case / 'flavors' / brand
                         (folder / 'assets/icons').mkdir(parents=True)
                         (folder / f'assets/icons/{brand}.png').write_bytes(b'public-icon')
                         (folder / 'assets/fallback.bin').write_bytes(b'public-fallback')
                         text = f'''appName: {value}
-appId: 'com.example.{brand}'
+appId: '{app_id}'
 versionName: "0.0.1"
 brandColor: "#d92e1a"
 aesKey: ""
@@ -274,6 +275,24 @@ sentryDsn: "PRIVATE_FIXTURE_SENTINEL"
                  ROOT / 'tool/prepare_flavor.dart', '--flavor', 'brand_a', '--target', 'test'], desktop)
             self.assertEqual(generated.read_bytes(), original)
             other.write_bytes(previous)
+            # Match a clean Actions job: only the selected brand secret exists.
+            for selected in names:
+                single = root / ('single-' + selected)
+                shutil.copytree(desktop, single)
+                other_brand = 'brand_b' if selected == 'brand_a' else 'brand_a'
+                shutil.rmtree(single / 'flavors' / other_brand)
+                source = single / 'flavors' / selected / 'flavor.yaml'
+                valid = source.read_bytes()
+                app_id = json.loads((ROOT / 'tool/identity/brands.json').read_text(encoding='utf-8'))[selected]['id']
+                source.write_bytes(valid.replace(app_id.encode(), b'com.example.shared'))
+                with self.assertRaises(AssertionError):
+                    run([dart_executable(), '--packages=' + str(ROOT / '.dart_tool/package_config.json'),
+                         ROOT / 'tool/prepare_flavor.dart', '--flavor', selected, '--target', 'test', '--android-identity'], single)
+                source.write_bytes(valid)
+                run([dart_executable(), '--packages=' + str(ROOT / '.dart_tool/package_config.json'),
+                     ROOT / 'tool/prepare_flavor.dart', '--flavor', selected, '--target', 'test', '--android-identity'], single)
+                identities = json.loads((single / '.dart_tool/xboard/android_brand_identity.json').read_text())['brands']
+                self.assertEqual(list(identities), [selected])
             (root / 'cases.json').write_text(json.dumps(manifest), encoding='utf-8')
             project = root / 'android'; project.mkdir()
             (project / 'settings.gradle.kts').write_text('rootProject.name = "brand-identity-test"\n')
