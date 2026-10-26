@@ -5,6 +5,8 @@
 /// 下单成功（`createOrder(planId, resetTraffic)`）→ 跳 [OrderPaymentPage] 选支付方式。
 library;
 
+import 'dart:async';
+
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -15,6 +17,8 @@ import '../widgets/xb_theme.dart' show xbPush;
 import '../models/plan_item.dart';
 import '../models/xb_domain_types.dart';
 import '../models/xb_result.dart';
+import '../models/xb_domain_error.dart';
+import 'order_list_page.dart';
 import '../providers/xboard_providers.dart';
 import '../shell/widgets/xb_responsive.dart';
 import '../util/error_text.dart';
@@ -122,7 +126,12 @@ class _ResetTrafficPageState extends ConsumerState<ResetTrafficPage> {
     );
   }
 
-  Widget _content(BuildContext context, PlanItem plan, PricePlan reset, bool wide) {
+  Widget _content(
+    BuildContext context,
+    PlanItem plan,
+    PricePlan reset,
+    bool wide,
+  ) {
     final scheme = Theme.of(context).colorScheme;
     final text = Theme.of(context).textTheme;
     return ListView(
@@ -132,7 +141,8 @@ class _ResetTrafficPageState extends ConsumerState<ResetTrafficPage> {
         // 说明卡（复用 XbInfoCard）。
         XbInfoCard(
           icon: Icons.refresh_rounded,
-          text: '购买后立即重置当前套餐「${widget.planName ?? plan.name}」的已用流量，'
+          text:
+              '购买后立即重置当前套餐「${widget.planName ?? plan.name}」的已用流量，'
               '恢复至 ${plan.transferEnableGb} GB（套餐到期时间不变）。',
         ),
         const SizedBox(height: 16),
@@ -144,23 +154,32 @@ class _ResetTrafficPageState extends ConsumerState<ResetTrafficPage> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('流量重置包',
-                        style: text.titleMedium
-                            ?.copyWith(fontWeight: FontWeight.w700)),
+                    Text(
+                      '流量重置包',
+                      style: text.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
                     const SizedBox(height: 4),
-                    Text('一次性恢复 ${plan.transferEnableGb} GB 流量',
-                        style: text.bodySmall
-                            ?.copyWith(color: scheme.onSurfaceVariant)),
+                    Text(
+                      '一次性恢复 ${plan.transferEnableGb} GB 流量',
+                      style: text.bodySmall?.copyWith(
+                        color: scheme.onSurfaceVariant,
+                      ),
+                    ),
                   ],
                 ),
               ),
               const SizedBox(width: 12),
-              Text(xbYuan(reset.amountYuan),
-                  style: TextStyle(
-                      fontSize: 21,
-                      fontWeight: FontWeight.w700,
-                      color: scheme.primary,
-                      fontFeatures: const [FontFeature.tabularFigures()])),
+              Text(
+                xbYuan(reset.amountYuan),
+                style: TextStyle(
+                  fontSize: 21,
+                  fontWeight: FontWeight.w700,
+                  color: scheme.primary,
+                  fontFeatures: const [FontFeature.tabularFigures()],
+                ),
+              ),
             ],
           ),
         ),
@@ -189,6 +208,7 @@ class _ResetTrafficPageState extends ConsumerState<ResetTrafficPage> {
   }
 
   Future<void> _submitOrder() async {
+    if (_submitting) return;
     setState(() => _submitting = true);
     try {
       final result = await ref
@@ -197,13 +217,29 @@ class _ResetTrafficPageState extends ConsumerState<ResetTrafficPage> {
       switch (result) {
         case XbSuccess(:final data):
           if (!mounted) return;
-          xbPush(
-            context,
-            OrderPaymentPage(tradeNo: data),
-            brandColor: xbBrandColor(),
-            replace: true,
+          unawaited(
+            xbPush(
+              context,
+              OrderPaymentPage(tradeNo: data),
+              brandColor: xbBrandColor(),
+              replace: true,
+            ),
           );
         case XbFailure(:final error):
+          if (error is XbUnconfirmed) {
+            xbToastSafe(resolveErrorText(error));
+            if (mounted) {
+              unawaited(
+                xbPush(
+                  context,
+                  const OrderListPage(),
+                  brandColor: xbBrandColor(),
+                  replace: true,
+                ),
+              );
+            }
+            return;
+          }
           xbToastSafe('提交订单失败：${resolveErrorText(error, fallback: '请稍后重试')}');
       }
     } finally {

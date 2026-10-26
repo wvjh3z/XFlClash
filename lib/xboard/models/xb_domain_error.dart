@@ -23,7 +23,7 @@ typedef XbBusinessKind = BusinessErrorKind;
 typedef XbNetworkKind = NetworkErrorKind;
 
 /// 客户端领域错误 sealed 基类。所有 `XboardService` 方法失败时返回其子类型。
-sealed class XbDomainError {
+sealed class XbDomainError implements Exception {
   /// 用户可读 message（后端透传 / 客户端翻译）。
   final String message;
 
@@ -80,7 +80,7 @@ final class XbNetwork extends XbDomainError {
 
 /// 5xx 服务端错误（有响应但服务端故障）。映射 SDK `ServerError`。
 final class XbServer extends XbDomainError {
-  /// HTTP 状态码（500-599）。
+  /// 服务端、网关或协议异常的原始 HTTP 状态码（包括 405、异常 200）。
   final int httpStatusCode;
 
   const XbServer(this.httpStatusCode, String m) : super(m);
@@ -97,4 +97,10 @@ final class XbUnexpected extends XbDomainError {
   final String operation;
 
   const XbUnexpected(this.operation, String m) : super(m);
+}
+
+/// A write may have reached the server; do not offer automatic replay.
+final class XbUnconfirmed extends XbDomainError {
+  const XbUnconfirmed(this.operation, super.message);
+  final String operation;
 }

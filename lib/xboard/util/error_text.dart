@@ -13,7 +13,8 @@
 /// 吞掉后端对未建模错误给出的精准中文提示。
 library;
 
-import 'package:flutter_xboard_sdk/flutter_xboard_sdk.dart' show BusinessErrorKind;
+import 'package:flutter_xboard_sdk/flutter_xboard_sdk.dart'
+    show BusinessErrorKind;
 
 import '../l10n/xboard_business_messages.dart';
 import '../models/xb_domain_error.dart';
@@ -28,6 +29,15 @@ String resolveErrorText(
   XbLocale locale = XbLocale.zhCN,
 }) {
   final backendMsg = error.message.trim();
+  if (error is! XbUnauthorized &&
+      error is! XbRateLimit &&
+      RegExp(
+        r'<(?:!doctype\s+html|html|head|body)\b',
+        caseSensitive: false,
+      ).hasMatch(backendMsg)) {
+    return '服务暂时不可用，请稍后重试。如问题持续，请向客服反馈此问题。';
+  }
+
   switch (error) {
     case XbUnauthorized():
       return '登录已过期，请重新登录';
@@ -55,8 +65,12 @@ String resolveErrorText(
           : '服务异常，请稍后重试';
     case XbSecurity():
       return '安全连接失败';
+    case XbUnconfirmed():
+      return backendMsg;
     case XbUnexpected():
-      return backendMsg.isNotEmpty ? _zhFromBackend(backendMsg, locale) : fallback;
+      return backendMsg.isNotEmpty
+          ? _zhFromBackend(backendMsg, locale)
+          : fallback;
   }
 }
 
@@ -68,24 +82,32 @@ String _zhFromBackend(String msg, XbLocale locale) {
   if (locale != XbLocale.zhCN) return msg;
   final m = msg.toLowerCase();
   // —— 密码 ——
-  if (m.contains('password') && (m.contains('at least') || m.contains('minimum') || m.contains('8'))) {
+  if (m.contains('password') &&
+      (m.contains('at least') || m.contains('minimum') || m.contains('8'))) {
     return '密码至少需要 8 位';
   }
   if (m.contains('password') && m.contains('confirm')) return '两次输入的密码不一致';
-  if (m.contains('password') && (m.contains('incorrect') || m.contains('wrong') || m.contains('not match'))) {
+  if (m.contains('password') &&
+      (m.contains('incorrect') ||
+          m.contains('wrong') ||
+          m.contains('not match'))) {
     return '邮箱或密码错误';
   }
   // —— 邮箱 ——
-  if (m.contains('email') && (m.contains('valid') || m.contains('format') || m.contains('invalid'))) {
+  if (m.contains('email') &&
+      (m.contains('valid') || m.contains('format') || m.contains('invalid'))) {
     return '邮箱格式不正确';
   }
-  if (m.contains('email') && (m.contains('already') || m.contains('taken') || m.contains('exists'))) {
+  if (m.contains('email') &&
+      (m.contains('already') || m.contains('taken') || m.contains('exists'))) {
     return '邮箱已被使用，请直接登录';
   }
   if (m.contains('email') && m.contains('required')) return '请填写邮箱';
   // —— 验证码 ——
   if ((m.contains('code') || m.contains('verification')) &&
-      (m.contains('invalid') || m.contains('incorrect') || m.contains('expired'))) {
+      (m.contains('invalid') ||
+          m.contains('incorrect') ||
+          m.contains('expired'))) {
     return '验证码错误或已过期';
   }
   if (m.contains('code') && m.contains('required')) return '请输入验证码';
@@ -98,6 +120,6 @@ String _zhFromBackend(String msg, XbLocale locale) {
 
 /// 是否应展示「重试」按钮（网络 / 服务端 / 未预期 → 可重试；业务 / 限流 / 未认证 / 安全 → 不可）。
 bool errorAllowsRetry(XbDomainError error) => switch (error) {
-      XbNetwork() || XbServer() || XbUnexpected() => true,
-      _ => false,
-    };
+  XbNetwork() || XbServer() || XbUnexpected() => true,
+  _ => false,
+};

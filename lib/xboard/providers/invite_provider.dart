@@ -11,52 +11,74 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/xb_invite.dart';
 import '../models/xb_result.dart';
+import '../sdk/xboard_service.dart';
 import 'xboard_providers.dart';
 
 /// 邀请返佣汇总（autoDispose：进页拉、离页回收，下拉刷新用 invalidate）。
 ///
 /// **无邀请码自动生成**（原型决策）：首拉若 `!hasCode`，自动调 `generateInviteCode()` 后重拉一次；
 /// 生成失败不阻塞（沿用无码态，UI 仍可展示统计 / 引导）。
-final inviteInfoProvider = FutureProvider.autoDispose<XbInviteInfo>((ref) async {
+final inviteInfoProvider = FutureProvider.autoDispose<XbInviteInfo>((
+  ref,
+) async {
   final service = ref.watch(xboardServiceProvider);
-  final result = await service.getInviteInfo();
-  var info = switch (result) {
-    XbSuccess(:final data) => data,
-    XbFailure(:final error) => throw error, // → AsyncError，UI XbAsyncView 分流
-  };
-  if (!info.hasCode) {
-    final gen = await service.generateInviteCode();
-    if (gen is XbSuccess<String>) {
-      final reload = await service.getInviteInfo();
-      if (reload is XbSuccess<XbInviteInfo>) info = reload.data;
+  var active = true;
+  ref.onDispose(() => active = false);
+  Future<XbInviteInfo> load() async {
+    final result = await service.getInviteInfo();
+    var info = switch (result) {
+      XbSuccess(:final data) => data,
+      XbFailure(:final error) => throw error,
+    };
+    if (!active) return info;
+    if (!info.hasCode) {
+      final gen = await service.generateInviteCode();
+      if (!active) return info;
+      if (gen is XbSuccess<String>) {
+        final reload = await service.getInviteInfo();
+        if (active && reload is XbSuccess<XbInviteInfo>) info = reload.data;
+      }
     }
+    return info;
   }
-  return info;
-});
+
+  try {
+    return await (service is XboardInviteRequestControl
+        ? (service as XboardInviteRequestControl).withInviteRequestValidity(
+            () => active,
+            load,
+          )
+        : load());
+  } finally {
+    active = false;
+  }
+}, retry: (retryCount, error) => null);
 
 /// 返佣记录（首页 50 条；记录页用）。autoDispose：进页拉、离页回收。
 final commissionRecordsProvider =
     FutureProvider.autoDispose<List<XbCommissionRecord>>((ref) async {
-  final result =
-      await ref.watch(xboardServiceProvider).getCommissionRecords(pageSize: 50);
-  return switch (result) {
-    XbSuccess(:final data) => data,
-    XbFailure(:final error) => throw error,
-  };
-});
+      final result = await ref
+          .watch(xboardServiceProvider)
+          .getCommissionRecords(pageSize: 50);
+      return switch (result) {
+        XbSuccess(:final data) => data,
+        XbFailure(:final error) => throw error,
+      };
+    }, retry: (retryCount, error) => null);
 
 /// 提现收款方式白名单（后端 `/api/v1/user/comm/config`）。
 ///
 /// autoDispose：随提现弹窗所在页进/离。失败或空 → 返空列表（**不抛**），UI 侧回退到本地默认
 /// 白名单 `kWithdrawMethods`（提现弹窗只在已配置时才更有意义，但接口不可用不应阻断提现入口）。
-final withdrawConfigProvider =
-    FutureProvider.autoDispose<List<String>>((ref) async {
+final withdrawConfigProvider = FutureProvider.autoDispose<List<String>>((
+  ref,
+) async {
   final result = await ref.watch(xboardServiceProvider).getWithdrawMethods();
   return switch (result) {
     XbSuccess(:final data) => data,
     XbFailure() => const <String>[],
   };
-});
+}, retry: (retryCount, error) => null);
 
 /// 同步暴露收款方式列表给提现弹窗（未就绪 / 失败 → 空，UI 回退 `kWithdrawMethods`）。
 ///

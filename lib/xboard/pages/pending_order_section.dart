@@ -13,6 +13,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/order_summary.dart';
 import '../models/xb_result.dart';
 import '../providers/pending_order_provider.dart';
+import '../models/xb_domain_error.dart';
 import '../providers/xboard_providers.dart';
 import '../util/error_text.dart';
 import '../util/period_label.dart';
@@ -110,8 +111,9 @@ class _PendingOrderSectionState extends ConsumerState<PendingOrderSection>
 
   Future<void> _doCancel(OrderSummary o) async {
     await runSubmit(() async {
-      final result =
-          await ref.read(xboardServiceProvider).cancelOrder(o.tradeNo);
+      final result = await ref
+          .read(xboardServiceProvider)
+          .cancelOrder(o.tradeNo);
       if (!mounted) return;
       switch (result) {
         case XbSuccess():
@@ -119,7 +121,12 @@ class _PendingOrderSectionState extends ConsumerState<PendingOrderSection>
           ref.invalidate(pendingOrderProvider); // 后台重查对齐后端
           xbToastSafe('订单已取消');
         case XbFailure(:final error):
-          xbToastSafe('取消失败：${resolveErrorText(error, fallback: '请稍后重试')}');
+          if (error is XbUnconfirmed) ref.invalidate(pendingOrderProvider);
+          xbToastSafe(
+            error is XbUnconfirmed
+                ? resolveErrorText(error)
+                : '取消失败：${resolveErrorText(error, fallback: '请稍后重试')}',
+          );
       }
     });
   }

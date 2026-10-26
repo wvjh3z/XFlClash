@@ -146,6 +146,9 @@ class XbUpdateService {
           currentVersionCode: currentCode,
         );
       } catch (e) {
+        if (sdk.httpService.endpointRecoveryEnabled) {
+          return UpdateCheckFailed(e);
+        }
         // 首次请求失败 → 尝试 failover 切域名后重试一次。
         if (endpoints.isApiReadyFor(sdk.baseUrl)) {
           debugPrint(

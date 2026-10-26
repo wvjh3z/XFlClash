@@ -2,6 +2,8 @@
 /// v0.2 R4.9：地区感知竞速（VPN 开海外优先 / 关平等）+ VPN 切换重竞速。
 library;
 
+import 'dart:async';
+import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:fl_clash/xboard/models/bootstrap_payload.dart';
@@ -19,6 +21,120 @@ List<BootstrapEndpoint> _mixed(Map<String, BootstrapRegion> m) => m.entries
     .toList();
 
 void main() {
+  test(
+    'candidate replacement clears retired selection even when new probes fail',
+    () async {
+      var reachable = true;
+      var updates = 0;
+      final c = EndpointRaceController(probe: (_) async => reachable);
+      c.onApiCandidatesChanged = () => updates++;
+      await c.raceApi(_eps(['https://a.test']));
+      expect(c.currentApiEndpoint, 'https://a.test');
+      expect(updates, 1);
+      await c.raceApi(_eps(['https://a.test']));
+      expect(updates, 1);
+      reachable = false;
+      await c.raceApi(_eps(['https://b.test']));
+      expect(c.currentApiEndpoint, isNull);
+      expect(c.isApiReadyFor('https://a.test'), isFalse);
+      expect(updates, 2);
+      await c.raceApi([]);
+      expect(c.recoveryCandidates(), isEmpty);
+      expect(updates, 3);
+      c.dispose();
+    },
+  );
+  test('seeded configuration invalidates a pending old probe result', () async {
+    final probe = Completer<bool>();
+    final selected = <String>[];
+    var updates = 0;
+    final c = EndpointRaceController(
+      probe: (_) => probe.future,
+      onApiSwitch: selected.add,
+    );
+    c.onApiCandidatesChanged = () => updates++;
+    final old = c.raceApi(_eps(['https://a.test']));
+    c.seedEndpoints(_eps(['https://b.test']), []);
+    probe.complete(true);
+    await old;
+    expect(c.currentApiEndpoint, isNull);
+    expect(selected, isEmpty);
+    expect(updates, 2);
+    c.dispose();
+  });
+
+  test(
+    'default API probe rejects HTML200 and accepts configuration JSON',
+    () async {
+      final dio = Dio();
+      dio.interceptors.add(
+        InterceptorsWrapper(
+          onRequest: (options, handler) {
+            handler.resolve(
+              Response(
+                requestOptions: options,
+                statusCode: 200,
+                data: options.uri.host == 'bad.test'
+                    ? '<html>error</html>'
+                    : {
+                        'data': {'app_name': 'fixture'},
+                      },
+              ),
+            );
+          },
+        ),
+      );
+      final c = EndpointRaceController(dio: dio);
+      await c.raceApi(_eps(['https://bad.test', 'https://good.test']));
+      expect(c.currentApiEndpoint, 'https://good.test');
+      c.dispose();
+      dio.close();
+    },
+  );
+  test('late background probe cannot overwrite recovered endpoint', () async {
+    final pending = Completer<bool>();
+    final selected = <String>[];
+    final c = EndpointRaceController(
+      probe: (url) => pending.future,
+      onApiSwitch: selected.add,
+    );
+    final done = c.raceApi(_eps(['https://a.test', 'https://b.test']));
+    c.acceptRecoveredApi('https://b.test');
+    pending.complete(true);
+    await done;
+    expect(c.currentApiEndpoint, 'https://b.test');
+    expect(selected, ['https://b.test']);
+    c.dispose();
+  });
+
+  test(
+    'API race excludes cooling endpoints and recovery accepts known winners only',
+    () async {
+      final seen = <String>[];
+      final selected = <String>[];
+      final c = EndpointRaceController(
+        probe: (s) async {
+          seen.add(s);
+          return true;
+        },
+        onApiSwitch: selected.add,
+      );
+      c.apiEndpointAvailable = (s) => s != 'https://a.test';
+      await c.raceApi(_eps(['https://a.test', 'https://b.test']));
+      expect(seen, ['https://b.test']);
+      expect(selected, ['https://b.test']);
+      c.acceptRecoveredApi('https://unknown.test');
+      expect(selected.length, 1);
+      c.acceptRecoveredApi('https://b.test');
+      expect(selected.length, 1);
+      var resets = 0;
+      c.resetApiEndpointHealth = () => resets++;
+      c.setVpnActive(true);
+      expect(resets, 1);
+      c.dispose();
+    },
+  );
+
   test('VPN 开时国内成功记忆仅在兜底组内优先，不能越过海外组', () {
     final c = EndpointRaceController(
       probe: (_) async => false,

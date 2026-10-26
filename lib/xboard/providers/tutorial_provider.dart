@@ -61,11 +61,19 @@ final tutorialDetailProvider = FutureProvider.autoDispose
       if (ref.watch(authStateProvider) != AuthState.authenticated) {
         throw XbDomainError.unauthorized('请先登录');
       }
-      final result = await ref
-          .watch(xboardServiceProvider)
-          .getTutorialDetail(id);
-      return switch (result) {
-        XbSuccess(:final data) => data,
-        XbFailure(:final error) => throw error,
-      };
-    });
+      final service = ref.watch(xboardServiceProvider);
+      var active = true;
+      ref.onDispose(() => active = false);
+      try {
+        final result = service is XboardTutorialRequestControl
+            ? await (service as XboardTutorialRequestControl)
+                  .getTutorialDetailForRequest(id, isActive: () => active)
+            : await service.getTutorialDetail(id);
+        return switch (result) {
+          XbSuccess(:final data) => data,
+          XbFailure(:final error) => throw error,
+        };
+      } finally {
+        active = false;
+      }
+    }, retry: (retryCount, error) => null);

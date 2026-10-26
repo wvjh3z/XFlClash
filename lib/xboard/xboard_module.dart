@@ -14,6 +14,8 @@
 /// runApp 前 fire-and-forget，不挂 widget 生命周期，故本模块持有并负责 dispose 自起资源。
 library;
 
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_xboard_sdk/flutter_xboard_sdk.dart'
@@ -196,8 +198,7 @@ class XboardModule {
     final config = XboardConfig.current;
     final race = _raceController;
     // Start once now: check() waits for a probed API. Early resumed joins it.
-    // ignore: discarded_futures
-    XbUpdateService.autoCheck(container);
+    unawaited(XbUpdateService.autoCheck(container));
     if (race == null) {
       // 同步阶段 race controller 未就绪（如 bootstrap 失败）→ 无法竞速，沿用出厂 endpoint。
       debugPrint('[XboardModule] async: race controller 未就绪，跳过竞速');
@@ -511,6 +512,17 @@ class XboardModule {
         onSubscriptionSwitch: (ep) =>
             container.read(subscriptionEndpointProvider.notifier).set(ep),
       );
+      final recoveryRace = _raceController!;
+      instance.httpService.configureEndpointRecovery(
+        candidates: recoveryRace.recoveryCandidates,
+        onSuccess: recoveryRace.acceptRecoveredApi,
+      );
+      recoveryRace.apiEndpointAvailable =
+          instance.httpService.isEndpointAvailable;
+      recoveryRace.resetApiEndpointHealth =
+          instance.httpService.resetEndpointHealth;
+      recoveryRace.onApiCandidatesChanged =
+          instance.httpService.endpointCandidatesChanged;
       _raceController!.beginApiInitialization();
       _raceController!.seedEndpoints(
         _localPayload?.apiEndpoints ?? const [],

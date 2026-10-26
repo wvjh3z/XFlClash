@@ -8,6 +8,7 @@ import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:fl_clash/xboard/models/xb_result.dart';
+import 'package:fl_clash/xboard/models/xb_domain_error.dart';
 import 'package:fl_clash/xboard/providers/email_suffixes_provider.dart';
 import 'package:fl_clash/xboard/providers/xboard_providers.dart';
 import 'package:fl_clash/xboard/util/error_text.dart';
@@ -56,19 +57,34 @@ class _ForgotPwdSheetState extends ConsumerState<ForgotPwdSheet>
   }
 
   Future<void> _sendCode(List<String> suffixes) async {
+    if (cooling) return;
     final email = _composeEmail(suffixes);
     if (email.isEmpty || !email.contains('@')) {
       setState(() => _banner = '请先填写邮箱账号');
       return;
     }
     startCooldown();
-    final result = await ref.read(xboardServiceProvider).sendEmailVerifyCode(email);
+    final result = await ref
+        .read(xboardServiceProvider)
+        .sendEmailVerifyCode(email);
     if (!mounted) return;
-    if (result is XbFailure) {
-      // 发送失败 → 重置冷却（让用户可立即重发，不被无谓锁 60s）。
-      resetCooldown();
-      setState(() =>
-          _banner = resolveErrorText((result as XbFailure).error, fallback: '发送失败，请重试'));
+    final error = switch (result) {
+      XbSuccess(data: true) => null,
+      XbFailure(:final error) => error,
+      _ => const XbUnconfirmed(
+        'sendEmailVerifyCode',
+        '验证码发送结果尚未确认，请先检查邮箱。如问题持续，请向客服反馈此问题。',
+      ),
+    };
+    if (error != null) {
+      // A lost response may still have delivered mail; preserve the cooldown.
+      if (error is! XbUnconfirmed &&
+          error is! XbRateLimit &&
+          !(error is XbBusiness &&
+              error.kind == XbBusinessKind.emailVerifyCodeRateLimit)) {
+        resetCooldown();
+      }
+      setState(() => _banner = resolveErrorText(error, fallback: '发送失败，请重试'));
     }
   }
 
@@ -86,19 +102,24 @@ class _ForgotPwdSheetState extends ConsumerState<ForgotPwdSheet>
     }
     setState(() => _banner = null);
     await runSubmit(() async {
-      final result =
-          await ref.read(xboardServiceProvider).forgotPassword(email, code, pw);
+      final result = await ref
+          .read(xboardServiceProvider)
+          .forgotPassword(email, code, pw);
       if (!mounted) return;
       switch (result) {
-        case XbSuccess():
+        case XbSuccess(data: true):
           // 先抓根 messenger 引用再 pop（pop 后本 sheet context 失效，直接用会丢 toast）。
           final messenger = ScaffoldMessenger.of(context);
           Navigator.of(context).pop();
           messenger.showSnackBar(
             const SnackBar(content: Text('密码已重置，请用新密码登录')),
           );
+        case XbSuccess():
+          setState(() => _banner = '操作结果尚未确认，请先核对结果。如问题持续，请向客服反馈此问题。');
         case XbFailure(:final error):
-          setState(() => _banner = resolveErrorText(error, fallback: '重置失败，请重试'));
+          setState(
+            () => _banner = resolveErrorText(error, fallback: '重置失败，请重试'),
+          );
       }
     });
   }

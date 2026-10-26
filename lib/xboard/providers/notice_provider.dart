@@ -26,17 +26,22 @@ class XbNoticeState {
   final bool hasUnread;
   final String userIdHash;
 
-  static const empty =
-      XbNoticeState(notices: <XbNotice>[], hasUnread: false, userIdHash: 'anon');
+  static const empty = XbNoticeState(
+    notices: <XbNotice>[],
+    hasUnread: false,
+    userIdHash: 'anon',
+  );
 }
 
 /// 已读状态存储（单例，注入便于测试）。
-final noticeReadStoreProvider =
-    Provider<NoticeReadStore>((_) => NoticeReadStore());
+final noticeReadStoreProvider = Provider<NoticeReadStore>(
+  (_) => NoticeReadStore(),
+);
 
 /// 公告状态（进首页拉一次；autoDispose 让每次进首页都重拉，捕获会话中新发的公告）。
-final noticeStateProvider =
-    FutureProvider.autoDispose<XbNoticeState>((ref) async {
+final noticeStateProvider = FutureProvider.autoDispose<XbNoticeState>((
+  ref,
+) async {
   // gate：未就绪 / 游客 → 空态（公告是已登录接口，游客无公告）。
   final ready = ref.watch(bootstrapReadyProvider);
   final authed = ref.watch(authStateProvider) == AuthState.authenticated;
@@ -61,5 +66,9 @@ final noticeStateProvider =
   final hash = await service.currentUserIdHash();
   final store = ref.watch(noticeReadStoreProvider);
   final hasUnread = await store.hasUnread(notices, userIdHash: hash);
-  return XbNoticeState(notices: notices, hasUnread: hasUnread, userIdHash: hash);
-});
+  return XbNoticeState(
+    notices: notices,
+    hasUnread: hasUnread,
+    userIdHash: hash,
+  );
+}, retry: (retryCount, error) => null);

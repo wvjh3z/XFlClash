@@ -7,7 +7,6 @@ library;
 
 import 'dart:async';
 
-
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -186,32 +185,33 @@ class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage>
     final tradeNo = widget.tradeNo;
     final service = ref.read(xboardServiceProvider);
     late final Future<_OrderRead> request;
-    request = (() async {
-      XbResult<OrderDetail?> result;
-      try {
-        result = await service.getOrder(tradeNo);
-        if (result case XbSuccess(
-          :final data,
-        ) when data != null && data.summary.tradeNo != tradeNo) {
-          result = XbResult<OrderDetail?>.failure(
-            const XbUnexpected('getOrder', '订单信息不匹配，请重新检测。'),
+    request =
+        (() async {
+          XbResult<OrderDetail?> result;
+          try {
+            result = await service.getOrder(tradeNo);
+            if (result case XbSuccess(
+              :final data,
+            ) when data != null && data.summary.tradeNo != tradeNo) {
+              result = XbResult<OrderDetail?>.failure(
+                const XbUnexpected('getOrder', '订单信息不匹配，请重新检测。'),
+              );
+            }
+          } catch (_) {
+            result = XbResult<OrderDetail?>.failure(
+              const XbUnexpected('getOrder', '暂未获取到订单信息，请稍后重试。'),
+            );
+          }
+          return (
+            result: result,
+            contextVersion: contextVersion,
+            readVersion: readVersion,
+            tradeNo: tradeNo,
+            service: service,
           );
-        }
-      } catch (_) {
-        result = XbResult<OrderDetail?>.failure(
-          const XbUnexpected('getOrder', '暂未获取到订单信息，请稍后重试。'),
-        );
-      }
-      return (
-        result: result,
-        contextVersion: contextVersion,
-        readVersion: readVersion,
-        tradeNo: tradeNo,
-        service: service,
-      );
-    })().whenComplete(() {
-      if (identical(_orderRead, request)) _orderRead = null;
-    });
+        })().whenComplete(() {
+          if (identical(_orderRead, request)) _orderRead = null;
+        });
     // Store and return the cleanup chain itself; do not fork an unobserved Future.
     _orderRead = request;
     return request;
@@ -737,7 +737,12 @@ class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage>
           .checkout(widget.tradeNo, method);
       if (!mounted || owner != _contextVersion) return;
       if (result case XbFailure(:final error)) {
-        xbToastSafe('支付失败：${resolveErrorText(error, fallback: '请稍后重试')}');
+        xbToastSafe(
+          error is XbUnconfirmed
+              ? resolveErrorText(error)
+              : '支付失败：${resolveErrorText(error, fallback: '请稍后重试')}',
+        );
+        if (error is XbUnconfirmed) await _refreshAfterMutation();
         return;
       }
       if (!mounted) return;
@@ -851,7 +856,12 @@ class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage>
         case XbSuccess():
           xbToastSafe('取消失败，请稍后重试');
         case XbFailure(:final error):
-          xbToastSafe('取消失败：${resolveErrorText(error, fallback: '请稍后重试')}');
+          xbToastSafe(
+            error is XbUnconfirmed
+                ? resolveErrorText(error)
+                : '取消失败：${resolveErrorText(error, fallback: '请稍后重试')}',
+          );
+          if (error is XbUnconfirmed) await _refreshAfterMutation();
       }
     });
   }
@@ -987,8 +997,8 @@ class _StatusIcon extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isSuccess = status == XbOrderStatus.completed ||
-        status == XbOrderStatus.discounted;
+    final isSuccess =
+        status == XbOrderStatus.completed || status == XbOrderStatus.discounted;
     final iconWidget = Icon(icon, color: color, size: 26);
     if (!isSuccess || XbMotion.reduced(context)) return iconWidget;
     return TweenAnimationBuilder<double>(
@@ -1027,8 +1037,10 @@ class _SectionCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(title,
-                style: text.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
+            Text(
+              title,
+              style: text.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+            ),
             const SizedBox(height: 12),
             ...children,
           ],
@@ -1052,16 +1064,20 @@ class _InfoRow extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(label,
-              style: text.bodyMedium?.copyWith(color: scheme.onSurfaceVariant)),
+          Text(
+            label,
+            style: text.bodyMedium?.copyWith(color: scheme.onSurfaceVariant),
+          ),
           const SizedBox(width: 12),
           Expanded(
-            child: XbEmojiText(value,
-                textAlign: TextAlign.right,
-                // 长值（如套餐名）单行省略，防折行 + 右对齐错乱 + 整行变形（与订单号同源修复）。
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: text.bodyMedium?.copyWith(fontWeight: FontWeight.w500)),
+            child: XbEmojiText(
+              value,
+              textAlign: TextAlign.right,
+              // 长值（如套餐名）单行省略，防折行 + 右对齐错乱 + 整行变形（与订单号同源修复）。
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: text.bodyMedium?.copyWith(fontWeight: FontWeight.w500),
+            ),
           ),
         ],
       ),
@@ -1083,16 +1099,18 @@ class _CopyableRow extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(label,
-              style: text.bodyMedium?.copyWith(color: scheme.onSurfaceVariant)),
+          Text(
+            label,
+            style: text.bodyMedium?.copyWith(color: scheme.onSurfaceVariant),
+          ),
           const SizedBox(width: 12),
           Expanded(
             child: InkWell(
               onTap: () {
                 Clipboard.setData(ClipboardData(text: value));
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('订单号已复制')),
-                );
+                ScaffoldMessenger.of(
+                  context,
+                ).showSnackBar(const SnackBar(content: Text('订单号已复制')));
               },
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.end,
@@ -1100,19 +1118,23 @@ class _CopyableRow extends StatelessWidget {
                   // 长订单号（可达 28 位）：单行不折行，超长时头部省略保留尾部 + 等宽，
                   // 复制图标固定最右（softWrap 折行会让右对齐错乱、行变形）。
                   Flexible(
-                    child: Text(value,
-                        textAlign: TextAlign.right,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: text.bodyMedium?.copyWith(
-                            fontWeight: FontWeight.w500,
-                            fontFeatures: const [
-                              FontFeature.tabularFigures()
-                            ])),
+                    child: Text(
+                      value,
+                      textAlign: TextAlign.right,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: text.bodyMedium?.copyWith(
+                        fontWeight: FontWeight.w500,
+                        fontFeatures: const [FontFeature.tabularFigures()],
+                      ),
+                    ),
                   ),
                   const SizedBox(width: 6),
-                  Icon(Icons.copy_rounded,
-                      size: 15, color: scheme.onSurfaceVariant),
+                  Icon(
+                    Icons.copy_rounded,
+                    size: 15,
+                    color: scheme.onSurfaceVariant,
+                  ),
                 ],
               ),
             ),
@@ -1137,30 +1159,35 @@ class _TotalRow extends StatelessWidget {
     return Column(
       children: [
         Container(
-            height: 1,
-            margin: const EdgeInsets.only(top: 10),
-            color: t.line),
+          height: 1,
+          margin: const EdgeInsets.only(top: 10),
+          color: t.line,
+        ),
         Padding(
           padding: const EdgeInsets.only(top: 8),
           child: Row(
             children: [
               // 标签占剩余宽（超长才省略），把金额顶到右侧。
               Expanded(
-                child: Text(label,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style:
-                        text.bodyLarge?.copyWith(fontWeight: FontWeight.w600)),
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: text.bodyLarge?.copyWith(fontWeight: FontWeight.w600),
+                ),
               ),
               const SizedBox(width: 8),
               // 金额固定 21px（不用 FittedBox 缩放——它会把总额缩得比明细行金额还小、视觉错位）；
               // 金额很短不会溢出，等宽对齐。
-              Text(xbYuan(yuan),
-                  style: TextStyle(
-                      fontSize: 21,
-                      fontWeight: FontWeight.w700,
-                      color: scheme.primary,
-                      fontFeatures: const [FontFeature.tabularFigures()])),
+              Text(
+                xbYuan(yuan),
+                style: TextStyle(
+                  fontSize: 21,
+                  fontWeight: FontWeight.w700,
+                  color: scheme.primary,
+                  fontFeatures: const [FontFeature.tabularFigures()],
+                ),
+              ),
             ],
           ),
         ),

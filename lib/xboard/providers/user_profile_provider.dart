@@ -18,15 +18,19 @@ import 'xboard_providers.dart';
 
 part '../generated/providers/user_profile_provider.g.dart';
 
+/// HTTP recovery owns the retry budget; explicit refresh remains available.
+Duration? noAutomaticAccountRetry(int retryCount, Object error) => null;
+
 /// 账号订阅信息（R6）。success → 数据；failure → 抛 XbDomainError（UI 经 AsyncValue.error
 /// 用 XboardStateView 分流，error 态按 7 子类型渲染）。
 ///
 /// keepAlive：登录态期间常驻；logout / 切账号时调用方 `ref.invalidate` 清。
-@Riverpod(keepAlive: true)
+@Riverpod(keepAlive: true, retry: noAutomaticAccountRetry)
 Future<XbDomainSubscription> userProfile(Ref ref) async {
   final result = await ref.watch(xboardServiceProvider).getSubscription();
   return switch (result) {
     XbSuccess(:final data) => data,
-    XbFailure(:final error) => throw error, // AsyncError → UI XboardStateView 分流
+    XbFailure(:final error) =>
+      throw error, // AsyncError → UI XboardStateView 分流
   };
 }

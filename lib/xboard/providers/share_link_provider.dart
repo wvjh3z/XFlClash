@@ -19,4 +19,4 @@ final shareLinkProvider = FutureProvider.autoDispose<XbShareLink>((ref) async {
     XbSuccess(:final data) => data,
     XbFailure(:final error) => throw error,
   };
-});
+}, retry: (retryCount, error) => null);

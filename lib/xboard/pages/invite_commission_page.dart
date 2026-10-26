@@ -13,6 +13,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/xb_invite.dart';
 import '../models/xb_result.dart';
+import '../models/xb_domain_error.dart';
 import '../providers/invite_provider.dart';
 import '../providers/share_link_provider.dart';
 import '../providers/xboard_providers.dart';
@@ -154,14 +155,19 @@ class _InviteBody extends ConsumerWidget {
 
   /// 返佣记录入口卡（单列 / 双栏共用）。
   Widget _recordsEntry(BuildContext context) {
-    return XbListCard(rows: [
-      XbListRow(
-        icon: Icons.receipt_long,
-        label: '查看返佣记录',
-        onTap: () => xbPush(context, const CommissionRecordsPage(),
-            brandColor: xbBrandColor()),
-      ),
-    ]);
+    return XbListCard(
+      rows: [
+        XbListRow(
+          icon: Icons.receipt_long,
+          label: '查看返佣记录',
+          onTap: () => xbPush(
+            context,
+            const CommissionRecordsPage(),
+            brandColor: xbBrandColor(),
+          ),
+        ),
+      ],
+    );
   }
 }
 
@@ -175,10 +181,12 @@ class _BalanceCard extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final brand = Theme.of(context).colorScheme.primary;
     final hsl = HSLColor.fromColor(brand);
-    final brandDark =
-        hsl.withLightness((hsl.lightness * 0.78).clamp(0.0, 1.0)).toColor();
-    final brandLight =
-        hsl.withLightness((hsl.lightness * 1.18).clamp(0.0, 1.0)).toColor();
+    final brandDark = hsl
+        .withLightness((hsl.lightness * 0.78).clamp(0.0, 1.0))
+        .toColor();
+    final brandLight = hsl
+        .withLightness((hsl.lightness * 1.18).clamp(0.0, 1.0))
+        .toColor();
     final canWithdraw = info.commissionBalanceYuan >= kWithdrawMinYuan;
 
     return Container(
@@ -260,15 +268,18 @@ class _BalanceCard extends ConsumerWidget {
                       Expanded(
                         child: _balanceBtn(
                           context,
-                          icon: canWithdraw ? Icons.account_balance : Icons.lock,
+                          icon: canWithdraw
+                              ? Icons.account_balance
+                              : Icons.lock,
                           label: canWithdraw
                               ? '佣金提现'
                               : '满 ¥${kWithdrawMinYuan.toStringAsFixed(0)} 可提现',
                           solid: false,
                           brand: brand,
                           disabled: !canWithdraw,
-                          onTap:
-                              canWithdraw ? () => _openWithdraw(context, ref) : null,
+                          onTap: canWithdraw
+                              ? () => _openWithdraw(context, ref)
+                              : null,
                         ),
                       ),
                     ],
@@ -310,41 +321,51 @@ class _BalanceCard extends ConsumerWidget {
           children: [
             Icon(icon, size: 14, color: Colors.white.withValues(alpha: 0.92)),
             const SizedBox(width: 5),
-            Text(label,
-                style: TextStyle(
-                    fontSize: 12, color: Colors.white.withValues(alpha: 0.9))),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 12,
+                color: Colors.white.withValues(alpha: 0.9),
+              ),
+            ),
           ],
         ),
         const SizedBox(height: 6),
         // 金额：XbFitText.rich 保证一行完整显示（够位原尺寸、超宽整体缩放，绝不省略号，框架）；
         // 货币符号小字（原型 .invbal-num .cur 17px / 数字 30px）。
         XbFitText.rich(
-          TextSpan(children: [
-            TextSpan(
-              text: '¥',
-              style: TextStyle(
-                fontSize: big ? 17 : 14,
-                fontWeight: FontWeight.w700,
-                color: Colors.white.withValues(alpha: 0.92),
+          TextSpan(
+            children: [
+              TextSpan(
+                text: '¥',
+                style: TextStyle(
+                  fontSize: big ? 17 : 14,
+                  fontWeight: FontWeight.w700,
+                  color: Colors.white.withValues(alpha: 0.92),
+                ),
               ),
-            ),
-            TextSpan(
-              text: amount.toStringAsFixed(2),
-              style: TextStyle(
-                fontSize: big ? 30 : 25,
-                fontWeight: FontWeight.w800,
-                color: Colors.white,
-                letterSpacing: -0.5,
-                fontFeatures: const [FontFeature.tabularFigures()],
+              TextSpan(
+                text: amount.toStringAsFixed(2),
+                style: TextStyle(
+                  fontSize: big ? 30 : 25,
+                  fontWeight: FontWeight.w800,
+                  color: Colors.white,
+                  letterSpacing: -0.5,
+                  fontFeatures: const [FontFeature.tabularFigures()],
+                ),
               ),
-            ),
-          ]),
+            ],
+          ),
         ),
         if (sub != null) ...[
           const SizedBox(height: 7),
-          Text(sub,
-              style: TextStyle(
-                  fontSize: 10.5, color: Colors.white.withValues(alpha: 0.8))),
+          Text(
+            sub,
+            style: TextStyle(
+              fontSize: 10.5,
+              color: Colors.white.withValues(alpha: 0.8),
+            ),
+          ),
         ],
       ],
     );
@@ -365,14 +386,20 @@ class _BalanceCard extends ConsumerWidget {
     if (disabled) {
       bg = Colors.white.withValues(alpha: 0.10);
       fg = Colors.white.withValues(alpha: 0.55);
-      border = Border.all(color: Colors.white.withValues(alpha: 0.22), width: 1.5);
+      border = Border.all(
+        color: Colors.white.withValues(alpha: 0.22),
+        width: 1.5,
+      );
     } else if (solid) {
       bg = Colors.white.withValues(alpha: 0.94);
       fg = brand;
     } else {
       bg = Colors.white.withValues(alpha: 0.14);
       fg = Colors.white;
-      border = Border.all(color: Colors.white.withValues(alpha: 0.5), width: 1.5);
+      border = Border.all(
+        color: Colors.white.withValues(alpha: 0.5),
+        width: 1.5,
+      );
     }
     return Material(
       color: Colors.transparent,
@@ -393,11 +420,16 @@ class _BalanceCard extends ConsumerWidget {
                 Icon(icon, size: 17, color: fg),
                 const SizedBox(width: 5),
                 Flexible(
-                  child: Text(label,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                          fontSize: 13.5, fontWeight: FontWeight.w600, color: fg)),
+                  child: Text(
+                    label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 13.5,
+                      fontWeight: FontWeight.w600,
+                      color: fg,
+                    ),
+                  ),
                 ),
               ],
             ),
@@ -459,30 +491,51 @@ class _StatsGrid extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final cells = [
-      _stat(context, Icons.group, '已注册用户', '${info.registeredCount}', unit: '人'),
+      _stat(
+        context,
+        Icons.group,
+        '已注册用户',
+        '${info.registeredCount}',
+        unit: '人',
+      ),
       _stat(context, Icons.hourglass_top, '确认中佣金', xbYuan(info.pendingYuan)),
       _stat(context, Icons.savings, '累计获得佣金', xbYuan(info.totalYuan)),
-      _stat(context, Icons.percent, '返佣比例', '${info.commissionRate}', unit: '%'),
+      _stat(
+        context,
+        Icons.percent,
+        '返佣比例',
+        '${info.commissionRate}',
+        unit: '%',
+      ),
     ];
     return Column(
       children: [
-        Row(children: [
-          Expanded(child: cells[0]),
-          const SizedBox(width: 10),
-          Expanded(child: cells[1]),
-        ]),
+        Row(
+          children: [
+            Expanded(child: cells[0]),
+            const SizedBox(width: 10),
+            Expanded(child: cells[1]),
+          ],
+        ),
         const SizedBox(height: 10),
-        Row(children: [
-          Expanded(child: cells[2]),
-          const SizedBox(width: 10),
-          Expanded(child: cells[3]),
-        ]),
+        Row(
+          children: [
+            Expanded(child: cells[2]),
+            const SizedBox(width: 10),
+            Expanded(child: cells[3]),
+          ],
+        ),
       ],
     );
   }
 
-  Widget _stat(BuildContext context, IconData icon, String label, String num,
-      {String? unit}) {
+  Widget _stat(
+    BuildContext context,
+    IconData icon,
+    String label,
+    String num, {
+    String? unit,
+  }) {
     final t = XbTokens.of(context);
     final brand = Theme.of(context).colorScheme.primary;
     return Container(
@@ -511,33 +564,40 @@ class _StatsGrid extends StatelessWidget {
               ),
               const SizedBox(width: 7),
               Flexible(
-                child: Text(label,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(fontSize: 12, color: t.onv)),
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(fontSize: 12, color: t.onv),
+                ),
               ),
             ],
           ),
           const SizedBox(height: 9),
           Text.rich(
-            TextSpan(children: [
-              TextSpan(
-                text: num,
-                style: TextStyle(
-                  fontSize: 21,
-                  fontWeight: FontWeight.w700,
-                  color: t.on,
-                  height: 1,
-                  fontFeatures: const [FontFeature.tabularFigures()],
-                ),
-              ),
-              if (unit != null)
+            TextSpan(
+              children: [
                 TextSpan(
-                  text: unit,
+                  text: num,
                   style: TextStyle(
-                      fontSize: 12, fontWeight: FontWeight.w500, color: t.onv),
+                    fontSize: 21,
+                    fontWeight: FontWeight.w700,
+                    color: t.on,
+                    height: 1,
+                    fontFeatures: const [FontFeature.tabularFigures()],
+                  ),
                 ),
-            ]),
+                if (unit != null)
+                  TextSpan(
+                    text: unit,
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w500,
+                      color: t.onv,
+                    ),
+                  ),
+              ],
+            ),
           ),
         ],
       ),
@@ -620,18 +680,27 @@ class _InviteCodeCard extends StatelessWidget {
             children: [
               Row(
                 children: [
-                  Icon(Icons.confirmation_number_outlined, size: 16, color: brand),
+                  Icon(
+                    Icons.confirmation_number_outlined,
+                    size: 16,
+                    color: brand,
+                  ),
                   const SizedBox(width: 7),
-                  Text('我的邀请码',
-                      style: TextStyle(
-                          fontSize: 12.5,
-                          fontWeight: FontWeight.w600,
-                          color: t.onv)),
+                  Text(
+                    '我的邀请码',
+                    style: TextStyle(
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w600,
+                      color: t.onv,
+                    ),
+                  ),
                   const Spacer(),
                   if (hasCode)
                     Container(
-                      padding:
-                          const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 9,
+                        vertical: 3,
+                      ),
                       decoration: BoxDecoration(
                         color: XbTokens.ok.withValues(alpha: 0.12),
                         borderRadius: BorderRadius.circular(8),
@@ -639,14 +708,20 @@ class _InviteCodeCard extends StatelessWidget {
                       child: const Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Icon(Icons.check_circle,
-                              size: 12, color: XbTokens.ok),
+                          Icon(
+                            Icons.check_circle,
+                            size: 12,
+                            color: XbTokens.ok,
+                          ),
                           SizedBox(width: 3),
-                          Text('已生效',
-                              style: TextStyle(
-                                  fontSize: 10.5,
-                                  fontWeight: FontWeight.w600,
-                                  color: XbTokens.ok)),
+                          Text(
+                            '已生效',
+                            style: TextStyle(
+                              fontSize: 10.5,
+                              fontWeight: FontWeight.w600,
+                              color: XbTokens.ok,
+                            ),
+                          ),
                         ],
                       ),
                     ),
@@ -658,8 +733,11 @@ class _InviteCodeCard extends StatelessWidget {
                   color: Color.alphaBlend(brand.withValues(alpha: 0.06), t.sfc),
                   borderRadius: BorderRadius.circular(XbTokens.rMd),
                   border: Border.all(
-                      color: Color.alphaBlend(
-                          brand.withValues(alpha: 0.16), t.line)),
+                    color: Color.alphaBlend(
+                      brand.withValues(alpha: 0.16),
+                      t.line,
+                    ),
+                  ),
                 ),
                 padding: const EdgeInsets.fromLTRB(16, 6, 6, 6),
                 child: Row(
@@ -700,9 +778,12 @@ class _InviteCodeCard extends StatelessWidget {
                         minimumSize: const Size(0, 40),
                         padding: const EdgeInsets.symmetric(horizontal: 15),
                         shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12)),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
                         textStyle: const TextStyle(
-                            fontSize: 13, fontWeight: FontWeight.w600),
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
                     ),
                   ],
@@ -712,13 +793,21 @@ class _InviteCodeCard extends StatelessWidget {
               Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Icon(Icons.lightbulb_outline,
-                      size: 14, color: XbTokens.warn),
+                  const Icon(
+                    Icons.lightbulb_outline,
+                    size: 14,
+                    color: XbTokens.warn,
+                  ),
                   const SizedBox(width: 5),
                   Expanded(
-                    child: Text('该邀请码可以无限次使用',
-                        style: TextStyle(
-                            fontSize: 11.5, height: 1.6, color: t.onv)),
+                    child: Text(
+                      '该邀请码可以无限次使用',
+                      style: TextStyle(
+                        fontSize: 11.5,
+                        height: 1.6,
+                        color: t.onv,
+                      ),
+                    ),
                   ),
                 ],
               ),
@@ -757,15 +846,21 @@ class _FlowSection extends StatelessWidget {
               Row(
                 children: [
                   for (var i = 0; i < _steps.length; i++) ...[
-                    _step(context, _steps[i].$1, _steps[i].$2,
-                        last: i == _steps.length - 1),
+                    _step(
+                      context,
+                      _steps[i].$1,
+                      _steps[i].$2,
+                      last: i == _steps.length - 1,
+                    ),
                     if (i != _steps.length - 1)
                       Expanded(
                         child: Container(
                           height: 2,
                           margin: const EdgeInsets.only(bottom: 22),
                           color: Color.alphaBlend(
-                              brand.withValues(alpha: 0.18), t.line),
+                            brand.withValues(alpha: 0.18),
+                            t.line,
+                          ),
                         ),
                       ),
                   ],
@@ -780,16 +875,28 @@ class _FlowSection extends StatelessWidget {
                   children: [
                     const TextSpan(text: '好友通过你的链接'),
                     TextSpan(
-                        text: '下载',
-                        style: TextStyle(color: t.on, fontWeight: FontWeight.w600)),
+                      text: '下载',
+                      style: TextStyle(
+                        color: t.on,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
                     const TextSpan(text: '客户端、'),
                     TextSpan(
-                        text: '注册',
-                        style: TextStyle(color: t.on, fontWeight: FontWeight.w600)),
+                      text: '注册',
+                      style: TextStyle(
+                        color: t.on,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
                     const TextSpan(text: '时填写你的邀请码并成功'),
                     TextSpan(
-                        text: '购买',
-                        style: TextStyle(color: t.on, fontWeight: FontWeight.w600)),
+                      text: '购买',
+                      style: TextStyle(
+                        color: t.on,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
                     const TextSpan(text: '套餐后，你将获得订单金额一定比例的返佣。'),
                   ],
                 ),
@@ -801,8 +908,12 @@ class _FlowSection extends StatelessWidget {
     );
   }
 
-  Widget _step(BuildContext context, IconData icon, String label,
-      {required bool last}) {
+  Widget _step(
+    BuildContext context,
+    IconData icon,
+    String label, {
+    required bool last,
+  }) {
     final t = XbTokens.of(context);
     final brand = Theme.of(context).colorScheme.primary;
     return Column(
@@ -821,15 +932,23 @@ class _FlowSection extends StatelessWidget {
                 ? null
                 : Border.all(
                     color: Color.alphaBlend(
-                        brand.withValues(alpha: 0.22), t.line),
-                    width: 1.5),
+                      brand.withValues(alpha: 0.22),
+                      t.line,
+                    ),
+                    width: 1.5,
+                  ),
           ),
           child: Icon(icon, size: 20, color: last ? Colors.white : brand),
         ),
         const SizedBox(height: 8),
-        Text(label,
-            style: TextStyle(
-                fontSize: 11.5, fontWeight: FontWeight.w600, color: t.on)),
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 11.5,
+            fontWeight: FontWeight.w600,
+            color: t.on,
+          ),
+        ),
       ],
     );
   }
@@ -848,7 +967,8 @@ class _TransferDialog extends ConsumerStatefulWidget {
 
 class _TransferDialogState extends ConsumerState<_TransferDialog> {
   late final TextEditingController _amount = TextEditingController(
-      text: widget.info.commissionBalanceYuan.toStringAsFixed(2));
+    text: widget.info.commissionBalanceYuan.toStringAsFixed(2),
+  );
   bool _submitting = false;
 
   @override
@@ -858,6 +978,7 @@ class _TransferDialogState extends ConsumerState<_TransferDialog> {
   }
 
   Future<void> _submit() async {
+    if (_submitting) return;
     final yuan = double.tryParse(_amount.text.trim());
     if (yuan == null || yuan <= 0) {
       xbToast(context, '请输入有效的划转金额');
@@ -868,15 +989,23 @@ class _TransferDialogState extends ConsumerState<_TransferDialog> {
       return;
     }
     setState(() => _submitting = true);
-    final result =
-        await ref.read(xboardServiceProvider).transferCommissionToBalance(yuan);
+    final result = await ref
+        .read(xboardServiceProvider)
+        .transferCommissionToBalance(yuan);
     if (!mounted) return;
     switch (result) {
-      case XbSuccess():
+      case XbSuccess(data: true):
         ref.invalidate(inviteInfoProvider);
         Navigator.of(context).pop();
         xbToast(context, '划转成功，已转入账户余额');
+      case XbSuccess():
+        setState(() => _submitting = false);
+        xbToast(context, '操作结果尚未确认，请先核对余额和记录。如问题持续，请向客服反馈此问题。');
       case XbFailure(:final error):
+        if (error is XbUnconfirmed) {
+          ref.invalidate(inviteInfoProvider);
+          ref.invalidate(commissionRecordsProvider);
+        }
         setState(() => _submitting = false);
         xbToast(context, resolveErrorText(error, fallback: '划转失败，请重试'));
     }
@@ -888,16 +1017,19 @@ class _TransferDialogState extends ConsumerState<_TransferDialog> {
     final brand = Theme.of(context).colorScheme.primary;
     return AlertDialog(
       backgroundColor: t.sf2,
-      title: const Column(mainAxisSize: MainAxisSize.min, children: [
-        Text('划转到账户余额', textAlign: TextAlign.center),
-      ]),
+      title: const Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [Text('划转到账户余额', textAlign: TextAlign.center)],
+      ),
       content: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Text('佣金余额划转到账户余额后，可在购买 / 续费套餐时直接抵扣。',
-              textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 13, height: 1.5, color: t.onv)),
+          Text(
+            '佣金余额划转到账户余额后，可在购买 / 续费套餐时直接抵扣。',
+            textAlign: TextAlign.center,
+            style: TextStyle(fontSize: 13, height: 1.5, color: t.onv),
+          ),
           const SizedBox(height: 16),
           _TransferRow(
             from: widget.info.commissionBalanceYuan,
@@ -914,8 +1046,9 @@ class _TransferDialogState extends ConsumerState<_TransferDialog> {
                 Expanded(
                   child: TextField(
                     controller: _amount,
-                    keyboardType:
-                        const TextInputType.numberWithOptions(decimal: true),
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                    ),
                     style: TextStyle(fontSize: 14.5, color: t.on),
                     decoration: InputDecoration(
                       isCollapsed: true,
@@ -936,13 +1069,16 @@ class _TransferDialogState extends ConsumerState<_TransferDialog> {
                 const SizedBox(width: 8),
                 // 「全部」：一键填入全部佣金余额（原型 .xfer-all 品牌色链接）。
                 GestureDetector(
-                  onTap: () => _amount.text =
-                      widget.info.commissionBalanceYuan.toStringAsFixed(2),
-                  child: Text('全部',
-                      style: TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w600,
-                          color: brand)),
+                  onTap: () => _amount.text = widget.info.commissionBalanceYuan
+                      .toStringAsFixed(2),
+                  child: Text(
+                    '全部',
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: brand,
+                    ),
+                  ),
                 ),
               ],
             ),
@@ -950,11 +1086,13 @@ class _TransferDialogState extends ConsumerState<_TransferDialog> {
         ],
       ),
       actionsPadding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
-      actions: [_DialogActions(
-        confirmLabel: '确认划转',
-        submitting: _submitting,
-        onConfirm: _submit,
-      )],
+      actions: [
+        _DialogActions(
+          confirmLabel: '确认划转',
+          submitting: _submitting,
+          onConfirm: _submit,
+        ),
+      ],
     );
   }
 }
@@ -986,6 +1124,7 @@ class _WithdrawDialogState extends ConsumerState<_WithdrawDialog> {
   }
 
   Future<void> _submit() async {
+    if (_submitting) return;
     final account = _account.text.trim();
     if (account.isEmpty) {
       xbToast(context, '请输入收款账户');
@@ -1000,10 +1139,17 @@ class _WithdrawDialogState extends ConsumerState<_WithdrawDialog> {
         .withdrawCommission(method: method, account: account);
     if (!mounted) return;
     switch (result) {
-      case XbSuccess():
+      case XbSuccess(data: true):
         Navigator.of(context).pop();
         xbToast(context, '提现申请已提交，请等待后台审核');
+      case XbSuccess():
+        setState(() => _submitting = false);
+        xbToast(context, '操作结果尚未确认，请先核对余额和记录。如问题持续，请向客服反馈此问题。');
       case XbFailure(:final error):
+        if (error is XbUnconfirmed) {
+          ref.invalidate(inviteInfoProvider);
+          ref.invalidate(commissionRecordsProvider);
+        }
         setState(() => _submitting = false);
         xbToast(context, resolveErrorText(error, fallback: '提现失败，请重试'));
     }
@@ -1014,9 +1160,10 @@ class _WithdrawDialogState extends ConsumerState<_WithdrawDialog> {
     final t = XbTokens.of(context);
     return AlertDialog(
       backgroundColor: t.sf2,
-      title: const Column(mainAxisSize: MainAxisSize.min, children: [
-        Text('佣金提现', textAlign: TextAlign.center),
-      ]),
+      title: const Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [Text('佣金提现', textAlign: TextAlign.center)],
+      ),
       content: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1037,16 +1184,20 @@ class _WithdrawDialogState extends ConsumerState<_WithdrawDialog> {
             ),
             child: Row(
               children: [
-                Text('提现金额（整笔佣金）',
-                    style: TextStyle(fontSize: 14, color: t.onv)),
+                Text(
+                  '提现金额（整笔佣金）',
+                  style: TextStyle(fontSize: 14, color: t.onv),
+                ),
                 const Spacer(),
-                Text(xbYuan(widget.info.commissionBalanceYuan),
-                    style: TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.w700,
-                        color: t.on,
-                        fontFeatures:
-                            const [FontFeature.tabularFigures()])),
+                Text(
+                  xbYuan(widget.info.commissionBalanceYuan),
+                  style: TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w700,
+                    color: t.on,
+                    fontFeatures: const [FontFeature.tabularFigures()],
+                  ),
+                ),
               ],
             ),
           ),
@@ -1059,8 +1210,10 @@ class _WithdrawDialogState extends ConsumerState<_WithdrawDialog> {
                 value: _methods.contains(_method) ? _method : _methods.first,
                 isExpanded: true,
                 isDense: true,
-                hint: Text('收款方式',
-                    style: TextStyle(fontSize: 14.5, color: t.onv)),
+                hint: Text(
+                  '收款方式',
+                  style: TextStyle(fontSize: 14.5, color: t.onv),
+                ),
                 icon: Icon(Icons.expand_more, size: 20, color: t.onv),
                 style: TextStyle(fontSize: 14.5, color: t.on),
                 dropdownColor: t.sf2,
@@ -1111,11 +1264,13 @@ class _WithdrawDialogState extends ConsumerState<_WithdrawDialog> {
         ],
       ),
       actionsPadding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
-      actions: [_DialogActions(
-        confirmLabel: '提交申请',
-        submitting: _submitting,
-        onConfirm: _submit,
-      )],
+      actions: [
+        _DialogActions(
+          confirmLabel: '提交申请',
+          submitting: _submitting,
+          onConfirm: _submit,
+        ),
+      ],
     );
   }
 }
@@ -1128,36 +1283,43 @@ class _WithdrawRuleDialog extends StatelessWidget {
   Widget build(BuildContext context) {
     final t = XbTokens.of(context);
     Widget rule(String text) => Padding(
-          padding: const EdgeInsets.symmetric(vertical: 6),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Icon(Icons.check_circle, size: 17, color: XbTokens.ok),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(text,
-                    style: TextStyle(fontSize: 13, height: 1.6, color: t.on)),
-              ),
-            ],
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(Icons.check_circle, size: 17, color: XbTokens.ok),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              text,
+              style: TextStyle(fontSize: 13, height: 1.6, color: t.on),
+            ),
           ),
-        );
+        ],
+      ),
+    );
     return AlertDialog(
       backgroundColor: t.sf2,
-      title: const Column(mainAxisSize: MainAxisSize.min, children: [
-        Text('佣金提现说明', textAlign: TextAlign.center),
-      ]),
+      title: const Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [Text('佣金提现说明', textAlign: TextAlign.center)],
+      ),
       content: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('满足以下条件后即可申请佣金提现：',
-              style: TextStyle(fontSize: 13, color: t.onv)),
+          Text(
+            '满足以下条件后即可申请佣金提现：',
+            style: TextStyle(fontSize: 13, color: t.onv),
+          ),
           const SizedBox(height: 4),
           rule('佣金余额 ≥ ¥${kWithdrawMinYuan.toStringAsFixed(0)}'),
           rule('已购买用户达到 20 人'),
           const SizedBox(height: 8),
-          Text('未达门槛时，可先将佣金「划转到余额」，用于购买 / 续费套餐抵扣（划转无门槛）。',
-              style: TextStyle(fontSize: 12.5, height: 1.6, color: t.onv)),
+          Text(
+            '未达门槛时，可先将佣金「划转到余额」，用于购买 / 续费套餐抵扣（划转无门槛）。',
+            style: TextStyle(fontSize: 12.5, height: 1.6, color: t.onv),
+          ),
         ],
       ),
       actionsPadding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
@@ -1210,20 +1372,23 @@ class _TransferRow extends StatelessWidget {
     final t = XbTokens.of(context);
     final brand = Theme.of(context).colorScheme.primary;
     Widget col(String label, double amount, Color color) => Expanded(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(label, style: TextStyle(fontSize: 11, color: t.onv)),
-              const SizedBox(height: 3),
-              Text(xbYuan(amount),
-                  style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w700,
-                      color: color,
-                      fontFeatures: const [FontFeature.tabularFigures()])),
-            ],
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(label, style: TextStyle(fontSize: 11, color: t.onv)),
+          const SizedBox(height: 3),
+          Text(
+            xbYuan(amount),
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w700,
+              color: color,
+              fontFeatures: const [FontFeature.tabularFigures()],
+            ),
           ),
-        );
+        ],
+      ),
+    );
     return Container(
       padding: const EdgeInsets.all(13),
       decoration: BoxDecoration(
@@ -1267,7 +1432,8 @@ class _DialogActions extends StatelessWidget {
                 foregroundColor: t.on,
                 elevation: 0,
                 shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(XbTokens.rMd)),
+                  borderRadius: BorderRadius.circular(XbTokens.rMd),
+                ),
               ),
               child: const Text('取消'),
             ),
@@ -1281,14 +1447,18 @@ class _DialogActions extends StatelessWidget {
               onPressed: submitting ? null : onConfirm,
               style: FilledButton.styleFrom(
                 shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(XbTokens.rMd)),
+                  borderRadius: BorderRadius.circular(XbTokens.rMd),
+                ),
               ),
               child: submitting
                   ? const SizedBox(
                       width: 18,
                       height: 18,
                       child: CircularProgressIndicator(
-                          strokeWidth: 2, color: Colors.white))
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    )
                   : Text(confirmLabel),
             ),
           ),

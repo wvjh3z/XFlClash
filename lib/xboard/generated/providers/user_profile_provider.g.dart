@@ -39,7 +39,7 @@ final class UserProfileProvider
     : super(
         from: null,
         argument: null,
-        retry: null,
+        retry: noAutomaticAccountRetry,
         name: r'userProfileProvider',
         isAutoDispose: false,
         dependencies: null,
@@ -61,4 +61,4 @@ final class UserProfileProvider
   }
 }
 
-String _$userProfileHash() => r'cd35a027d09ce59bbb1ebab3bf0e94fdd81c913f';
+String _$userProfileHash() => r'62936b771a7657af8925d803b95063d17aa0a42d';

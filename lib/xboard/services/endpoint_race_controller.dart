@@ -18,6 +18,7 @@
 library;
 
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:dio/dio.dart';
 
@@ -122,13 +123,14 @@ class EndpointRaceController {
 
   /// Seed synchronously before authentication triggers or API winner callbacks.
   void seedEndpoints(List<BootstrapEndpoint> api, List<BootstrapEndpoint> sub) {
-    _apiEndpoints = List.unmodifiable(api);
+    _replaceApiCandidates(api);
     _subEndpoints = List.unmodifiable(sub);
     _currentSub = null;
     _subGeneration++;
   }
 
   int _subGeneration = 0;
+  int _apiGeneration = 0;
   bool _disposed = false;
 
   List<BootstrapEndpoint> subscriptionEndpoints() {
@@ -183,7 +185,19 @@ class EndpointRaceController {
           .getUri<Object?>(Uri.parse('$endpoint/api/v1/guest/comm/config'))
           .timeout(kBootstrapPerMirrorTimeout);
       final code = resp.statusCode ?? 0;
-      return code >= 200 && code < 300;
+      if (code < 200 || code >= 300) return false;
+      Object? data = resp.data;
+      if (data is String) {
+        try {
+          data = jsonDecode(data);
+        } catch (_) {
+          return false;
+        }
+      }
+      return data is Map &&
+          data['data'] is Map &&
+          data['success'] != false &&
+          data['status'] != 'fail';
     } catch (_) {
       return false;
     }
@@ -193,6 +207,7 @@ class EndpointRaceController {
   void setVpnActive(bool active) {
     if (active == _vpnActive) return;
     _vpnActive = active;
+    resetApiEndpointHealth?.call();
     _currentSub = null;
     _subGeneration++;
     if (_apiEndpoints.isNotEmpty) unawaited(raceApi(_apiEndpoints));
@@ -201,13 +216,25 @@ class EndpointRaceController {
 
   /// API endpoint 完整竞速（R15.C.15/19 + R4.9 地区感知）：按 VPN 状态分档竞速。
   Future<void> raceApi(List<BootstrapEndpoint> apiEndpoints) async {
-    if (apiEndpoints.isEmpty) return;
-    _apiEndpoints = List.unmodifiable(apiEndpoints);
+    _replaceApiCandidates(apiEndpoints);
+    if (apiEndpoints.isEmpty) {
+      _releaseApiWaiters();
+      return;
+    }
+    final generation = ++_apiGeneration;
     // DD-23：累计竞速次数 tag（W5.7 / 5.7.2 endpoint.race_attempts）。
     _raceAttempts++;
     SentryBootstrap.tagEndpoint(raceAttempts: _raceAttempts);
-    final winner = await _raceRegionAware(apiEndpoints);
-    if (_disposed) return;
+    final winner = await _raceRegionAware(
+      apiEndpoints
+          .where((e) => apiEndpointAvailable?.call(e.url) ?? true)
+          .toList(),
+    );
+    if (_disposed ||
+        generation != _apiGeneration ||
+        (winner != null && !(apiEndpointAvailable?.call(winner) ?? true))) {
+      return;
+    }
     if (winner != null && winner != _currentApi) {
       _currentApi = winner;
       onApiSwitch?.call(winner);
@@ -249,9 +276,11 @@ class EndpointRaceController {
   Future<void> _doFailOverApi() async {
     if (_apiEndpoints.isEmpty) return;
     // 按 R4.9 档位顺序找第一个可达者（排除当前）；找不到则完整重竞速。
-    final ordered = _orderByRegion(
-      _apiEndpoints,
-    ).where((u) => u != _currentApi).toList();
+    final ordered = _orderByRegion(_apiEndpoints)
+        .where(
+          (u) => u != _currentApi && (apiEndpointAvailable?.call(u) ?? true),
+        )
+        .toList();
     for (final u in ordered) {
       if (await _probe(u)) {
         _switchApiTo(u);
@@ -294,6 +323,37 @@ class EndpointRaceController {
     }
     // 全不可达 → 完整重竞速兜底。
     await raceSubscription(_subEndpoints);
+  }
+
+  void _replaceApiCandidates(List<BootstrapEndpoint> next) {
+    final changed =
+        next.length != _apiEndpoints.length ||
+        Iterable<int>.generate(next.length).any(
+          (i) =>
+              next[i].url != _apiEndpoints[i].url ||
+              next[i].region != _apiEndpoints[i].region,
+        );
+    _apiEndpoints = List.unmodifiable(next);
+    if (!changed) return;
+    _apiGeneration++;
+    if (!_apiEndpoints.any((e) => e.url == _currentApi)) _currentApi = null;
+    onApiCandidatesChanged?.call();
+  }
+
+  /// Shared SDK recovery uses this ordering without probing or changing a
+  /// global endpoint before the business request has actually succeeded.
+  List<String> recoveryCandidates() => _orderByRegion(_apiEndpoints);
+  bool Function(String)? apiEndpointAvailable;
+  void Function()? resetApiEndpointHealth;
+  void Function()? onApiCandidatesChanged;
+  void acceptRecoveredApi(String endpoint) {
+    if (_disposed ||
+        !_apiEndpoints.any((e) => e.url == endpoint) ||
+        endpoint == _currentApi) {
+      return;
+    }
+    _apiGeneration++;
+    _switchApiTo(endpoint);
   }
 
   void _switchApiTo(String endpoint) {
@@ -376,29 +436,32 @@ class EndpointRaceController {
     final completer = Completer<String?>();
     var pending = endpoints.length;
     for (final e in endpoints) {
-      _probe(e)
-          .then((ok) {
-            if (ok && !completer.isCompleted) {
-              completer.complete(e);
-            } else {
+      unawaited(
+        _probe(e)
+            .then((ok) {
+              if (ok && !completer.isCompleted) {
+                completer.complete(e);
+              } else {
+                pending--;
+                if (pending == 0 && !completer.isCompleted) {
+                  completer.complete(null);
+                }
+              }
+            })
+            .catchError((_) {
               pending--;
               if (pending == 0 && !completer.isCompleted) {
                 completer.complete(null);
               }
-            }
-          })
-          .catchError((_) {
-            pending--;
-            if (pending == 0 && !completer.isCompleted) {
-              completer.complete(null);
-            }
-          });
+            }),
+      );
     }
     return completer.future;
   }
 
   void dispose() {
     _disposed = true;
+    _apiGeneration++;
     finishApiInitialization();
     _subGeneration++;
     _switchTimes.clear();

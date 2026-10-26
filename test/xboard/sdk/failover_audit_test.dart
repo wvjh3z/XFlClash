@@ -59,7 +59,7 @@ void main() {
   /// 证明点：failover 1 次 + body 执行 2 次 + 结果是重试那次的错误（XbUnauthorized）。
   Future<void> auditRetryable(
     String name,
-    void Function(Object first, Object second) stub2,
+    void Function(Exception first, Exception second) stub2,
     Future<XbResult<Object?>> Function() invoke,
   ) async {
     log('▶ $name：首次网络失败 → 期望 failover 1 次 + 重试');
@@ -67,16 +67,34 @@ void main() {
     final r = await invoke();
     log('  结果=${r.runtimeType}，failoverCalls=$failoverCalls');
     expect(failoverCalls, 1, reason: '$name failover 恰好一次');
-    expect((r as XbFailure).error, isA<XbUnauthorized>(),
-        reason: '$name 结果应是「重试那次」的错误（证明确实重试了）');
+    expect(
+      (r as XbFailure).error,
+      isA<XbUnauthorized>(),
+      reason: '$name 结果应是「重试那次」的错误（证明确实重试了）',
+    );
+  }
+
+  Future<void> auditNoReplay(
+    String name,
+    void Function(Exception, Exception) stub,
+    Future<XbResult<Object?>> Function() invoke,
+  ) async {
+    stub(
+      NetworkException('uncertain result'),
+      AuthException('must not replay'),
+    );
+    final result = await invoke();
+    expect(failoverCalls, 0, reason: '$name must not fail over a write');
+    expect((result as XbFailure).error, isA<XbUnconfirmed>());
   }
 
   group('可重试 API（网络错误 → failover + 重试）', () {
     test('#5 getSubscription（账号卡）', () async {
       var n = 0;
       await auditRetryable('getSubscription', (a, b) {
-        when(() => apis.subscriptionApi.getSubscription())
-            .thenAnswer((_) async => throw (++n == 1 ? a : b));
+        when(
+          () => apis.subscriptionApi.getSubscription(),
+        ).thenAnswer((_) async => throw (++n == 1 ? a : b));
       }, () => service.getSubscription());
       expect(n, 2);
     });
@@ -84,39 +102,47 @@ void main() {
     test('#6 getPlans（套餐列表/续费/重置）', () async {
       var n = 0;
       await auditRetryable('getPlans', (a, b) {
-        when(() => apis.planApi.getPlans())
-            .thenAnswer((_) async => throw (++n == 1 ? a : b));
+        when(
+          () => apis.planApi.getPlans(),
+        ).thenAnswer((_) async => throw (++n == 1 ? a : b));
       }, () => service.getPlans());
       expect(n, 2);
     });
 
     test('#8/#14 createOrder（提交订单/流量重置）', () async {
       var n = 0;
-      await auditRetryable('createOrder', (a, b) {
-        when(() => apis.orderApi.createOrder(any(), any(),
-                couponCode: any(named: 'couponCode')))
-            .thenAnswer((_) async => throw (++n == 1 ? a : b));
+      await auditNoReplay('createOrder', (a, b) {
+        when(
+          () => apis.orderApi.createOrder(
+            any(),
+            any(),
+            couponCode: any(named: 'couponCode'),
+          ),
+        ).thenAnswer((_) async => throw (++n == 1 ? a : b));
       }, () => service.createOrder(1, XbPlanPeriod.monthly));
-      expect(n, 2);
+      expect(n, 1);
     });
 
     test('#12 checkout（立即支付）', () async {
       var n = 0;
-      await auditRetryable('checkout', (a, b) {
-        when(() => apis.orderApi.checkoutOrder(any(), any()))
-            .thenAnswer((_) async => throw (++n == 1 ? a : b));
+      await auditNoReplay('checkout', (a, b) {
+        when(
+          () => apis.orderApi.checkoutOrder(any(), any()),
+        ).thenAnswer((_) async => throw (++n == 1 ? a : b));
       }, () => service.checkout('TRADE', 'alipay'));
-      expect(n, 2);
+      expect(n, 1);
     });
 
     test('#9 getOrders（订单列表/待支付横幅）', () async {
       var n = 0;
       await auditRetryable('getOrders', (a, b) {
-        when(() => apis.orderApi.getOrders(
-                page: any(named: 'page'),
-                pageSize: any(named: 'pageSize'),
-                forceRefresh: any(named: 'forceRefresh')))
-            .thenAnswer((_) async => throw (++n == 1 ? a : b));
+        when(
+          () => apis.orderApi.getOrders(
+            page: any(named: 'page'),
+            pageSize: any(named: 'pageSize'),
+            forceRefresh: any(named: 'forceRefresh'),
+          ),
+        ).thenAnswer((_) async => throw (++n == 1 ? a : b));
       }, () => service.getOrders());
       expect(n, 2);
     });
@@ -124,26 +150,29 @@ void main() {
     test('#10 getOrder（订单支付加载）', () async {
       var n = 0;
       await auditRetryable('getOrder', (a, b) {
-        when(() => apis.orderApi.getOrder(any()))
-            .thenAnswer((_) async => throw (++n == 1 ? a : b));
+        when(
+          () => apis.orderApi.getOrder(any()),
+        ).thenAnswer((_) async => throw (++n == 1 ? a : b));
       }, () => service.getOrder('T'));
       expect(n, 2);
     });
 
     test('#13 cancelOrder（取消订单）', () async {
       var n = 0;
-      await auditRetryable('cancelOrder', (a, b) {
-        when(() => apis.orderApi.cancelOrder(any()))
-            .thenAnswer((_) async => throw (++n == 1 ? a : b));
+      await auditNoReplay('cancelOrder', (a, b) {
+        when(
+          () => apis.orderApi.cancelOrder(any()),
+        ).thenAnswer((_) async => throw (++n == 1 ? a : b));
       }, () => service.cancelOrder('T'));
-      expect(n, 2);
+      expect(n, 1);
     });
 
     test('#11 getPaymentMethods（支付方式）', () async {
       var n = 0;
       await auditRetryable('getPaymentMethods', (a, b) {
-        when(() => apis.paymentApi.getPaymentMethods())
-            .thenAnswer((_) async => throw (++n == 1 ? a : b));
+        when(
+          () => apis.paymentApi.getPaymentMethods(),
+        ).thenAnswer((_) async => throw (++n == 1 ? a : b));
       }, () => service.getPaymentMethods());
       expect(n, 2);
     });
@@ -151,8 +180,9 @@ void main() {
     test('#7 checkCoupon（优惠码）', () async {
       var n = 0;
       await auditRetryable('checkCoupon', (a, b) {
-        when(() => apis.orderApi.checkCoupon(any(), any(), any()))
-            .thenAnswer((_) async => throw (++n == 1 ? a : b));
+        when(
+          () => apis.orderApi.checkCoupon(any(), any(), any()),
+        ).thenAnswer((_) async => throw (++n == 1 ? a : b));
       }, () => service.checkCoupon('X', 1, XbPlanPeriod.monthly));
       expect(n, 2);
     });
@@ -163,15 +193,20 @@ void main() {
       // SdkResult 形态：真实网络失败是 Failure(NetworkError)（非 throw）→ _mapError → XbNetwork → failover。
       when(() => apis.authApi.loginResult(any(), any())).thenAnswer((_) async {
         if (++n == 1) {
-          return const Failure(NetworkError('domain down', kind: NetworkErrorKind.timeout));
+          return const Failure(
+            NetworkError('domain down', kind: NetworkErrorKind.timeout),
+          );
         }
         return const Failure(UnauthorizedError('retry hit'));
       });
       final r = await service.login('a@b.com', 'pw');
       log('  结果=${r.runtimeType}，failoverCalls=$failoverCalls，body 执行=$n 次');
       expect(failoverCalls, 1, reason: 'login 网络失败应 failover 一次');
-      expect((r as XbFailure).error, isA<XbUnauthorized>(),
-          reason: '结果是重试那次的错误（证明重试了）');
+      expect(
+        (r as XbFailure).error,
+        isA<XbUnauthorized>(),
+        reason: '结果是重试那次的错误（证明重试了）',
+      );
       expect(n, 2);
     });
   });
@@ -194,9 +229,13 @@ void main() {
     test('#8 createOrder 业务错误（如余额不足）→ 0 次 failover', () async {
       log('▶ createOrder 业务错误：期望 0 次 failover');
       var n = 0;
-      when(() => apis.orderApi.createOrder(any(), any(),
-              couponCode: any(named: 'couponCode')))
-          .thenAnswer((_) async {
+      when(
+        () => apis.orderApi.createOrder(
+          any(),
+          any(),
+          couponCode: any(named: 'couponCode'),
+        ),
+      ).thenAnswer((_) async {
         n++;
         throw ApiException('余额不足');
       });

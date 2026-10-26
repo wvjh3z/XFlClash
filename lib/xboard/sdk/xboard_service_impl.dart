@@ -41,7 +41,8 @@ class XboardServiceImpl
     implements
         XboardService,
         XboardSessionLifecycle,
-        XboardTutorialRequestControl {
+        XboardTutorialRequestControl,
+        XboardInviteRequestControl {
   XboardServiceImpl({
     required XBoardSDK sdk,
     SubscriptionCache? subscriptionCache,
@@ -56,15 +57,25 @@ class XboardServiceImpl
   String? _tutorialResourceBase;
 
   Future<String?> _readTutorialResourceBase() async {
-    final configured = tutorialResourceBase(XboardConfig.current.tutorialBaseUrl)?.toString();
+    final configured = tutorialResourceBase(
+      XboardConfig.current.tutorialBaseUrl,
+    )?.toString();
     if (configured != null) return configured;
     if (_tutorialResourceBase != null) return _tutorialResourceBase;
+    var active = true;
     try {
-      // This auxiliary guest request must not prevent reading a valid article.
-      final config = await _sdk.config.getConfig().timeout(const Duration(seconds: 3));
-      return _tutorialResourceBase = tutorialResourceBase(config.appUrl)?.toString();
+      // This auxiliary request has its own lifetime inside the article scope.
+      final config = await _withValidity(
+        () => active,
+        () => _sdk.config.getConfig(),
+      ).timeout(const Duration(seconds: 3));
+      return _tutorialResourceBase = tutorialResourceBase(
+        config.appUrl,
+      )?.toString();
     } catch (_) {
       return null;
+    } finally {
+      active = false;
     }
   }
 
@@ -156,20 +167,171 @@ class XboardServiceImpl
   /// throw 形态归一（design L797-833 + C37）：旧异常体系 3 子类 + catch-all 兜底。
   ///
   /// broad catch（θ-11）拦截 SDK 内部 `fromJson` 的 `TypeError` 等，走 XbUnexpected 不闪退。
+  Future<T> _withValidity<T>(
+    bool Function() current,
+    Future<T> Function() body,
+  ) {
+    try {
+      return _sdk.httpService.withRequestValidity(current, body);
+    } catch (_) {
+      return body();
+    } // Legacy test adapters have no HTTP service.
+  }
+
+  @override
+  Future<T> withInviteRequestValidity<T>(
+    bool Function() isActive,
+    Future<T> Function() body,
+  ) => _withValidity(isActive, body);
+
+  static const _writeOperations = {
+    'register',
+    'sendEmailVerifyCode',
+    'forgotPassword',
+    'createOrder',
+    'checkout',
+    'cancelOrder',
+    'generateInviteCode',
+    'withdrawCommission',
+    'transferCommissionToBalance',
+  };
+  final Set<String> _writesInFlight = {};
+  bool _inviteCreationUnconfirmed = false;
+
+  bool _uncertain(XbDomainError error) =>
+      error is XbServer ||
+      error is XbUnexpected ||
+      (error is XbNetwork && error.kind != NetworkErrorKind.cancelled);
+
+  Future<XbResult<T>> _write<T>(
+    String operation,
+    Future<XbResult<T>> Function() body, {
+    String? tradeNo,
+  }) async {
+    final epoch = _operationEpoch;
+    final revision = _sdkRevision;
+    bool current() => _isCurrent(epoch, revision);
+    if (!current()) return _stale<T>();
+    // Checkout and cancel cannot overlap, even from separate page instances.
+    final key = switch (operation) {
+      'createOrder' || 'checkout' || 'cancelOrder' => 'orders',
+      'withdrawCommission' || 'transferCommissionToBalance' => 'commission',
+      _ => operation,
+    };
+    if (!_writesInFlight.add(key)) {
+      return const XbFailure(
+        XbBusiness(BusinessErrorKind.generic, '上一项操作仍在处理或核对，请勿重复提交。', null),
+      );
+    }
+    try {
+      var result =
+          operation == 'generateInviteCode' && _inviteCreationUnconfirmed
+          ? XbResult<T>.failure(
+              const XbUnconfirmed('generateInviteCode', '正在核对邀请码'),
+            )
+          : await body();
+      if (!current()) return _stale<T>();
+      // Defensive boundary for legacy/custom SDK adapters returning false.
+      if (result is XbSuccess<T> && result.data == false) {
+        result = XbResult<T>.failure(XbUnconfirmed(operation, '操作结果尚未确认'));
+      }
+      if (result is! XbFailure<T> ||
+          (!_uncertain(result.error) && result.error is! XbUnconfirmed)) {
+        return result;
+      }
+      if (operation == 'generateInviteCode') _inviteCreationUnconfirmed = true;
+      String advice;
+      switch (operation) {
+        case 'createOrder':
+          final orders = await getOrders(forceRefresh: true);
+          advice = orders is XbSuccess
+              ? '已刷新订单列表，请前往“我的订单”核对，勿重复下单。'
+              : '暂时无法查询订单，请稍后到“我的订单”核对，勿重复下单。';
+        case 'checkout':
+        case 'cancelOrder':
+          final detail = await getOrder(tradeNo!);
+          if (!current()) return _stale<T>();
+          final order = detail is XbSuccess<OrderDetail?> ? detail.data : null;
+          if (order != null && order.summary.tradeNo == tradeNo) {
+            if (operation == 'checkout' &&
+                order.summary.status == XbOrderStatus.completed) {
+              return XbSuccess(const ui.CheckoutPaid() as T);
+            }
+            if (operation == 'cancelOrder' &&
+                order.summary.status == XbOrderStatus.cancelled) {
+              return XbSuccess(true as T);
+            }
+          }
+          advice = '请检测该订单的最新状态，勿重复支付或取消。';
+        case 'generateInviteCode':
+          final info = await _guard(
+            'getInviteInfo',
+            () => _sdk.invite.getInviteInfo(),
+          );
+          if (!current()) return _stale<T>();
+          if (info is XbSuccess<InviteInfoModel>) {
+            final usable = info.data.codes.where(
+              (c) => c.isActive && c.code.trim().isNotEmpty,
+            );
+            if (usable.isNotEmpty) {
+              _inviteCreationUnconfirmed = false;
+              return XbSuccess(usable.first.code as T);
+            }
+          }
+          advice = '请刷新邀请码核对；本次会话不会自动重复生成。';
+        case 'withdrawCommission':
+        case 'transferCommissionToBalance':
+          await getInviteInfo();
+          advice = '请核对余额及相关申请记录，勿重复提交；余额变化不能单独证明本次操作成功。';
+        case 'register':
+          advice = '请尝试登录确认账号是否已注册，勿立即重复注册。';
+        case 'sendEmailVerifyCode':
+          advice = '请先检查邮箱及垃圾邮件，稍后再申请验证码。';
+        case 'forgotPassword':
+          advice = '请尝试使用新密码登录确认，勿立即重复修改。';
+        default:
+          advice = '请先核对操作结果，勿重复提交。';
+      }
+      if (!current()) return _stale<T>();
+      return XbFailure(
+        XbUnconfirmed(operation, '操作结果尚未确认。$advice 如问题持续，请向客服反馈此问题。'),
+      );
+    } finally {
+      _writesInFlight.remove(key);
+    }
+  }
+
   Future<XbResult<T>> _guard<T>(
+    String operation,
+    Future<T> Function() body, {
+    bool Function()? isActive,
+    String? tradeNo,
+  }) => _writeOperations.contains(operation)
+      ? _write(
+          operation,
+          () => _guardOnce(operation, body, isActive: isActive),
+          tradeNo: tradeNo,
+        )
+      : _guardOnce(operation, body, isActive: isActive);
+
+  Future<XbResult<T>> _guardOnce<T>(
     String operation,
     Future<T> Function() body, {
     bool Function()? isActive,
   }) async {
     final epoch = _operationEpoch;
     final revision = _sdkRevision;
-    bool current() =>
-        _isCurrent(epoch, revision) && (isActive?.call() ?? true);
+    bool current() => _isCurrent(epoch, revision) && (isActive?.call() ?? true);
     if (!current()) return _stale<T>();
-    final first = await _runGuarded(operation, body);
+    final first = await _runGuarded(
+      operation,
+      () => _withValidity(current, body),
+    );
     if (!current()) return _stale<T>();
     // 失败且可换域名挽救（网络/服务端类）→ failOver 切域名后重试一次。业务/鉴权类换域名无用，不重试。
-    if (first case XbFailure(:final error) when _shouldFailover(error)) {
+    if (first case XbFailure(
+      :final error,
+    ) when _mayLegacyFailover(operation) && _shouldFailover(error)) {
       final hook = _apiFailover;
       if (hook != null) {
         try {
@@ -178,7 +340,10 @@ class XboardServiceImpl
           // failOver 内部永不抛；保险吞错。
         }
         if (!current()) return _stale<T>();
-        final retry = await _runGuarded(operation, body);
+        final retry = await _runGuarded(
+          operation,
+          () => _withValidity(current, body),
+        );
         return current() ? retry : _stale<T>();
       }
     }
@@ -194,6 +359,12 @@ class XboardServiceImpl
       return XbResult.success(await body());
     } on AuthException catch (e) {
       return XbResult.failure(XbDomainError.unauthorized(e.message));
+    } on EndpointException catch (e) {
+      return XbResult.failure(XbDomainError.server(e.code ?? 0, e.message));
+    } on RequestNotDispatchedException catch (e) {
+      return XbResult.failure(
+        XbDomainError.network(NetworkErrorKind.cancelled, e.message),
+      );
     } on NetworkException catch (e) {
       return XbResult.failure(
         XbDomainError.network(NetworkErrorKind.unknown, e.message),
@@ -219,6 +390,32 @@ class XboardServiceImpl
 
   /// 该错误是否值得「换域名重试」：仅网络不可达 / 服务端故障（当前域名被墙或挂了，换一个可能通）。
   /// 鉴权失效、业务错误（如优惠码无效）、安全错误换域名也救不了 → 不重试，避免无谓延迟。
+  bool _mayLegacyFailover(String operation) {
+    try {
+      if (_sdk.httpService.endpointRecoveryEnabled) return false;
+    } catch (_) {
+      /* Legacy test adapters do not expose HTTP infrastructure. */
+    }
+    return const {
+      'login',
+      'getEmailSuffixes',
+      'getSubscription',
+      'getSubscribeUrl',
+      'getPlans',
+      'getOrders',
+      'getOrder',
+      'checkCoupon',
+      'getPaymentMethods',
+      'getInviteInfo',
+      'getCommissionRecords',
+      'getWithdrawMethods',
+      'getShareLink',
+      'getTutorials',
+      'getTutorialDetail',
+      'getNotices',
+    }.contains(operation);
+  }
+
   static bool _shouldFailover(XbDomainError error) => switch (error) {
     XbNetwork() => true,
     XbServer() => true,
@@ -238,20 +435,38 @@ class XboardServiceImpl
     String operation,
     Future<SdkResult<S>> Function() body,
     R Function(S data) map,
+  ) => _writeOperations.contains(operation)
+      ? _write(operation, () => _guardSdkResultOnce(operation, body, map))
+      : _guardSdkResultOnce(operation, body, map);
+
+  Future<XbResult<R>> _guardSdkResultOnce<S, R>(
+    String operation,
+    Future<SdkResult<S>> Function() body,
+    R Function(S data) map,
   ) async {
     final epoch = _operationEpoch;
     final revision = _sdkRevision;
     if (!_isCurrent(epoch, revision)) return _stale<R>();
-    final first = await _runGuardedSdk(operation, body, map);
+    final first = await _runGuardedSdk(
+      operation,
+      () => _withValidity(() => _isCurrent(epoch, revision), body),
+      map,
+    );
     if (!_isCurrent(epoch, revision)) return _stale<R>();
-    if (first case XbFailure(:final error) when _shouldFailover(error)) {
+    if (first case XbFailure(
+      :final error,
+    ) when _mayLegacyFailover(operation) && _shouldFailover(error)) {
       final hook = _apiFailover;
       if (hook != null) {
         try {
           await hook();
         } catch (_) {}
         if (!_isCurrent(epoch, revision)) return _stale<R>();
-        final retry = await _runGuardedSdk(operation, body, map);
+        final retry = await _runGuardedSdk(
+          operation,
+          () => _withValidity(() => _isCurrent(epoch, revision), body),
+          map,
+        );
         return _isCurrent(epoch, revision) ? retry : _stale<R>();
       }
     }
@@ -493,8 +708,12 @@ class XboardServiceImpl
       // SDK checkoutOrder（零金额 method=''）→ CheckoutOutcome sealed 5 分支 → UI 副本。
       _guard('checkout', () async {
         final outcome = await _sdk.order.checkoutOrder(tradeNo, method);
-        return _mapCheckout(outcome);
-      });
+        final mapped = _mapCheckout(outcome);
+        if (mapped is ui.CheckoutFailed) {
+          throw EndpointException('结算响应无法确认', 200);
+        }
+        return mapped;
+      }, tradeNo: tradeNo);
 
   @override
   Future<XbResult<XbPagedList<OrderSummary>>> getOrders({
@@ -532,8 +751,11 @@ class XboardServiceImpl
       });
 
   @override
-  Future<XbResult<bool>> cancelOrder(String tradeNo) async =>
-      _guard('cancelOrder', () => _sdk.order.cancelOrder(tradeNo));
+  Future<XbResult<bool>> cancelOrder(String tradeNo) async => _guard(
+    'cancelOrder',
+    () => _sdk.order.cancelOrder(tradeNo),
+    tradeNo: tradeNo,
+  );
 
   @override
   Future<XbResult<CouponInfo?>> checkCoupon(
@@ -600,12 +822,11 @@ class XboardServiceImpl
         ]);
         final info = results[0] as InviteInfoModel;
         final user = results[1] as UserModel;
-        // 取首个有效邀请码（status active）；无则取第一个；都无 → null（UI 自动生成）。
-        String? code;
-        if (info.codes.isNotEmpty) {
-          final active = info.codes.where((c) => c.isActive);
-          code = (active.isNotEmpty ? active.first : info.codes.first).code;
-        }
+        // Never display used/blank codes as a fallback.
+        final active = info.codes.where(
+          (c) => c.isActive && c.code.trim().isNotEmpty,
+        );
+        final code = active.isNotEmpty ? active.first.code : null;
         return XbInviteInfo(
           code: code,
           registeredCount: info.totalInvites,
@@ -705,21 +926,37 @@ class XboardServiceImpl
       }, isActive: isActive);
 
   @override
-  Future<XbResult<XbTutorialDetail>> getTutorialDetail(int id) async => _guard(
-    'getTutorialDetail',
-    () async {
-      final baseFuture = _readTutorialResourceBase();
-      final a = await _sdk.knowledge.getKnowledgeDetail(id);
-      return XbTutorialDetail(
-        id: a.id,
-        title: a.title,
-        // HTML preparation owns resource resolution; SDK credentials stay here.
-        body: a.body,
-        resourceBase: await baseFuture,
-        updatedAt: _epochToDate(a.updatedAt),
-      );
-    },
-  );
+  Future<XbResult<XbTutorialDetail>> getTutorialDetail(int id) =>
+      _getTutorialDetail(id);
+
+  @override
+  Future<XbResult<XbTutorialDetail>> getTutorialDetailForRequest(
+    int id, {
+    required bool Function() isActive,
+  }) => _getTutorialDetail(id, isActive: isActive);
+
+  Future<XbResult<XbTutorialDetail>> _getTutorialDetail(
+    int id, {
+    bool Function()? isActive,
+  }) => _guard('getTutorialDetail', () async {
+    var active = true;
+    try {
+      return await _withValidity(() => active, () async {
+        final baseFuture = _readTutorialResourceBase();
+        final a = await _sdk.knowledge.getKnowledgeDetail(id);
+        return XbTutorialDetail(
+          id: a.id,
+          title: a.title,
+          body: a.body,
+          resourceBase: await baseFuture,
+          updatedAt: _epochToDate(a.updatedAt),
+        );
+      });
+    } finally {
+      // A failed article must not leave its auxiliary recovery round alive.
+      active = false;
+    }
+  }, isActive: isActive);
 
   @override
   Future<XbResult<List<XbNotice>>> getNotices() =>

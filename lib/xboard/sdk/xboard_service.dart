@@ -31,11 +31,24 @@ abstract interface class XboardSessionLifecycle {
   });
 }
 
-/// 可按单次目录请求有效性门控恢复动作；不扩展旧 XboardService 的实现要求。
+/// 可按单次教程请求有效性门控恢复动作；不扩展旧 XboardService 的实现要求。
 abstract interface class XboardTutorialRequestControl {
+  Future<XbResult<XbTutorialDetail>> getTutorialDetailForRequest(
+    int id, {
+    required bool Function() isActive,
+  });
+
   Future<XbResult<List<XbTutorial>>> getTutorialsForRequest({
     required bool Function() isActive,
   });
+}
+
+/// Optional request scope for invite-page reads and automatic creation.
+abstract interface class XboardInviteRequestControl {
+  Future<T> withInviteRequestValidity<T>(
+    bool Function() isActive,
+    Future<T> Function() body,
+  );
 }
 
 /// 反腐层抽象：UI / providers 与 SDK 之间的唯一桥梁。
