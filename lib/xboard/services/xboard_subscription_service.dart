@@ -161,6 +161,7 @@ class XboardSubscriptionService {
 
   Completer<XbSyncOutcome>? _inFlight;
   bool _pendingForce = false;
+  bool _reconciling = false;
 
   /// 是否正在同步（in-flight）。供 UI 区分「加载中」与「无套餐」（首页连接拦截 1-B：
   /// 已登录但 profile 还没生成时，若正在 sync → 提示「正在准备线路」而非「无可用线路」）。
@@ -178,7 +179,7 @@ class XboardSubscriptionService {
     bool force = false,
     bool isRetry = false,
   }) async {
-    if (_disposed || _loggingOut) return XbSyncOutcome.skipped; // 登出期间不同步（θ-8）。
+    if (_disposed || _loggingOut || _reconciling) return XbSyncOutcome.skipped; // 登出期间不同步（θ-8）。
     final inFlight = _inFlight;
     if (inFlight != null) {
       if (force) _pendingForce = true; // 队列上限 1，多个 force 合并。
@@ -275,51 +276,78 @@ class XboardSubscriptionService {
     }
 
     // 3. 写 file 型 profile（明文 YAML 字节）+ 维护外挂索引（去重：同用户同 flavor 一个 profile）。
-    _stage = 'lookup_profile';
-    final existingId = await _db.findProfileId(
-      flavorId: _flavorId,
-      userIdHash: ownerHash,
+    final writeOutcome = await _db.profileMutations.run(
+      _flavorId,
+      ownerHash,
+      () async {
+        if (!await _ownsSession(ownerHash, revision)) return XbSyncOutcome.skipped;
+        _stage = 'lookup_profile';
+        int? reservedId;
+        try {
+          final ids = await _db.findProfileIds(
+            flavorId: _flavorId,
+            userIdHash: ownerHash,
+          );
+          if (!await _ownsSession(ownerHash, revision)) return XbSyncOutcome.skipped;
+          final liveIds = _port.currentProfileIds().toSet();
+          final existingId = ids.where(liveIds.contains).firstOrNull ?? ids.firstOrNull;
+          // Keep one recoverable identity, including when its main row is missing.
+          // Never drop cleanup evidence until both the old file and main row are gone.
+          for (final id in ids.where((id) => id != existingId)) {
+            if (!await _ownsSession(ownerHash, revision)) return XbSyncOutcome.skipped;
+            await _port.deleteProfile(id);
+            await _db.deleteByProfileId(id);
+          }
+          if (!await _ownsSession(ownerHash, revision)) return XbSyncOutcome.skipped;
+          _stage = 'write_apply_profile';
+          final newId = await _port.putFileProfile(
+            profileId: existingId,
+            yamlBytes: result.yamlBytes!,
+            label: '我的套餐',
+            isSessionCurrent: () => _isCurrent(revision),
+            beforeWrite: (id) async {
+              if (!await _ownsSession(ownerHash, revision)) {
+                throw const ProfileSyncCancelled();
+              }
+              _stage = 'reserve_index';
+              await _db.putIndex(
+                profileId: id,
+                flavorId: _flavorId,
+                userIdHash: ownerHash,
+              );
+              reservedId = id;
+              if (!await _ownsSession(ownerHash, revision)) {
+                throw const ProfileSyncCancelled();
+              }
+              _stage = 'write_apply_profile';
+            },
+          );
+          if (!await _ownsSession(ownerHash, revision)) {
+            await _discardProfile(newId);
+            return XbSyncOutcome.skipped;
+          }
+        } on ProfileSyncCancelled {
+          if (reservedId != null) await _discardProfile(reservedId!);
+          return XbSyncOutcome.skipped;
+        } catch (e, s) {
+          if (reservedId != null && !await _ownsSession(ownerHash, revision)) {
+            await _discardProfile(reservedId!);
+            return XbSyncOutcome.skipped;
+          }
+          // saveFile/validateConfig 失败（中文字符串异常，R7.9）→ failed。
+          // #2 监测：写/校验 ClashMeta 配置失败是核心功能盲区（节点不更新），上报 Sentry。
+          SentryBootstrap.captureException(
+            e,
+            stackTrace: s,
+            where: 'subscription putProfile (saveFile/validateConfig)',
+          );
+          return XbSyncOutcome.failed;
+        }
+
+        return XbSyncOutcome.ok;
+      },
     );
-    if (!await _ownsSession(ownerHash, revision)) return XbSyncOutcome.skipped;
-    final live =
-        existingId != null && _port.currentProfileIds().contains(existingId);
-    try {
-      _stage = 'write_apply_profile';
-      final newId = await _port.putFileProfile(
-        profileId: live ? existingId : null,
-        yamlBytes: result.yamlBytes!,
-        label: '我的套餐',
-        isSessionCurrent: () => _isCurrent(revision),
-      );
-      if (!await _ownsSession(ownerHash, revision)) {
-        await _discardProfile(newId);
-        return XbSyncOutcome.skipped;
-      }
-      if (!live) {
-        _stage = 'write_index';
-        await _db.putIndex(
-          profileId: newId,
-          flavorId: _flavorId,
-          userIdHash: ownerHash,
-        );
-      }
-      // 清理可能发生在索引提交期间；再删除晚到提交，避免退出后重建旧账号索引。
-      if (!await _ownsSession(ownerHash, revision)) {
-        await _discardProfile(newId);
-        return XbSyncOutcome.skipped;
-      }
-    } on ProfileSyncCancelled {
-      return XbSyncOutcome.skipped;
-    } catch (e, s) {
-      // saveFile/validateConfig 失败（中文字符串异常，R7.9）→ failed。
-      // #2 监测：写/校验 ClashMeta 配置失败是核心功能盲区（节点不更新），上报 Sentry。
-      SentryBootstrap.captureException(
-        e,
-        stackTrace: s,
-        where: 'subscription putProfile (saveFile/validateConfig)',
-      );
-      return XbSyncOutcome.failed;
-    }
+    if (writeOutcome != XbSyncOutcome.ok) return writeOutcome;
 
     // 4. 回馈命中 host（接线层可更新竞速 current sub；纯通知，失败无害）。
     final host = _hostOf(result.winnerUrl);
@@ -352,6 +380,33 @@ class XboardSubscriptionService {
   }
 
   Future<void> _clearSessionOwner(String ownerHash) async {
+    final deferred = _db.profileMutations.isBusy(_flavorId, ownerHash);
+    final stop = deferred ? _deactivateSessionOwner(ownerHash) : Future<void>.value();
+    final cleanup = _db.profileMutations.run(
+      _flavorId, ownerHash, () async {
+        await stop;
+        await _clearSessionOwnerNow(ownerHash);
+      },
+    );
+    if (!deferred) return cleanup;
+    // Do not hold logout UI behind an uninterruptible file/core operation.
+    // The queued cleanup precedes subsequent same-owner writes, even after the
+    // provider is disposed. Its errors are observed and ownership is retained.
+    unawaited(cleanup.catchError((Object error, StackTrace stack) {
+      SentryBootstrap.captureException(error, stackTrace: stack,
+          where: 'subscription deferred session cleanup');
+    }));
+    // Preserve logout's immediate stop of the selected owned VPN Profile.
+    // Only destructive disk cleanup waits for the persistence lane.
+    await stop;
+  }
+
+  Future<void> _deactivateSessionOwner(String ownerHash) async {
+    final ids = await _db.findProfileIds(flavorId: _flavorId, userIdHash: ownerHash);
+    for (final id in ids) { await _port.deactivateProfile(id); }
+  }
+
+  Future<void> _clearSessionOwnerNow(String ownerHash) async {
     final ids = await _db.findProfileIds(
       flavorId: _flavorId,
       userIdHash: ownerHash,
@@ -384,15 +439,28 @@ class XboardSubscriptionService {
     await clearForSessionOwner(userIdHash);
   }
 
-  /// §C 孤儿索引对账：FlClash 已删但索引仍存的 profileId → 清索引。
+  /// Explicit orphan cleanup must retain ownership until file deletion succeeds.
+  /// Never race the in-flight reservation/write or scan another account's data.
   Future<void> validateProfileIndex() async {
-    final live = _port.currentProfileIds().toSet();
-    final rows = await _db.allRows();
-    for (final row in rows) {
-      if (row.flavorId != _flavorId) continue;
-      if (!live.contains(row.profileId)) {
-        await _db.deleteByProfileId(row.profileId);
+    if (_inFlight != null || _disposed || _loggingOut || _reconciling) return;
+    _reconciling = true;
+    try {
+      final revision = _sessionRevision();
+      final owner = await _currentUserIdHash();
+      if (!await _ownsSession(owner, revision)) return;
+      await _db.profileMutations.run(_flavorId, owner, () async {
+      if (!await _ownsSession(owner, revision)) return;
+      final ids = await _db.findProfileIds(flavorId: _flavorId, userIdHash: owner);
+      for (final id in ids) {
+        if (!await _ownsSession(owner, revision)) return;
+        if (!_port.currentProfileIds().contains(id)) {
+          await _port.deleteProfile(id);
+          await _db.deleteByProfileId(id);
+        }
       }
+      });
+    } finally {
+      _reconciling = false;
     }
   }
 

@@ -453,7 +453,7 @@ List<String> materializeAndroidSigning(YamlMap doc) {
     ..add('storePassword=$storePw')
     ..add('keyAlias=$alias')
     ..add('keyPassword=$keyPw')
-    ..add('XB_TARGET_ABI=arm64-v8a'); // 单 ABI：versionCode 不被偏移、等于 build-number
+    ..add('XB_TARGET_ABI=arm64-v8a'); // 单 ABI 过滤；安装版本码由 app 的 onVariants 统一设置
   lpFile.writeAsStringSync('${kept.join('\n')}\n');
 
   stdout.writeln(

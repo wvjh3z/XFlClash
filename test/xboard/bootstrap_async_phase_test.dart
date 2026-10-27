@@ -12,10 +12,12 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/widgets.dart';
+import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_xboard_sdk/flutter_xboard_sdk.dart';
 import 'package:mocktail/mocktail.dart';
+import 'package:flutter_xboard_sdk/src/core/http/http_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:fl_clash/xboard/config/bootstrap_constants.dart';
@@ -34,6 +36,8 @@ const _apiA = 'https://api-a.example.com';
 const _apiB = 'https://api-b.example.com';
 const _subA = 'https://sub-a.example.com';
 
+class _RecoveryHttp extends Mock implements HttpService {}
+
 void main() {
   final binding = TestWidgetsFlutterBinding.ensureInitialized();
   late ProviderContainer container;
@@ -45,18 +49,28 @@ void main() {
     XbUpdateService.resetThrottle();
     container = ProviderContainer();
     sdk = FakeXBoardSDK();
-    when(() => sdk.initialize(
-          any(),
-          panelType: any(named: 'panelType'),
-          customStorage: any(named: 'customStorage'),
-          proxyUrl: any(named: 'proxyUrl'),
-          userAgent: any(named: 'userAgent'),
-          httpConfig: any(named: 'httpConfig'),
-          useMemoryStorage: any(named: 'useMemoryStorage'),
-          enableLogging: any(named: 'enableLogging'),
-          usePrintLogger: any(named: 'usePrintLogger'),
-          allowNonFlclashUa: any(named: 'allowNonFlclashUa'),
-        )).thenAnswer((_) async {});
+    final http = _RecoveryHttp();
+    when(() => sdk.httpService).thenReturn(http);
+    final transport = Dio();
+    addTearDown(() => transport.close(force: true));
+    // Bootstrap still injects Content-Language through this legacy SDK seam.
+    // ignore: deprecated_member_use
+    when(() => http.dio).thenReturn(transport);
+    when(() => http.isEndpointAvailable(any())).thenReturn(true);
+    when(
+      () => sdk.initialize(
+        any(),
+        panelType: any(named: 'panelType'),
+        customStorage: any(named: 'customStorage'),
+        proxyUrl: any(named: 'proxyUrl'),
+        userAgent: any(named: 'userAgent'),
+        httpConfig: any(named: 'httpConfig'),
+        useMemoryStorage: any(named: 'useMemoryStorage'),
+        enableLogging: any(named: 'enableLogging'),
+        usePrintLogger: any(named: 'usePrintLogger'),
+        allowNonFlclashUa: any(named: 'allowNonFlclashUa'),
+      ),
+    ).thenAnswer((_) async {});
     String? base;
     when(() => sdk.baseUrl).thenAnswer((_) => base);
     when(() => sdk.switchBaseUrl(any())).thenAnswer((call) {
@@ -73,15 +87,17 @@ void main() {
 
   /// 绑定带已知 AES key + bootstrapUrls 空（异步阶段退回本地 payload）的测试 config。
   void bindTestConfig({List<String> bootstrapUrls = const []}) {
-    XboardConfig.bind(XboardConfig(
-      subscribeUserAgent: 'Test/0.1 flclash',
-      devApiEndpoint: 'https://factory.example.com',
-      devSubscriptionEndpoint: 'https://factory-sub.example.com',
-      debug: false,
-      kIsTest: true,
-      bootstrapUrls: bootstrapUrls,
-      bootstrapAesKeyBytes: testAesKey,
-    ));
+    XboardConfig.bind(
+      XboardConfig(
+        subscribeUserAgent: 'Test/0.1 flclash',
+        devApiEndpoint: 'https://factory.example.com',
+        devSubscriptionEndpoint: 'https://factory-sub.example.com',
+        debug: false,
+        kIsTest: true,
+        bootstrapUrls: bootstrapUrls,
+        bootstrapAesKeyBytes: testAesKey,
+      ),
+    );
   }
 
   /// 在 SharedPreferences 写入合法加密缓存 envelope（loadLocal 命中）。
@@ -98,8 +114,11 @@ void main() {
   test('同步阶段 loadLocal 命中缓存 → 用缓存 endpoint（替代出厂 stub）', () async {
     bindTestConfig();
     await seedCache();
-    await XboardModule.bootstrap(container,
-        tokenStorage: FakeTokenStorage(), sdk: sdk);
+    await XboardModule.bootstrap(
+      container,
+      tokenStorage: FakeTokenStorage(),
+      sdk: sdk,
+    );
     // step3 解出 payload → step6 写缓存首个 endpoint，而非 config 出厂值。
     expect(container.read(apiEndpointProvider), _apiA);
     expect(container.read(subscriptionEndpointProvider), _subA);
@@ -146,20 +165,25 @@ void main() {
   test('永不抛：race controller 未就绪（bootstrap 失败）→ bootstrapAsync 安全返回', () async {
     bindTestConfig();
     // SDK initialize 抛 → bootstrap 失败 → _raceController 未创建。
-    when(() => sdk.initialize(
-          any(),
-          panelType: any(named: 'panelType'),
-          customStorage: any(named: 'customStorage'),
-          proxyUrl: any(named: 'proxyUrl'),
-          userAgent: any(named: 'userAgent'),
-          httpConfig: any(named: 'httpConfig'),
-          useMemoryStorage: any(named: 'useMemoryStorage'),
-          enableLogging: any(named: 'enableLogging'),
-          usePrintLogger: any(named: 'usePrintLogger'),
-          allowNonFlclashUa: any(named: 'allowNonFlclashUa'),
-        )).thenThrow(StateError('init boom'));
-    await XboardModule.bootstrap(container,
-        tokenStorage: FakeTokenStorage(), sdk: sdk);
+    when(
+      () => sdk.initialize(
+        any(),
+        panelType: any(named: 'panelType'),
+        customStorage: any(named: 'customStorage'),
+        proxyUrl: any(named: 'proxyUrl'),
+        userAgent: any(named: 'userAgent'),
+        httpConfig: any(named: 'httpConfig'),
+        useMemoryStorage: any(named: 'useMemoryStorage'),
+        enableLogging: any(named: 'enableLogging'),
+        usePrintLogger: any(named: 'usePrintLogger'),
+        allowNonFlclashUa: any(named: 'allowNonFlclashUa'),
+      ),
+    ).thenThrow(StateError('init boom'));
+    await XboardModule.bootstrap(
+      container,
+      tokenStorage: FakeTokenStorage(),
+      sdk: sdk,
+    );
     // 不抛即通过。
     await XboardModule.bootstrapAsync(container);
     expect(container.read(bootstrapReadyProvider), isFalse);
@@ -236,11 +260,13 @@ void main() {
     final requested = Completer<void>();
     var checks = 0;
     when(() => sdk.appUpdate).thenReturn(updateApi);
-    when(() => updateApi.checkUpdate(
-      platform: any(named: 'platform'),
-      abi: any(named: 'abi'),
-      currentVersionCode: any(named: 'currentVersionCode'),
-    )).thenAnswer((_) async {
+    when(
+      () => updateApi.checkUpdate(
+        platform: any(named: 'platform'),
+        abi: any(named: 'abi'),
+        currentVersionCode: any(named: 'currentVersionCode'),
+      ),
+    ).thenAnswer((_) async {
       checks++;
       if (!requested.isCompleted) requested.complete();
       return null;
@@ -249,11 +275,19 @@ void main() {
     await race.raceApi([const BootstrapEndpoint(url: _apiA)]);
     await requested.future.timeout(const Duration(seconds: 5));
     await Future<void>.delayed(Duration.zero);
-    expect(checks, 1, reason: 'First API availability recovers the deferred check');
+    expect(
+      checks,
+      1,
+      reason: 'First API availability recovers the deferred check',
+    );
     XbUpdateService.resetThrottle();
     await race.raceApi([const BootstrapEndpoint(url: _apiB)]);
     await Future<void>.delayed(Duration.zero);
-    expect(checks, 1, reason: 'Ordinary failover must not create a separate automatic check');
+    expect(
+      checks,
+      1,
+      reason: 'Ordinary failover must not create a separate automatic check',
+    );
   });
 }
 

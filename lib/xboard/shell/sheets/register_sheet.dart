@@ -18,6 +18,7 @@ import 'package:fl_clash/xboard/widgets/xb_cooldown_guard.dart';
 import 'package:fl_clash/xboard/widgets/xb_submit_guard.dart';
 
 import 'sheet_scaffold.dart';
+import '../../util/email_address.dart';
 
 /// 弹出注册 sheet。
 Future<void> showRegisterSheet(BuildContext context) {
@@ -52,18 +53,14 @@ class _RegisterSheetState extends ConsumerState<RegisterSheet>
     super.dispose();
   }
 
-  String _composeEmail(List<String> suffixes) {
-    final prefix = _prefixCtrl.text.trim();
-    if (suffixes.isEmpty) return prefix; // 白名单禁用 → 用户自填完整邮箱
-    final suffix = _suffix ?? suffixes.first;
-    return '$prefix@$suffix';
-  }
+  String? _composeEmail(List<String> suffixes) =>
+      xbComposeEmail(_prefixCtrl.text, suffixes, _suffix);
 
   Future<void> _sendCode(List<String> suffixes) async {
     if (cooling) return;
     final email = _composeEmail(suffixes);
-    if (email.isEmpty || !email.contains('@')) {
-      setState(() => _banner = '请先填写邮箱账号');
+    if (email == null) {
+      setState(() => _banner = xbEmailValidationMessage(suffixes));
       return;
     }
     startCooldown();
@@ -95,7 +92,11 @@ class _RegisterSheetState extends ConsumerState<RegisterSheet>
     final email = _composeEmail(suffixes);
     final code = _codeCtrl.text.trim();
     final pw = _pwCtrl.text;
-    if (email.isEmpty || !email.contains('@') || code.isEmpty || pw.isEmpty) {
+    if (email == null) {
+      setState(() => _banner = xbEmailValidationMessage(suffixes));
+      return;
+    }
+    if (code.isEmpty || pw.isEmpty) {
       setState(() => _banner = '请完整填写邮箱、验证码和密码');
       return;
     }

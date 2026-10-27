@@ -65,11 +65,16 @@ class _FakePort implements ProfileSyncPort {
     required Uint8List yamlBytes,
     required String label,
     bool Function()? isSessionCurrent,
+    Future<void> Function(int profileId)? beforeWrite,
   }) async {
     final id = profileId ?? 777;
+    await beforeWrite?.call(id);
     profiles[id] = 'file';
     return id;
   }
+
+  @override
+  Future<void> deactivateProfile(int profileId) async {}
 
   @override
   Future<void> deleteProfile(int profileId) async {

@@ -75,12 +75,8 @@ android {
         versionCode = flutter.versionCode
         versionName = flutter.versionName
 
-        // ── 单 ABI 过滤（自分发用）──
-        // 自分发只发单一 arm64 包：用 abiFilters 限定 ABI，避免 --split-per-abi 给 versionCode
-        // 加 abi 偏移（如 arm64 的 2000+），让 versionCode == build-number（后台配版本号才对得上）。
-        // 经 local.properties 传值（不用 env：gradle 守护进程的 env 会陈旧，export 后读不到；
-        // local.properties 每次配置都重读，无配置缓存）。scripts/build_local.sh 构建时临时写入、构建后移除。
-        // 为空（IDE / flutter run）则不过滤，保留多 ABI 正常调试。
+        // Local ARM64 and CI split APKs share the final versionCode policy below.
+        // ABI filtering selects libraries only; product build numbers remain unchanged.
         localProperties.getProperty("XB_TARGET_ABI")?.takeIf { it.isNotBlank() }?.let { abi ->
             ndk {
                 abiFilters.clear()   // flutter 插件会预填全部 ABI；先清空再设单一目标
@@ -153,6 +149,26 @@ android {
     sourceSets {
         // Unit tests live under android/tests/ instead of each module's src/test.
         getByName("test").java.setSrcDirs(listOf("../tests/app"))
+    }
+}
+
+// App callbacks run after Flutter's ABI version offsets. Never allow local and
+// split APKs of the same product build to use different installer versions.
+val androidVersionPolicy = JsonSlurper().parse(rootProject.file("../tool/android_version_policy.json")) as Map<*, *>
+val androidVersionOffset = (androidVersionPolicy["offset"] as Number).toLong()
+val androidVersionMaximum = (androidVersionPolicy["maximum"] as Number).toLong()
+androidComponents {
+    onVariants(selector().all()) { variant ->
+        val brand = variant.productFlavors.firstOrNull { it.first == "brand" }?.second
+        if (brand != null && androidBrandIdentity(brand) != null) {
+            val build = flutter.versionCode.toLong()
+            require(build > 0 && build <= androidVersionMaximum - androidVersionOffset) {
+                "Product build number exceeds the Android installer version range"
+            }
+            variant.outputs.forEach { output ->
+                output.versionCode.set((androidVersionOffset + build).toInt())
+            }
+        }
     }
 }
 

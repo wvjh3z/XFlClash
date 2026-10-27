@@ -1,4 +1,5 @@
-/// W2.3.7 + W2.7.5 — XbDomainError 7 子类 + XbResult sealed 单测。
+/// W2.3.7 + W2.7.5 — XbDomainError 8 子类 + XbResult sealed 单测。
+library;
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_xboard_sdk/flutter_xboard_sdk.dart'
@@ -8,8 +9,8 @@ import 'package:fl_clash/xboard/models/xb_domain_error.dart';
 import 'package:fl_clash/xboard/models/xb_result.dart';
 
 void main() {
-  group('XbDomainError 7 子类', () {
-    test('7 子类构造 + message 透传', () {
+  group('XbDomainError 8 子类', () {
+    test('8 子类构造 + message 透传', () {
       expect(const XbUnauthorized('未登录').message, '未登录');
       expect(
         const XbRateLimit(RateLimitKind.login, 5, '太频繁').retryAfterMinutes,
@@ -26,6 +27,7 @@ void main() {
       expect(const XbServer(503, '服务异常').httpStatusCode, 503);
       expect(const XbSecurity('TLS 失败').message, 'TLS 失败');
       expect(const XbUnexpected('getOrders', '出错').operation, 'getOrders');
+      expect(const XbUnconfirmed('checkout', '待核对').operation, 'checkout');
     });
 
     test('redirecting factory 等价于直接构造', () {
@@ -37,7 +39,7 @@ void main() {
       expect(XbDomainError.server(500, 'x'), isA<XbServer>());
     });
 
-    test('sealed switch 编译期穷举 7 子类', () {
+    test('sealed switch 编译期穷举 8 子类', () {
       String label(XbDomainError e) => switch (e) {
             XbUnauthorized() => 'unauthorized',
             XbRateLimit() => 'rateLimit',
@@ -46,9 +48,11 @@ void main() {
             XbServer() => 'server',
             XbSecurity() => 'security',
             XbUnexpected() => 'unexpected',
+            XbUnconfirmed() => 'unconfirmed',
           };
       expect(label(const XbUnauthorized('m')), 'unauthorized');
       expect(label(const XbSecurity('m')), 'security');
+      expect(label(const XbUnconfirmed('checkout', 'm')), 'unconfirmed');
     });
 
     test('XbBusiness 不暴露 httpStatusCode（C37）—— 类型无该字段', () {

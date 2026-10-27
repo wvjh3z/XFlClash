@@ -407,14 +407,22 @@ def apk_certificate_sha256(output: str) -> str:
 
 def verify_apk(root: Path, apk: Path, inputs: dict, tools: Path, environment: dict[str, str]) -> dict:
     from check_fallback_assets import verify as verify_fallback
+    from check_android_release_contract import version_code, verify as verify_contract, ResourceConfigurationUncertain
     verify_fallback(root, inputs['flavor'], 'android', packages=[apk])
     badging = captured([str(tools / "aapt"), "dump", "badging", str(apk)], environment).decode("utf-8")
+    try:
+        resources = captured([str(tools / "aapt"), "dump", "resources", str(apk)], environment).decode("utf-8")
+        contract_report = verify_contract(apk, inputs["buildNumber"], inputs["packageName"], tools / "aapt", badging=badging, resources_dump=resources)
+    except ResourceConfigurationUncertain as error:
+        raise ReleaseError("INCONCLUSIVE: " + str(error)) from error
+    except ValueError as error:
+        raise ReleaseError(str(error)) from error
     package = re.search(r"^package: (.+)$", badging, re.M)
     if not package:
         raise ReleaseError("APK package metadata is missing")
     fields = dict(re.findall(r"([A-Za-z]+)='([^']*)'", package.group(1)))
     if (fields.get("name"), fields.get("versionCode"), fields.get("versionName")) != (
-            inputs["packageName"], str(inputs["buildNumber"]), inputs["baseVersion"]):
+            inputs["packageName"], str(version_code(inputs["buildNumber"])), inputs["baseVersion"]):
         raise ReleaseError("APK package/version does not match the fixed release inputs")
     if "application-debuggable" in badging or "application-label:'" + inputs["displayName"] + "'" not in badging:
         raise ReleaseError("APK brand label or release/debug mode is incorrect")
@@ -449,7 +457,10 @@ def verify_apk(root: Path, apk: Path, inputs: dict, tools: Path, environment: di
             raise ReleaseError("APK contains a private build input as an independent file")
         if elf_code(archive.read(f"lib/{abi}/libapp.so"), machine) != elf_code(fresh.read_bytes(), machine):
             raise ReleaseError("Packaged Dart AOT code differs from this clean Flutter build output")
-    return {"signatureVerified": True, "certificateSha256": expected_certificate,
+    return {"crispResourcesVerified": contract_report["crispResourcesVerified"],
+            "crispResourceCount": contract_report["crispResourceCount"],
+            "androidVersionCode": version_code(inputs["buildNumber"]), "nativeChannelsVerified": True,
+            "signatureVerified": True, "certificateSha256": expected_certificate,
             "alignmentVerified": True, "nativeLibrariesVerified": True, "fallbackVerified": True,
             "privateInputsNotPackagedAsFiles": True, "aotCodeMatchesFlutterOutput": True}
 

@@ -1,8 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- brand_b 启动闪屏前景：复用品牌自适应图标的前景位图 @mipmap/ic_fg。
-     覆盖上游 FlClash 的 drawable/ic_launcher_foreground（矢量），使 Android 12+ 冷启动闪屏
-     （styles values-v27 的 windowSplashScreenAnimatedIcon）显示品牌 logo 而非 FlClash 图标。
-     与 brand_a 对称（#4.ter / #4.quinquies）。 -->
-<bitmap xmlns:android="http://schemas.android.com/apk/res/android"
-    android:src="@mipmap/ic_fg"
-    android:gravity="center" />
+<!-- Both layers fill the same bounds. The vector viewport matches the bitmap's
+     108dp canvas, so the 70/108 white disc and red silhouette scale together.
+     No fixed layer size or center-only bitmap gravity: notification sizes vary. -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item>
+        <vector android:width="108dp" android:height="108dp"
+            android:viewportWidth="108" android:viewportHeight="108">
+            <path android:fillColor="#FFFFFF"
+                android:pathData="M54,19 a35,35 0,1 0,0,70 a35,35 0,1 0,0,-70" />
+        </vector>
+    </item>
+    <item>
+        <bitmap android:src="@mipmap/ic_fg" android:gravity="fill" />
+    </item>
+</layer-list>

@@ -47,6 +47,7 @@ class _ResetTrafficPageState extends ConsumerState<ResetTrafficPage> {
   bool _loading = true;
   bool _retrying = false; // 重试中 → 顶部「正在刷新服务」黄条
   bool _submitting = false;
+  int _loadGeneration = 0;
 
   @override
   void initState() {
@@ -54,18 +55,38 @@ class _ResetTrafficPageState extends ConsumerState<ResetTrafficPage> {
     _load();
   }
 
+  @override
+  void didUpdateWidget(covariant ResetTrafficPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.planId != widget.planId) _load();
+  }
+
+  @override
+  void dispose() {
+    _loadGeneration++;
+    super.dispose();
+  }
+
   Future<void> _load({bool retry = false}) async {
+    if (!mounted) return;
+    final generation = ++_loadGeneration;
+    final planId = widget.planId;
     setState(() {
       _loading = true;
       _retrying = retry;
+      _loadError = null;
+      _plan = null;
+      _resetPrice = null;
     });
     final result = await ref.read(xboardServiceProvider).getPlans();
-    if (!mounted) return;
+    if (!mounted || generation != _loadGeneration || planId != widget.planId) {
+      return;
+    }
     switch (result) {
       case XbSuccess(:final data):
         PlanItem? plan;
         for (final p in data) {
-          if (p.id == widget.planId) {
+          if (p.id == planId) {
             plan = p;
             break;
           }
@@ -80,6 +101,7 @@ class _ResetTrafficPageState extends ConsumerState<ResetTrafficPage> {
           }
         }
         setState(() {
+          _loadError = null;
           _plan = plan;
           _resetPrice = reset;
           _loading = false;

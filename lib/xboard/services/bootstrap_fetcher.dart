@@ -44,6 +44,7 @@
 /// 全失败降级沿用本地 endpoint（不阻塞首屏）。永不抛（Property 1）。
 library;
 
+import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
@@ -55,6 +56,7 @@ import '../models/bootstrap_payload.dart';
 import 'bootstrap_decryptor.dart';
 import 'sentry_bootstrap.dart';
 import 'xboard_release_dio.dart';
+import 'bounded_response_reader.dart';
 
 /// 单个响应字节解析的中间结果（envelope + 识别路径，供 Sentry tag 追溯）。
 ///
@@ -95,32 +97,91 @@ class BootstrapFetcher {
   BootstrapFetcher({
     required BootstrapDecryptor decryptor,
     Dio? dio,
-  })  : _decryptor = decryptor,
-        _dio = dio ?? _buildIsolatedDio();
+    this.maxResponseBytes = kBootstrapMaxResponseBytes,
+  }) : _decryptor = decryptor,
+       _dio = dio ?? _buildIsolatedDio();
 
   final BootstrapDecryptor _decryptor;
   final Dio _dio;
+  final int maxResponseBytes;
 
-  /// 独立 dio：继承全局代理 + 证书全放行（见类注释）+ 5s 连接超时 + bytes 响应。
+  /// 独立 dio：继承全局代理 + 证书全放行（见类注释）+ 5s 连接超时；实际读取强制流式并限制解压后字节。
   static Dio _buildIsolatedDio() =>
       buildReleasedIsolatedDio(timeout: kBootstrapPerMirrorTimeout);
 
   /// 串行尝试所有 [mirrors]，30s 总预算；首个解出有效 payload 的镜像胜出。
   /// 全失败 → payload=null（调用方沿用本地 endpoint）。永不抛。
-  Future<BootstrapFetchResult> fetchRemote(List<String> mirrors) async {
-    final deadline = DateTime.now().add(kBootstrapTotalBudget);
+  Future<BootstrapFetchResult> fetchRemote(
+    List<String> mirrors, {
+    Duration budget = kBootstrapTotalBudget,
+    Duration attemptTimeout = kBootstrapPerMirrorTimeout,
+  }) async {
+    if (budget <= Duration.zero || attemptTimeout <= Duration.zero) {
+      return const BootstrapFetchResult();
+    }
+    final clock = Stopwatch()..start();
+    final requests = <CancelToken>{};
+    var active = true;
+    bool current() => active && clock.elapsed < budget;
+    void cancel() {
+      active = false;
+      for (final token in requests.toList()) {
+        token.cancel('Bootstrap deadline or completion');
+      }
+    }
+
+    try {
+      final result =
+          await _fetchWithinBudget(
+            mirrors,
+            clock,
+            budget,
+            attemptTimeout,
+            requests,
+            current,
+          ).timeout(
+            budget,
+            onTimeout: () {
+              cancel();
+              return const BootstrapFetchResult();
+            },
+          );
+      return current() ? result : const BootstrapFetchResult();
+    } finally {
+      cancel();
+    }
+  }
+
+  Future<BootstrapFetchResult> _fetchWithinBudget(
+    List<String> mirrors,
+    Stopwatch clock,
+    Duration budget,
+    Duration attemptTimeout,
+    Set<CancelToken> requests,
+    bool Function() current,
+  ) async {
     BootstrapDecryptFailure? lastFailure;
 
     for (final url in mirrors) {
-      if (DateTime.now().isAfter(deadline)) break; // 30s 总预算耗尽。
+      if (!current()) break;
       try {
-        final bytes = await _fetchBytesWithRetry(url);
+        final bytes = await _fetchBytesWithRetry(
+          url,
+          clock,
+          budget,
+          attemptTimeout,
+          requests,
+          current,
+        );
+        if (!current()) break;
         if (bytes == null) continue;
 
         final parsed = parseEnvelopeBytes(bytes);
+        if (!current()) break;
         if (parsed == null) continue; // 任意宽容路径都识别不出 envelope，下一镜像。
 
         final result = await _decryptor.decryptAndValidate(parsed.envelope);
+        if (!current()) break;
         if (result.isSuccess) {
           // DD-23：远端拉取成功 → envelope_source=remote + parse_path（W5.7 / 5.7.2 扩展）。
           SentryBootstrap.tagBootstrap(
@@ -142,38 +203,65 @@ class BootstrapFetcher {
       }
     }
     // DD-23：全镜像失败 → 打 decryption_failure tag（5.7.3 五种路径各异）。
-    if (lastFailure != null) {
+    if (current() && lastFailure != null) {
       SentryBootstrap.tagBootstrap(decryptionFailure: lastFailure.tagValue);
     }
     return BootstrapFetchResult(lastFailure: lastFailure);
   }
 
   /// 单镜像拉取 + 一次重试（应对瞬时超时）。失败返 null，永不抛。
-  Future<Uint8List?> _fetchBytesWithRetry(String url) async {
+  Future<Uint8List?> _fetchBytesWithRetry(
+    String url,
+    Stopwatch clock,
+    Duration budget,
+    Duration attemptTimeout,
+    Set<CancelToken> requests,
+    bool Function() current,
+  ) async {
     for (var attempt = 0; attempt < 2; attempt++) {
+      if (!current()) return null;
+      final remaining = budget - clock.elapsed;
+      if (remaining <= Duration.zero) return null;
+      final limit = remaining < attemptTimeout ? remaining : attemptTimeout;
+      final token = CancelToken();
+      requests.add(token);
       try {
-        // per-request 显式 bytes（生产 dio 已默认 bytes；测试注入的 dio 可能是默认 json，
-        // 这里强制覆盖保证宽容解析的字节路径生效）。
-        final resp = await _dio.getUri<List<int>>(
-          Uri.parse(url),
-          options: Options(responseType: ResponseType.bytes),
-        );
+        // Limit decoded bytes while receiving, including HTTP error bodies.
+        final resp =
+            await readBoundedResponse(
+              _dio,
+              Uri.parse(url),
+              maxBytes: maxResponseBytes,
+              sendTimeout: limit,
+              receiveTimeout: limit,
+              cancelToken: token,
+            ).timeout(
+              limit,
+              onTimeout: () {
+                token.cancel('Bootstrap attempt deadline');
+                throw TimeoutException('Bootstrap attempt deadline');
+              },
+            );
+        if (!current()) return null;
         final code = resp.statusCode ?? 0;
         if (code < 200 || code >= 300) return null;
         final data = resp.data;
         if (data == null || data.isEmpty) return null;
-        // 大小护栏：> 10MB 视为异常（R15 envelope 通常 < 1KB；此放宽限给极端情况留余地）。
-        if (data.length > 10 * 1024 * 1024) return null;
-        return Uint8List.fromList(data);
+        return data;
+      } on TimeoutException {
+        if (!current() || attempt == 1) return null;
       } on DioException catch (e) {
         // 仅对瞬时网络问题重试；其他错误（4xx/5xx 已被 statusCode 分支拦截）直接放弃。
-        final transient = e.type == DioExceptionType.connectionTimeout ||
+        final transient =
+            e.type == DioExceptionType.connectionTimeout ||
             e.type == DioExceptionType.receiveTimeout ||
             e.type == DioExceptionType.sendTimeout ||
             e.type == DioExceptionType.connectionError;
         if (!transient || attempt == 1) return null;
       } catch (_) {
         return null;
+      } finally {
+        requests.remove(token);
       }
     }
     return null;
@@ -208,7 +296,9 @@ class BootstrapFetcher {
     final unjsonp = _tryUnwrapJsonp(text);
     if (unjsonp != null) {
       final asJsonAfter = _tryParseJsonEnvelope(unjsonp);
-      if (asJsonAfter != null) return BootstrapParseResult(asJsonAfter, 'jsonp_wrapped');
+      if (asJsonAfter != null) {
+        return BootstrapParseResult(asJsonAfter, 'jsonp_wrapped');
+      }
     }
 
     // 4. HTML/XML 包裹（CDN 错误页 / <pre>...）：抽出 base64 块。
@@ -253,9 +343,11 @@ class BootstrapFetcher {
   static Uint8List _utf16ToUtf8(Uint8List src, {required bool littleEndian}) {
     final units = <int>[];
     for (var i = 0; i + 1 < src.length; i += 2) {
-      units.add(littleEndian
-          ? (src[i] | (src[i + 1] << 8))
-          : ((src[i] << 8) | src[i + 1]));
+      units.add(
+        littleEndian
+            ? (src[i] | (src[i + 1] << 8))
+            : ((src[i] << 8) | src[i + 1]),
+      );
     }
     return Uint8List.fromList(utf8.encode(String.fromCharCodes(units)));
   }
@@ -305,14 +397,17 @@ class BootstrapFetcher {
     if (encrypted == null || encrypted.isEmpty) return null;
 
     // schema_version 缺失/非法 → 默认 1（外层版本一般稳定，宽容）。
-    final ver = findInt(const ['schema_version', 'schemaversion', 'version', 'v']) ?? 1;
+    final ver =
+        findInt(const ['schema_version', 'schemaversion', 'version', 'v']) ?? 1;
 
     return BootstrapEnvelope(schemaVersion: ver, encrypted: encrypted);
   }
 
   /// `callback({...})` / `callback([...])` JSONP 剥外层。
   static String? _tryUnwrapJsonp(String text) {
-    final m = RegExp(r'^[\s]*[\w$]+\s*\(\s*([\s\S]+)\s*\)[\s;]*$').firstMatch(text);
+    final m = RegExp(
+      r'^[\s]*[\w$]+\s*\(\s*([\s\S]+)\s*\)[\s;]*$',
+    ).firstMatch(text);
     if (m == null) return null;
     return m.group(1);
   }

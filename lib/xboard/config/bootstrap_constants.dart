@@ -49,3 +49,9 @@ const int kEndpointReraceThreshold = 5;
 
 /// endpoint 切换计数滚动窗口（R15.C.19）。
 const Duration kEndpointRaceWindow = Duration(minutes: 30);
+
+/// Limits apply to decoded HTTP response bytes, before envelope/decryption.
+const int kBootstrapMaxResponseBytes = 10 * 1024 * 1024;
+
+/// Conservative engineering default, not a measured maximum of live brands.
+const int kEncryptedSubscriptionMaxResponseBytes = 32 * 1024 * 1024;

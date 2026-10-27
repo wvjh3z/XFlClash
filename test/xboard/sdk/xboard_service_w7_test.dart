@@ -1,4 +1,5 @@
 /// W7.2/7.3/7.6/7.9 — 套餐/订单/支付/优惠券反腐层映射 + CheckoutOutcome 5 分支 + XbPlanPeriod 转换。
+library;
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_xboard_sdk/flutter_xboard_sdk.dart';
@@ -8,6 +9,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:fl_clash/xboard/models/checkout_outcome_ui.dart' as ui;
 import 'package:fl_clash/xboard/models/xb_domain_types.dart';
 import 'package:fl_clash/xboard/models/xb_result.dart';
+import 'package:fl_clash/xboard/models/xb_domain_error.dart';
 import 'package:fl_clash/xboard/sdk/xboard_service_impl.dart';
 
 import '../../_fixtures/fake_xboard_sdk.dart';
@@ -97,9 +99,17 @@ void main() {
       final r = await checkoutWith(const CheckoutCanceled(message: 'user'));
       expect((r as ui.CheckoutCanceled).message, 'user');
     });
-    test('Failed → ui.CheckoutFailed', () async {
-      final r = await checkoutWith(const CheckoutFailed(message: 'boom'));
-      expect((r as ui.CheckoutFailed).message, 'boom');
+    test('Failed → unconfirmed after one read-only order check, never checkout twice', () async {
+      when(() => apis.orderApi.checkoutOrder('T', 'alipay'))
+          .thenAnswer((_) async => const CheckoutFailed(message: 'boom'));
+      when(() => apis.orderApi.getOrder('T')).thenAnswer((_) async => null);
+      final r = await service.checkout('T', 'alipay');
+      expect(r, isA<XbFailure<ui.CheckoutOutcomeUi>>());
+      final error = (r as XbFailure<ui.CheckoutOutcomeUi>).error;
+      expect(error, isA<XbUnconfirmed>());
+      expect((error as XbUnconfirmed).operation, 'checkout');
+      verify(() => apis.orderApi.checkoutOrder('T', 'alipay')).called(1);
+      verify(() => apis.orderApi.getOrder('T')).called(1);
     });
   });
 
@@ -180,11 +190,11 @@ void main() {
   group('fetchMirrorList / fireAllMirrors', () {
     test('fetchMirrorList → IpMirrorConfigUi', () async {
       when(() => apis.ipMirrorApi.fetchMirrorList()).thenAnswer((_) async =>
-          IpMirrorConfig(
+          const IpMirrorConfig(
             enabled: true,
-            urls: const ['https://m1'],
-            throttle: const Duration(minutes: 5),
-            fetchTimeout: const Duration(seconds: 3),
+            urls: ['https://m1'],
+            throttle: Duration(minutes: 5),
+            fetchTimeout: Duration(seconds: 3),
           ));
       final r = await service.fetchMirrorList();
       expect((r as XbSuccess).data.urls, ['https://m1']);

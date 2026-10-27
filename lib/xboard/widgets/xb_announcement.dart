@@ -22,27 +22,43 @@ import 'xb_theme.dart' show XbTokens;
 
 /// 「有新公告」胶囊（标题旁）。无未读 / 游客 / 未就绪 → 不占位。
 /// 桌面 [large]=true：字号 13 + 更大内距（与 `_HomeUpdatePill` 桌面态一致）。
-class XbNoticePill extends ConsumerWidget {
+class XbNoticePill extends ConsumerStatefulWidget {
   const XbNoticePill({super.key, this.large = false});
 
   final bool large;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<XbNoticePill> createState() => _XbNoticePillState();
+}
+
+class _XbNoticePillState extends ConsumerState<XbNoticePill> {
+  bool _opening = false;
+
+  Future<void> _open(XbNoticeState notice) async {
+    if (!mounted || _opening) return;
+    _opening = true;
+    try {
+      await ref.read(noticeReadStoreProvider).markRead(
+        notice.notices, userIdHash: notice.userIdHash,
+      );
+      if (!mounted) return;
+      ref.invalidate(noticeStateProvider);
+      await showXbNoticeSheet(context, notice.notices);
+    } finally {
+      // No setState: disposal also safely releases this instance's guard.
+      _opening = false;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final s = ref.watch(noticeStateProvider).asData?.value;
     if (s == null || !s.hasUnread) return const SizedBox.shrink();
     final scheme = Theme.of(context).colorScheme;
     return GestureDetector(
-      onTap: () async {
-        // 打开即已读：标记当前这批 + 失效 provider（徽标消失），再弹 sheet。
-        await ref
-            .read(noticeReadStoreProvider)
-            .markRead(s.notices, userIdHash: s.userIdHash);
-        ref.invalidate(noticeStateProvider);
-        if (context.mounted) showXbNoticeSheet(context, s.notices);
-      },
+      onTap: () => _open(s),
       child: Container(
-        padding: large
+        padding: widget.large
             ? const EdgeInsets.symmetric(horizontal: 14, vertical: 7)
             : const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
         decoration: BoxDecoration(
@@ -54,11 +70,11 @@ class XbNoticePill extends ConsumerWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             Icon(Icons.campaign_outlined,
-                size: large ? 16 : 14, color: scheme.primary),
+                size: widget.large ? 16 : 14, color: scheme.primary),
             const SizedBox(width: 4),
             Text('有新公告',
                 style: TextStyle(
-                    fontSize: large ? 13 : 11,
+                    fontSize: widget.large ? 13 : 11,
                     fontWeight: FontWeight.w600,
                     color: scheme.primary)),
           ],
@@ -69,8 +85,8 @@ class XbNoticePill extends ConsumerWidget {
 }
 
 /// 公告弹窗（底部 sheet）：标题「公告」+ 公告列表（标题↔日期 + 富文本正文）+「我知道了」。
-void showXbNoticeSheet(BuildContext context, List<XbNotice> notices) {
-  showXbBottomSheet<void>(
+Future<void> showXbNoticeSheet(BuildContext context, List<XbNotice> notices) {
+  return showXbBottomSheet<void>(
     context: context,
     builder: (ctx) {
       final t = XbTokens.of(ctx);

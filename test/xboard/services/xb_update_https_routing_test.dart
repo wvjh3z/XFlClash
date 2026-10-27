@@ -74,7 +74,7 @@ void main() {
         fixture.onRequest = (request) {
           request.response
             ..headers.contentType = ContentType.json
-            ..write('{}');
+            ..write('{"data":{}}');
           return true;
         };
         await HttpOverrides.runWithHttpOverrides(
@@ -235,6 +235,7 @@ class _HttpsRoutingFixture {
     late StreamSubscription<List<int>> subscription;
 
     void closeTunnel() {
+      unawaited(subscription.cancel());
       downstream.destroy();
       upstream?.destroy();
     }

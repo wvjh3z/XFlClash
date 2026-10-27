@@ -123,7 +123,7 @@ void main() {
     test(
       'default endpoint race probe inherits proxy changes on the same controller',
       () async {
-        origin.body = proxy.body = '{}';
+        origin.body = proxy.body = '{"data":{}}';
         final endpoint = origin.uri('').toString();
         var connected = true;
         final observedStates = <bool>[];

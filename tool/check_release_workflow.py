@@ -20,6 +20,7 @@ MODULES = (
     "tool.test.release_request_test",
     "tool.test.brand_identity_cli_test.CatalogTests",
     "tool.test.android_ndk_environment_test",
+    "tool.test.android_brand_icon_resources_test",
     "tool.test.android_package_fixture_test",
     "tool.test.linux_appimage_readback_test.ContainerHeaderTests",
     "tool.test.desktop_build_number_test",

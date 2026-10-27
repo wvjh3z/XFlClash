@@ -94,6 +94,19 @@ void main() {
     return container!.read(provider);
   }
 
+  test('deactivation stops selected VPN but preserves in-flight write targets', () async {
+    await seed(1, 'account');
+    final port = portFor(selectedId: 1);
+    await port.deactivateProfile(1);
+    expect(setup.statusCalls, [false]);
+    expect(container!.read(currentProfileIdProvider), isNull);
+    expect((await db.profilesDao.query().get()).single.id, 1);
+    expect(await File(pathFor(1)).exists(), isTrue);
+    await port.deleteProfile(1);
+    expect(setup.statusCalls, [false]);
+    expect(await db.profilesDao.query().get(), isEmpty);
+  });
+
   test('正在使用被清理的账号 Profile 时停用并清选择，等待 DB 和文件删除', () async {
     await seed(1, 'account');
     final port = portFor(selectedId: 1);

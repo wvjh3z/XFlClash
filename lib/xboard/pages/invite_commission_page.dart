@@ -7,6 +7,8 @@
 /// **复用框架**：XbBrandScaffold / XbAsyncView(骨架) / XbCard / XbListCard / xbShowDialog / xbToast。
 library;
 
+import '../util/money_input.dart';
+
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -979,12 +981,13 @@ class _TransferDialogState extends ConsumerState<_TransferDialog> {
 
   Future<void> _submit() async {
     if (_submitting) return;
-    final yuan = double.tryParse(_amount.text.trim());
-    if (yuan == null || yuan <= 0) {
-      xbToast(context, '请输入有效的划转金额');
+    final cents = parseYuanCents(_amount.text);
+    if (cents == null || parseYuanCents((cents / 100).toString()) != cents) {
+      xbToast(context, '请输入有效的划转金额，最多两位小数');
       return;
     }
-    if (yuan > widget.info.commissionBalanceYuan + 0.001) {
+    final yuan = cents / 100;
+    if (yuan > widget.info.commissionBalanceYuan) {
       xbToast(context, '划转金额不能超过佣金余额');
       return;
     }

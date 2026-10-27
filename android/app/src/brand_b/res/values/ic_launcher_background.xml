@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- brand_b flavor 自适应图标背景色（白）。由 tool gen_icons.py 生成。 -->
 <resources>
+    <!-- Existing light splash background; night theme retains #121212. -->
     <color name="ic_launcher_background">#FFFFFF</color>
+    <!-- Adaptive icon only: do not reuse for the full-screen splash. -->
+    <color name="xb_launcher_icon_background">#D92E1A</color>
 </resources>

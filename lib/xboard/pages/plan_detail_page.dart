@@ -21,6 +21,7 @@ import '../models/xb_result.dart';
 import '../models/xb_domain_error.dart';
 import 'order_list_page.dart';
 import '../providers/user_profile_provider.dart';
+import '../providers/auth_state_provider.dart';
 import '../providers/xboard_providers.dart';
 import '../shell/widgets/xb_responsive.dart';
 import '../util/error_text.dart';
@@ -147,7 +148,10 @@ class PlanDetailPage extends ConsumerStatefulWidget {
 }
 
 class _PlanDetailPageState extends ConsumerState<PlanDetailPage> {
-  late PricePlan _selected;
+  PricePlan? _selection;
+  PricePlan get _selected => _selection!;
+  int _couponGeneration = 0;
+  String _couponText = '';
   final _couponController = TextEditingController();
   CouponInfo? _coupon; // 已校验通过的券
   String? _couponError;
@@ -178,7 +182,14 @@ class _PlanDetailPageState extends ConsumerState<PlanDetailPage> {
 
   /// 可购买周期（排除流量重置包 resetTraffic —— 重置包只在账号卡按需购买，不在下单页选）。
   List<PricePlan> get _purchasablePrices =>
-      plan.prices.where((p) => p.period != XbPlanPeriod.resetTraffic).toList()
+      plan.prices
+          .where(
+            (p) =>
+                p.period != XbPlanPeriod.resetTraffic &&
+                p.amountYuan.isFinite &&
+                p.amountYuan > 0,
+          )
+          .toList()
         ..sort((a, b) => a.period.index.compareTo(b.period.index));
 
   @override
@@ -187,14 +198,35 @@ class _PlanDetailPageState extends ConsumerState<PlanDetailPage> {
     // 默认优先选年付（用户 2026-06-13 决策：有年付则默认年付，引导长周期）；
     // 无年付 → 退回最小周期（index 最小 = 周期最短）。
     final prices = _purchasablePrices;
-    _selected = prices.firstWhere(
-      (p) => p.period == XbPlanPeriod.yearly,
-      orElse: () => prices.first,
-    );
+    _selection = prices.isEmpty
+        ? null
+        : prices.firstWhere(
+            (p) => p.period == XbPlanPeriod.yearly,
+            orElse: () => prices.first,
+          );
+    _couponController.addListener(_onCouponTextChanged);
+  }
+
+  void _onCouponTextChanged() {
+    final text = _couponController.text;
+    if (text == _couponText) return;
+    _couponText = text;
+    _invalidateCoupon();
+  }
+
+  void _invalidateCoupon() {
+    _couponGeneration++;
+    setState(() {
+      _coupon = null;
+      _couponError = null;
+      _checkingCoupon = false;
+    });
   }
 
   @override
   void dispose() {
+    _couponGeneration++;
+    _couponController.removeListener(_onCouponTextChanged);
     _couponController.dispose();
     super.dispose();
   }
@@ -217,6 +249,12 @@ class _PlanDetailPageState extends ConsumerState<PlanDetailPage> {
 
   @override
   Widget build(BuildContext context) {
+    if (_selection == null) {
+      return XbBrandScaffold(
+        title: widget.renew ? '续费当前套餐' : plan.name,
+        body: const Center(child: Text('暂无可购买周期，请选择其他套餐或联系客服')),
+      );
+    }
     // 桌面双栏（原型屏5）：可用宽 ≥ 840 → 左套餐说明+周期网格 / 右优惠码+摘要+提交；
     // 窄屏维持移动单列 + 底部固定提交栏（原布局）。
     final wide = xbIsDesktopWidth(MediaQuery.sizeOf(context).width);
@@ -230,7 +268,7 @@ class _PlanDetailPageState extends ConsumerState<PlanDetailPage> {
               primaryLabel: widget.renew ? '确认续费' : '提交订单',
               primaryIcon: Icons.shopping_cart_checkout_rounded,
               primaryLoading: _submitting,
-              onPrimary: _submitOrder,
+              onPrimary: _checkingCoupon ? null : _submitOrder,
             ),
       body: wide ? _desktopBody(context) : _mobileBody(context),
     );
@@ -275,7 +313,7 @@ class _PlanDetailPageState extends ConsumerState<PlanDetailPage> {
       label: widget.renew ? '确认续费' : '提交订单',
       icon: Icons.shopping_cart_checkout_rounded,
       loading: _submitting,
-      onPressed: _submitOrder,
+      onPressed: _checkingCoupon ? null : _submitOrder,
     );
 
     // 续费：左 头部(锁定套餐)+续费时长 / 右 优惠码+摘要+提交（不变）。
@@ -474,8 +512,10 @@ class _PlanDetailPageState extends ConsumerState<PlanDetailPage> {
       selected: selected,
       tag: savePct != null ? '省 $savePct%' : null,
       onTap: () {
+        if (_submitting) return;
+        _invalidateCoupon();
         setState(() {
-          _selected = p;
+          _selection = p;
           // 周期变 → 已校验的券失效（券与周期绑定，需重校验）。
           _coupon = null;
           _couponError = null;
@@ -527,7 +567,7 @@ class _PlanDetailPageState extends ConsumerState<PlanDetailPage> {
             Expanded(
               child: TextField(
                 controller: _couponController,
-                enabled: !_checkingCoupon,
+                enabled: !_checkingCoupon && !_submitting,
                 decoration: InputDecoration(
                   hintText: '输入优惠码（如有）',
                   isDense: true,
@@ -541,7 +581,7 @@ class _PlanDetailPageState extends ConsumerState<PlanDetailPage> {
             const SizedBox(width: 10),
             // 验证按钮：次级（品牌淡底描边），让输入框成为该行主体（主次平衡，原型 .cbtn）。
             OutlinedButton(
-              onPressed: _checkingCoupon ? null : _checkCoupon,
+              onPressed: _checkingCoupon || _submitting ? null : _checkCoupon,
               style: OutlinedButton.styleFrom(
                 foregroundColor: scheme.primary,
                 backgroundColor: scheme.primary.withValues(alpha: 0.10),
@@ -635,6 +675,8 @@ class _PlanDetailPageState extends ConsumerState<PlanDetailPage> {
 
   /// 取消已应用的优惠券：清空券 + 输入框 + 错误提示，金额恢复原价。
   void _clearCoupon() {
+    if (_submitting) return;
+    _invalidateCoupon();
     setState(() {
       _coupon = null;
       _couponError = null;
@@ -643,6 +685,10 @@ class _PlanDetailPageState extends ConsumerState<PlanDetailPage> {
   }
 
   Future<void> _checkCoupon() async {
+    if (_selection == null || _submitting || _checkingCoupon) return;
+    final generation = ++_couponGeneration;
+    final period = _selected.period;
+    final planId = plan.id;
     final code = _couponController.text.trim();
     if (code.isEmpty) {
       // 空输入点验证 → 视为清除已应用的券（也给提示）。
@@ -662,7 +708,14 @@ class _PlanDetailPageState extends ConsumerState<PlanDetailPage> {
     try {
       final result = await ref
           .read(xboardServiceProvider)
-          .checkCoupon(code, plan.id, _selected.period);
+          .checkCoupon(code, planId, period);
+      if (!mounted ||
+          generation != _couponGeneration ||
+          plan.id != planId ||
+          _selection?.period != period ||
+          _couponController.text.trim() != code) {
+        return;
+      }
       switch (result) {
         case XbSuccess(:final data):
           if (data == null) {
@@ -676,30 +729,37 @@ class _PlanDetailPageState extends ConsumerState<PlanDetailPage> {
           );
       }
     } finally {
-      if (mounted) setState(() => _checkingCoupon = false);
+      if (mounted && generation == _couponGeneration) {
+        setState(() => _checkingCoupon = false);
+      }
     }
   }
 
   Future<void> _submitOrder() async {
-    if (_submitting) return;
-    // 更换套餐确认（仅购买模式）：当前有「仍生效（未到期）」套餐且所选 ≠ 当前 → 提示会覆盖。
-    // 旧套餐已到期 / 无生效套餐 / 续费 / 选的就是当前套餐 → 视为正常下单，不打扰。
-    if (!widget.renew) {
-      final sub = ref.read(userProfileProvider).value;
-      if (_shouldConfirmSwitch(sub)) {
-        final ok = await _confirmSwitchPlan(sub!);
-        if (!ok || !mounted) return;
-      }
-    }
+    if (!mounted || _submitting || _checkingCoupon || _selection == null) return;
+    final service = ref.read(xboardServiceProvider);
+    final revision = ref.read(authStateProvider.notifier).sessionRevision;
+    final planId = plan.id;
+    final period = _selected.period;
+    final couponCode = _coupon?.code;
+    bool current() => mounted &&
+        ref.read(authStateProvider.notifier).sessionRevision == revision &&
+        identical(ref.read(xboardServiceProvider), service) &&
+        plan.id == planId;
     setState(() => _submitting = true);
     try {
-      final result = await ref
-          .read(xboardServiceProvider)
-          .createOrder(
-            plan.id,
-            _selected.period,
-            couponCode: _coupon != null ? _couponController.text.trim() : null,
-          );
+      // 更换套餐确认（仅购买模式）：当前有「仍生效（未到期）」套餐且所选 ≠ 当前 → 提示会覆盖。
+      // 旧套餐已到期 / 无生效套餐 / 续费 / 选的就是当前套餐 → 视为正常下单，不打扰。
+      if (!widget.renew) {
+        final sub = ref.read(userProfileProvider).value;
+        if (_shouldConfirmSwitch(sub)) {
+          final ok = await _confirmSwitchPlan(sub!);
+          if (!ok || !current()) return;
+        }
+      }
+      if (!current()) return;
+      final result = await service.createOrder(planId, period, couponCode: couponCode);
+      if (!current()) return;
       switch (result) {
         case XbSuccess(:final data):
           if (!mounted) return;

@@ -1,6 +1,9 @@
 import 'dart:io';
+import 'dart:async';
 import 'dart:typed_data';
 
+import 'package:drift/native.dart' as native;
+import 'package:fl_clash/xboard/data/xboard_database.dart';
 import 'package:drift/drift.dart'
     show QueryInterceptor, QueryExecutor, ApplyInterceptor, driftRuntimeOptions;
 import 'package:fl_clash/database/database.dart';
@@ -63,6 +66,121 @@ class _Setup extends SetupAction {
 void main() {
   driftRuntimeOptions.dontWarnAboutMultipleDatabases = true;
   for (final brand in ['brand_a', 'brand_b']) {
+    test('$brand late save failure cleans owned file after logout', () async {
+      final dir = await Directory.systemTemp.createTemp('xb-late-write-');
+      final main = Database(openProfileDatabase(File('${dir.path}/main.sqlite')));
+      final index = XboardDatabase(native.NativeDatabase(File('${dir.path}/index.sqlite')));
+      final started = Completer<void>();
+      final gate = Completer<void>();
+      var current = true;
+      final provider = Provider((ref) => RiverpodProfileSyncPort(
+        ref, profileDatabase: main,
+        profilePath: (id) async => '${dir.path}/$id.yaml',
+        saveProfile: (profile, bytes) async {
+          started.complete();
+          await gate.future;
+          await File('${dir.path}/${profile.id}.yaml').writeAsBytes(bytes);
+          throw StateError('fixture failure after target copy');
+        },
+      ));
+      final container = ProviderContainer(overrides: [
+        profilesStreamProvider.overrideWith((ref) => main.profilesDao.query().watch()),
+        currentProfileIdProvider.overrideWith(_Selected.new),
+        initProvider.overrideWith(() => _Ready(false)),
+        setupActionProvider.overrideWith(_Setup.new),
+      ]);
+      container.listen(profilesProvider, (_, _) {});
+      container.listen(currentProfileIdProvider, (_, _) {});
+      try {
+        await main.customSelect('SELECT 1').get();
+        await container.read(profilesStreamProvider.future);
+        final port = container.read(provider);
+        final flight = port.putFileProfile(profileId: 42, yamlBytes: Uint8List.fromList([1,2]), label: brand,
+          isSessionCurrent: () => current,
+          beforeWrite: (id) => index.putIndex(profileId:id, flavorId:brand, userIdHash:'owner'));
+        final observed = expectLater(flight, throwsA(isA<ProfileSyncCancelled>()));
+        await started.future;
+        current = false;
+        await port.deleteProfile(42);
+        await index.deleteByProfileId(42);
+        gate.complete();
+        await observed;
+        expect(await File('${dir.path}/42.yaml').exists(), isFalse);
+        expect(await index.allRows(), isEmpty);
+        expect(await main.profilesDao.query().get(), isEmpty);
+      } finally {
+        container.dispose(); await index.close(); await main.close();
+        await dir.delete(recursive:true);
+      }
+    });
+    test('$brand reservation survives file/main failure and database reopen', () async {
+      final dir = await Directory.systemTemp.createTemp('xb-recovery-中文 ');
+      final main = Database(openProfileDatabase(File('${dir.path}/main.sqlite')));
+      var index = XboardDatabase(native.NativeDatabase(File('${dir.path}/index.sqlite')));
+      final setup = _Setup();
+      var failSave = true;
+      var rejectReservation = false;
+      var saves = 0;
+      int? reserved;
+      final provider = Provider((ref) => RiverpodProfileSyncPort(
+        ref,
+        profileDatabase: main,
+        profilePath: (id) async => '${dir.path}/$id.yaml',
+        saveProfile: (profile, bytes) async {
+          saves++;
+          expect((await index.allRows()).single.profileId, profile.id);
+          await File('${dir.path}/${profile.id}.yaml').writeAsBytes(bytes);
+          if (failSave) throw StateError('after file write');
+          return profile;
+        },
+      ));
+      final container = ProviderContainer(overrides: [
+        profilesStreamProvider.overrideWith((ref) => main.profilesDao.query().watch()),
+        currentProfileIdProvider.overrideWith(_Selected.new),
+        initProvider.overrideWith(() => _Ready(false)),
+        setupActionProvider.overrideWith(() => setup),
+      ]);
+      container.listen(profilesProvider, (_, _) {});
+      container.listen(currentProfileIdProvider, (_, _) {});
+      try {
+        await main.customSelect('SELECT 1').get();
+        await container.read(profilesStreamProvider.future);
+        Future<int> write(int? id) => container.read(provider).putFileProfile(
+          profileId: id, yamlBytes: Uint8List.fromList([1, 2]), label: brand,
+          beforeWrite: (id) async {
+            if (rejectReservation) throw StateError('index disk failure');
+            await index.putIndex(profileId: id, flavorId: brand, userIdHash: 'owner');
+            reserved = id;
+          },
+        );
+        rejectReservation = true;
+        await expectLater(write(null), throwsStateError);
+        expect(saves, 0);
+        expect(await index.allRows(), isEmpty);
+        rejectReservation = false;
+        await expectLater(write(null), throwsStateError);
+        final id = reserved!;
+        expect(await File('${dir.path}/$id.yaml').exists(), isTrue);
+        expect(await main.profilesDao.query().get(), isEmpty);
+        await index.close();
+        index = XboardDatabase(native.NativeDatabase(File('${dir.path}/index.sqlite')));
+        expect((await index.allRows()).single.profileId, id);
+        failSave = false;
+        expect(await write(id), id);
+        expect((await main.profilesDao.query().get()).single.id, id);
+        expect((await index.allRows()).single.profileId, id);
+        await container.read(provider).deleteProfile(id);
+        await index.deleteByProfileId(id);
+        expect(await File('${dir.path}/$id.yaml').exists(), isFalse);
+        expect(await main.profilesDao.query().get(), isEmpty);
+        expect(await index.allRows(), isEmpty);
+      } finally {
+        container.dispose();
+        await index.close();
+        await main.close();
+        await dir.delete(recursive: true);
+      }
+    });
     for (final scenario in [
       'recover',
       'update',

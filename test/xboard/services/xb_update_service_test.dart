@@ -7,11 +7,14 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter/widgets.dart';
 import 'package:fl_clash/xboard/services/xboard_lifecycle_observer.dart';
 import 'package:flutter_xboard_sdk/flutter_xboard_sdk.dart';
+import 'package:flutter_xboard_sdk/src/core/http/http_service.dart';
 import 'package:mocktail/mocktail.dart';
 
 import '../../_fixtures/fake_xboard_sdk.dart';
 import 'package:fl_clash/xboard/services/endpoint_race_controller.dart';
 import 'package:fl_clash/xboard/models/bootstrap_payload.dart';
+
+class _FakeHttpService extends Mock implements HttpService {}
 
 class _FakeAppUpdateApi extends Mock implements AppUpdateApi {}
 
@@ -22,6 +25,7 @@ void main() {
   late EndpointRaceController race;
   var base = 'https://api.test';
   late _FakeAppUpdateApi api;
+  late _FakeHttpService http;
   late Future<AppUpdateModel?> Function() respond;
   var now = Duration.zero;
   var requests = 0;
@@ -43,6 +47,10 @@ void main() {
     clocks = 0;
     respond = () async => null;
     sdk = FakeXBoardSDK();
+    http = _FakeHttpService();
+    when(() => sdk.httpService).thenReturn(http);
+    // This suite exercises the legacy client fallback unless explicitly enabled.
+    when(() => http.endpointRecoveryEnabled).thenReturn(false);
     base = 'https://api.test';
     when(() => sdk.baseUrl).thenAnswer((_) => base);
     race = EndpointRaceController(
@@ -364,6 +372,18 @@ void main() {
         expect(requests, 1);
       },
     );
+
+    test('SDK recovery already enabled does not add client-level retries', () async {
+      when(() => http.endpointRecoveryEnabled).thenReturn(true);
+      race.seedEndpoints([
+        const BootstrapEndpoint(url: 'https://api.test'),
+        const BootstrapEndpoint(url: 'https://backup.test'),
+      ], []);
+      respond = () async => throw StateError('SDK exhausted candidates');
+      expect(await XbUpdateService.check(sdk, endpoints: race), isA<UpdateCheckFailed>());
+      expect(requests, 1);
+      expect(base, 'https://api.test');
+    });
 
     test('actual switch to another probed API permits one retry', () async {
       race.seedEndpoints([

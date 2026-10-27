@@ -1,7 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- brand_b flavor 自适应图标：前景 = 品牌 logo（@mipmap/ic_fg，安全区 66%），
-     背景 = @color/ic_launcher_background（白）。由 tool gen_icons.py 从真 logo 生成。 -->
+<!-- Red edge-to-edge background and a bounded white kangaroo cutout. -->
 <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
-    <background android:drawable="@color/ic_launcher_background"/>
-    <foreground android:drawable="@mipmap/ic_fg"/>
+    <background android:drawable="@color/xb_launcher_icon_background"/>
+    <!-- Scale the full foreground to 78%, then optically center its white
+         content. The radius-35 disc becomes radius 27.3; displacement is <4.64,
+         so all white content stays inside the radius-33 adaptive safe circle.
+         Fractional insets live only in v26 resources; splash is unchanged. -->
+    <foreground>
+        <inset android:drawable="@drawable/ic_launcher_foreground"
+            android:insetLeft="11.32%" android:insetRight="10.68%"
+            android:insetTop="6.72%" android:insetBottom="15.28%" />
+    </foreground>
 </adaptive-icon>

@@ -3,7 +3,7 @@ import 'dart:io';
 import 'package:win32_registry/win32_registry.dart';
 
 import 'print.dart';
-import 'constant.dart' show appName, packageName;
+import 'constant.dart' show appName, nativePackageName;
 
 const _brandScheme = String.fromEnvironment('XB_URL_SCHEME');
 const protocolSchemes = _brandScheme == ''
@@ -46,7 +46,7 @@ class LinuxProtocolRegistrationPlan {
 
   String get desktopId => _brandScheme == ''
       ? 'flclash-url-handler.desktop'
-      : '$packageName-url-handler.desktop';
+      : '$nativePackageName-url-handler.desktop';
 
   String get desktopPath => '$applicationsDir/$desktopId';
 

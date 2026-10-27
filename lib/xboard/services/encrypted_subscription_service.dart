@@ -36,6 +36,7 @@ import '../config/bootstrap_constants.dart';
 import 'bootstrap_decryptor.dart';
 import 'bootstrap_fetcher.dart' show BootstrapFetcher;
 import 'xboard_release_dio.dart';
+import 'bounded_response_reader.dart';
 
 /// 加密订阅拉取失败原因（UI 文案分流 + 上层 sync 归一）。
 enum EncryptedSubscriptionFailure {
@@ -111,6 +112,7 @@ class EncryptedSubscriptionService {
     required BootstrapDecryptor decryptor,
     String aad = kEncryptedSubscriptionAad,
     Dio? dio,
+    this.maxResponseBytes = kEncryptedSubscriptionMaxResponseBytes,
   }) : _decryptor = decryptor,
        _aad = aad,
        _dio =
@@ -120,6 +122,7 @@ class EncryptedSubscriptionService {
   final BootstrapDecryptor _decryptor;
   final String _aad;
   final Dio _dio;
+  final int maxResponseBytes;
 
   /// 把原订阅 URL 改写为加密订阅 URL（方案 b）：在最后一段（token）前插 `/encrypted/`。
   ///
@@ -309,13 +312,18 @@ class EncryptedSubscriptionService {
     String url, {
     CancelToken? cancelToken,
   }) async {
-    // 1. 拉密文（放行 dio，bytes 响应）。
-    Response<List<int>> resp;
+    // 1. Stream decoded response bytes with a per-candidate size limit.
+    Response<Uint8List> resp;
     try {
-      resp = await _dio.getUri<List<int>>(
+      resp = await readBoundedResponse(
+        _dio,
         Uri.parse(url),
-        options: Options(responseType: ResponseType.bytes),
+        maxBytes: maxResponseBytes,
         cancelToken: cancelToken,
+      );
+    } on ResponseTooLargeException {
+      return EncryptedSubscriptionResult.failure(
+        EncryptedSubscriptionFailure.decryptFailed,
       );
     } on DioException catch (e) {
       // 4xx/5xx 也走这里（dio 默认 validateStatus 仅 2xx 不抛 → 实际非 2xx 抛 badResponse）。
@@ -343,7 +351,7 @@ class EncryptedSubscriptionService {
         EncryptedSubscriptionFailure.decryptFailed,
       );
     }
-    final bytes = Uint8List.fromList(data);
+    final bytes = data;
 
     // 2. 多档宽容抽 envelope（复用 bootstrap 解析：JSON 信封 / 裸 base64 / HTML 包裹等）。
     final parsed = BootstrapFetcher.parseEnvelopeBytes(bytes);

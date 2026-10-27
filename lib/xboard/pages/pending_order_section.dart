@@ -13,6 +13,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/order_summary.dart';
 import '../models/xb_result.dart';
 import '../providers/pending_order_provider.dart';
+import '../providers/auth_state_provider.dart';
+import '../sdk/xboard_service.dart';
 import '../models/xb_domain_error.dart';
 import '../providers/xboard_providers.dart';
 import '../util/error_text.dart';
@@ -97,6 +99,12 @@ class _PendingOrderSectionState extends ConsumerState<PendingOrderSection>
   }
 
   Future<void> _confirmCancel(OrderSummary o) async {
+    if (!mounted || submitting) return;
+    final service = ref.read(xboardServiceProvider);
+    final revision = ref.read(authStateProvider.notifier).sessionRevision;
+    bool current() => mounted &&
+        ref.read(authStateProvider.notifier).sessionRevision == revision &&
+        identical(ref.read(xboardServiceProvider), service);
     final ok = await xbConfirm(
       context,
       title: '取消订单',
@@ -105,16 +113,16 @@ class _PendingOrderSectionState extends ConsumerState<PendingOrderSection>
       cancelLabel: '再想想',
       destructive: true,
     );
-    if (!ok) return;
-    await _doCancel(o);
+    if (!ok || !current()) return;
+    await _doCancel(o, service, current);
   }
 
-  Future<void> _doCancel(OrderSummary o) async {
+  Future<void> _doCancel(OrderSummary o, XboardService service, bool Function() current) async {
+    if (!current()) return;
     await runSubmit(() async {
-      final result = await ref
-          .read(xboardServiceProvider)
-          .cancelOrder(o.tradeNo);
-      if (!mounted) return;
+      if (!current()) return;
+      final result = await service.cancelOrder(o.tradeNo);
+      if (!current()) return;
       switch (result) {
         case XbSuccess():
           _cancelledTradeNos.add(o.tradeNo); // 乐观隐藏，立即消失

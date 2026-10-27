@@ -8,6 +8,7 @@ import 'package:material_ui/material_ui.dart';
 
 import 'package:fl_clash/xboard/config/xboard_config.dart';
 
+import '../../util/email_address.dart';
 import '../../widgets/xb_theme.dart' show XbTokens;
 import '../../widgets/xb_ui_kit.dart' show XbBrandTheme;
 
@@ -253,15 +254,16 @@ class XbEmailAccountField extends StatelessWidget {
   final ValueChanged<String?> onSuffixChanged;
 
   @override
-  Widget build(BuildContext context) {
-    // 白名单禁用（空）→ 单输入框（用户自填完整邮箱）。
-    if (suffixes.isEmpty) {
-      return TextField(
-        controller: prefixController,
-        keyboardType: TextInputType.emailAddress,
-        decoration: const InputDecoration(labelText: '邮箱账号'),
-      );
-    }
+  Widget build(BuildContext context) => ValueListenableBuilder<TextEditingValue>(
+    valueListenable: prefixController,
+    builder: (context, value, _) => _buildInput(context, value.text),
+  );
+
+  Widget _buildInput(BuildContext context, String text) {
+    final choices = xbEmailSuffixes(suffixes);
+    final selected = xbSelectedEmailSuffix(choices, selectedSuffix);
+    // Keep the editable subtree stable when config arrives or a full address is typed.
+    final showSuffix = choices.isNotEmpty && !text.contains('@');
     // 前缀输入框占满剩余宽 + 后缀下拉按内容宽（去前导图标，最大化可输入区）。
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -273,19 +275,21 @@ class XbEmailAccountField extends StatelessWidget {
             decoration: const InputDecoration(labelText: '邮箱账号'),
           ),
         ),
+        if (showSuffix) ...[
         const SizedBox(width: 8),
         // 后缀下拉：按内容宽度（不再固定 1/3），约束最大宽避免超长后缀挤压输入框。
         ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 150),
           child: IntrinsicWidth(
             child: DropdownButtonFormField<String>(
-              initialValue: selectedSuffix ?? suffixes.first,
+              key: ValueKey('${choices.join(',')}|$selected'),
+              initialValue: selected,
               isExpanded: true,
               decoration: const InputDecoration(
                   contentPadding:
                       EdgeInsets.symmetric(horizontal: 12, vertical: 16)),
               items: [
-                for (final s in suffixes)
+                for (final s in choices)
                   DropdownMenuItem(
                       value: s,
                       child: Text('@$s', overflow: TextOverflow.ellipsis)),
@@ -294,6 +298,7 @@ class XbEmailAccountField extends StatelessWidget {
             ),
           ),
         ),
+        ],
       ],
     );
   }

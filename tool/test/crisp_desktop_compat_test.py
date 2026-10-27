@@ -8,8 +8,18 @@ class CrispCompatibilityTests(unittest.TestCase):
     def test_mobile_source_matches_original_archive(self):
         root=ROOT/'plugins/crisp_chat'
         expected=json.loads((root/'upstream-mobile-sha256.json').read_text(encoding="utf-8"))
-        actual={str(p.relative_to(root)).replace('\\','/'):hashlib.sha256(p.read_bytes()).hexdigest()
-                for folder in ('android','ios') for p in (root/folder).rglob('*') if p.is_file()}
+        actual={}
+        for folder in ('android','ios'):
+            for p in (root/folder).rglob('*'):
+                if not p.is_file(): continue
+                name=p.relative_to(root).as_posix()
+                data=p.read_bytes()
+                if name == 'android/build.gradle':
+                    patch=b"im.crisp:crisp-sdk:2.0.25"
+                    self.assertEqual(data.count(patch),1)
+                    # Preserve upstream provenance: only the authorized SDK pin differs.
+                    data=data.replace(patch,b"im.crisp:crisp-sdk:2.0.24")
+                actual[name]=hashlib.sha256(data).hexdigest()
         self.assertEqual(actual,expected)
 
     def test_pinned_dependency_and_retired_title_engine(self):

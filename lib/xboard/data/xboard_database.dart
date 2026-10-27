@@ -5,12 +5,13 @@
 /// + R7.6 去重（按 flavorId+userIdHash 而非 url，因 endpoint 切换会改 url）。
 ///
 /// **表前缀 `xboard_`**（决策 #3）防与 FlClash 主仓表碰撞；独立 .sqlite 文件（不入 FlClash Database）。
-/// schemaVersion=1 + MigrationStrategy 占位（DD-22）。
+/// Schema 2 preserves legacy rows and rejects new ownership conflicts.
 library;
 
 import 'dart:io';
 import 'package:fl_clash/common/path.dart' show appPath;
 import '../storage/brand_paths.dart';
+import '../storage/profile_mutation_queue.dart';
 
 import 'package:drift/drift.dart';
 import 'package:drift_flutter/drift_flutter.dart';
@@ -35,6 +36,8 @@ class XboardProfileIndexV1 extends Table {
 
 @DriftDatabase(tables: [XboardProfileIndexV1])
 class XboardDatabase extends _$XboardDatabase {
+  final profileMutations = ProfileMutationQueue();
+
   XboardDatabase([QueryExecutor? executor])
     : super(
         executor ??
@@ -50,16 +53,45 @@ class XboardDatabase extends _$XboardDatabase {
       );
 
   @override
-  int get schemaVersion => 1;
+  int get schemaVersion => 2;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
+    onCreate: (m) => transaction(() async {
+      await m.createAll();
+      await _createOwnershipGuards();
+    }),
     onUpgrade: (m, from, to) async {
-      // DD-22 占位：v2 schema 升级时在此迁移。
+      if (from < 2) await transaction(_createOwnershipGuards);
     },
   );
 
-  /// 记录索引（新建 profile 后；冲突则覆盖）。
+  // Do not discard duplicate legacy rows during migration: only the Profile
+  // port can safely stop/delete their files and main DB entries. Triggers block
+  // new duplicates while retaining every old cleanup/recovery reference.
+  Future<void> _createOwnershipGuards() async {
+    // Drift commits user_version after the migration callback. A previous
+    // attempt may have committed DDL without advancing that version. Reinstall
+    // only our two triggers in the caller's transaction; never discard rows or
+    // trust a partially installed trigger definition via IF NOT EXISTS alone.
+    await customStatement('DROP TRIGGER IF EXISTS xboard_index_owner_insert');
+    await customStatement('DROP TRIGGER IF EXISTS xboard_index_owner_update');
+    await customStatement('''CREATE TRIGGER xboard_index_owner_insert
+      BEFORE INSERT ON xboard_profile_index_v1
+      WHEN EXISTS (SELECT 1 FROM xboard_profile_index_v1 WHERE
+        (profile_id = NEW.profile_id AND
+          (flavor_id != NEW.flavor_id OR user_id_hash != NEW.user_id_hash)) OR
+        (profile_id != NEW.profile_id AND flavor_id = NEW.flavor_id
+          AND user_id_hash = NEW.user_id_hash))
+      BEGIN SELECT RAISE(ABORT, 'Profile ownership conflict'); END''');
+    await customStatement('''CREATE TRIGGER xboard_index_owner_update
+      BEFORE UPDATE ON xboard_profile_index_v1
+      WHEN NEW.profile_id != OLD.profile_id OR NEW.flavor_id != OLD.flavor_id
+        OR NEW.user_id_hash != OLD.user_id_hash
+      BEGIN SELECT RAISE(ABORT, 'Profile ownership is immutable'); END''');
+  }
+
+  /// Reserve ownership before file/main-DB writes; identical ownership is idempotent.
   Future<void> putIndex({
     required int profileId,
     required String flavorId,

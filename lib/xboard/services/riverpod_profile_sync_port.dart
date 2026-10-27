@@ -82,6 +82,7 @@ class RiverpodProfileSyncPort implements ProfileSyncPort {
     required Uint8List yamlBytes,
     required String label,
     bool Function()? isSessionCurrent,
+    Future<void> Function(int profileId)? beforeWrite,
   }) async {
     bool sessionIsCurrent() =>
         _ref.mounted && isSessionCurrent?.call() != false;
@@ -103,9 +104,24 @@ class RiverpodProfileSyncPort implements ProfileSyncPort {
         ? null
         : profiles.where((p) => p.id == profileId).firstOrNull;
 
-    final pending =
-        existing?.copyWith(label: label) ?? Profile.normal(label: label);
-    final saved = await _saveProfile(pending, yamlBytes);
+    final pending = existing?.copyWith(label: label) ??
+        (profileId == null
+            ? Profile.normal(label: label)
+            : Profile.normal(label: label).copyWith(id: profileId));
+    await beforeWrite?.call(pending.id);
+    ensureCurrent();
+    final Profile saved;
+    try {
+      saved = await _saveProfile(pending, yamlBytes);
+    } catch (_) {
+      // copy may have succeeded before a later cleanup step failed. Service
+      // serialization keeps this old ID from being reused until we finish.
+      if (!sessionIsCurrent()) {
+        await deleteProfile(pending.id);
+        throw const ProfileSyncCancelled();
+      }
+      rethrow;
+    }
     if (!sessionIsCurrent()) {
       // saveFile 的校验可能跨越会话退出；只删本次旧归属 ID 的文件，不激活它。
       await _deleteFile(saved.id);
@@ -158,8 +174,17 @@ class RiverpodProfileSyncPort implements ProfileSyncPort {
     return saved.id;
   }
 
+  final _deactivations = <int, Future<void>>{};
+
   @override
-  Future<void> deleteProfile(int profileId) async {
+  Future<void> deactivateProfile(int profileId) => _deactivations.putIfAbsent(
+    profileId,
+    () => _deactivateProfile(profileId).whenComplete(() {
+      _deactivations.removeWhere((id, _) => id == profileId);
+    }),
+  );
+
+  Future<void> _deactivateProfile(int profileId) async {
     // 仅停用当前正被使用的账号 Profile；选中的手工/其他账号 Profile 不应被误断。
     if (_ref.mounted && _ref.read(currentProfileIdProvider) == profileId) {
       if (_ref.read(isStartProvider)) {
@@ -170,6 +195,11 @@ class RiverpodProfileSyncPort implements ProfileSyncPort {
         _ref.read(currentProfileIdProvider.notifier).value = null;
       }
     }
+  }
+
+  @override
+  Future<void> deleteProfile(int profileId) async {
+    await deactivateProfile(profileId);
     // 明文文件和 DB 任一步失败都抛出，服务保留外挂索引以供恢复，不能假报清理成功。
     await _deleteFile(profileId);
     await _database.profiles.remove((t) => t.id.equals(profileId));

@@ -23,6 +23,8 @@ from unittest import mock
 import zipfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from crisp_resource_fixture import resource_dump
 import build_android_local as android
 import postbuild_sentry_symbols as postbuild
 
@@ -756,16 +758,25 @@ class AndroidLocalTests(unittest.TestCase):
             for library in ("libapp.so", "libflutter.so", "libclash.so", "librust_api.so"):
                 archive.writestr("lib/arm64-v8a/" + library, minimal_aot())
             archive.writestr("assets/flutter_assets/flavors/brand_a/assets/fallback.bin", b"fake-fallback")
+            archive.writestr("classes.dex", "\0".join("com.follow.clash/" + x for x in ["service", "core", "app", "battery", "battery/optimization", "tile"]).encode()+b"\0")
         inputs = {"flavor": "brand_a", "arch": "arm64", "packageName": "com.example.test", "baseVersion": "0.8.93", "buildNumber": 18, "displayName": "Test Brand"}
         certificate = b"original-der-certificate"
-        outputs = [b"package: name='com.example.test' versionCode='18' versionName='0.8.93'\napplication-label:'Test Brand'\n", certificate,
+        outputs = [b"package: name='com.example.test' versionCode='1000018' versionName='0.8.93'\napplication-label:'Test Brand'\n", resource_dump("com.example.test").encode(), certificate,
                    ("V2 Signer: certificate SHA-256 digest: " + hashlib.sha256(certificate).hexdigest() + '\n' + pem_certificate(certificate)).encode(), b""]
         with mock.patch.object(android, "captured", side_effect=outputs):
             report = android.verify_apk(self.root, apk, inputs, self.base, {})
         self.assertTrue(report["signatureVerified"])
         self.assertTrue(report["aotCodeMatchesFlutterOutput"])
+        self.assertTrue(report["crispResourcesVerified"])
+        self.assertEqual(report["crispResourceCount"], 1295)
+        uncertain = list(outputs)
+        bool_line = next(line for line in resource_dump("com.example.test").splitlines() if ':bool/crisp_is_rtl:' in line)
+        uncertain[1] += ('\nconfig ar:\n' + bool_line.replace('t=0x12 d=0x00000000', 't=0x01 d=0x00000000')).encode()
+        with mock.patch.object(android, "captured", side_effect=uncertain), self.assertRaisesRegex(android.ReleaseError, 'INCONCLUSIVE'):
+            android.verify_apk(self.root, apk, inputs, self.base, {})
+
         wrong = list(outputs)
-        wrong[2] = pem_certificate(b'wrong-signing-certificate').encode()
+        wrong[3] = pem_certificate(b'wrong-signing-certificate').encode()
         with mock.patch.object(android, "captured", side_effect=wrong), self.assertRaisesRegex(android.ReleaseError, 'original brand keystore'):
             android.verify_apk(self.root, apk, inputs, self.base, {})
         legacy = self.root / "build/app/intermediates/flutter/brand_aRelease/jniLibs/arm64-v8a/libapp.so"
@@ -779,6 +790,7 @@ class AndroidLocalTests(unittest.TestCase):
             android.verify_apk(self.root, apk, inputs, self.base, {})
 
     def run_stub_processes(self, fail_symbols=False):
+        (self.root / "fixture-crisp-resources.txt").write_text(resource_dump("com.example.test"))
         native = self.root / "tool/prepare_native_build.py"
         native.parent.mkdir(parents=True, exist_ok=True)
         native.write_text("# Fixture: no network or toolchain installation\n")
@@ -820,10 +832,13 @@ elif name == 'flutter' and args[:2] == ['build', 'apk']:
         for library in ['libapp.so', 'libflutter.so', 'libclash.so', 'librust_api.so']:
             archive.writestr('lib/arm64-v8a/' + library, data)
         archive.writestr('assets/flutter_assets/flavors/brand_a/assets/fallback.bin', b'fake-fallback')
+        archive.writestr('classes.dex', '\\0'.join('com.follow.clash/' + x for x in ['service', 'core', 'app', 'battery', 'battery/optimization', 'tile']).encode()+b'\\0')
 elif name == 'keytool':
     sys.stdout.buffer.write(b'original-der-certificate')
+elif name == 'aapt' and args[1] == 'resources':
+    print((root / 'fixture-crisp-resources.txt').read_text())
 elif name == 'aapt':
-    print("package: name='com.example.test' versionCode='18' versionName='0.8.93'")
+    print("package: name='com.example.test' versionCode='1000018' versionName='0.8.93'")
     print("application-label:'Test Brand'")
 elif name == 'apksigner':
     assert '--print-certs-pem' in args
@@ -868,6 +883,9 @@ if '--preflight' not in args:
         report = json.loads((self.batch / "verification.json").read_text())
         self.assertTrue(report["sentrySymbolsUploaded"])
         self.assertTrue(report["aotCodeMatchesFlutterOutput"])
+        self.assertTrue(report["crispResourcesVerified"])
+        self.assertEqual(report["crispResourceCount"], 1295)
+
         self.assert_restored()
 
     @unittest.skipIf(os.name == "nt", "Executable POSIX shebang/symlink fixtures require a Unix host; Windows runs mocked coordinator cases")

@@ -94,7 +94,7 @@ void main() {
       await pump(t, const RegisterSheet());
       await t.tap(find.widgetWithText(FilledButton, '注册'));
       await t.pumpAndSettle();
-      expect(find.textContaining('请完整填写'), findsOneWidget);
+      expect(find.textContaining('请输入有效邮箱'), findsOneWidget);
       verifyNever(() => service.register(any(), any(),
           emailCode: any(named: 'emailCode'), inviteCode: any(named: 'inviteCode')));
     });
@@ -153,7 +153,7 @@ void main() {
       await pump(t, const ForgotPwdSheet());
       await t.tap(find.widgetWithText(FilledButton, '重置密码'));
       await t.pumpAndSettle();
-      expect(find.textContaining('请完整填写'), findsOneWidget);
+      expect(find.textContaining('请输入有效邮箱'), findsOneWidget);
       verifyNever(() => service.forgotPassword(any(), any(), any()));
     });
   });

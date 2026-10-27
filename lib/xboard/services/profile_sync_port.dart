@@ -26,6 +26,8 @@ abstract interface class ProfileSyncPort {
   ///
   /// [profileId]：已存在则原地覆写（保留 id，core 重载），null 则新建。
   /// 返回写入的 profile id。validateConfig 失败抛中文字符串异常（同 saveFile，调用方 catch）。
+  /// [beforeWrite] durably reserves the chosen ID before any file/main DB side effect.
+  /// Missing main rows reuse a supplied ID so retries keep their ownership evidence.
   /// [isSessionCurrent] 在异步校验/写盘之后、提交和激活之前重新校验会话；失效时清理
   /// 该次写出的旧账号文件并抛 [ProfileSyncCancelled]，不能激活晚到订阅。
   Future<int> putFileProfile({
@@ -33,7 +35,11 @@ abstract interface class ProfileSyncPort {
     required Uint8List yamlBytes,
     required String label,
     bool Function()? isSessionCurrent,
+    Future<void> Function(int profileId)? beforeWrite,
   });
+
+  /// Stop using an owned Profile without racing its in-flight file write.
+  Future<void> deactivateProfile(int profileId);
 
   /// 删除旧账号 Profile 的持久记录和明文文件；正在使用该 Profile 时先停用。
   /// 删除失败必须抛出，调用方保留索引作为恢复线索；手动/其他账号 Profile 不受影响。

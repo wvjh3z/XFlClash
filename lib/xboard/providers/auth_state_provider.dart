@@ -235,8 +235,9 @@ class AuthStateNotifier extends _$AuthStateNotifier {
     if (expired) ref.read(authExpiryNoticeProvider.notifier).notifyExpired();
     late final Future<void> future;
     future = Future.wait<void>([profiles, credentials]).then<void>((_) {
-      // 旧 port 的 Ref 在 owned Profile 停用/删除期间必须存活。
-      // 新登录等待此 Future，重建后才能开启新一代订阅同步。
+      // Await owned Profile deactivation and immediate cleanup before releasing Ref.
+      // In-flight disk cleanup stays ordered in the database-owned queue;
+      // the next same-owner persistence waits there after authentication.
       if (ref.mounted) {
         ref.invalidate(subscriptionServiceProvider);
         ref.invalidate(xboardServiceProvider);

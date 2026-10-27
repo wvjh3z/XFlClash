@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <paths>
-    <!-- External cache dir for APK update downloads -->
+    <!-- Only update downloads: external cache and the internal-cache fallback. -->
     <external-cache-path name="update" path="update/" />
+    <cache-path name="internal_update" path="update/" />
 </paths>

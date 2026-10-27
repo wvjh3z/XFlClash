@@ -33,6 +33,7 @@ import '../util/pii_mask.dart';
 import '../util/subscription_cache.dart';
 import '../util/tutorial_resource_base.dart';
 import 'xboard_service.dart';
+import '../util/money_input.dart';
 
 /// 使用教程取自知识库的「官方客户端」分类（用户确认的确切分类名）。
 const String _kTutorialCategory = '官方客户端';
@@ -876,12 +877,18 @@ class XboardServiceImpl
       );
 
   @override
-  Future<XbResult<bool>> transferCommissionToBalance(double yuan) async =>
-      // SDK 收 cents（double，内部 .toInt()）：UI 传 yuan → *100 转 cents（F73 单位铁律）。
-      _guard(
-        'transferCommissionToBalance',
-        () => _sdk.invite.transferCommissionToBalance(yuan * 100),
+  Future<XbResult<bool>> transferCommissionToBalance(double yuan) async {
+    final cents = yuan.isFinite ? parseYuanCents(yuan.toString()) : null;
+    if (cents == null) {
+      return const XbFailure(
+        XbBusiness(BusinessErrorKind.generic, '请输入有效的划转金额，最多两位小数', null),
       );
+    }
+    return _guard(
+      'transferCommissionToBalance',
+      () => _sdk.invite.transferCommissionToBalance(cents.toDouble()),
+    );
+  }
 
   @override
   Future<XbResult<List<String>>> getWithdrawMethods() async =>

@@ -742,7 +742,7 @@ packages:
       path: "../Xboard_sdk"
       relative: true
     source: path
-    version: "1.23.0+xfork"
+    version: "1.23.1+xfork"
   freezed:
     dependency: "direct dev"
     description:

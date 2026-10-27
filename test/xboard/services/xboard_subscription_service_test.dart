@@ -53,10 +53,12 @@ class _FakePort implements ProfileSyncPort {
   final Map<int, String> profiles = {};
   int _nextId = 100;
   int fileCalls = 0;
+  bool failWrites = false;
   Completer<void>? fileStarted;
   Completer<void>? fileGate;
   final Set<int> failingDeletes = {};
   final List<int> deletedIds = [];
+  final List<int> deactivatedIds = [];
 
   @override
   Future<int> createAndPutProfile({
@@ -82,17 +84,23 @@ class _FakePort implements ProfileSyncPort {
     required Uint8List yamlBytes,
     required String label,
     bool Function()? isSessionCurrent,
+    Future<void> Function(int profileId)? beforeWrite,
   }) async {
     fileCalls++;
     final id = profileId ?? _nextId++;
+    await beforeWrite?.call(id);
     fileStarted?.complete();
     if (fileGate != null) await fileGate!.future;
     if (isSessionCurrent?.call() == false) {
       throw const ProfileSyncCancelled();
     }
+    if (failWrites) throw StateError('fixture write failure');
     profiles[id] = 'file:${yamlBytes.length}b';
     return id;
   }
+
+  @override
+  Future<void> deactivateProfile(int profileId) async { deactivatedIds.add(profileId); }
 
   @override
   Future<void> deleteProfile(int profileId) async {
@@ -172,6 +180,7 @@ void main() {
     FakeTokenStorage? tokenStorage,
     int Function()? sessionRevision,
     List<Duration> retryDelays = const [],
+    String flavorId = 'brandA',
   }) {
     final instance = XboardSubscriptionService(
       service: service,
@@ -183,10 +192,107 @@ void main() {
       retryDelays: retryDelays,
       subscriptionCandidates: () => candidates,
       onWinnerHost: onWinnerHost,
-      flavorId: 'brandA',
+      flavorId: flavorId,
     );
     addTearDown(instance.dispose);
     return instance;
+  }
+
+  for (final brand in ['brand_a', 'brand_b']) {
+    test('$brand missing main row reuses index across repeated sync and restart', () async {
+      final enc = encWith(_StubAdapter((_) async => _plain(cipher)));
+      final first = sut(enc, flavorId: brand);
+      expect(await first.sync(), XbSyncOutcome.ok);
+      final id = (await db.allRows()).single.profileId;
+      port.profiles.remove(id);
+      first.dispose();
+      final restarted = sut(enc, flavorId: brand);
+      expect(await restarted.sync(), XbSyncOutcome.ok);
+      expect(await restarted.sync(), XbSyncOutcome.ok);
+      expect(port.profiles.keys, [id]);
+      expect((await db.allRows()).single.profileId, id);
+      await restarted.clearForSessionOwner(_hash('tokA'));
+      expect(await db.allRows(), isEmpty);
+      expect(port.profiles, isEmpty);
+    });
+
+    test('$brand failed write keeps reservation and retry reuses it', () async {
+      final enc = encWith(_StubAdapter((_) async => _plain(cipher)));
+      final first = sut(enc, flavorId: brand);
+      port.failWrites = true;
+      expect(await first.sync(), XbSyncOutcome.failed);
+      final id = (await db.allRows()).single.profileId;
+      expect(port.profiles, isEmpty);
+      first.dispose();
+      port.failWrites = false;
+      expect(await sut(enc, flavorId: brand).sync(), XbSyncOutcome.ok);
+      expect(port.profiles.keys, [id]);
+      expect(await db.allRows(), hasLength(1));
+    });
+
+    test('$brand duplicate repair preserves other owners and retries failed cleanup', () async {
+      await db.putIndex(profileId: 1, flavorId: brand, userIdHash: _hash('tokA'));
+      await seedLegacyDuplicate(db, 2, brand, _hash('tokA'));
+      await db.putIndex(profileId: 3, flavorId: brand, userIdHash: _hash('tokB'));
+      port.profiles.addAll({1: 'owned', 2: 'duplicate', 3: 'other', 4: 'manual'});
+      port.failingDeletes.add(2);
+      final s = sut(encWith(_StubAdapter((_) async => _plain(cipher))), flavorId: brand);
+      expect(await s.sync(), XbSyncOutcome.failed);
+      expect(await db.findProfileIds(flavorId: brand, userIdHash: _hash('tokA')), [1, 2]);
+      expect(port.fileCalls, 0);
+      port.failingDeletes.clear();
+      expect(await s.sync(), XbSyncOutcome.ok);
+      expect(await s.sync(), XbSyncOutcome.ok);
+      expect(await db.findProfileIds(flavorId: brand, userIdHash: _hash('tokA')), [1]);
+      expect(port.profiles.keys, unorderedEquals([1, 3, 4]));
+    });
+  }
+
+  for (final brand in ['brand_a', 'brand_b']) {
+    for (final cleanupFails in [false, true]) {
+      test('$brand late old write cannot delete new session; cleanupFails=$cleanupFails', () async {
+        final enc = encWith(_StubAdapter((_) async => _plain(cipher)));
+        final old = sut(enc, flavorId: brand);
+        final started = Completer<void>();
+        final gate = Completer<void>();
+        port.fileStarted = started;
+        port.fileGate = gate;
+        final oldFlight = old.sync();
+        await started.future;
+        final id = (await db.allRows()).single.profileId;
+        if (cleanupFails) port.failingDeletes.add(id);
+        // Logout returns before the slow save; cleanup is still ordered before
+        // a new same-owner persistence operation, not reported as completed I/O.
+        await old.clearForSessionOwner(_hash('tokA'));
+        expect(port.deletedIds, isEmpty);
+        expect(port.deactivatedIds, [id]);
+        expect(await db.allRows(), hasLength(1));
+        port.fileStarted = null;
+        port.fileGate = null;
+        final next = sut(enc, flavorId: brand);
+        var nextFinished = false;
+        final nextFlight = next.sync().then((value) { nextFinished = true; return value; });
+        // Wait until the new local operation has really queued, not an arbitrary timer.
+        final watch = Stopwatch()..start();
+        while (db.profileMutations.pendingFor(brand, _hash('tokA')) < 3) {
+          if (watch.elapsed > const Duration(seconds: 5)) fail('new persistence did not queue');
+          await Future<void>.delayed(const Duration(milliseconds: 1));
+        }
+        expect(nextFinished, isFalse);
+        gate.complete();
+        expect(await oldFlight, cleanupFails ? XbSyncOutcome.failed : XbSyncOutcome.skipped);
+        expect(await nextFlight, XbSyncOutcome.ok);
+        final nextId = (await db.allRows()).single.profileId;
+        expect(port.profiles.keys, [nextId]);
+        if (cleanupFails) expect(nextId, id);
+        port.failingDeletes.clear();
+        expect(await next.sync(), XbSyncOutcome.ok);
+        expect(port.profiles.keys, [nextId]);
+        await next.clearForSessionOwner(_hash('tokA'));
+        expect(port.profiles, isEmpty);
+        expect(await db.allRows(), isEmpty);
+      });
+    }
   }
 
   test('网络失败自动恢复且仅写一次 Profile，成功后停止重试', () async {
@@ -570,11 +676,7 @@ void main() {
       flavorId: 'brandA',
       userIdHash: _hash('tokA'),
     );
-    await db.putIndex(
-      profileId: 2,
-      flavorId: 'brandA',
-      userIdHash: _hash('tokA'),
-    );
+    await seedLegacyDuplicate(db, 2, 'brandA', _hash('tokA'));
     await db.putIndex(
       profileId: 3,
       flavorId: 'brandA',
@@ -603,11 +705,7 @@ void main() {
       flavorId: 'brandA',
       userIdHash: _hash('tokA'),
     );
-    await db.putIndex(
-      profileId: 2,
-      flavorId: 'brandA',
-      userIdHash: _hash('tokA'),
-    );
+    await seedLegacyDuplicate(db, 2, 'brandA', _hash('tokA'));
 
     await expectLater(
       s.clearForSessionOwner(_hash('tokA')),
@@ -633,11 +731,7 @@ void main() {
     ]);
     expect(port.deletedIds, [1]);
     port.profiles[2] = 'new session';
-    await db.putIndex(
-      profileId: 2,
-      flavorId: 'brandA',
-      userIdHash: _hash('tokA'),
-    );
+    await seedLegacyDuplicate(db, 2, 'brandA', _hash('tokA'));
 
     await s.clearForSessionOwner(_hash('tokA'));
 
@@ -754,3 +848,15 @@ void main() {
 }
 
 String _hash(String token) => userIdHashFromToken(token);
+
+// Seed data produced by schema 1 without weakening the schema 2 under test.
+Future<void> seedLegacyDuplicate(XboardDatabase db, int id, String flavor, String owner) async {
+  final row = await db.customSelect("SELECT sql FROM sqlite_master WHERE name = 'xboard_index_owner_insert'").getSingle();
+  final sql = row.read<String>('sql');
+  await db.customStatement('DROP TRIGGER xboard_index_owner_insert');
+  try {
+    await db.putIndex(profileId: id, flavorId: flavor, userIdHash: owner);
+  } finally {
+    await db.customStatement(sql);
+  }
+}
