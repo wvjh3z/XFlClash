@@ -8,7 +8,7 @@ import re
 import shutil
 import sys
 import subprocess
-import zipfile
+from apk_archive import ApkArchive
 
 ROOT = Path(__file__).resolve().parents[1]
 POLICY = json.loads((ROOT / 'tool/android_version_policy.json').read_text(encoding='utf-8'))
@@ -217,7 +217,7 @@ def verify_crisp_resources(dump, package, *, min_sdk=24):
     return len(CRISP_CONTRACT['resources'])
 
 
-def verify(apk, build, package, aapt, *, badging=None, resources_dump=None):
+def _verify(apk, build, package, aapt, *, badging=None, resources_dump=None):
     if badging is None:
         result = subprocess.run([str(aapt), 'dump', 'badging', str(apk)],
                                 capture_output=True, check=True, timeout=60)
@@ -226,8 +226,11 @@ def verify(apk, build, package, aapt, *, badging=None, resources_dump=None):
     line = next((line for line in text.splitlines() if line.startswith('package: ')), '')
     fields = dict(re.findall(r"([A-Za-z]+)='([^']*)'", line))
     if fields.get('name') != package or fields.get('versionCode') != str(version_code(build)):
-        raise ValueError('APK package or installer version mismatch')
-    with zipfile.ZipFile(apk) as archive:
+        raise ValueError('APK metadata mismatch: ' + json.dumps({
+            'file': Path(apk).name, 'expected': {'package': package, 'versionCode': version_code(build)},
+            'actual': {key: fields.get(key, '<missing>')[:128] for key in ('name', 'versionCode', 'versionName')},
+        }, ensure_ascii=True))
+    with ApkArchive(apk) as archive:
         dex = b'\0'.join(archive.read(n) for n in archive.namelist() if re.fullmatch(r'classes\d*\.dex', n))
         aot_paths = [n for n in archive.namelist() if re.fullmatch(r'lib/[^/]+/libapp\.so', n)]
         if not aot_paths:
@@ -250,6 +253,41 @@ def verify(apk, build, package, aapt, *, badging=None, resources_dump=None):
 
 
 
+def verify(apk, build, package, aapt, *, badging=None, resources_dump=None, diagnostic_path=None):
+    """Persist only safe metadata, including failure evidence for either entrypoint."""
+    report = {'schema_version': 1, 'scope': 'android-contract', 'file': Path(apk).name, 'passed': False,
+              'expected': {'package': package, 'productBuild': build}, 'actual': None}
+    try:
+        report['expected']['versionCode'] = version_code(build)
+        if badging is None:
+            result = subprocess.run([str(aapt), 'dump', 'badging', str(apk)],
+                                    capture_output=True, check=True, timeout=60)
+            badging = result.stdout.decode('utf-8')
+        line = next((line for line in badging.splitlines() if line.startswith('package: ')), '')
+        fields = dict(re.findall(r"([A-Za-z]+)='([^']*)'", line))
+        report['actual'] = {key: fields.get(key, '<missing>')[:128]
+                            for key in ('name', 'versionCode', 'versionName')}
+        result = _verify(apk, build, package, aapt, badging=badging, resources_dump=resources_dump)
+        report.update(passed=True, result=result)
+        return result
+    except Exception as error:
+        report['failureType'] = type(error).__name__
+        report['inconclusive'] = isinstance(error, ResourceConfigurationUncertain)
+        raise
+    finally:
+        if diagnostic_path is not None:
+            write_diagnostic(diagnostic_path, report)
+
+
+def write_diagnostic(path, report):
+    """Replace evidence atomically; callers supply only safe structured fields."""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(path.suffix + '.tmp')
+    temporary.write_text(json.dumps(report, ensure_ascii=True, indent=2) + '\n', encoding='utf-8')
+    temporary.replace(path)
+
+
 def find_aapt():
     sdk = os.environ.get('ANDROID_HOME') or os.environ.get('ANDROID_SDK_ROOT')
     if sdk:
@@ -270,7 +308,18 @@ def main():
     apks = list((ROOT / 'dist').glob('*.apk'))
     if len(apks) != 2:
         raise ValueError('Expected both official ARM32 and ARM64 APKs')
-    print(json.dumps([verify(p, context['build_number'], package, find_aapt()) for p in apks]))
+    reports, failures = [], []
+    for p in sorted(apks):
+        try:
+            reports.append(verify(p, context['build_number'], package, find_aapt(),
+                                  diagnostic_path=ROOT / 'build/android-release-contract' / (p.name + '.json')))
+        except (ValueError, OSError, subprocess.SubprocessError) as error:
+            failures.append(error)
+            print(str(error) if isinstance(error, ValueError) else type(error).__name__, file=sys.stderr)
+    if failures:
+        # A definite bad artifact takes precedence over uncertain resource analysis.
+        raise next((e for e in failures if not isinstance(e, ResourceConfigurationUncertain)), failures[0])
+    print(json.dumps(reports))
 
 
 if __name__ == '__main__':

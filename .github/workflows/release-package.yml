@@ -651,6 +651,7 @@ jobs:
             build/distributor-preflight/
             build/release-context.json
             build/release-artifacts.json
+            build/android-release-contract/
             build/fallback-assets-evidence.json
             build/toolchain-versions.json
             build/appimage-elf-audit.json

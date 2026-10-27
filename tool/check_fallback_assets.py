@@ -8,7 +8,7 @@ import hashlib
 import json
 from pathlib import Path
 import re
-import zipfile
+from apk_archive import ApkArchive
 
 
 def _asset_block(data):
@@ -64,7 +64,7 @@ def verify(root, flavor, platform, *, packages=(), build_root=None):
         if not packages:
             raise ValueError('no_apks_for_fallback_check')
         for package in packages:
-            with zipfile.ZipFile(package) as archive:
+            with ApkArchive(package) as archive:
                 names = archive.namelist()
                 wanted = 'assets/flutter_assets/'+relative
                 fallbacks = [n for n in names if n.startswith('assets/flutter_assets/flavors/') and n.endswith('/fallback.bin')]
@@ -111,5 +111,5 @@ def main():
 
 if __name__=='__main__':
     try:main()
-    except (ValueError,OSError,KeyError,zipfile.BadZipFile):
+    except (ValueError,OSError,KeyError):
         raise SystemExit('Fallback asset verification failed')

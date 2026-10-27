@@ -25,6 +25,8 @@ import zipfile
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from crisp_resource_fixture import resource_dump
+from apk_archive_fixture import corrupt_zip_entry
+from apk_archive import ApkArchiveError
 import build_android_local as android
 import postbuild_sentry_symbols as postbuild
 
@@ -769,6 +771,16 @@ class AndroidLocalTests(unittest.TestCase):
         self.assertTrue(report["aotCodeMatchesFlutterOutput"])
         self.assertTrue(report["crispResourcesVerified"])
         self.assertEqual(report["crispResourceCount"], 1295)
+        evidence_path = self.root / "build/android-release-contract/test.apk.json"
+        self.assertTrue(json.loads(evidence_path.read_text())["passed"])
+        wrong_metadata = list(outputs)
+        wrong_metadata[0] = wrong_metadata[0].replace(b"1000018", b"2018")
+        with mock.patch.object(android, "captured", side_effect=wrong_metadata), self.assertRaisesRegex(android.ReleaseError, 'APK metadata mismatch'):
+            android.verify_apk(self.root, apk, inputs, self.base, {})
+        evidence = json.loads(evidence_path.read_text())
+        self.assertFalse(evidence["passed"])
+        self.assertEqual(evidence["actual"]["versionCode"], "2018")
+        self.assertEqual(evidence["expected"]["versionCode"], 1000018)
         uncertain = list(outputs)
         bool_line = next(line for line in resource_dump("com.example.test").splitlines() if ':bool/crisp_is_rtl:' in line)
         uncertain[1] += ('\nconfig ar:\n' + bool_line.replace('t=0x12 d=0x00000000', 't=0x01 d=0x00000000')).encode()
@@ -788,6 +800,83 @@ class AndroidLocalTests(unittest.TestCase):
         fresh.write_bytes(minimal_aot(text=b"wrong"))
         with mock.patch.object(android, "captured", side_effect=outputs), self.assertRaises(android.ReleaseError):
             android.verify_apk(self.root, apk, inputs, self.base, {})
+
+    def test_both_brands_vds_diagnostic_lifecycle(self):
+        for flavor, package in [('brand_a', 'com.cloud.app.omofly'), ('brand_b', 'com.cloud.app.daishu')]:
+            with self.subTest(flavor=flavor):
+                apk = self.root / (flavor + '.apk')
+                fresh = self.root / f'build/app/intermediates/flutter/{flavor}Release/arm64-v8a/app.so'
+                fresh.parent.mkdir(parents=True, exist_ok=True)
+                fresh.write_bytes(minimal_aot())
+                fallback = self.root / f'flavors/{flavor}/assets/fallback.bin'
+                fallback.parent.mkdir(parents=True, exist_ok=True)
+                fallback.write_bytes(b'fake-fallback')
+                self.properties.write_text('storePassword=fake\nkeyAlias=fake\n')
+                with zipfile.ZipFile(apk, 'w') as archive:
+                    for lib in ('libapp.so', 'libflutter.so', 'libclash.so', 'librust_api.so'):
+                        archive.writestr('lib/arm64-v8a/' + lib, minimal_aot())
+                    archive.writestr(f'assets/flutter_assets/flavors/{flavor}/assets/fallback.bin', b'fake-fallback')
+                    archive.writestr('classes.dex', '\0'.join('com.follow.clash/' + s for s in ['service', 'core', 'app', 'battery', 'battery/optimization', 'tile']) + '\0')
+                inputs = {'flavor': flavor, 'arch': 'arm64', 'packageName': package, 'baseVersion': '0.9.1', 'buildNumber': 38, 'displayName': 'Test Brand'}
+                outputs = [f"package: name='{package}' versionCode='1000038' versionName='0.9.1'\napplication-label:'Test Brand'\n".encode(), resource_dump(package).encode(), b'certificate', pem_certificate(b'certificate').encode(), b'']
+                path = self.root / 'build/android-release-contract' / (apk.name + '.json')
+                # Each tool can fail after a previous success; no raw failure text is recorded.
+                for index, stage in [(0, 'badging'), (1, 'resources'), (2, 'signature'), (3, 'signature'), (4, 'alignment')]:
+                    with mock.patch.object(android, 'captured', side_effect=outputs):
+                        android.verify_apk(self.root, apk, inputs, self.base, {})
+                    self.assertTrue(json.loads(path.read_text())['passed'])
+                    broken = outputs[:index] + [android.ReleaseError('private-token-must-not-be-saved')]
+                    with mock.patch.object(android, 'captured', side_effect=broken), self.assertRaises(android.ReleaseError):
+                        android.verify_apk(self.root, apk, inputs, self.base, {})
+                    evidence = json.loads(path.read_text())
+                    self.assertFalse(evidence['passed'])
+                    self.assertNotIn('result', evidence)
+                    self.assertEqual(evidence['scope'], 'vds-apk-verification')
+                    self.assertEqual(evidence['stage'], stage)
+                    self.assertEqual(evidence['failureType'], 'ReleaseError')
+                    self.assertNotIn('private-token', path.read_text())
+                    if index == 0: self.assertIsNone(evidence['actual'])
+                    else: self.assertEqual(evidence['actual']['versionCode'], '1000038')
+                # A fallback failure happens before aapt, but also replaces old evidence.
+                path.write_text('{"passed":true,"result":{"old":true}}')
+                fallback.unlink()
+                with mock.patch.object(android, 'captured') as captured, self.assertRaises(ValueError):
+                    android.verify_apk(self.root, apk, inputs, self.base, {})
+                captured.assert_not_called()
+                evidence = json.loads(path.read_text())
+                self.assertFalse(evidence['passed'])
+                self.assertEqual(evidence['stage'], 'fallback')
+                fallback.write_bytes(b'fake-fallback')
+                with mock.patch.object(android, 'captured', side_effect=outputs):
+                    android.verify_apk(self.root, apk, inputs, self.base, {})
+                evidence = json.loads(path.read_text())
+                self.assertTrue(evidence['passed'])
+                self.assertEqual(evidence['stage'], 'complete')
+                self.assertNotIn('failureType', evidence)
+
+    def test_both_brands_corrupt_fallback_archive_diagnostics(self):
+        for flavor in ['brand_a', 'brand_b']:
+            for mode in ['deflate', 'crc']:
+                with self.subTest(flavor=flavor, mode=mode):
+                    apk = self.root / (flavor + '.apk')
+                    entry = f'assets/flutter_assets/flavors/{flavor}/assets/fallback.bin'
+                    source = self.root / f'flavors/{flavor}/assets/fallback.bin'
+                    source.parent.mkdir(parents=True, exist_ok=True)
+                    source.write_bytes(b'fallback-data')
+                    with zipfile.ZipFile(apk, 'w', compression=zipfile.ZIP_DEFLATED) as archive:
+                        archive.writestr(entry, b'fallback-data')
+                    corrupt_zip_entry(apk, entry, mode)
+                    report = self.root / 'build/android-release-contract' / (apk.name + '.json')
+                    report.parent.mkdir(parents=True, exist_ok=True)
+                    report.write_text('{"passed":true}')
+                    inputs = {'flavor': flavor, 'packageName': 'com.cloud.app.omofly' if flavor == 'brand_a' else 'com.cloud.app.daishu', 'buildNumber': 38, 'baseVersion': '0.9.1'}
+                    with mock.patch.object(android, 'captured') as tool, self.assertRaises(ApkArchiveError):
+                        android.verify_apk(self.root, apk, inputs, self.base, {})
+                    tool.assert_not_called()
+                    evidence = json.loads(report.read_text())
+                    self.assertFalse(evidence['passed'])
+                    self.assertEqual(evidence['stage'], 'fallback')
+                    self.assertEqual(evidence['failureType'], 'ApkArchiveError')
 
     def run_stub_processes(self, fail_symbols=False):
         (self.root / "fixture-crisp-resources.txt").write_text(resource_dump("com.example.test"))

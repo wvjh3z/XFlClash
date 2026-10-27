@@ -23,7 +23,7 @@ import subprocess
 import sys
 import tempfile
 import time
-import zipfile
+from apk_archive import ApkArchive
 
 from postbuild_sentry_symbols import ReleaseError
 
@@ -406,17 +406,49 @@ def apk_certificate_sha256(output: str) -> str:
 
 
 def verify_apk(root: Path, apk: Path, inputs: dict, tools: Path, environment: dict[str, str]) -> dict:
+    from check_android_release_contract import write_diagnostic, version_code, ResourceConfigurationUncertain
+    path = root / "build/android-release-contract" / (apk.name + ".json")
+    diagnostic = {"schema_version": 1, "scope": "vds-apk-verification", "file": apk.name,
+                  "passed": False, "stage": "inputs", "actual": None,
+                  "expected": {"package": inputs.get("packageName"), "productBuild": inputs.get("buildNumber"),
+                               "versionName": inputs.get("baseVersion")}}
+    # Invalidate any earlier successful evidence before running external tools.
+    write_diagnostic(path, diagnostic)
+    try:
+        diagnostic["expected"]["versionCode"] = version_code(inputs["buildNumber"])
+        result = _verify_apk(root, apk, inputs, tools, environment, diagnostic)
+        diagnostic.update(passed=True, stage="complete", result=result)
+        return result
+    except Exception as error:
+        cause = error.__cause__ if isinstance(error.__cause__, ResourceConfigurationUncertain) else error
+        diagnostic["failureType"] = type(cause).__name__
+        diagnostic["inconclusive"] = isinstance(cause, ResourceConfigurationUncertain)
+        raise
+    finally:
+        write_diagnostic(path, diagnostic)
+
+
+def _verify_apk(root: Path, apk: Path, inputs: dict, tools: Path, environment: dict[str, str], diagnostic: dict) -> dict:
     from check_fallback_assets import verify as verify_fallback
     from check_android_release_contract import version_code, verify as verify_contract, ResourceConfigurationUncertain
+    diagnostic['stage'] = 'fallback'
     verify_fallback(root, inputs['flavor'], 'android', packages=[apk])
+    diagnostic['stage'] = 'badging'
     badging = captured([str(tools / "aapt"), "dump", "badging", str(apk)], environment).decode("utf-8")
+    package_line = next((line for line in badging.splitlines() if line.startswith('package: ')), '')
+    fields = dict(re.findall(r"([A-Za-z]+)='([^']*)'", package_line))
+    diagnostic['actual'] = {key: fields.get(key, '<missing>')[:128]
+                            for key in ('name', 'versionCode', 'versionName')}
     try:
+        diagnostic['stage'] = 'resources'
         resources = captured([str(tools / "aapt"), "dump", "resources", str(apk)], environment).decode("utf-8")
+        diagnostic['stage'] = 'android-contract'
         contract_report = verify_contract(apk, inputs["buildNumber"], inputs["packageName"], tools / "aapt", badging=badging, resources_dump=resources)
     except ResourceConfigurationUncertain as error:
         raise ReleaseError("INCONCLUSIVE: " + str(error)) from error
     except ValueError as error:
         raise ReleaseError(str(error)) from error
+    diagnostic["stage"] = "release-metadata"
     package = re.search(r"^package: (.+)$", badging, re.M)
     if not package:
         raise ReleaseError("APK package metadata is missing")
@@ -426,6 +458,7 @@ def verify_apk(root: Path, apk: Path, inputs: dict, tools: Path, environment: di
         raise ReleaseError("APK package/version does not match the fixed release inputs")
     if "application-debuggable" in badging or "application-label:'" + inputs["displayName"] + "'" not in badging:
         raise ReleaseError("APK brand label or release/debug mode is incorrect")
+    diagnostic["stage"] = "signature"
     properties = dict(line.split("=", 1) for line in (root / "android/local.properties").read_text(encoding="utf-8").splitlines() if "=" in line)
     signing_environment = {**environment, "XFL_KEYSTORE_PASSWORD": properties.get("storePassword", "")}
     certificate = captured(["keytool", "-exportcert", "-keystore", str(root / "android/app/keystore.jks"),
@@ -434,7 +467,9 @@ def verify_apk(root: Path, apk: Path, inputs: dict, tools: Path, environment: di
     signed = captured([str(tools / "apksigner"), "verify", "--print-certs", "--print-certs-pem", str(apk)], environment).decode("utf-8")
     if apk_certificate_sha256(signed) != expected_certificate:
         raise ReleaseError("APK certificate does not match the selected original brand keystore")
+    diagnostic["stage"] = "alignment"
     captured([str(tools / "zipalign"), "-c", "-P", "16", "4", str(apk)], environment)
+    diagnostic["stage"] = "native-payload"
     abi, _, _, machine = ARCHES[inputs["arch"]]
     # Flutter 3.47's CopyFlutterJniLibsTask stages this app.so through AGP's
     # generated source directory. Compare with the compiler output directly;
@@ -442,7 +477,7 @@ def verify_apk(root: Path, apk: Path, inputs: dict, tools: Path, environment: di
     fresh = root / f"build/app/intermediates/flutter/{inputs['flavor']}Release/{abi}/app.so"
     if not fresh.is_file():
         raise ReleaseError("This build's Flutter AOT compiler output is missing")
-    with zipfile.ZipFile(apk) as archive:
+    with ApkArchive(apk) as archive:
         names = archive.namelist()
         packaged_abis = {name.split("/")[1] for name in names if name.startswith("lib/") and name.endswith(".so")}
         if packaged_abis != {abi}:
@@ -629,7 +664,7 @@ def main(argv: list[str] | None = None) -> int:
         print("Completed local APK: " + str(destination), flush=True)
         print("Verification: " + str(batch / "verification.json"), flush=True)
         return 0
-    except (ReleaseError, OSError, ValueError, subprocess.CalledProcessError, KeyboardInterrupt, zipfile.BadZipFile) as error:
+    except (ReleaseError, OSError, ValueError, subprocess.CalledProcessError, KeyboardInterrupt) as error:
         message = str(error) if isinstance(error, ReleaseError) else type(error).__name__
         print("Local APK release failed: " + message, file=sys.stderr)
         return 1

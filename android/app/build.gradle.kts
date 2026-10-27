@@ -152,8 +152,8 @@ android {
     }
 }
 
-// App callbacks run after Flutter's ABI version offsets. Never allow local and
-// split APKs of the same product build to use different installer versions.
+// Flutter's legacy applicationVariants callback can overwrite onVariants values.
+// gradle.properties disables its ABI offset; this policy sets every brand output.
 val androidVersionPolicy = JsonSlurper().parse(rootProject.file("../tool/android_version_policy.json")) as Map<*, *>
 val androidVersionOffset = (androidVersionPolicy["offset"] as Number).toLong()
 val androidVersionMaximum = (androidVersionPolicy["maximum"] as Number).toLong()

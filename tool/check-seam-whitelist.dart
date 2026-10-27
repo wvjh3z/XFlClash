@@ -81,8 +81,6 @@ const _pubGetDerivatives = <String>[
   'macos/Flutter/GeneratedPluginRegistrant.swift',
   'windows/flutter/generated_plugin_registrant.cc',
   'windows/flutter/generated_plugins.cmake',
-  // 构建环境衍生（Flutter 版本迁移器自动产物，PATCHES.md「构建环境衍生改动」已登记）。
-  'android/gradle.properties',
   // W8.5 衍生：.gitignore 追加 flavor_config.g.dart（PATCHES.md「衍生」段已登记）。
   '.gitignore',
 ];
