@@ -15,6 +15,10 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 MODULES = (
+    "tool.test.sentry_symbolication_picker_test.PickerTest.test_native_cleanup_guard_rejects_unreaped_child",
+    "tool.test.sentry_symbolication_picker_test.PickerTest.test_native_tool_stderr_is_bounded_and_safe",
+    "tool.test.sentry_symbolication_picker_test.PickerTest.test_native_timeout_after_ready_uses_controlled_clock",
+    "tool.test.sentry_symbolication_picker_test.PickerTest.test_native_capacity_after_slow_start_is_not_timeout",
     "tool.test.python_text_encoding_test",
     "tool.test.appimage_restart_test",
     "tool.test.webkit_probe_support_test",

@@ -8,11 +8,13 @@ import subprocess
 import sys
 import tempfile
 import time
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
 TOOL = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(TOOL))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 import pick_sentry_symbolication_probe as picker
 import sentry_macos_generation_test as generation
 
@@ -281,27 +283,78 @@ class PickerTest(unittest.TestCase):
         self.assertEqual(run.call_count, 2)
         self.assertEqual(details['atos_output_shapes'], {'address_only': 1})
 
-    @unittest.skipUnless(os.name == 'posix', 'Native pipe lookups run only on Darwin/POSIX')
-    def test_native_tool_stderr_is_bounded_and_safe(self):
-        observations = []
-        with self.assertRaisesRegex(picker.ProbeError, '^native_lookup_tool_failed$'):
-            picker.run([sys.executable, '-c', "import sys; print('/private/token architecture mismatch', file=sys.stderr); sys.exit(7)"],
-                       timeout=1, max_output_bytes=32, observations=observations)
-        self.assertEqual(observations[0]['exit_code'], 7)
-        self.assertEqual(observations[0]['stderr_categories'], ['architecture_mismatch'])
-        self.assertNotIn('/private', json.dumps(observations))
+    def _ready_native_failure(self, body, reason, *, expire=False):
+        # Only the fixture waits for startup. The production timeout and native
+        # runner stay unchanged. Real Popen/pipes/process-group cleanup are used.
+        processes = []
+        real_popen = subprocess.Popen
+        with tempfile.TemporaryDirectory(prefix='native-probe-ready-') as directory:
+            ready = Path(directory) / 'ready'
+            source = ("import sys,time; from pathlib import Path; "
+                      "time.sleep(.25); Path(sys.argv[1]).write_bytes(b'ready'); " + body)
+            def start(*args, **kwargs):
+                process = real_popen(*args, **kwargs)
+                processes.append(process)
+                deadline = time.monotonic() + 20
+                while not ready.exists():
+                    if process.poll() is not None or time.monotonic() >= deadline:
+                        process.kill()
+                        process.wait(timeout=5)
+                        process.stdout.close()
+                        process.stderr.close()
+                        self.fail('Native fixture did not become ready')
+                    time.sleep(.01)
+                return process
+            ticks = iter([0, 21])
+            clock = SimpleNamespace(monotonic=lambda: next(ticks, 21)) if expire else time
+            observations = []
+            try:
+                with patch.object(picker.subprocess, 'Popen', side_effect=start), patch.object(picker, 'time', clock):
+                    with self.assertRaisesRegex(picker.ProbeError, '^' + reason + '$'):
+                        picker.run([sys.executable, '-c', source, str(ready)], timeout=20,
+                                   max_output_bytes=32, observations=observations)
+                self.assertEqual(len(processes), 1)
+                self.assertIsNotNone(processes[0].poll())
+                self.assertTrue(processes[0].stdout.closed)
+                self.assertTrue(processes[0].stderr.closed)
+                self.assertEqual(observations[0]['timed_out'], expire)
+                self.assertEqual(observations[0]['output_limit'], reason == 'native_lookup_output_limit')
+                self.assertLessEqual(observations[0]['stdout_bytes'], 32)
+                self.assertNotIn('private-token', json.dumps(observations))
+                return observations[0]
+            finally:
+                # Failed assertions must not strand the real test subprocess.
+                for process in processes:
+                    if process.poll() is None:
+                        process.kill()
+                        process.wait(timeout=5)
+                    process.stdout.close()
+                    process.stderr.close()
 
     @unittest.skipUnless(os.name == 'posix', 'Native pipe lookups run only on Darwin/POSIX')
-    def test_native_timeout_and_capacity_are_fixed_failures(self):
-        for source, reason in [("import time; time.sleep(60)", 'native_lookup_timeout'),
-                               ("print('private-token' * 100)", 'native_lookup_output_limit')]:
-            observations = []
-            started = time.monotonic()
-            with self.assertRaisesRegex(picker.ProbeError, '^' + reason + '$'):
-                picker.run([sys.executable, '-c', source], timeout=.1, max_output_bytes=32, observations=observations)
-            self.assertLess(time.monotonic() - started, 3)
-            self.assertLessEqual(observations[0]['stdout_bytes'], 32)
-            self.assertNotIn('private-token', json.dumps(observations))
+    def test_native_tool_stderr_is_bounded_and_safe(self):
+        observation = self._ready_native_failure(
+            "print('/private-token architecture mismatch', file=sys.stderr); sys.exit(7)",
+            'native_lookup_tool_failed')
+        self.assertEqual(observation['exit_code'], 7)
+        self.assertEqual(observation['stderr_categories'], ['architecture_mismatch'])
+
+    @unittest.skipUnless(os.name == 'posix', 'Native pipe lookups run only on Darwin/POSIX')
+    def test_native_timeout_after_ready_uses_controlled_clock(self):
+        self._ready_native_failure("time.sleep(60)", 'native_lookup_timeout', expire=True)
+
+    @unittest.skipUnless(os.name == 'posix', 'Native pipe lookups run only on Darwin/POSIX')
+    def test_native_capacity_after_slow_start_is_not_timeout(self):
+        self._ready_native_failure("print('private-token' * 100, flush=True); time.sleep(60)",
+                                   'native_lookup_output_limit')
+
+    @unittest.skipUnless(os.name == 'posix', 'Native pipe lookups run only on Darwin/POSIX')
+    def test_native_cleanup_guard_rejects_unreaped_child(self):
+        # A deliberately broken cleanup must fail the helper's liveness check;
+        # its independent finally still reaps the actual fixture process.
+        with patch.object(picker.os, 'killpg', return_value=None):
+            with self.assertRaisesRegex(AssertionError, 'unexpectedly None'):
+                self._ready_native_failure("time.sleep(60)", 'native_lookup_timeout', expire=True)
 
     @unittest.skipUnless(os.name == 'posix' and generation.CLANG and generation.LINKER and generation.DSYMUTIL,
                          'Real Mach-O fixture tools unavailable')
