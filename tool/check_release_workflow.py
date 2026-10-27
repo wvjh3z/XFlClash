@@ -15,6 +15,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 MODULES = (
+    "tool.test.python_text_encoding_test",
     "tool.test.appimage_restart_test",
     "tool.test.webkit_probe_support_test",
     "tool.test.release_request_test",

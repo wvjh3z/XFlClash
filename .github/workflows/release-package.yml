@@ -277,6 +277,7 @@ jobs:
           fi
           python tool/test/local_release_automation_test.py
           python tool/test/android_release_contract_test.py
+          python tool/test/python_text_encoding_test.py
           python tool/test/sentry_windows_rust_manifest_test.py
           python tool/test/sentry_symbolication_picker_test.py
           python tool/test/sentry_desktop_symbolication_probe_test.py

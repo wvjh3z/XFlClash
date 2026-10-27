@@ -61,11 +61,11 @@ class ContractTest(unittest.TestCase):
                 good = f"package: name='{brand}' versionCode='1000038' versionName='0.9.1'"
                 contract.verify(apk, 38, brand, 'unused', badging=good,
                                 resources_dump=resource_dump(brand), diagnostic_path=report)
-                self.assertTrue(json.loads(report.read_text())['passed'])
+                self.assertTrue(json.loads(report.read_text(encoding="utf-8"))['passed'])
                 for bad in [good.replace('1000038', '2038'), good.replace(brand, 'wrong.package'), '']:
                     with self.assertRaisesRegex(ValueError, 'APK metadata mismatch') as error:
                         contract.verify(apk, 38, brand, 'unused', badging=bad, diagnostic_path=report)
-                    evidence = json.loads(report.read_text())
+                    evidence = json.loads(report.read_text(encoding="utf-8"))
                     self.assertFalse(evidence['passed'])
                     self.assertEqual(evidence['expected']['versionCode'], 1000038)
                     self.assertEqual(evidence['expected']['package'], brand)
@@ -76,7 +76,7 @@ class ContractTest(unittest.TestCase):
                 failure = contract.subprocess.CalledProcessError(1, ['aapt'], stderr=b'private-output')
                 with mock.patch.object(contract.subprocess, 'run', side_effect=failure), self.assertRaises(contract.subprocess.CalledProcessError):
                     contract.verify(apk, 38, brand, 'aapt', diagnostic_path=report)
-                evidence = report.read_text()
+                evidence = report.read_text(encoding="utf-8")
                 self.assertNotIn('private-output', evidence)
                 self.assertFalse(json.loads(evidence)['passed'])
                 self.assertIsNone(json.loads(evidence)['actual'])
@@ -87,8 +87,8 @@ class ContractTest(unittest.TestCase):
                 root = Path(directory)
                 (root / 'build').mkdir()
                 (root / 'dist').mkdir()
-                (root / 'build/release-context.json').write_text(json.dumps({'platform': 'android', 'build_number': 38}))
-                (root / 'flavor_defines.json').write_text(json.dumps({'XB_NATIVE_ID': brand}))
+                (root / 'build/release-context.json').write_text(json.dumps({'platform': 'android', 'build_number': 38}), encoding="utf-8")
+                (root / 'flavor_defines.json').write_text(json.dumps({'XB_NATIVE_ID': brand}), encoding="utf-8")
                 for abi in ['armeabi-v7a', 'arm64-v8a']:
                     (root / 'dist' / (abi + '.apk')).touch()
                 bad = f"package: name='{brand}' versionCode='2038'"
@@ -96,8 +96,8 @@ class ContractTest(unittest.TestCase):
                     contract.main()
                 reports = list((root / 'build/android-release-contract').glob('*.json'))
                 self.assertEqual(len(reports), 2)
-                self.assertTrue(all(json.loads(p.read_text())['actual']['versionCode'] == '2038' for p in reports))
-        workflow = (contract.ROOT / '.github/workflows/release-package.yml').read_text()
+                self.assertTrue(all(json.loads(p.read_text(encoding="utf-8"))['actual']['versionCode'] == '2038' for p in reports))
+        workflow = (contract.ROOT / '.github/workflows/release-package.yml').read_text(encoding="utf-8")
         self.assertIn('            build/android-release-contract/', workflow)
 
     def test_ci_corrupt_apk_does_not_skip_other_package(self):
@@ -107,8 +107,8 @@ class ContractTest(unittest.TestCase):
                     root = Path(directory)
                     (root / 'build').mkdir()
                     (root / 'dist').mkdir()
-                    (root / 'build/release-context.json').write_text(json.dumps({'platform': 'android', 'build_number': 38}))
-                    (root / 'flavor_defines.json').write_text(json.dumps({'XB_NATIVE_ID': brand}))
+                    (root / 'build/release-context.json').write_text(json.dumps({'platform': 'android', 'build_number': 38}), encoding="utf-8")
+                    (root / 'flavor_defines.json').write_text(json.dumps({'XB_NATIVE_ID': brand}), encoding="utf-8")
                     for name, abi in [('a.apk', 'armeabi-v7a'), ('b.apk', 'arm64-v8a')]:
                         apk = root / 'dist' / name
                         if name in corrupt:
@@ -127,7 +127,7 @@ class ContractTest(unittest.TestCase):
                         else:
                             contract.main()
                     for name in ['a.apk', 'b.apk']:
-                        report = json.loads((root / 'build/android-release-contract' / (name + '.json')).read_text())
+                        report = json.loads((root / 'build/android-release-contract' / (name + '.json')).read_text(encoding="utf-8"))
                         self.assertEqual(report['passed'], name not in corrupt)
                         self.assertEqual(report['scope'], 'android-contract')
                         if name in corrupt: self.assertEqual(report['failureType'], 'ApkArchiveError')
@@ -140,8 +140,8 @@ class ContractTest(unittest.TestCase):
                         root = Path(directory)
                         (root / 'build').mkdir()
                         (root / 'dist').mkdir()
-                        (root / 'build/release-context.json').write_text(json.dumps({'platform': 'android', 'build_number': 38}))
-                        (root / 'flavor_defines.json').write_text(json.dumps({'XB_NATIVE_ID': brand}))
+                        (root / 'build/release-context.json').write_text(json.dumps({'platform': 'android', 'build_number': 38}), encoding="utf-8")
+                        (root / 'flavor_defines.json').write_text(json.dumps({'XB_NATIVE_ID': brand}), encoding="utf-8")
                         for name in ['a.apk', 'b.apk']:
                             with zipfile.ZipFile(root / 'dist' / name, 'w', compression=zipfile.ZIP_DEFLATED) as z:
                                 z.writestr('lib/arm64-v8a/libapp.so', b'fixture-aot')
@@ -159,12 +159,12 @@ class ContractTest(unittest.TestCase):
                         with mock.patch.object(contract, 'ROOT', root), mock.patch.object(contract, 'find_aapt', return_value='aapt'), mock.patch.object(contract.subprocess, 'run', side_effect=aapt):
                             with self.assertRaises(ApkArchiveError): contract.main()
                             reports = root / 'build/android-release-contract'
-                            self.assertFalse(json.loads((reports / 'a.apk.json').read_text())['passed'])
-                            self.assertTrue(json.loads((reports / 'b.apk.json').read_text())['passed'])
+                            self.assertFalse(json.loads((reports / 'a.apk.json').read_text(encoding="utf-8"))['passed'])
+                            self.assertTrue(json.loads((reports / 'b.apk.json').read_text(encoding="utf-8"))['passed'])
                             first.write_bytes(original)
                             contract.main()
                             for name in ['a.apk.json', 'b.apk.json']:
-                                report = json.loads((reports / name).read_text())
+                                report = json.loads((reports / name).read_text(encoding="utf-8"))
                                 self.assertTrue(report['passed'])
                                 self.assertNotIn('failureType', report)
 
@@ -318,7 +318,7 @@ class ContractTest(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError,'Missing or ambiguous'):inventory(aar,digest)
 
     def test_sdk_pin_matches_resource_inventory(self):
-        gradle=(contract.ROOT/'plugins/crisp_chat/android/build.gradle').read_text()
+        gradle=(contract.ROOT/'plugins/crisp_chat/android/build.gradle').read_text(encoding="utf-8")
         self.assertIn('im.crisp:crisp-sdk:'+contract.CRISP_CONTRACT['sdk_version'],gradle)
         self.assertIn('bool/crisp_is_rtl',contract.CRISP_CONTRACT['resources'])
         self.assertEqual(len(contract.CRISP_CONTRACT['resources']),len(set(contract.CRISP_CONTRACT['resources'])))
