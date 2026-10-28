@@ -27,7 +27,9 @@ Future<void> xbInstallAppImage({
       throw StateError('Cannot make AppImage executable');
     }
     await target.copy(backup.path);
-    ticket = await (prepareRestart ?? xbPrepareAppImageRestart)(appImagePath);
+    ticket = await (prepareRestart != null
+        ? prepareRestart(appImagePath)
+        : xbPrepareAppImageRestart(appImagePath, backupPath: backup.path));
     await replacement.rename(appImagePath);
     replaced = true;
     await ticket.commit();

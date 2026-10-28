@@ -21,8 +21,9 @@ def assert_prepare_order(template):
     actions = [
         r"Result\s*:=\s*XbPrepareVCRuntime\(NeedsRestart\)\s*;",
         r"if\s+Result\s*<>\s*''\s+then\s+exit\s*;",
-        r"if\s+not\s+StopOwnedInstallation\(\)\s+then\s+"
-        r"Result\s*:=\s*CustomMessage\('XbOwnedInstallError'\)\s*;",
+        r"UnregisterHelperService\s*;",
+        r"KillProcesses\s*;",
+        r"Result\s*:=\s*''\s*;",
     ]
     positions = []
     for action in actions:
@@ -30,8 +31,6 @@ def assert_prepare_order(template):
         assert len(found) == 1, "Required installer action missing or duplicated"
         positions.append(found[0].start())
     assert positions == sorted(positions), "Stop must follow prerequisite success"
-    assert not re.search(r"\b(UnregisterHelperService|KillProcesses)\b", template), \
-        "Legacy global process/service operations must not return"
 
 
 class RuntimeContractTest(unittest.TestCase):
@@ -98,7 +97,7 @@ class RuntimeContractTest(unittest.TestCase):
 
     def test_prepare_order_rejects_early_stop_and_missing_failure_guard(self):
         template = self.read("windows/packaging/exe/inno_setup.iss")
-        stop = "  if not StopOwnedInstallation() then\n    Result := CustomMessage('XbOwnedInstallError');"
+        stop = "  UnregisterHelperService;\n  KillProcesses;\n  Result := '';"
         self.assertEqual(template.count(stop), 1)
         moved = template.replace(stop, "").replace("  Result := XbPrepareVCRuntime(NeedsRestart);", stop + "\n  Result := XbPrepareVCRuntime(NeedsRestart);")
         with self.assertRaises(AssertionError):
@@ -106,7 +105,7 @@ class RuntimeContractTest(unittest.TestCase):
         with self.assertRaises(AssertionError):
             assert_prepare_order(template.replace("if Result <> '' then exit;", ""))
         with self.assertRaises(AssertionError):
-            assert_prepare_order(template.replace("StopOwnedInstallation()", "KillProcesses()"))
+            assert_prepare_order(template.replace("  KillProcesses;", ""))
 
     def test_errors_localized_and_reentry_does_not_launch_another_installer(self):
         source = self.read("windows/packaging/exe/vc_runtime.iss")

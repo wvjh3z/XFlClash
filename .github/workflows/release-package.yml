@@ -232,7 +232,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           & tool/test/windows_brand_data_cleanup_test.ps1
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          & tool/test/windows_brand_installation_test.ps1
+          python tool/test/windows_upstream_installation_test.py
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           & tool/test/windows_vc_runtime_test.ps1
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
@@ -389,8 +389,12 @@ jobs:
               stream.write(f"CARGO_HOME={home / '.cargo'}\nRUSTUP_HOME={home / '.rustup'}\nRUSTUP_TOOLCHAIN=1.99.0\n")
 
       - name: Prepare native build inputs
-        timeout-minutes: 20
-        run: python tool/prepare_native_build.py --platform "${{ matrix.platform }}" --install-rust-targets
+        # Go: 12 minutes total; Rust: two bounded 10-minute commands.
+        timeout-minutes: 35
+        run: |
+          set -euo pipefail
+          python tool/test/go_dependency_native_test.py
+          python tool/prepare_native_build.py --platform "${{ matrix.platform }}" --install-rust-targets --prepare-go
 
       - name: Client pub get
         timeout-minutes: 15
@@ -640,6 +644,13 @@ jobs:
           SENTRY_MAINTENANCE_TOKEN: ${{ secrets.SENTRY_MAINTENANCE_TOKEN }}
         run: python tool/sentry_desktop_symbolication_probe.py verify --report build/sentry-symbolication-probe.json
 
+      - name: Capture native hook input change diagnostics
+        if: always()
+        run: |
+          if [ -f tool/native_hook_diagnostics.py ]; then
+            python tool/native_hook_diagnostics.py
+          fi
+
       - name: Preserve safe Sentry symbol evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -651,6 +662,7 @@ jobs:
             build/sentry-symbolication-probe.json
             build/sentry-package-resolution.json
             build/dependency-retries/
+            build/native-hook-diagnostics.json
             build/windows-iscc-preflight.json
             build/windows-title-preflight.json
             build/distributor-preflight/

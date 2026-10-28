@@ -143,19 +143,59 @@ public static class XbCleanupRaceRegression {
             Check(Read(Path.Combine(outside,"sentinel.txt"))=="outside-preserved","Outside sentinel deleted");
         } finally { DisposeAll(entries);DisposeAll(held);if(changed && Directory.Exists(cache)) Directory.Delete(cache); }
     }
+    static void FixtureIo(string stage,Action operation,Action<int> before=null) {
+        for(int attempt=0;attempt<40;attempt++) {
+            if(before!=null) before(attempt);
+            try { operation();return; }
+            catch(Exception e) {
+                if(!(e is IOException) && !(e is System.ComponentModel.Win32Exception)) throw;
+                int code=e is System.ComponentModel.Win32Exception ? ((System.ComponentModel.Win32Exception)e).NativeErrorCode : e.HResult & 65535;
+                if((code!=32 && code!=33) || attempt==39)
+                    throw new IOException("fixture_stage="+stage+" native="+code+" attempts="+(attempt+1),e);
+                System.Threading.Thread.Sleep(50);
+            }
+        }
+    }
+    static void SharingControls(string fixture) {
+        string path=Path.Combine(fixture,"held"), moved=Path.Combine(fixture,"moved");
+        File.WriteAllText(path,"original");
+        var held=new FileStream(path,FileMode.Open,FileAccess.Read,FileShare.ReadWrite);
+        int calls=0;
+        try {
+            FixtureIo("sharing-release",()=>{calls++;File.Move(path,moved);}, attempt=>{if(attempt==1) held.Dispose();});
+            Check(calls==2 && Read(moved)=="original","Sharing release control did not retry real conflict");
+        } finally { held.Dispose(); }
+        calls=0;bool failed=false;
+        try { FixtureIo("nonsharing",()=>{calls++;throw new IOException("denied",unchecked((int)0x80070005));}); }
+        catch(IOException e) { failed=e.Message.Contains("native=5"); }
+        Check(failed && calls==1,"Non-sharing failure was retried or ignored");
+        calls=0;failed=false;
+        using(var locked=new FileStream(moved,FileMode.Open,FileAccess.Read,FileShare.ReadWrite)) {
+            try { FixtureIo("persistent-sharing",()=>{calls++;File.Move(moved,path);}); }
+            catch(IOException e) { failed=e.Message.Contains("native=32") && e.Message.Contains("attempts=40"); }
+        }
+        Check(failed && calls==40 && Read(moved)=="original","Persistent conflict was swallowed");
+    }
     static void ReplacedIdentity(string fixture,string brand) {
         string target=Path.Combine(fixture,"known","com.cloud.app",brand);
-        Directory.CreateDirectory(target);string path=Path.Combine(target,"config.json");File.WriteAllText(path,"old");
+        Directory.CreateDirectory(target);string path=Path.Combine(target,"config.json");
+        FixtureIo("create-original",()=>File.WriteAllText(path,"old"));
         var held=new List<object>();object child=null;
         try {
             object parent=Walk(target,true,held);object expected=Children(parent)[0];
-            child=Call("OpenRelative",parent,"config.json",true,false,false,expected);Close(child);child=null;
-            File.Move(path,Path.Combine(target,"original.json"));File.WriteAllText(path,"replacement");
+            FixtureIo("open-original",()=>{child=Call("OpenRelative",parent,"config.json",true,false,false,expected);});
+            var childHandle=Handle(child);Close(child);child=null;
+            Check(childHandle.IsClosed,"Fixture child handle not closed");
+            FixtureIo("rename-original",()=>File.Move(path,Path.Combine(target,"original.json")));
+            FixtureIo("create-replacement",()=>File.WriteAllText(path,"replacement"));
+            object actual=Children(parent).Find(c=>(string)Field(c,"name")=="config.json");
+            Check(actual!=null && (!Field(actual,"low").Equals(Field(expected,"low")) || !Field(actual,"high").Equals(Field(expected,"high"))),"Fixture did not replace file identity");
             bool rejected=false;
+            // Never retry or swallow the production identity assertion.
             try { child=Call("OpenRelative",parent,"config.json",true,false,false,expected); }
-            catch(IOException) { rejected=true; }
+            catch(IOException e) { rejected=e.Message.Contains("Enumerated object identity changed"); }
             Check(rejected,"REPLACED_IDENTITY_ACCEPTED");
-            Check(Read(path)=="replacement","Replacement touched");
+            FixtureIo("read-replacement",()=>Check(Read(path)=="replacement","Replacement touched"));
         } finally { Close(child);DisposeAll(held); }
     }
     static void InvalidChildren(string fixture,string brand) {
@@ -183,16 +223,17 @@ public static class XbCleanupRaceRegression {
     public static int Run(Type production,bool legacyOpen,bool legacyEnumeration) {
         model=production;int passed=0,failed=0;
         foreach(string brand in new[]{"omofly","daishu"}) {
-            foreach(string stage in new[]{"company","empty-child","after-preflight","identity","invalid-child","multi-page"}) {
+            foreach(string stage in new[]{"company","empty-child","after-preflight","identity","sharing-controls","invalid-child","multi-page"}) {
                 string fixture=Path.Combine(Path.GetTempPath(),"cleanup-race-"+Guid.NewGuid().ToString("N"));Directory.CreateDirectory(fixture);
                 try {
                     if(stage=="company" || stage=="empty-child") NativeBoundary(fixture,brand,stage,legacyOpen,legacyEnumeration);
                     else if(stage=="after-preflight") AfterPreflight(fixture,brand);
                     else if(stage=="identity") ReplacedIdentity(fixture,brand);
+                    else if(stage=="sharing-controls") SharingControls(fixture);
                     else if(stage=="invalid-child") InvalidChildren(fixture,brand);
                     else MultiPage(fixture,brand);
                     passed++;Console.WriteLine("PASS: "+brand+" "+stage);
-                } catch(Exception e) { failed++;Console.WriteLine("FAIL: "+brand+" "+stage+" "+e.Message); }
+                } catch(Exception e) { failed++;Console.WriteLine("FAIL: "+brand+" "+stage+" "+e.ToString()); }
                 finally { Directory.Delete(fixture,true); }
             }
         }

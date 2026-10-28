@@ -23,6 +23,8 @@ import time
 from owned_process_cleanup import CleanupError, cleanup_owned_group, safe_cleanup
 
 PERMANENT = {
+    'go_integrity': r'checksum mismatch|SECURITY ERROR|verifying module.*sum mismatch',
+    'go_configuration': r'unknown revision|invalid version|requires go >=|updates to go\.mod needed|module declares its path as',
     'dependency_resolution': r'version solving failed|version solver failed|could not resolve packages|requires (?:the )?(?:dart |flutter )?sdk version|sdk version constraint|doesn.t support null safety',
     'authentication': r'authentication failed|permission denied|terminal prompts disabled|could not read username|repository not found|\b401\b.*unauthorized|\b403\b.*forbidden|http basic: access denied|requested url returned error: (?:401|403)|http code 407',
     'certificate': r'certificate verify failed|certificate verification failed|certificate_verify_failed|ssl certificate problem|unable to get local issuer certificate|self.signed certificate|certificate has expired',
@@ -30,6 +32,8 @@ PERMANENT = {
     'local_storage': r'no space left on device|disk full|read.only file system|access is denied',
 }
 NETWORK = {
+    'go_http_unavailable': r'(?:reading|read) [^\r\n]+: (?:429|500|502|503|504) (?:Too Many Requests|Internal Server Error|Bad Gateway|Service Unavailable|Gateway Timeout)',
+    'http2_stream': r'stream error: stream ID \d+; (?:INTERNAL_ERROR|REFUSED_STREAM); received from peer',
     'dns': r'could not resolve host|failed host lookup|temporary failure in name resolution|\benotfound\b|\beai_again\b',
     'connection': r'connection (?:reset|timed out|aborted|refused)|operation timed out|network is unreachable|recv failure|connection closed before full header|remote end hung up unexpectedly',
     'git_transport': r'rpc failed; curl (?:5|6|7|18|28|35|52|55|56|92)\b|unexpected disconnect while reading sideband packet',

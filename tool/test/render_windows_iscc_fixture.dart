@@ -49,7 +49,6 @@ Future<void> main(List<String> args) async {
         'tool/windows/prepare_vc_runtime.ps1',
         'tool/windows/vc_runtime.ps1',
         'tool/windows/vc_runtime.json',
-        'tool/windows/stop_brand_installation.ps1',
         'tool/windows/remove_brand_user_data.ps1',
       ]) {
         File(relative).parent.createSync(recursive: true);

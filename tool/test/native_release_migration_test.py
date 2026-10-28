@@ -118,8 +118,8 @@ class NativeInputTests(unittest.TestCase):
         include=(ROOT/'windows/packaging/exe/vc_runtime.iss').read_text(encoding='utf-8')
         self.assertEqual((template+include).count('function PrepareToInstall('),1)
         entry=template.split('function PrepareToInstall(',1)[1].split('procedure CurStepChanged',1)[0]
-        self.assertLess(entry.index('XbPrepareVCRuntime'),entry.index('StopOwnedInstallation'))
-        self.assertLess(entry.index('if Result <>'),entry.index('StopOwnedInstallation'))
+        self.assertLess(entry.index('XbPrepareVCRuntime'),entry.index('UnregisterHelperService'))
+        self.assertLess(entry.index('if Result <>'),entry.index('UnregisterHelperService'))
         self.assertIn('CurUninstallStepChanged',template)
 
     def test_real_hook_regression_is_on_formal_path_after_dependencies(self):

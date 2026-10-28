@@ -85,3 +85,7 @@ Debug 用于开发输入、日志与界面验证；生产 release 使用生产�
 上传源码、测试下载站更新和 AppVersion 自更新清单发布是不同动作。正式发布要维护 [CHANGELOG_XBOARD](../CHANGELOG_XBOARD.md)，按 [更新契约](https://github.com/wvjh3z/proxy-suite-docs/blob/main/CONTRACTS.md#免登录自更新) 核对每包 hash、镜像、版本与 ABI；更新插件生产配置、创建 release/tag 或推送安装包都按具体任务授权执行。
 
 早期构建说明曾包含旧 `.kiro` 路径、开发 key 补写、debug 签名回退及旧下载目录；这些步骤已经由当前 Docs 承接，不作为现行生产流程。
+
+## 构建失败经验（客户端内维护）
+
+任何构建、打包或必要验收失败，先查[统一经验入口](../docs/build-failures/README.md)，按底座版本定位历史事件。修复必须同步记录根因、代码/测试变更、正负控和正式入口验收，未复验不能标记关闭。v0.8.93、v0.9.1与当前v0.9.2经验均在该目录，随客户端提交；外部Docs仅保留导航。

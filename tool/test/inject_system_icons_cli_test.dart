@@ -296,15 +296,13 @@ void main() {
           contains('(CurUninstallStep = usUninstall) and not UninstallSilent'),
         );
         expect(source, contains('MB_YESNO or MB_DEFBUTTON2'));
-        expect(source, contains('if IsUninstaller then'));
         expect(
           source,
           contains(r'{app}\maintenance\remove_brand_user_data.ps1'),
         );
-        expect(
-          source,
-          contains(r'{app}\maintenance\stop_brand_installation.ps1'),
-        );
+        expect(source, contains('--clear-stale-proxy'));
+        expect(source, isNot(contains('stop_brand_installation.ps1')));
+        expect(source, isNot(contains('FlClash.exe')));
         expect(source, contains('ResultCode = 10'));
         final prepare = source.substring(
           source.indexOf('function PrepareToInstall'),

@@ -25,10 +25,9 @@ class CleanupWiringTests(unittest.TestCase):
 
     def test_installed_helpers_survive_until_cleanup_entry(self):
         source = self.text('windows/packaging/exe/inno_setup.iss')
-        for name in ('stop_brand_installation.ps1', 'remove_brand_user_data.ps1'):
+        for name in ('remove_brand_user_data.ps1',):
             self.assertIn(f'Source: "{{#XbRoot}}tool\\windows\\{name}"; DestDir: "{{app}}\\maintenance"; Flags: ignoreversion', source)
             self.assertIn(f"{{app}}\\maintenance\\{name}", source)
-        self.assertIn('if IsUninstaller then', source)
         self.assertIn('ResultCode = 10', source)
         self.assertIn('XbDataIncomplete', source)
 

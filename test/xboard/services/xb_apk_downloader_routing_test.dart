@@ -1,9 +1,10 @@
 // Exercise the production downloader, not only its Dio factory, using Linux
-// host I/O. All requests stay on loopback. Deliberate hash mismatch stops both
-// cases before installation, chmod, AppImage replacement or process launch.
+// host I/O. All requests stay on loopback. Omitting requestLinuxExit stops at
+// platform handoff, before chmod, AppImage replacement or process launch.
 import 'dart:io';
 
 import 'package:fl_clash/xboard/services/xb_apk_downloader.dart';
+import 'package:dio/dio.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -14,7 +15,7 @@ const _pathProviderChannel = MethodChannel('plugins.flutter.io/path_provider');
 void main() {
   final binding = TestWidgetsFlutterBinding.ensureInitialized();
 
-  group('Linux downloader native routing to hash validation', () {
+  group('Linux downloader native routing to platform handoff', () {
     late Directory temporaryDirectory;
     late _DownloadServer origin;
     late _DownloadServer proxy;
@@ -61,7 +62,6 @@ void main() {
       final result = await HttpOverrides.runWithHttpOverrides(
         () => XbApkDownloader.downloadAndInstall(
           urls: [target.toString()],
-          expectedSha256: 'deliberately-not-a-valid-sha256',
           onProgress: (received, total) {
             receivedBytes = received;
             totalBytes = total;
@@ -73,7 +73,7 @@ void main() {
         }),
       );
 
-      expect(result, DownloadResult.hashMismatch);
+      expect(result, DownloadResult.installFailed);
       expect(pathCalls, ['getTemporaryDirectory']);
       expect(resolved, contains(target));
       expect(proxy.requests, useProxy ? [target] : isEmpty);
@@ -92,6 +92,36 @@ void main() {
     }
 
     test(
+      'HTTP failure and cancellation do not reach installation; retry recovers',
+      () async {
+        origin.statusCode = HttpStatus.serviceUnavailable;
+        final failed = await HttpOverrides.runWithHttpOverrides(
+          () => XbApkDownloader.downloadAndInstall(
+            urls: [origin.uri.toString()],
+            onProgress: (_, _) {},
+          ),
+          _RealHttpOverrides((_) => 'DIRECT'),
+        );
+        expect(failed, DownloadResult.networkError);
+        origin.statusCode = HttpStatus.ok;
+        final cancellation = CancelToken();
+        final cancelled = await HttpOverrides.runWithHttpOverrides(
+          () => XbApkDownloader.downloadAndInstall(
+            urls: [origin.uri.toString()],
+            cancelToken: cancellation,
+            onProgress: (_, _) => cancellation.cancel(),
+          ),
+          _RealHttpOverrides((_) => 'DIRECT'),
+        );
+        expect(cancelled, DownloadResult.networkError);
+        // Failed downloads release the shared gate and remove their task files.
+        origin.requests.clear();
+        pathCalls.clear();
+        await verifyDownload(useProxy: false);
+      },
+    );
+
+    test(
       'production downloader inherits the global proxy for real download I/O',
       () async {
         await verifyDownload(useProxy: true);
@@ -99,7 +129,7 @@ void main() {
     );
 
     test(
-      'DIRECT downloads from origin and cleans the hash-mismatched file',
+      'DIRECT downloads from origin and cleans the file after unavailable platform handoff',
       () async {
         await verifyDownload(useProxy: false);
       },
@@ -122,6 +152,7 @@ class _DownloadServer {
 
   final HttpServer server;
   final requests = <Uri>[];
+  int statusCode = HttpStatus.ok;
 
   Uri get uri => Uri(
     scheme: 'http',
@@ -140,7 +171,7 @@ class _DownloadServer {
       local.requests.add(request.uri);
       await request.drain<void>();
       request.response
-        ..statusCode = HttpStatus.ok
+        ..statusCode = local.statusCode
         ..contentLength = bytes.length
         ..add(bytes);
       await request.response.close();

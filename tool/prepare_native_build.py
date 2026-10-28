@@ -13,6 +13,7 @@ import plistlib
 import subprocess
 import tempfile
 from fetch_build_asset import download_asset
+from prepare_go_dependencies import prepare as prepare_go_dependencies
 
 ROOT = Path(__file__).resolve().parents[1]
 PINS = json.loads((ROOT / 'tool/native_toolchain.json').read_text(encoding='utf-8'))
@@ -84,10 +85,13 @@ def main():
     p.add_argument('--platform', required=True, choices=('android','linux','macos','windows'))
     p.add_argument('--architecture', default=platform.machine().lower())
     p.add_argument('--install-rust-targets', action='store_true')
+    p.add_argument('--prepare-go', action='store_true')
     args = p.parse_args()
     if args.platform == 'android':
         prepare_android_names(ROOT)
     prepare_ca(ROOT)
+    if args.prepare_go:
+        prepare_go_dependencies(ROOT)
     if args.platform == 'macos':
         prepare_macos_renderer(ROOT, args.architecture)
     if args.install_rust_targets:

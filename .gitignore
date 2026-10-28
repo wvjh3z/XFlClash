@@ -47,7 +47,10 @@ app.*.map.json
 .claude/worktrees/
 
 # Documentation (generated/planning artifacts)
-docs/
+# Generated docs stay ignored; reviewed build experience belongs to this repo.
+docs/*
+!docs/build-failures/
+!docs/build-failures/**
 
 
 # Android Studio will place build artifacts here
@@ -127,8 +130,7 @@ app.*.map.json
 # Claude Code - ignore user-specific settings only
 .claude/settings.local.json
 
-# Documentation (generated/planning artifacts)
-docs/
+# Documentation rules are maintained above; build-failures stays versioned.
 
 
 # Android Studio will place build artifacts here

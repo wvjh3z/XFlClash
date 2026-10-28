@@ -42,3 +42,5 @@ dart --packages=.dart_tool/package_config.json tool/check-seam-whitelist.dart --
 ## 任务收尾
 
 分析、排障、修改与验收后必须检查当前 Docs 是否覆盖本轮新事实、文档偏差、有证据的缺口及用户决策变化；有新增则应用 [xflclash-doc-sync](https://github.com/wvjh3z/proxy-suite-docs/blob/main/skills/xflclash-doc-sync/SKILL.md)，按唯一职责维护已有章节。本轮已读的技能直接复用；已覆盖结论无需追加，用户明确只读/不改文件时仅报告待同步项。检查与报告遵循当前 DEVELOPMENT，不扩大提交、构建或部署授权。
+
+构建、打包或必需验收失败后，必须遵守 sibling Docs/CONVENTIONS.md 的“构建失败后的修复经验必须归档（硬性约定）”：查阅并更新本仓库 [docs/build-failures/README.md](docs/build-failures/README.md) 及对应底座版本的事件记录（v0.8.93/v0.9.1历史复盘也已纳入本目录），将根因、实际修复、正负控和正式入口验证边界随任务归档；未补齐经验不得宣称修复完整交付。该要求不授权触发构建或提交。

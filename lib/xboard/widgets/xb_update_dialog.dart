@@ -62,11 +62,8 @@ class _UpdateDialogState extends ConsumerState<_UpdateDialog> {
     super.dispose();
   }
 
-  /// 档2：下载前先重拉最新版本信息（关键修复）→ 直接开始下载 → 校验 → 安装。失败回退档1。
-  ///
-  /// **为什么下载前重拉**：下载文件名固定（同名覆盖），若用户缓存了旧版本的 sha256，
-  /// 而服务器已部署更新版本，则下载到的新字节永远对不上旧 sha → 校验恒失败。
-  /// 下载前重拉确保 sha256/url 与服务器当前文件一致。
+  /// 档2：重拉最新版本信息与下载地址，下载完成后交给平台安装流程。
+  /// 不在客户端比对安装包摘要；失败时保留浏览器下载入口。
   Future<void> _onUpdate() async {
     // macOS / 不支持应用内安装的平台 → 直接走浏览器下载（不进 APK/installer 路径）。
     if (!XbApkDownloader.isInAppInstallSupported) {
@@ -80,7 +77,7 @@ class _UpdateDialogState extends ConsumerState<_UpdateDialog> {
       _errorMsg = null;
     });
 
-    // 下载前重拉最新版本信息（带 failover）；成功则用最新 sha/url，失败沿用缓存（best effort）。
+    // 下载前重拉最新版本信息（带 failover）；成功则用最新版本信息/URL，失败沿用缓存（best effort）。
     final sdk = ref.read(xboardSdkProvider);
     if (sdk != null) {
       final race = ref.read(injectedRaceControllerProvider);
@@ -113,7 +110,6 @@ class _UpdateDialogState extends ConsumerState<_UpdateDialog> {
           ? null
           : () => exitAction.handleExit(),
       urls: urls,
-      expectedSha256: _info.sha256,
       onProgress: (received, total) {
         if (!mounted) return;
         // 节流：100ms 内只更新一次 UI
@@ -139,11 +135,6 @@ class _UpdateDialogState extends ConsumerState<_UpdateDialog> {
         // Android：安装器已调起，延迟关弹窗（给系统时间展示安装界面）
         await Future.delayed(const Duration(milliseconds: 500));
         if (mounted) Navigator.of(context).pop();
-      case DownloadResult.hashMismatch:
-        setState(() {
-          _state = _DialogState.failed;
-          _errorMsg = '文件校验失败，请重试';
-        });
       case DownloadResult.networkError:
         setState(() {
           _state = _DialogState.failed;

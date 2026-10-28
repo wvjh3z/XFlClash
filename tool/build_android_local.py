@@ -24,6 +24,7 @@ import sys
 import tempfile
 import time
 from apk_archive import ApkArchive
+from build_diagnostics import finalize as finalize_build_diagnostics
 
 from postbuild_sentry_symbols import ReleaseError
 
@@ -516,6 +517,7 @@ def main(argv: list[str] | None = None) -> int:
     os.umask(0o077)
     root, environment = args.project_root.resolve(), dict(os.environ)
     batch, builder = args.batch_dir, None
+    outcome = 1
     lock, lock_owned = root / "android/.xfl-local-build.lock", False
     started, old_sigterm = time.monotonic(), signal.getsignal(signal.SIGTERM)
 
@@ -543,6 +545,7 @@ def main(argv: list[str] | None = None) -> int:
             raise ReleaseError("Unsafe package prefix or build tag")
         batch = batch.resolve() if batch else root / "dist/local-release" / f"{args.flavor}-{tag}-{args.arch}"
         batch.mkdir(parents=True, exist_ok=True, mode=0o700)
+        environment["XFLCLASH_DIAGNOSTICS_DIR"] = str(batch / "diagnostics")
         batch.chmod(0o700)
         previous_inputs = batch / "build-inputs.json"
         previous = json.loads(previous_inputs.read_text(encoding="utf-8")) if previous_inputs.exists() else None
@@ -571,7 +574,7 @@ def main(argv: list[str] | None = None) -> int:
             raise ReleaseError("Client and sibling SDK lockfiles are required for a strict local release")
         locks = {path: digest(path) for path in lock_paths}
         builder = LocalBuild(root, batch, environment)
-        builder.run([sys.executable, "tool/prepare_native_build.py", "--platform", "android", "--install-rust-targets"], "native-inputs")
+        builder.run([sys.executable, "tool/prepare_native_build.py", "--platform", "android", "--install-rust-targets", "--prepare-go"], "native-inputs")
         sources = capture_sources(root, sdk, args.flavor)
         source_file = batch / "source-state.json"
         if source_file.exists():
@@ -663,17 +666,29 @@ def main(argv: list[str] | None = None) -> int:
             write_local_build_number(root, args.flavor, number)
         print("Completed local APK: " + str(destination), flush=True)
         print("Verification: " + str(batch / "verification.json"), flush=True)
+        outcome = 0
         return 0
     except (ReleaseError, OSError, ValueError, subprocess.CalledProcessError, KeyboardInterrupt) as error:
         message = str(error) if isinstance(error, ReleaseError) else type(error).__name__
         print("Local APK release failed: " + message, file=sys.stderr)
         return 1
     finally:
-        if lock_owned:
-            lock.unlink(missing_ok=True)
-        if batch and batch.is_dir() and builder:
-            write_json(batch / "steps.json", {"steps": builder.steps, "elapsedSeconds": round(time.monotonic() - started, 1)})
-        signal.signal(signal.SIGTERM, old_sigterm)
+        # Cleanup and evidence collection cannot replace the build outcome.
+        try:
+            if lock_owned:
+                lock.unlink(missing_ok=True)
+            if batch and batch.is_dir() and builder:
+                write_json(batch / "steps.json", {"steps": builder.steps, "elapsedSeconds": round(time.monotonic() - started, 1)})
+        except BaseException:
+            print("Local cleanup incomplete; original build status retained", file=sys.stderr)
+        try:
+            if batch and batch.is_dir() and builder:
+                finalize_build_diagnostics(root, batch / "diagnostics", outcome)
+        except BaseException:
+            print("Local diagnostic finalizer failed; original build status retained", file=sys.stderr)
+        finally:
+            signal.signal(signal.SIGTERM, old_sigterm)
+
 
 
 if __name__ == "__main__":

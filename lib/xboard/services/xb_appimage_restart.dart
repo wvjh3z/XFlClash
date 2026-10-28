@@ -10,9 +10,14 @@ parent=$1
 started=$2
 target=$3
 ready=$4
+backup=${5-}
 control=${ready%/*}
 sleep_command=$(command -v sleep)
 remove_command=$(command -v rm)
+if [ -n "$backup" ]; then
+  copy_command=$(command -v cp)
+  move_command=$(command -v mv)
+fi
 printf 'ready\n' > "$ready"
 remaining=60
 while [ ! -f "$control/commit" ]; do
@@ -39,6 +44,24 @@ while [ -r "/proc/$parent/stat" ]; do
 done
 [ -d "$control" ] && [ ! -f "$control/cancel" ] || exit 125
 "$remove_command" -rf -- "$control"
+# EXIT traps survive a failed exec, but are discarded after a successful exec.
+# Do not interpret an application's eventual exit status as a launch failure.
+recover_launch() {
+  failure=$?
+  trap - 0
+  [ -n "$backup" ] && [ -f "$backup" ] || exit "$failure"
+  log="$backup.restart.log"
+  printf 'replacement_exec_failed=%s\n' "$failure" >> "$log" || :
+  # Keep the original backup even if replacement or the old launch fails.
+  if "$copy_command" -p -- "$backup" "$backup.restore" &&
+      "$move_command" -fT -- "$backup.restore" "$target"; then
+    printf 'previous_image_restored\n' >> "$log" || :
+    exec "$target" </dev/null >> "$log" 2>&1
+  fi
+  printf 'restore_failed; backup retained\n' >> "$log" || :
+  exit "$failure"
+}
+trap recover_launch 0
 exec "$target" </dev/null >/dev/null 2>&1
 ''';
 
@@ -175,6 +198,7 @@ typedef XbRestartStarter =
 
 Future<XbAppImageRestartTicket> xbPrepareAppImageRestart(
   String target, {
+  String? backupPath,
   XbRestartStarter? startProcess,
   Duration readinessTimeout = const Duration(seconds: 5),
 }) async {
@@ -206,6 +230,7 @@ Future<XbAppImageRestartTicket> xbPrepareAppImageRestart(
       parent.started,
       target,
       ready.path,
+      backupPath ?? '',
     ];
     final process =
         await (startProcess ??

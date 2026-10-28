@@ -6,12 +6,12 @@
 #include "..\windows\packaging\exe\vc_runtime.iss"
 
 [Files]
-Source: "{#XbRoot}tool\windows\stop_brand_installation.ps1"; Flags: dontcopy
-Source: "{#XbRoot}tool\windows\stop_brand_installation.ps1"; DestDir: "{app}\maintenance"; Flags: ignoreversion
 Source: "{#XbRoot}tool\windows\remove_brand_user_data.ps1"; DestDir: "{app}\maintenance"; Flags: ignoreversion
 
 [Setup]
 MinVersion=10.0
+CloseApplications=yes
+RestartApplications=yes
 AppId={{APP_ID}}
 ; xboard-installer-version:start
 #error "Run inject_desktop_brand with the product version and actual build number before packaging"
@@ -36,8 +36,6 @@ ArchitecturesInstallIn64BitMode={{ARCH}}
 [CustomMessages]
 chineseSimplified.XbBuildLabel=构建
 english.XbBuildLabel=build
-chineseSimplified.XbOwnedInstallError=无法安全关闭当前客户端，请先退出此客户端后重试。
-english.XbOwnedInstallError=Cannot stop this installation safely. Close this client and retry.
 chineseSimplified.XbDataBrand={{DISPLAY_NAME}}
 english.XbDataBrand={{DISPLAY_NAME}}
 chineseSimplified.XbRemoveData=是否删除 %1 的本地配置与缓存（含其中保存的登录信息）？其他品牌和原版 FlClash 的数据会保留。
@@ -48,33 +46,36 @@ chineseSimplified.XbDataIncomplete=部分数据未清理，可能存在占用、
 english.XbDataIncomplete=Some data was retained because of active files, permissions or unsafe directory links. Check these brand directories; do not delete their parent:
 
 [Code]
-function StopOwnedInstallation(): Boolean;
+// FlClash v0.9.2 lifecycle, with brand-specific executable/service names.
+procedure KillProcesses;
 var
-  ResultCode: Integer;
-  PowerShellPath: String;
-  ScriptPath: String;
+  Processes: TArrayOfString;
+  i, ResultCode: Integer;
 begin
-  if IsUninstaller then
-    ScriptPath := ExpandConstant('{app}\maintenance\stop_brand_installation.ps1')
-  else
-  begin
-    ExtractTemporaryFile('stop_brand_installation.ps1');
-    ScriptPath := ExpandConstant('{tmp}\stop_brand_installation.ps1');
-  end;
-  if not FileExists(ScriptPath) then
-  begin
-    Result := False;
-    exit;
-  end;
-  PowerShellPath := ExpandConstant('{sysnative}\WindowsPowerShell\v1.0\powershell.exe');
-  if not FileExists(PowerShellPath) then
-    PowerShellPath := ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe');
-  Result := Exec(PowerShellPath,
-    '-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "' +
-    ScriptPath + '" -InstallDirectory "' +
-    ExpandConstant('{app}') + '" -ServiceName "{#XbServiceName}"',
-    ExpandConstant('{tmp}'), SW_HIDE, ewWaitUntilTerminated, ResultCode);
-  Result := Result and (ResultCode = 0);
+  Processes := ['{{EXECUTABLE_NAME}}',
+    ChangeFileExt('{{EXECUTABLE_NAME}}', '') + 'Core.exe', '{#XbServiceName}.exe'];
+  for i := 0 to GetArrayLength(Processes)-1 do
+    Exec('taskkill', '/f /im ' + Processes[i], '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+end;
+
+procedure UnregisterHelperService;
+var
+  HelperPath: String;
+  ResultCode: Integer;
+begin
+  HelperPath := ExpandConstant('{app}\{#XbServiceName}.exe');
+  if FileExists(HelperPath) then
+    Exec(HelperPath, 'uninstall', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+end;
+
+procedure ClearStaleProxy;
+var
+  AppPath: String;
+  ResultCode: Integer;
+begin
+  AppPath := ExpandConstant('{app}\{{EXECUTABLE_NAME}}');
+  if FileExists(AppPath) then
+    Exec(AppPath, '--clear-stale-proxy', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
 end;
 
 function PointsIntoApp(Value: String): Boolean;
@@ -110,13 +111,24 @@ function PrepareToInstall(var NeedsRestart: Boolean): String;
 begin
   Result := XbPrepareVCRuntime(NeedsRestart);
   if Result <> '' then exit;
-  if not StopOwnedInstallation() then
-    Result := CustomMessage('XbOwnedInstallError');
+  UnregisterHelperService;
+  KillProcesses;
+  Result := '';
+end;
+
+procedure CurStepChanged(CurStep: TSetupStep);
+begin
+  if CurStep = ssPostInstall then
+    ClearStaleProxy;
 end;
 
 function InitializeUninstall(): Boolean;
 begin
-  Result := StopOwnedInstallation();
+  // Same as upstream: these actions precede the uninstall confirmation.
+  UnregisterHelperService;
+  KillProcesses;
+  ClearStaleProxy;
+  Result := True;
 end;
 
 // Called only after the user confirms an interactive uninstall, while the

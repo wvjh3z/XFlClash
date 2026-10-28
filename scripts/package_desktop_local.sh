@@ -134,6 +134,11 @@ need git     "版本控制"
 need python3 "Sentry 符号准备、审计和上传（Python 3.10+）"
 [ "${MISSING}" = "1" ] && { echo "→ 补齐上述工具后重试"; exit 1; }
 
+# Keep diagnostics outside build/: the following flutter clean removes build/.
+# shellcheck source=scripts/local_build_diagnostics.sh
+source "${REPO_DIR}/scripts/local_build_diagnostics.sh"
+
+
 # ───────── 打包依赖（可选 --install-deps；否则仅检查 + 提示）─────────
 install_linux_deps() {
   echo "=== 安装 Linux 打包依赖（sudo apt）==="
@@ -184,7 +189,7 @@ if [ "${PLATFORM}" = "linux" ] && [ "${ARCH}" = "amd64" ]; then
   fi
 fi
 
-python3 tool/prepare_native_build.py --platform "${PLATFORM}" --architecture "${ARCH}" --install-rust-targets
+python3 tool/prepare_native_build.py --platform "${PLATFORM}" --architecture "${ARCH}" --install-rust-targets --prepare-go
 
 # ───────── 版本号 ─────────
 echo "=== package: flavor=${FLAVOR} target=${TARGET} build=${BUILD_NUMBER} ==="

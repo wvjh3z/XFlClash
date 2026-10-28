@@ -30,6 +30,175 @@ class Ticket extends XbAppImageRestartTicket {
 }
 
 void main() {
+  for (final brand in ['omofly', 'daishu']) {
+    test(
+      '$brand real install exit restores and restarts previous image',
+      () async {
+        final root = await Directory.systemTemp.createTemp(
+          'xb-install-$brand-',
+        );
+        addTearDown(() => root.delete(recursive: true));
+        final target = File('${root.path}/$brand.AppImage');
+        final marker = File('${root.path}/old-started');
+        await target.writeAsString(
+          '#!/bin/sh\nprintf restored > "${marker.path}"\n',
+        );
+        expect((await Process.run('chmod', ['+x', target.path])).exitCode, 0);
+        final oldBytes = await target.readAsBytes();
+        final download = File('${root.path}/download');
+        await download.writeAsBytes([127, 69, 76, 70, 0, 1, 2]);
+        final helper = File(
+          'lib/xboard/services/xb_appimage_install.dart',
+        ).absolute.uri;
+        final source = File('${root.path}/parent.dart');
+        await source.writeAsString("""import 'dart:io';
+import '$helper';
+Future<void> main(List<String> args) async {
+  await xbInstallAppImage(downloadedPath: args[0], appImagePath: args[1],
+    requestExit: () async { exit(0); });
+}
+""");
+        final parent = await Process.start(Platform.resolvedExecutable, [
+          source.path,
+          download.path,
+          target.path,
+        ]);
+        addTearDown(() {
+          parent.kill();
+        });
+        final output = parent.stdout.drain<void>();
+        final errors = parent.stderr.transform(utf8.decoder).join();
+        expect(
+          await parent.exitCode.timeout(const Duration(seconds: 15)),
+          0,
+          reason: await errors,
+        );
+        await output;
+        final deadline = Stopwatch()..start();
+        while (!await marker.exists()) {
+          if (deadline.elapsed > const Duration(seconds: 10)) {
+            fail('old image was not restarted after actual parent exit');
+          }
+          await Future<void>.delayed(const Duration(milliseconds: 20));
+        }
+        expect(await target.readAsBytes(), oldBytes);
+        final backups = await root
+            .list(recursive: true)
+            .where((entry) => entry.path.endsWith('/previous.AppImage'))
+            .toList();
+        expect(backups, hasLength(1));
+        expect(await File(backups.single.path).readAsBytes(), oldBytes);
+      },
+      skip: !Platform.isLinux,
+    );
+  }
+
+  group('AppImage exec failure recovery', () {
+    for (final brand in ['omofly', 'daishu']) {
+      for (final scenario in [
+        'recover',
+        'restore-fails',
+        'success',
+        'app-exits-127',
+        'old-script-negative',
+      ]) {
+        test('$brand $scenario', () async {
+          final root = await Directory.systemTemp.createTemp(
+            'xb-$brand-中文 space-',
+          );
+          addTearDown(() => root.delete(recursive: true));
+          final target = File('${root.path}/$brand AppImage');
+          final backup = File('${root.path}/previous.AppImage');
+          final marker = File('${root.path}/old-started');
+          await backup.writeAsString(
+            '#!/bin/sh\nprintf old > "${marker.path}"\n',
+          );
+          expect((await Process.run('chmod', ['+x', backup.path])).exitCode, 0);
+          final oldBytes = await backup.readAsBytes();
+          if (scenario == 'success' || scenario == 'app-exits-127') {
+            await target.writeAsString(
+              '#!/bin/sh\nexit ${scenario == 'success' ? 0 : 127}\n',
+            );
+          } else {
+            await target.writeAsBytes([127, 69, 76, 70, 0, 1, 2, 3]);
+          }
+          expect((await Process.run('chmod', ['+x', target.path])).exitCode, 0);
+          final newBytes = await target.readAsBytes();
+          final control = await Directory('${root.path}/control').create();
+          final ready = File('${control.path}/ready');
+          final parent = await Process.start('/bin/sh', ['-c', 'exit 0']);
+          await parent.exitCode;
+          final script = scenario == 'old-script-negative'
+              ? xbAppImageRestartScript.replaceFirst(
+                  'trap recover_launch 0',
+                  ':',
+                )
+              : xbAppImageRestartScript;
+          final child = await Process.start('/bin/sh', [
+            '-c',
+            script,
+            'xb-recovery-test',
+            '${parent.pid}',
+            '0',
+            target.path,
+            ready.path,
+            backup.path,
+          ]);
+          addTearDown(() {
+            child.kill();
+          });
+          final output = child.stdout.drain<void>();
+          final errors = child.stderr.drain<void>();
+          final deadline = Stopwatch()..start();
+          while (!await ready.exists()) {
+            if (deadline.elapsed > const Duration(seconds: 10)) {
+              fail('waiter not ready');
+            }
+            await Future<void>.delayed(const Duration(milliseconds: 20));
+          }
+          if (scenario == 'restore-fails') {
+            await target.delete();
+            await Directory(target.path).create();
+            await File('${target.path}/retain').writeAsString('do not remove');
+          }
+          await File('${control.path}/commit').writeAsString('commit');
+          final code = await child.exitCode.timeout(
+            const Duration(seconds: 10),
+          );
+          await Future.wait([output, errors]);
+          expect(await backup.readAsBytes(), oldBytes);
+          if (scenario == 'recover') {
+            expect(code, 0);
+            expect(await target.readAsBytes(), oldBytes);
+            expect(await marker.readAsString(), 'old');
+          } else if (scenario == 'restore-fails') {
+            expect(code, isNot(0));
+            expect(
+              await File('${target.path}/retain').readAsString(),
+              'do not remove',
+            );
+            expect(await marker.exists(), isFalse);
+            expect(
+              await File('${backup.path}.restart.log').readAsString(),
+              contains('restore_failed'),
+            );
+          } else {
+            expect(
+              code,
+              scenario == 'success'
+                  ? 0
+                  : scenario == 'app-exits-127'
+                  ? 127
+                  : isNot(0),
+            );
+            expect(await target.readAsBytes(), newBytes);
+            expect(await marker.exists(), isFalse);
+          }
+        });
+      }
+    }
+  }, skip: !Platform.isLinux);
+
   test(
     'lease stays held through installer lifetime and stale release is harmless',
     () async {

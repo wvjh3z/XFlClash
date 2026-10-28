@@ -62,7 +62,7 @@ def main(argv=None):
                                  *[str(p.relative_to(ROOT)) for p in sorted((ROOT/'.github/workflows').glob('*.yml'))]],
                                 cwd=ROOT,env=env,timeout=90)
         shell = subprocess.run([str(base/'shellcheck'), '--shell=bash', '--severity=warning',
-                                'scripts/package_desktop_local.sh'],cwd=ROOT,env=env,timeout=30)
+                                'scripts/package_desktop_local.sh', 'scripts/local_build_diagnostics.sh'],cwd=ROOT,env=env,timeout=30)
         passed = result.returncode == 0 and shell.returncode == 0
         if passed: print('Static checks passed: '+', '.join(n+' '+p['version'] for n,p in pins.items()))
         return 0 if passed else 1

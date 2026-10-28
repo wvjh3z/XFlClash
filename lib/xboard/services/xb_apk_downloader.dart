@@ -1,22 +1,20 @@
-/// 安装包下载 + 校验 + 安装服务（self-update tier-2，跨平台）。
+/// 安装包下载 + 安装服务（self-update tier-2，跨平台）。
 ///
 /// **支持平台**：Android（APK + 系统安装器）/ Windows（Inno Setup .exe 安装器）/
 /// Linux（AppImage 自替换重启）。macOS 不走本服务（由调用方回退浏览器下载）。
 ///
 /// **流程**：
 /// 1. 逐源下载到临时目录（带进度回调）
-/// 2. SHA256 校验（下载完成后本地算 hash 比对）
-/// 3. 按平台「应用」更新：
+/// 2. 按平台「应用」更新：
 ///    - Android：platform channel 调起系统安装器
-///    - Windows：`Process.start` 拉起 .exe 安装器（安装器按品牌及目录处理旧进程），由安装器接管旧进程
+///    - Windows：`Process.start` 拉起 .exe 安装器（安装器按品牌进程名处理旧进程），由安装器接管旧进程
 ///    - Linux：原子替换 AppImage，安排旧进程正常退出后启动新版
-/// 4. 失败返回对应 [DownloadResult]，由界面显示重试或手动安装提示。
+/// 3. 失败返回对应 [DownloadResult]，由界面显示重试或手动安装提示。
 library;
 
 import 'dart:io';
 import 'dart:async';
 
-import 'package:crypto/crypto.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
@@ -32,7 +30,7 @@ import 'xboard_release_dio.dart';
 typedef DownloadProgress = void Function(int received, int total);
 
 /// 下载结果。
-enum DownloadResult { success, hashMismatch, networkError, installFailed, busy }
+enum DownloadResult { success, networkError, installFailed, busy }
 
 class XbApkDownloader {
   XbApkDownloader._();
@@ -45,17 +43,15 @@ class XbApkDownloader {
   static bool get isInAppInstallSupported =>
       Platform.isAndroid || Platform.isWindows || Platform.isLinux;
 
-  /// 下载 → 校验 → 安装。
+  /// 下载 → 安装。
   ///
   /// [urls] — 按优先级排好的下载源列表（已按 region 排序）。
-  /// [expectedSha256] — 预期 SHA256（小写 hex）。空串跳过校验。
   /// [onProgress] — 进度回调（received, total bytes）。
   /// [cancelToken] — 取消令牌。
   ///
   /// Windows 成功后保留客户端，由安装器接管；Linux 成功后调用方应正常退出。
   static Future<DownloadResult> downloadAndInstall({
     required List<String> urls,
-    required String expectedSha256,
     required DownloadProgress onProgress,
     CancelToken? cancelToken,
     Future<void> Function()? requestLinuxExit,
@@ -66,7 +62,6 @@ class XbApkDownloader {
     try {
       return await _downloadAndInstall(
         urls: urls,
-        expectedSha256: expectedSha256,
         onProgress: onProgress,
         cancelToken: cancelToken,
         requestLinuxExit: requestLinuxExit,
@@ -91,7 +86,6 @@ class XbApkDownloader {
 
   static Future<DownloadResult> _downloadAndInstall({
     required List<String> urls,
-    required String expectedSha256,
     required DownloadProgress onProgress,
     required void Function(Process) onWindowsStarted,
     CancelToken? cancelToken,
@@ -153,25 +147,6 @@ class XbApkDownloader {
         return DownloadResult.networkError;
       }
 
-      // SHA256 校验
-      if (expectedSha256.isNotEmpty) {
-        final file = File(filePath);
-        final bytes = await file.readAsBytes();
-        final hash = sha256.convert(bytes).toString();
-        if (hash != expectedSha256.toLowerCase()) {
-          debugPrint(
-            '[XbApkDownloader] SHA256 mismatch: expected=$expectedSha256, got=$hash',
-          );
-          file.deleteSync();
-          // #2 监测：hash 不符 = 下载损坏 / 后台配错 sha256 / 潜在篡改 → 高价值，必报。
-          SentryBootstrap.captureException(
-            'self-update SHA256 mismatch (expected=$expectedSha256 got=$hash)',
-            where: 'self-update hash mismatch',
-          );
-          return DownloadResult.hashMismatch;
-        }
-      }
-
       if (cancelToken?.isCancelled ?? false) return DownloadResult.networkError;
       final DownloadResult result;
       if (Platform.isAndroid) {
@@ -217,7 +192,7 @@ class XbApkDownloader {
     }
   }
 
-  /// Windows：拉起品牌 Inno Setup 安装器，由其按品牌及目录停止旧进程。
+  /// Windows：拉起品牌 Inno Setup 安装器，由其按品牌进程名停止旧进程。
   /// 保留安装器进程句柄直到退出，防止重复启动；客户端由安装器准备安装时接管。
   static Future<DownloadResult> _installWindows(
     String filePath,

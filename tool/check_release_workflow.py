@@ -15,6 +15,11 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 MODULES = (
+    "tool.test.build_diagnostics_test",
+    "tool.test.local_release_automation_test.AndroidLocalTests.test_diagnostics_survive_clean_and_keep_original_outcomes",
+    "tool.test.local_release_automation_test.AndroidLocalTests.test_finalizer_error_cannot_change_success_or_failure",
+    "tool.test.native_hook_diagnostics_test",
+    "tool.test.prepare_go_dependencies_test",
     "tool.test.sentry_symbolication_picker_test.PickerTest.test_native_cleanup_guard_rejects_unreaped_child",
     "tool.test.sentry_symbolication_picker_test.PickerTest.test_native_tool_stderr_is_bounded_and_safe",
     "tool.test.sentry_symbolication_picker_test.PickerTest.test_native_timeout_after_ready_uses_controlled_clock",

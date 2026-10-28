@@ -462,6 +462,13 @@ class AndroidLocalTests(unittest.TestCase):
         def run(builder, command, name, cwd=None):
             nonlocal head
             owner.calls.append((name, command, cwd))
+            if name == "native-inputs":
+                report=Path(builder.environment["XFLCLASH_DIAGNOSTICS_DIR"])/"dependency-retries/go.json"
+                report.parent.mkdir(parents=True,exist_ok=True)
+                report.write_text('{"passed":true}',encoding="utf-8")
+            if name == "clean":
+                shutil.rmtree(owner.root/"build",ignore_errors=True)
+
             if name == change_head_at:
                 head = "b" * 40
             if name == change_source_at:
@@ -521,6 +528,19 @@ class AndroidLocalTests(unittest.TestCase):
         build = next(command for name, command, _ in self.calls if name == "flutter-apk")
         self.assertIn("--dart-define=XB_ANDROID_ABI=arm64-v8a", build)
         self.assertIn("--split-debug-info=build/debug-info", build)
+
+    def test_diagnostics_survive_clean_and_keep_original_outcomes(self):
+        self.assertEqual(self.run_fake(failure="flutter-apk"),1)
+        evidence=json.loads((self.batch/"diagnostics/dependency-retries/go.json").read_text(encoding="utf-8"))
+        self.assertTrue(evidence["passed"])
+        final=json.loads((self.batch/"diagnostics/finalization.json").read_text(encoding="utf-8"))
+        self.assertEqual(final["main_exit_code"],1)
+        self.assertTrue((self.batch/"diagnostics/native-hook-diagnostics.json").exists())
+
+    def test_finalizer_error_cannot_change_success_or_failure(self):
+        with mock.patch.object(android,"finalize_build_diagnostics",side_effect=OSError("controlled")):
+            self.assertEqual(self.run_fake(failure="flutter-apk"),1)
+            self.assertEqual(self.run_fake(),0)
 
     def test_custom_gradle_home_completes_release_without_home_directory(self):
         with mock.patch.object(android.Path, "home", side_effect=RuntimeError("home directory unavailable")) as home:
