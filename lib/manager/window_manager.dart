@@ -72,9 +72,9 @@ class _WindowContainerState extends ConsumerState<WindowManager>
       return;
     }
     final revision = ++_windowBlurRevision;
-    bool active;
+    double? opacity;
     try {
-      active = await port.setBlur(
+      opacity = await port.setBlur(
         enabled: request.enabled,
         brightness: request.brightness,
         tint: request.tint,
@@ -84,12 +84,11 @@ class _WindowContainerState extends ConsumerState<WindowManager>
         'Window blur failed: ${compactError(error)}',
         logLevel: LogLevel.warning,
       );
-      active = false;
     }
     if (!mounted || revision != _windowBlurRevision) {
       return;
     }
-    ref.read(windowBlurProvider.notifier).value = active;
+    ref.read(windowBlurProvider.notifier).value = opacity;
   }
 
   @override
@@ -411,14 +410,17 @@ class _WindowHeaderState extends ConsumerState<WindowHeader> {
   }
 
   Widget _buildBar(BuildContext context) {
-    final translucent =
-        ref.watch(windowBlurProvider) && !ref.watch(isMobileViewProvider);
+    final backdropOpacity = ref.watch(isMobileViewProvider)
+        ? null
+        : ref.watch(windowBlurProvider);
     return WindowHeaderBar(
       height: kHeaderHeight,
-      translucent: translucent,
+      backdropOpacity: backdropOpacity,
       onDragStart: desktopWindow.startDragging,
       onDoubleTap: caption.toggleMaximized,
-      title: system.isMacOS ? Text(XboardConfig.current.applicationTitle(fallback: appName)) : null,
+      title: system.isMacOS
+          ? Text(XboardConfig.current.applicationTitle(fallback: appName))
+          : null,
       actions: system.isMacOS
           ? null
           : WindowHeaderActions(
@@ -440,7 +442,7 @@ class WindowHeaderBar extends StatelessWidget {
     required this.height,
     required this.onDragStart,
     required this.onDoubleTap,
-    this.translucent = false,
+    this.backdropOpacity,
     this.title,
     this.actions,
   });
@@ -448,15 +450,16 @@ class WindowHeaderBar extends StatelessWidget {
   final double height;
   final VoidCallback onDragStart;
   final VoidCallback onDoubleTap;
-  final bool translucent;
+  final double? backdropOpacity;
   final Widget? title;
   final Widget? actions;
 
   @override
   Widget build(BuildContext context) {
     final colorScheme = context.colorScheme;
+    final backdropOpacity = this.backdropOpacity;
     return Material(
-      color: translucent ? Colors.transparent : null,
+      color: backdropOpacity != null ? Colors.transparent : null,
       shape: Border(bottom: Divider.createBorderSide(context)),
       child: SizedBox(
         height: height,
@@ -470,9 +473,9 @@ class WindowHeaderBar extends StatelessWidget {
                 },
                 onDoubleTap: onDoubleTap,
                 child: ColoredBox(
-                  color: translucent
+                  color: backdropOpacity != null
                       ? colorScheme.chromeSurface.withValues(
-                          alpha: kSidebarBlurOpacity,
+                          alpha: backdropOpacity,
                         )
                       : colorScheme.chromeSurface,
                 ),

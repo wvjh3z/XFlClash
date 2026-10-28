@@ -23,7 +23,7 @@ import 'dart:convert';
 import 'package:dio/dio.dart';
 
 import '../config/bootstrap_constants.dart';
-import '../config/xboard_user_agent.dart';
+import 'xboard_release_dio.dart';
 import '../models/bootstrap_payload.dart';
 import 'sentry_bootstrap.dart';
 
@@ -41,11 +41,16 @@ class EndpointRaceController {
     this.onSubscriptionAvailable,
     Dio? dio,
     bool vpnActive = false,
-  }) : _probe = probe ?? _defaultProbe(dio ?? _defaultProbeDio()),
-       _vpnActive = vpnActive,
-       _now = DateTime.now;
+  }) : _vpnActive = vpnActive,
+       _now = DateTime.now {
+    final transport = probe == null ? (dio ?? _defaultProbeDio()) : null;
+    _ownedProbeDio = probe == null && dio == null ? transport : null;
+    _probe = probe ?? _defaultProbe(transport!);
+  }
 
-  final EndpointProbe _probe;
+  late final EndpointProbe _probe;
+  Dio? _ownedProbeDio;
+  int _networkGeneration = 0;
   final OnEndpointSwitch? onApiSwitch;
   final OnEndpointSwitch? onSubscriptionSwitch;
   final void Function()? onSubscriptionAvailable;
@@ -152,6 +157,17 @@ class EndpointRaceController {
     ];
   }
 
+  /// Bind preference bookkeeping to the network on which a download began.
+  /// Valid downloaded data may still be saved after this recorder expires.
+  void Function(String) captureSubscriptionWinnerRecorder() {
+    final generation = _networkGeneration;
+    return (host) {
+      if (!_disposed && generation == _networkGeneration) {
+        rememberSubscriptionWinner(host);
+      }
+    };
+  }
+
   /// Actual download success is bookkeeping only, never a new sync trigger.
   void rememberSubscriptionWinner(String host) {
     if (!_disposed && _subEndpoints.any((e) => e.url == host)) {
@@ -168,16 +184,12 @@ class EndpointRaceController {
   // ignore: use_setters_to_change_properties
   void debugSetClock(DateTime Function() clock) => _now = clock;
 
-  /// 默认探针 dio：注入浏览器 UA（R4.4 伪装 SSoT [XboardUserAgent.current]，与 SDK API /
-  /// config.json / 加密订阅同源），避免 endpoint 探活请求暴露 Dart 默认 UA `Dart/x (dart:io)`。
-  /// 证书放行 + 代理路由仍由全局 FlClashHttpOverrides 处理（默认 adapter）。
-  /// 关闭持久连接，避免代理状态变化后复用旧 HTTPS CONNECT 隧道。
-  static Dio _defaultProbeDio() => Dio(
-    BaseOptions(
-      headers: {'User-Agent': XboardUserAgent.current},
-      persistentConnection: false,
-    ),
-  );
+  /// Business TLS policy, inherited proxy routing and no pooled CONNECT reuse.
+  static Dio _defaultProbeDio() {
+    final dio = buildReleasedIsolatedDio(timeout: kBootstrapPerMirrorTimeout);
+    dio.options.responseType = ResponseType.json;
+    return dio;
+  }
 
   static EndpointProbe _defaultProbe(Dio dio) => (endpoint) async {
     try {
@@ -204,14 +216,22 @@ class EndpointRaceController {
   };
 
   /// VPN 开关状态变化（R4.9）：更新状态 + 用新档位重新竞速 api/sub（不阻塞调用方）。
-  void setVpnActive(bool active) {
-    if (active == _vpnActive) return;
-    _vpnActive = active;
-    resetApiEndpointHealth?.call();
-    _currentSub = null;
+  void setVpnActive(bool active, {bool rerace = true}) {
+    if (_disposed || active == _vpnActive) return;
+    networkChanged(vpnActive: active, rerace: rerace);
+  }
+
+  /// Invalidate old probes immediately, before a caller's debounce expires.
+  /// Keep the last API for existing requests; only a successful probe replaces it.
+  void networkChanged({bool? vpnActive, bool rerace = true}) {
+    if (_disposed) return;
+    if (vpnActive != null) _vpnActive = vpnActive;
+    _networkGeneration++;
+    _apiGeneration++;
     _subGeneration++;
-    if (_apiEndpoints.isNotEmpty) unawaited(raceApi(_apiEndpoints));
-    if (_subEndpoints.isNotEmpty) unawaited(raceSubscription(_subEndpoints));
+    _currentSub = null;
+    resetApiEndpointHealth?.call();
+    if (rerace) refreshRaceInBackground();
   }
 
   /// API endpoint 完整竞速（R15.C.15/19 + R4.9 地区感知）：按 VPN 状态分档竞速。
@@ -274,7 +294,8 @@ class EndpointRaceController {
   }
 
   Future<void> _doFailOverApi() async {
-    if (_apiEndpoints.isEmpty) return;
+    if (_disposed || _apiEndpoints.isEmpty) return;
+    final generation = _networkGeneration;
     // 按 R4.9 档位顺序找第一个可达者（排除当前）；找不到则完整重竞速。
     final ordered = _orderByRegion(_apiEndpoints)
         .where(
@@ -282,7 +303,9 @@ class EndpointRaceController {
         )
         .toList();
     for (final u in ordered) {
-      if (await _probe(u)) {
+      final reachable = await _probe(u);
+      if (_disposed || generation != _networkGeneration) return;
+      if (reachable) {
         _switchApiTo(u);
         return;
       }
@@ -309,12 +332,15 @@ class EndpointRaceController {
   }
 
   Future<void> _doFailOverSubscription() async {
-    if (_subEndpoints.isEmpty) return;
+    if (_disposed || _subEndpoints.isEmpty) return;
+    final generation = _networkGeneration;
     final ordered = _orderByRegion(
       _subEndpoints,
     ).where((u) => u != _currentSub).toList();
     for (final u in ordered) {
-      if (await _probe(u)) {
+      final reachable = await _probe(u);
+      if (_disposed || generation != _networkGeneration) return;
+      if (reachable) {
         _currentSub = u;
         onSubscriptionSwitch?.call(u);
         _recordSwitch();
@@ -378,6 +404,7 @@ class EndpointRaceController {
 
   /// onResume / 网络变化触发后台竞速（R15.C.20/21，不阻塞 UI）。
   void refreshRaceInBackground() {
+    if (_disposed) return;
     if (_apiEndpoints.isNotEmpty) unawaited(raceApi(_apiEndpoints));
     if (_subEndpoints.isNotEmpty) unawaited(raceSubscription(_subEndpoints));
   }
@@ -461,6 +488,9 @@ class EndpointRaceController {
 
   void dispose() {
     _disposed = true;
+    _networkGeneration++;
+    _ownedProbeDio?.close(force: true);
+    _ownedProbeDio = null;
     _apiGeneration++;
     finishApiInitialization();
     _subGeneration++;

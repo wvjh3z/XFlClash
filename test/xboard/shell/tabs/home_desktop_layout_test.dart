@@ -50,18 +50,19 @@ Future<ProviderContainer> pumpDesktopHome(
       isMobileViewProvider.overrideWith((ref) => false),
       authStateProvider.overrideWith(() => _FakeAuth(auth)),
       isStartProvider.overrideWith((ref) => false),
-      proxiesTabStateProvider.overrideWith((ref) => const ProxiesTabState(
-            groups: [
-              Group(
-                type: GroupType.Selector,
-                name: '智能优选',
-                all: [Proxy(name: '香港01', type: 'ss')],
-              ),
-            ],
-            currentGroupName: '智能优选',
-            proxyCardType: ProxyCardType.standard,
-
-          )),
+      proxiesTabStateProvider.overrideWith(
+        (ref) => const ProxiesTabState(
+          groups: [
+            Group(
+              type: GroupType.Selector,
+              name: '智能优选',
+              all: [Proxy(name: '香港01', type: 'ss')],
+            ),
+          ],
+          currentGroupName: '智能优选',
+          proxyCardType: ProxyCardType.standard,
+        ),
+      ),
       netDetectionOverride(),
       groupsProvider.overrideWithValue(const [
         Group(
@@ -74,35 +75,49 @@ Future<ProviderContainer> pumpDesktopHome(
       selectedMapProvider.overrideWith((ref) => const {'智能优选': '香港01'}),
       currentProfileProvider.overrideWith((ref) => null),
       patchClashConfigProvider.overrideWithBuild(
-          (ref, _) => const PatchClashConfig(mode: Mode.rule)),
+        (ref, _) => const PatchClashConfig(mode: Mode.rule),
+      ),
     ],
   );
   addTearDown(container.dispose);
   container.read(bootstrapReadyProvider.notifier).set(true);
   container.read(coreStatusProvider.notifier).value = CoreStatus.disconnected;
-  if (rawLatency != null) {
-    container.read(homeLatencyProvider.notifier).setResult(rawLatency);
-  }
   await tester.pumpWidget(
     UncontrolledProviderScope(
       container: container,
-      child: MaterialApp(home: Scaffold(body: MediaQuery(
-        data: MediaQueryData(textScaler: TextScaler.linear(scale)),
-        child: const DefaultTextStyle(
-          style: TextStyle(fontFamily: 'FixtureBody', fontSize: 14),
-          child: HomeTab(),
+      child: MaterialApp(
+        home: Scaffold(
+          body: MediaQuery(
+            data: MediaQueryData(textScaler: TextScaler.linear(scale)),
+            child: const DefaultTextStyle(
+              style: TextStyle(fontFamily: 'FixtureBody', fontSize: 14),
+              child: HomeTab(),
+            ),
+          ),
         ),
-      ))),
+      ),
     ),
   );
+  if (rawLatency != null) {
+    container.read(homeLatencyProvider.notifier).setResult(rawLatency);
+  }
   await tester.pump();
   return container;
 }
 
 void main() {
-  testWidgets('desktop speed and latency inherit surrounding font and scale', (tester) async {
-    await pumpDesktopHome(tester, auth: AuthState.authenticated, rawLatency: 121, scale: 1.4);
-    final value = tester.widget<RichText>(find.text('60 ms', findRichText: true));
+  testWidgets('desktop speed and latency inherit surrounding font and scale', (
+    tester,
+  ) async {
+    await pumpDesktopHome(
+      tester,
+      auth: AuthState.authenticated,
+      rawLatency: 121,
+      scale: 1.4,
+    );
+    final value = tester.widget<RichText>(
+      find.text('60 ms', findRichText: true),
+    );
     expect(value.text.style!.fontFamily, 'FixtureBody');
     expect(value.textScaler.scale(10), 14);
     expect(tester.takeException(), isNull);

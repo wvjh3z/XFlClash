@@ -158,12 +158,56 @@ void main() {
     },
   );
 
+  test(
+    'macOS clean injection and A-B-A switching replace both icon directories',
+    () async {
+      for (final brand in ['brand_a', 'brand_b', 'brand_a']) {
+        final result = await inject(brand, 'macos');
+        expect(
+          result.exitCode,
+          0,
+          reason: '${result.stdout}\n${result.stderr}',
+        );
+        for (final source in ['macos', 'linux']) {
+          for (final state in source == 'macos' ? [1, 4] : [1, 2, 3, 4]) {
+            final expected = File(
+              p.join(
+                _repository,
+                'flavors',
+                brand,
+                'system_icons',
+                source,
+                'status_${state == 4 ? 1 : state}.png',
+              ),
+            ).readAsBytesSync();
+            for (final scale in ['', '2.0x', '3.0x', '4.0x']) {
+              final target = File(
+                p.join(
+                  project.path,
+                  'assets/images/tray',
+                  source == 'linux' ? 'unix' : source,
+                  scale,
+                  'status_$state.png',
+                ),
+              );
+              expect(
+                target.readAsBytesSync(),
+                orderedEquals(expected),
+                reason: '$brand $source $state $scale',
+              );
+            }
+          }
+        }
+      }
+    },
+  );
+
   for (final brand in ['brand_a', 'brand_b']) {
     test(
       '$brand CLI injects platform-specific tray resources without stale density variants',
       () async {
         // Each platform retains its own resource directory; no upstream DPI variant survives.
-        for (final platform in ['linux', 'macos', 'linux', 'windows']) {
+        for (final platform in ['macos', 'linux', 'macos', 'windows']) {
           final before = {
             for (final file in Directory(
               p.join(project.path, 'assets/images/tray'),
@@ -187,14 +231,17 @@ void main() {
             final sourceName = name == 'status_4.$extension'
                 ? 'status_1.$extension'
                 : name;
-            final expected = entry.key.startsWith(prefix)
+            final macColor =
+                platform == 'macos' &&
+                entry.key.startsWith('assets/images/tray/unix/');
+            final expected = (entry.key.startsWith(prefix) || macColor)
                 ? File(
                     p.join(
                       _repository,
                       'flavors',
                       brand,
                       'system_icons',
-                      platform,
+                      macColor ? 'linux' : platform,
                       sourceName,
                     ),
                   ).readAsBytesSync()
@@ -226,6 +273,48 @@ void main() {
     );
   }
 
+  for (final brand in ['brand_a', 'brand_b']) {
+    test(
+      '$brand Windows uninstall cleanup uses isolated brand and installed helpers',
+      () async {
+        final result = await inject(brand, 'windows');
+        expect(
+          result.exitCode,
+          0,
+          reason: '${result.stdout}\n${result.stderr}',
+        );
+        final source = File(
+          p.join(project.path, 'windows/packaging/exe/inno_setup.iss'),
+        ).readAsStringSync();
+        final slug = brand == 'brand_a' ? 'omofly' : 'daishu';
+        expect(source, contains('#define XbDataSlug "$slug"'));
+        expect(source, isNot(contains('com.follow')));
+        expect(source, isNot(contains('DelTree(')));
+        expect(source, isNot(contains('RemoveDir(')));
+        expect(
+          source,
+          contains('(CurUninstallStep = usUninstall) and not UninstallSilent'),
+        );
+        expect(source, contains('MB_YESNO or MB_DEFBUTTON2'));
+        expect(source, contains('if IsUninstaller then'));
+        expect(
+          source,
+          contains(r'{app}\maintenance\remove_brand_user_data.ps1'),
+        );
+        expect(
+          source,
+          contains(r'{app}\maintenance\stop_brand_installation.ps1'),
+        );
+        expect(source, contains('ResultCode = 10'));
+        final prepare = source.substring(
+          source.indexOf('function PrepareToInstall'),
+          source.indexOf('function InitializeUninstall'),
+        );
+        expect(prepare, isNot(contains('RemoveUserData')));
+      },
+    );
+  }
+
   test(
     'macOS CLI keeps current A/B bundle and DMG names in sync on switch',
     () async {
@@ -240,10 +329,10 @@ void main() {
           File(p.join(project.path, path)).readAsStringSync();
       final originalProject = read('macos/Runner.xcodeproj/project.pbxproj');
       final originalInfo = read('macos/Runner/Info.plist');
-      final bundleIdentifier = RegExp(
-        r'^PRODUCT_BUNDLE_IDENTIFIER\s*=.*$',
-        multiLine: true,
-      ).firstMatch(read('macos/Runner/Configs/AppInfo.xcconfig'))!.group(0);
+      const ids = {
+        'brand_a': 'com.cloud.app.omofly',
+        'brand_b': 'com.cloud.app.daishu',
+      };
 
       for (final brand in ['brand_a', 'brand_b', 'brand_a']) {
         final result = await inject(brand, 'macos');
@@ -261,7 +350,11 @@ void main() {
           ).firstMatch(appInfo)?.group(1),
           name,
         );
-        expect(appInfo, contains(bundleIdentifier!));
+        expect(appInfo, contains('PRODUCT_BUNDLE_IDENTIFIER = ${ids[brand]}'));
+        expect(
+          appInfo,
+          isNot(contains('PRODUCT_BUNDLE_IDENTIFIER = com.follow.clash')),
+        );
         final info = read('macos/Runner/Info.plist');
         for (final key in ['CFBundleDisplayName', 'CFBundleName']) {
           expect(
@@ -272,11 +365,7 @@ void main() {
             reason: '$brand / $key',
           );
         }
-        for (final key in [
-          'CFBundleIdentifier',
-          'CFBundleExecutable',
-          'CFBundleURLTypes',
-        ]) {
+        for (final key in ['CFBundleIdentifier', 'CFBundleExecutable']) {
           final value = RegExp(
             '<key>$key</key>\\s*(<string>[^<]*</string>|<array>[\\s\\S]*?</array>\\s*</dict>\\s*</array>)',
           );
@@ -286,7 +375,23 @@ void main() {
             value.firstMatch(originalInfo)?.group(1),
           );
         }
-        expect(read('macos/Runner.xcodeproj/project.pbxproj'), originalProject);
+        final schemes = RegExp(
+          r'<key>CFBundleURLSchemes</key>\s*<array>([\s\S]*?)</array>',
+        ).firstMatch(info)?.group(1);
+        expect(schemes?.trim(), '<string>${ids[brand]}</string>');
+        final projectText = read('macos/Runner.xcodeproj/project.pbxproj');
+        final debugIds = RegExp(
+          r'PRODUCT_BUNDLE_IDENTIFIER = ([A-Za-z0-9.]+\.debug);',
+        );
+        expect(
+          debugIds.allMatches(projectText).map((m) => m.group(1)).toSet(),
+          {'${ids[brand]}.debug'},
+        );
+        expect(
+          projectText.replaceAll(debugIds, 'DEBUG_ID'),
+          originalProject.replaceAll(debugIds, 'DEBUG_ID'),
+        );
+
         final dmg =
             loadYaml(read('macos/packaging/dmg/make_config.yaml')) as YamlMap;
         expect(dmg['title'], name);
@@ -302,7 +407,15 @@ void main() {
           0,
           reason: '${repeated.stdout}\n${repeated.stderr}',
         );
-        expect({for (final path in _textInputs) path: read(path)}, before);
+        for (final path in _textInputs) {
+          // YAML field order is not a brand identity change. Re-injection must
+          // preserve parsed values; native source/plist text stays byte-stable.
+          if (path.endsWith('.yaml')) {
+            expect(loadYaml(read(path)), loadYaml(before[path]!), reason: path);
+          } else {
+            expect(read(path), before[path], reason: path);
+          }
+        }
       }
     },
   );

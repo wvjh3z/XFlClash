@@ -4,7 +4,7 @@
 
 # XFlclash 品牌构建与发布入口
 
-XFlclash 当前维护形态 A 商业客户端，本独立分支的 FlClash 底座目标为 **v0.9.1**，正式成品仍待验收。产品展示版本、底座版本、构建号及 APK 原生版本分别核对，不能用一个“版本号”代替全部发布输入。
+XFlclash 当前维护形态 A 商业客户端，本独立分支的 FlClash 底座目标为 **v0.9.2**，正式成品仍待验收。产品展示版本、底座版本、构建号及 APK 原生版本分别核对，不能用一个“版本号”代替全部发布输入。
 
 完整流程由 [DEVELOPMENT](https://github.com/wvjh3z/proxy-suite-docs/blob/main/DEVELOPMENT.md#多品牌构建和版本) 和 [Android release skill](https://github.com/wvjh3z/proxy-suite-docs/blob/main/skills/xflclash-android-release/SKILL.md) 唯一维护。本页是客户端仓库的导航与检查摘要。Docs 仓库及 [SDK](https://github.com/wvjh3z/Xboard_sdk) 为私有仓库，需要维护者授予 GitHub 访问权限；本地分别 checkout 为客户端平级的 `Docs/` 和 `Xboard_sdk/`。
 

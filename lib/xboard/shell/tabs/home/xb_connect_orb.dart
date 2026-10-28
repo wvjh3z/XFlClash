@@ -3,22 +3,26 @@
 /// **现代扁平风**（非拟物玻璃球，R8.5）：细轨道环 + 留白核心 + 主题色进度环 + 图标/文字表达状态。
 /// 已连接用**主题色**（`colorScheme.primary`，非绿色语义色，R2.3）。
 ///
-/// **四态**（读 `XbConnectAdapter.connState`，design 风险②叠加 coreStatus）：
+/// **五态**（读 `XbConnectAdapter.connState`，design 风险②叠加 coreStatus）：
 /// - booting：启动中，操作禁用（R2.5），转圈
 /// - disconnected：核心留白 + 中性色图标/「未连接」
 /// - connecting：主题色进度弧转动（R2.4），操作进行中
 /// - connected：主题色完整环 + 主题色图标/「已连接」（R2.3）
+/// - paused：中性暂停图标，无已保护提示；点击主动断开。
 ///
 /// **适配层铁律**：本文件在 `lib/xboard/shell/tabs/`，**禁止**直接 import lib/views/**；
-/// 一切内核交互经 `XbConnectAdapter`（W2.1）。点击 → `adapter.toggle`。
+/// 一切内核交互经 `XbConnectAdapter`（W2.1）。点击 → 捕获目标、执行门禁、`adapter.setStatus`。
 ///
 /// **文案约束（R2.5）**：不出现「节点 / 优选 / 线路 / 竞速」等技术词。
 library;
+
+import 'dart:async';
 
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../widgets/xb_motion.dart';
+import '../../../widgets/xb_feedback.dart';
 import '../../adapters/xb_connect_adapter.dart';
 import '../../adapters/xb_nodes_adapter.dart';
 import '../../adapters/xb_network_adapter.dart';
@@ -35,7 +39,7 @@ enum XbConnectBlock {
   preparing,
 }
 
-/// 连接球四态外形。
+/// 连接球五态外形，暂停保留按需恢复意图。
 class XbConnectOrb extends ConsumerStatefulWidget {
   const XbConnectOrb({
     super.key,
@@ -70,6 +74,7 @@ class XbConnectOrb extends ConsumerStatefulWidget {
 class _XbConnectOrbState extends ConsumerState<XbConnectOrb>
     with SingleTickerProviderStateMixin {
   bool _pressed = false;
+  int _actionGeneration = 0;
 
   /// 用户是否主动发起了连接（点击连接球/线路卡连接）。
   ///
@@ -78,9 +83,9 @@ class _XbConnectOrbState extends ConsumerState<XbConnectOrb>
   /// 「正在建立加密隧道」。故仅在用户主动连接时才认作「连接中」，否则核心预热 → 显示「准备中」。
   bool _connectIntent = false;
 
-  /// 上次点击连接球的时间戳（防抖：800ms 内的重复点击视为误触/连点，忽略）。
+  /// 800ms 防抖窗口；使用计时器，不受系统时间校准影响。
   /// 防止「未连接→发起连接」后手抖再点把刚建立的连接立刻 toggle 掐断；窗口外仍可点（允许主动取消）。
-  DateTime? _lastTapAt;
+  Timer? _tapDebounce;
 
   /// 连上瞬间的回弹 pop（一次性）：scale 0.9 → 1.08 → 1.0。
   /// 静止值 = 1.0（controller 初始 value=1.0 → TweenSequence 末态 1.0），
@@ -99,6 +104,7 @@ class _XbConnectOrbState extends ConsumerState<XbConnectOrb>
 
   @override
   void dispose() {
+    _tapDebounce?.cancel();
     _pop.dispose();
     super.dispose();
   }
@@ -113,7 +119,8 @@ class _XbConnectOrbState extends ConsumerState<XbConnectOrb>
     final raw = adapter.connState(ref);
     // 冷启动核心预热（connecting，但既非用户发起、VPN 也未开启）→ 当作「准备中」，
     // 不显示「连接中/建立加密隧道」。用户发起连接(_connectIntent) 或 VPN 已开(startIntended) 才认作连接中。
-    final state = (raw == XbConnState.connecting &&
+    final state =
+        (raw == XbConnState.connecting &&
             !_connectIntent &&
             !adapter.startIntended(ref))
         ? XbConnState.booting
@@ -140,7 +147,7 @@ class _XbConnectOrbState extends ConsumerState<XbConnectOrb>
       enabled: enabled,
       label: _semanticLabel(state),
       child: GestureDetector(
-        onTap: enabled ? () => _handleTap(ref, state) : null,
+        onTap: enabled ? () => _handleTap(ref) : null,
         onTapDown: enabled ? (_) => _set(true) : null,
         onTapUp: enabled ? (_) => _set(false) : null,
         onTapCancel: () => _set(false),
@@ -193,8 +200,11 @@ class _XbConnectOrbState extends ConsumerState<XbConnectOrb>
                           ),
                         ],
                       ),
-                      child: Icon(Icons.lock,
-                          size: size * 0.085, color: scheme.onSurfaceVariant),
+                      child: Icon(
+                        Icons.lock,
+                        size: size * 0.085,
+                        color: scheme.onSurfaceVariant,
+                      ),
                     ),
                   ),
               ],
@@ -237,39 +247,49 @@ class _XbConnectOrbState extends ConsumerState<XbConnectOrb>
   }
 
   /// 点击处理：仅在「未连接 → 连接」方向先过拦截 gate；已连接（断开）/ 连接中直接放行。
-  void _handleTap(WidgetRef ref, XbConnState state) {
+  Future<void> _handleTap(WidgetRef ref) async {
     // 防抖：800ms 内的重复点击忽略（防双击/手抖连点导致 toggle 抖动、误掐断刚建立的连接）。
-    final now = DateTime.now();
-    if (_lastTapAt != null &&
-        now.difference(_lastTapAt!) < const Duration(milliseconds: 800)) {
-      return;
-    }
-    _lastTapAt = now;
+    if (_tapDebounce?.isActive == true) return;
+    _tapDebounce = Timer(const Duration(milliseconds: 800), () {});
 
     final adapter = ref.read(xbConnectAdapterProvider);
-    final initiatingConnect = state == XbConnState.disconnected;
+    if (!adapter.canToggle(ref)) return;
+    final initiatingConnect = adapter.nextStartTarget(ref);
     if (initiatingConnect && widget.onBlocked != null) {
       final block = widget.onBlocked!();
       if (block != null) return; // 被拦截（回调内已弹提示），不连接。
     }
     // 记录连接意图：发起连接 → true（让 connecting 态认作真实连接中）；断开 → false。
     _connectIntent = initiatingConnect;
-    adapter.toggle(ref);
+    final generation = ++_actionGeneration;
+    try {
+      await adapter.setStatus(ref, start: initiatingConnect);
+    } catch (error) {
+      // Never expose native exception bodies (paths/configuration) in the UI.
+      debugPrint('[Xboard connection] action failed: ${error.runtimeType}');
+      if (!mounted || generation != _actionGeneration) return;
+      setState(() => _connectIntent = false);
+      xbToastSafe(
+        initiatingConnect ? '连接失败，请重试；如持续失败，请联系客服。' : '断开失败，请重试；请确认 VPN 已停止。',
+      );
+      return;
+    }
+    if (!mounted || generation != _actionGeneration) return;
     // 发起连接时测一次当前生效节点延迟（3 次取最低，刷到首页速度卡）。fire-and-forget。
     if (initiatingConnect) {
-      // ignore: discarded_futures
-      ref.read(xbNodesAdapterProvider).measureCurrentNodeBest(ref);
+      unawaited(ref.read(xbNodesAdapterProvider).measureCurrentNodeBest(ref));
     }
     // 连接/断开后重新检测出口 IP（VPN 出口会变；延后让连接态切换后再测）。
     ref.read(xbNetworkAdapterProvider).startCheck(ref);
   }
 
   String _semanticLabel(XbConnState state) => switch (state) {
-        XbConnState.booting => '准备中',
-        XbConnState.disconnected => '未连接，点击连接',
-        XbConnState.connecting => '连接中',
-        XbConnState.connected => '已连接，点击断开',
-      };
+    XbConnState.booting => '准备中',
+    XbConnState.disconnected => '未连接，点击连接',
+    XbConnState.connecting => '连接中',
+    XbConnState.connected => '已连接，点击断开',
+    XbConnState.paused => '已暂停，点击断开并取消自动恢复',
+  };
 }
 
 /// 连接中声呐脉冲层：两层向外扩散的环（错相），表达「正在建立连接」。
@@ -462,10 +482,12 @@ class _ProgressPainter extends CustomPainter {
           start,
           2.094, // ~120°
           false,
-          paint..color = color.withValues(
-            alpha: state == XbConnState.booting ? 0.5 : 1.0,
-          ),
+          paint
+            ..color = color.withValues(
+              alpha: state == XbConnState.booting ? 0.5 : 1.0,
+            ),
         );
+      case XbConnState.paused:
       case XbConnState.disconnected:
         // 无进度环（仅轨道环可见）。
         break;
@@ -555,22 +577,25 @@ class _OrbCore extends StatelessWidget {
 }
 
 IconData _orbIcon(XbConnState state) => switch (state) {
-      XbConnState.connected => Icons.verified_user,
-      XbConnState.connecting => Icons.shield_outlined,
-      XbConnState.booting => Icons.hourglass_empty,
-      XbConnState.disconnected => Icons.power_settings_new,
-    };
+  XbConnState.connected => Icons.verified_user,
+  XbConnState.paused => Icons.pause_circle_outline,
+  XbConnState.connecting => Icons.shield_outlined,
+  XbConnState.booting => Icons.hourglass_empty,
+  XbConnState.disconnected => Icons.power_settings_new,
+};
 
 String _orbStatusText(XbConnState state) => switch (state) {
-      XbConnState.connected => '已连接',
-      XbConnState.connecting => '连接中',
-      XbConnState.booting => '准备中',
-      XbConnState.disconnected => '未连接',
-    };
+  XbConnState.connected => '已连接',
+  XbConnState.paused => '已暂停',
+  XbConnState.connecting => '连接中',
+  XbConnState.booting => '准备中',
+  XbConnState.disconnected => '未连接',
+};
 
 String _orbSubText(XbConnState state) => switch (state) {
-      XbConnState.connected => '数据已加密保护',
-      XbConnState.connecting => '正在建立加密隧道…',
-      XbConnState.booting => '正在准备服务',
-      XbConnState.disconnected => '点击连接',
-    };
+  XbConnState.connected => '数据已加密保护',
+  XbConnState.paused => '离开此 Wi-Fi 后自动恢复',
+  XbConnState.connecting => '正在建立加密隧道…',
+  XbConnState.booting => '正在准备服务',
+  XbConnState.disconnected => '点击连接',
+};

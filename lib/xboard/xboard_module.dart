@@ -25,7 +25,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../providers/config.dart'
     show patchClashConfigProvider, appSettingProvider;
 import '../providers/app.dart' show initProvider;
-import '../providers/state.dart' show isStartProvider;
+import '../enum/enum.dart' show GeneralOverrideKey;
 import 'config/xboard_config.dart';
 import 'l10n/content_language.dart';
 import 'models/bootstrap_payload.dart';
@@ -44,6 +44,7 @@ import 'services/subscription_triggers.dart';
 import 'services/xb_geo_update_service.dart';
 import 'services/xb_update_service.dart';
 import 'services/xboard_lifecycle_observer.dart';
+import 'services/xboard_network_observer.dart';
 import 'services/xboard_release_dio.dart' show XboardReleaseHttp;
 import 'widgets/xboard_consent_dialog.dart' show kXbConsentKey;
 
@@ -115,8 +116,8 @@ class XboardModule {
   /// seam #7 「首次默认开 IPv6」的 initProvider 监听句柄（dispose 时关）。
   static ProviderSubscription<bool>? _initListener;
 
-  /// R4.9：isStartProvider（VPN 开关）监听句柄（dispose 时关）。
-  static ProviderSubscription<bool>? _vpnStateListener;
+  /// Brand network/routing observer; closed before the race controller.
+  static XboardNetworkObserver? _networkObserver;
 
   /// R4.6 step2b-fix：authState 监听句柄（登录/冷启动跃迁 → 订阅同步，dispose 时关）。
   /// **始终存活**（住 module，不依赖任何 UI 页面构建）—— 根治「不进我的服务页订阅不触发」。
@@ -587,30 +588,29 @@ class XboardModule {
         _reportSwallowed('auth-state wire failed', e, s);
       }
 
-      // R4.9：监听 VPN 开关（isStartProvider），变化时让 race controller 用新档位重竞速。
-      // 用 fireImmediately 一次性拿初值 + 后续变化（避免单独 read 留挂起 dispose timer）；
-      // race controller 不绑 riverpod，保持可测试（决策 #14 风格）。
+      // Observe effective proxy state (running and not suspended), plus physical
+      // network changes. Invalidations are immediate; probes coalesce for 300ms.
       try {
-        _vpnStateListener = container.listen<bool>(isStartProvider, (
-          prev,
-          next,
-        ) {
-          _raceController?.setVpnActive(next);
-          // VPN 连上跃迁（false→true）→ 触发更新检查（解决冷启动域名被墙检测失败，
-          // 连上 VPN 后出口可达再查；24h 节流内部判定，fire-and-forget 不阻塞）。
-          if (prev != true && next) {
-            // ignore: discarded_futures
-            XbUpdateService.autoCheckThrottled(container);
-            // 连上 VPN：延迟一会儿（待网络稳定）再查 geo 库是否需更新（≥7 天才更）；
-            // 到点复核仍连着才拉。
-            XbGeoUpdateService.onConnected(
-              () => container.read(isStartProvider),
-            );
-          } else if (prev == true && !next) {
-            // 断开 VPN：取消尚未到点的 geo 延迟检查。
-            XbGeoUpdateService.onDisconnected();
-          }
-        }, fireImmediately: true);
+        _networkObserver = XboardNetworkObserver(
+          container,
+          _raceController!,
+          onEffectiveVpnChanged: (prev, next) {
+            // VPN 连上跃迁（false→true）→ 触发更新检查（解决冷启动域名被墙检测失败，
+            // 连上 VPN 后出口可达再查；24h 节流内部判定，fire-and-forget 不阻塞）。
+            if (prev != true && next) {
+              // ignore: discarded_futures
+              XbUpdateService.autoCheckThrottled(container);
+              // 连上 VPN：延迟一会儿（待网络稳定）再查 geo 库是否需更新（≥7 天才更）；
+              // 到点复核仍连着才拉。
+              XbGeoUpdateService.onConnected(
+                () => _raceController?.vpnActive == true,
+              );
+            } else if (prev == true && !next) {
+              // 断开 VPN：取消尚未到点的 geo 延迟检查。
+              XbGeoUpdateService.onDisconnected();
+            }
+          },
+        );
       } catch (e, s) {
         _reportSwallowed('vpn-state wire failed', e, s);
       }
@@ -644,8 +644,7 @@ class XboardModule {
     // DD-23：bootstrap 同步阶段完成 tag（W5.7）。
     SentryBootstrap.tagBootstrap(stage: 'sync_done');
 
-    // step 8：connectivity（W5.4 xboardConnectivityProvider 自起 StreamProvider，
-    // UI/race 通过 ref.watch/listen 复用，不在此裸 listen，DD-5/E12）。
+    // Connectivity is subscribed by the brand observer through the shared provider.
   }
 
   /// formA 强制界面语言为简体中文（用户 2026-06-20 决策：默认简中 + 隐藏语言设置）。
@@ -679,7 +678,15 @@ class XboardModule {
         }
         container
             .read(patchClashConfigProvider.notifier)
-            .update((s) => s.copyWith(ipv6: true));
+            .update(
+              (s) => s.copyWith(
+                ipv6: true,
+                generalOverrideKeys: {
+                  ...s.generalOverrideKeys,
+                  GeneralOverrideKey.ipv6,
+                },
+              ),
+            );
         await prefs.setBool(kXbIpv6DefaultAppliedKey, true);
       } catch (e, s) {
         _reportSwallowed('default-ipv6 apply failed', e, s);
@@ -729,8 +736,8 @@ class XboardModule {
     // 2. 关 seam #7 initProvider 监听 + R4.9 VPN 状态监听 + R4.6 authState 监听。
     _initListener?.close();
     _initListener = null;
-    _vpnStateListener?.close();
-    _vpnStateListener = null;
+    _networkObserver?.dispose();
+    _networkObserver = null;
     _authStateListener?.close();
     _authStateListener = null;
     _sessionNotifier?.unbindSdkSessions();

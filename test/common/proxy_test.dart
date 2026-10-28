@@ -45,8 +45,8 @@ void main() {
     'opening and closing an idle brand does not stop another client proxy',
     () async {
       final proxy = _FakeProxy();
-      final active = SystemProxyQueue(proxy, ownedOnly: true);
-      final idle = SystemProxyQueue(proxy, ownedOnly: true);
+      final active = SystemProxyQueue(proxy);
+      final idle = SystemProxyQueue(proxy);
       await active.apply(_state(isStart: true));
       await idle.apply(_state(isStart: false));
       await idle.close();
@@ -60,7 +60,7 @@ void main() {
     'a partial failed brand start still permits cleanup and retries failed stop',
     () async {
       final proxy = _FakeProxy();
-      final queue = SystemProxyQueue(proxy, ownedOnly: true);
+      final queue = SystemProxyQueue(proxy);
       proxy.failure = StateError('partial start');
       await queue.apply(_state(isStart: true));
       proxy.held = Future.value(false);
@@ -87,18 +87,18 @@ void main() {
     final inFlight = Completer<bool>();
     proxy.held = inFlight.future;
 
-    unawaited(queue.apply(_state(isStart: false)));
+    unawaited(queue.apply(_state(isStart: true)));
     await pumpEventQueue();
     unawaited(queue.apply(_state(isStart: true)));
     final closed = queue.close();
     await pumpEventQueue();
-    expect(proxy.calls, ['stop']);
+    expect(proxy.calls, ['start 7890']);
 
     inFlight.complete(true);
     await closed;
     await queue.apply(_state(isStart: true));
 
-    expect(proxy.calls, ['stop', 'stop']);
+    expect(proxy.calls, ['start 7890', 'stop']);
   });
 
   test('a failing call does not stall the queue', () async {
@@ -110,5 +110,28 @@ void main() {
     await queue.apply(_state(isStart: false));
 
     expect(proxy.calls, ['start 7890', 'stop']);
+  });
+
+  test('leaves a proxy it never set alone', () async {
+    final proxy = _FakeProxy();
+    final queue = SystemProxyQueue(proxy);
+
+    await queue.apply(_state(isStart: false));
+    await queue.close();
+
+    expect(proxy.calls, isEmpty);
+  });
+
+  test('tries a failed stop again on close', () async {
+    final proxy = _FakeProxy();
+    final queue = SystemProxyQueue(proxy);
+
+    await queue.apply(_state(isStart: true));
+    proxy.held = Future.value(false);
+    await queue.apply(_state(isStart: false));
+    await queue.close();
+    await queue.close();
+
+    expect(proxy.calls, ['start 7890', 'stop', 'stop']);
   });
 }

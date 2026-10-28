@@ -1,6 +1,6 @@
 /// 形态 A 出口 IP 卡（spec `xboard-form-a-ui-revamp` / W3 · 原型 `.ipcard`）。
 ///
-/// 借用 FlClash `networkDetection`（多源竞速检测出口 IP，经 [XbNetworkAdapter] 收口）。
+/// 使用 Xboard 旧版七源探测器，经 [XbNetworkAdapter] 收口。
 /// 与登录无关：游客 / 未连接也显示本地直连出口 IP；已连接显示 VPN 出口 IP；检测中显示转圈。
 /// 标签格式「出口 IP (国家)」。点右侧刷新重新检测。
 library;
@@ -34,7 +34,7 @@ class XbIpCard extends ConsumerWidget {
     final country = _countryName(status.countryCode);
     final label = '出口 IP${country != null ? ' ($country)' : ''}';
     final String value;
-    if (status.loading && !status.hasIp) {
+    if (status.loading) {
       value = '检测中…';
     } else if (status.hasIp) {
       value = status.ip!;

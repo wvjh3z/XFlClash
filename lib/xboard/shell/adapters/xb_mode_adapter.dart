@@ -2,7 +2,7 @@
 ///
 /// **职责（风险②b 收口 + direct 归一坑）**：形态 A 只暴露「智能 / 全局」二选一，但 FlClash
 /// `Mode` 是三态 `{rule, global, direct}`。本适配器：
-/// - 读：`rule→smart` / `global→global` / **`direct→smart`（归一）**（formA 二选一无法表达 direct）。
+/// - 读：`rule→smart` / `global→global` / **`direct→null`（不误标智能）**（formA 二选一无法表达 direct）。
 /// - 写：`smart→Mode.rule` / `global→Mode.global`，→ `setupActionProvider.changeMode`
 ///   （global→GLOBAL 组联动由 changeMode 内部处理，design 风险②）。
 /// - 纠正：进 formA 首页时若检测到 `Mode.direct` → 主动 `setMode(smart)` 纠偏（design direct 坑）。
@@ -26,23 +26,23 @@ class XbModeAdapter {
   const XbModeAdapter();
 
   /// 当前模式（FlClash Mode 归一到 formA 二态；direct 归一为 smart）。
-  XbMode currentMode(WidgetRef ref) {
+  XbMode? currentMode(WidgetRef ref) {
     final mode = ref.watch(patchClashConfigProvider.select((s) => s.mode));
     return _toXbMode(mode);
   }
 
-  /// FlClash Mode → formA XbMode（direct→smart 归一）。
-  XbMode _toXbMode(Mode mode) => switch (mode) {
-        Mode.rule => XbMode.smart,
-        Mode.global => XbMode.global,
-        Mode.direct => XbMode.smart, // 归一：formA 二选一无法表达 direct
-      };
+  /// FlClash Mode → formA XbMode（异常 direct 不高亮任何模式）。
+  XbMode? _toXbMode(Mode mode) => switch (mode) {
+    Mode.rule => XbMode.smart,
+    Mode.global => XbMode.global,
+    Mode.direct => null, // Unexpected state must not be labelled as smart.
+  };
 
   /// formA XbMode → FlClash Mode。
   Mode _toFlClashMode(XbMode mode) => switch (mode) {
-        XbMode.smart => Mode.rule,
-        XbMode.global => Mode.global,
-      };
+    XbMode.smart => Mode.rule,
+    XbMode.global => Mode.global,
+  };
 
   /// 设置模式 → `setupActionProvider.changeMode`（global→GLOBAL 联动内部处理）。
   void setMode(WidgetRef ref, XbMode mode) {

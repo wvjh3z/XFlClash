@@ -64,6 +64,20 @@ class _TutorialWebViewState extends State<TutorialWebView> {
     if (_supported) unawaited(_initialize());
   }
 
+  @override
+  void didUpdateWidget(covariant TutorialWebView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // Linux keeps a Flutter reader mounted across document replacements.
+    // Captured callbacks from its old document must not use the new document.
+    if (!_supported &&
+        (oldWidget.html != widget.html ||
+            oldWidget.resourceBase != widget.resourceBase ||
+            oldWidget.articleUrl != widget.articleUrl ||
+            oldWidget.onOpenTutorial != widget.onOpenTutorial)) {
+      ++_generation;
+    }
+  }
+
   bool _current(int generation) => mounted && generation == _generation;
 
   Future<void> _initialize() async {
@@ -199,8 +213,12 @@ class _TutorialWebViewState extends State<TutorialWebView> {
       if (match != null) {
         final id = int.tryParse(match.group(1)!);
         if (id != null && id > 0) {
-          await widget.onOpenTutorial(id);
-          return _current(generation);
+          try {
+            await widget.onOpenTutorial(id);
+            return _current(generation);
+          } catch (_) {
+            return false;
+          }
         }
       }
     }
@@ -222,9 +240,11 @@ class _TutorialWebViewState extends State<TutorialWebView> {
   @override
   Widget build(BuildContext context) {
     if (!_supported) {
+      final generation = _generation;
       return TutorialHtmlFallback(
         html: widget.html,
         resourceBase: widget.resourceBase,
+        onOpenLink: (raw) => _open(raw, generation),
       );
     }
     final error = _error;

@@ -6,6 +6,7 @@ import 'package:fl_clash/common/boot_guard.dart';
 import 'package:fl_clash/common/boot_record.dart';
 import 'package:fl_clash/common/common.dart';
 import 'package:fl_clash/xboard/config/xboard_config.dart';
+import 'package:fl_clash/xboard/config/xb_tls_defaults.dart';
 import 'package:fl_clash/xboard/widgets/xb_welcome_dialog.dart';
 import 'package:fl_clash/common/launch.dart';
 import 'package:fl_clash/common/migration.dart';
@@ -108,7 +109,10 @@ class Bootstrap {
   ) async {
     await _claimDataDirectory();
     globalState.packageInfo = await PackageInfo.fromPlatform();
-    var config = await migration.run();
+    var config = await xbMigrateWithInitialTlsDefault(
+      migrate: migration.run,
+      save: preferences.saveConfig,
+    );
     _bootDecision = await bootGuard.evaluate(
       profileId: config.currentProfileId,
     );
@@ -206,16 +210,14 @@ class Bootstrap {
       case BootRecovery.none:
         return;
       case BootRecovery.skipAutoSetup:
-        await dialogs.showMessage(
+        await dialogs.showAlert(
           title: currentAppLocalizations.launchInterrupted,
-          cancelable: false,
           dismissible: false,
           message: TextSpan(text: currentAppLocalizations.launchInterruptedTip),
         );
       case BootRecovery.clearProfile:
-        await dialogs.showMessage(
+        await dialogs.showAlert(
           title: currentAppLocalizations.crashDetected,
-          cancelable: false,
           dismissible: false,
           message: TextSpan(
             text: currentAppLocalizations.crashDetectedTip(_failedProfileLabel),
@@ -247,6 +249,12 @@ class Bootstrap {
     await _container.read(systemActionProvider.notifier).handleExit(false);
   }
 
+  /// Unattended desktop installs, such as a container nobody watches, accept
+  /// up front: the core only starts after the disclaimer is accepted.
+  bool get _isDisclaimerAcceptedByEnvironment =>
+      system.isDesktop &&
+      Platform.environment['FLCLASH_ACCEPT_DISCLAIMER'] == '1';
+
   /// Android's exit only finishes the activity, so Dart keeps running after
   /// [SystemAction.handleExit] returns and must not go on to start the app.
   Future<bool> _handlerDisclaimer() async {
@@ -258,7 +266,8 @@ class Bootstrap {
     }
     final isDisclaimerAccepted = XboardConfig.current.formA
         ? await XbWelcomeDialog.show(globalState.navigatorKey.currentContext!)
-        : await requestDisclaimerConsent();
+        : (_isDisclaimerAcceptedByEnvironment ||
+              await requestDisclaimerConsent());
     if (!isDisclaimerAccepted) {
       await _container.read(systemActionProvider.notifier).handleExit();
       return false;

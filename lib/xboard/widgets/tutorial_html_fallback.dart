@@ -7,7 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_html/flutter_html.dart';
 
 import '../services/xboard_release_dio.dart';
-import '../util/html_link.dart';
+import '../util/html_link.dart' show resolveHtmlLink;
 import '../util/html_text.dart';
 import 'xb_theme.dart' show XbTokens;
 
@@ -16,9 +16,11 @@ class TutorialHtmlFallback extends StatelessWidget {
     super.key,
     required this.html,
     required this.resourceBase,
+    required this.onOpenLink,
   });
   final String html;
   final Uri resourceBase;
+  final Future<bool> Function(String raw) onOpenLink;
 
   @override
   Widget build(BuildContext context) {
@@ -108,8 +110,13 @@ class TutorialHtmlFallback extends StatelessWidget {
             tagsToExtend: const {'button'},
             builder: (ctx) {
               final value = ctx.attributes['data-xb-copy'];
+              final jump = ctx.attributes['data-xb-jump'];
               return OutlinedButton(
-                onPressed: value == null
+                onPressed: jump != null
+                    ? () async {
+                        await onOpenLink(jump);
+                      }
+                    : value == null
                     ? null
                     : () async {
                         try {
@@ -126,8 +133,9 @@ class TutorialHtmlFallback extends StatelessWidget {
             },
           ),
         ],
-        onLinkTap: (url, _, _) =>
-            openHtmlLink(url, base: resourceBase.toString()),
+        onLinkTap: (url, _, _) {
+          if (url != null) onOpenLink(url);
+        },
       ),
     );
   }

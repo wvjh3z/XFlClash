@@ -10,8 +10,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:fl_clash/enum/enum.dart';
-import 'package:fl_clash/models/models.dart' show Group, Proxy, ProxiesTabState;
-import 'package:fl_clash/providers/state.dart';
+import 'package:fl_clash/models/models.dart' show Group, Proxy, ProxiesTabState, PatchClashConfig;
+import 'package:fl_clash/providers/providers.dart';
 import 'package:fl_clash/xboard/shell/adapters/xb_nodes_adapter.dart';
 import 'package:fl_clash/xboard/util/pooled_concurrent.dart';
 
@@ -50,12 +50,14 @@ class _Probe extends ConsumerWidget {
   }
 }
 
-Future<XbNodesView> pumpView(WidgetTester tester, List<Group> groups) async {
+Future<XbNodesView> pumpView(WidgetTester tester, List<Group> groups, {Mode mode = Mode.rule}) async {
   late XbNodesView view;
   await tester.pumpWidget(
     ProviderScope(
       overrides: [
-        proxiesTabStateProvider.overrideWith((ref) => _tabState(groups)),
+        groupsProvider.overrideWithValue(groups),
+        patchClashConfigProvider.overrideWithBuild((ref, _) => PatchClashConfig(mode: mode)),
+        proxiesTabStateProvider.overrideWith((ref) => _tabState(ref.watch(currentGroupsStateProvider).value)),
       ],
       child: _Probe((v) => view = v),
     ),
@@ -79,6 +81,17 @@ void main() {
     expect(view.groups.first.name, '可见');
   });
 
+  testWidgets('global retains hidden GLOBAL and business groups', (tester) async {
+    final view = await pumpView(tester, [
+      _group('业务', GroupType.Selector, proxies: ['a']),
+      _group('GLOBAL', GroupType.Selector, hidden: true, proxies: ['b']),
+      _group('隐藏', GroupType.Selector, hidden: true),
+    ], mode: Mode.global);
+    expect(view.groups.map((g) => g.name), ['业务', 'GLOBAL', '隐藏']);
+    expect(view.isGlobal, isTrue);
+    expect(view.preferredGroupName, 'GLOBAL');
+  });
+
   testWidgets('url-test 组标记 + 节点数 + 当前选中', (tester) async {
     final view = await pumpView(tester, [
       _group('自动组', GroupType.URLTest, proxies: ['x', 'y', 'z'], now: 'y'),
@@ -86,7 +99,7 @@ void main() {
     final g = view.groups.single;
     expect(g.isUrlTest, isTrue);
     expect(g.nodeCount, 3);
-    expect(g.currentSelected, 'y');
+    expect(g.currentSelected, '', reason: 'Upstream clears now in the tab projection');
   });
 
   testWidgets('selector 组 isUrlTest=false', (tester) async {

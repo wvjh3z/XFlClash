@@ -68,6 +68,7 @@ class XboardSubscriptionService {
       Duration(seconds: 10),
     ],
     void Function(String winnerHost)? onWinnerHost,
+    void Function(String)? Function()? captureWinnerRecorder,
     int Function()? sessionRevision,
     String flavorId = 'default',
   }) : _service = service,
@@ -80,6 +81,7 @@ class XboardSubscriptionService {
        _vpnActive = vpnActive ?? (() => false),
        _retryDelays = List.unmodifiable(retryDelays),
        _onWinnerHost = onWinnerHost,
+       _captureWinnerRecorder = captureWinnerRecorder,
        _sessionRevision = sessionRevision ?? (() => 0),
        _flavorId = flavorId;
 
@@ -92,6 +94,7 @@ class XboardSubscriptionService {
 
   /// 成功拉取后回调命中的订阅 host（R4.6 接线层可据此更新竞速 current sub，下次从好地址起）。
   final void Function(String winnerHost)? _onWinnerHost;
+  final void Function(String)? Function()? _captureWinnerRecorder;
   final String _flavorId;
   final int Function() _sessionRevision;
 
@@ -179,7 +182,9 @@ class XboardSubscriptionService {
     bool force = false,
     bool isRetry = false,
   }) async {
-    if (_disposed || _loggingOut || _reconciling) return XbSyncOutcome.skipped; // 登出期间不同步（θ-8）。
+    if (_disposed || _loggingOut || _reconciling) {
+      return XbSyncOutcome.skipped; // 登出期间不同步（θ-8）。
+    }
     final inFlight = _inFlight;
     if (inFlight != null) {
       if (force) _pendingForce = true; // 队列上限 1，多个 force 合并。
@@ -261,6 +266,9 @@ class XboardSubscriptionService {
     // 2. 按地区分组限并发下载 + 解密。
     _stage = 'download_decrypt';
     final vpnActive = _vpnActive();
+    final recordWinner = _captureWinnerRecorder != null
+        ? _captureWinnerRecorder()
+        : _onWinnerHost;
     _downloadCancel = CancelToken();
     final result = await _encrypted.fetchWithFailOver(
       originalUrl,
@@ -280,7 +288,9 @@ class XboardSubscriptionService {
       _flavorId,
       ownerHash,
       () async {
-        if (!await _ownsSession(ownerHash, revision)) return XbSyncOutcome.skipped;
+        if (!await _ownsSession(ownerHash, revision)) {
+          return XbSyncOutcome.skipped;
+        }
         _stage = 'lookup_profile';
         int? reservedId;
         try {
@@ -288,17 +298,24 @@ class XboardSubscriptionService {
             flavorId: _flavorId,
             userIdHash: ownerHash,
           );
-          if (!await _ownsSession(ownerHash, revision)) return XbSyncOutcome.skipped;
+          if (!await _ownsSession(ownerHash, revision)) {
+            return XbSyncOutcome.skipped;
+          }
           final liveIds = _port.currentProfileIds().toSet();
-          final existingId = ids.where(liveIds.contains).firstOrNull ?? ids.firstOrNull;
+          final existingId =
+              ids.where(liveIds.contains).firstOrNull ?? ids.firstOrNull;
           // Keep one recoverable identity, including when its main row is missing.
           // Never drop cleanup evidence until both the old file and main row are gone.
           for (final id in ids.where((id) => id != existingId)) {
-            if (!await _ownsSession(ownerHash, revision)) return XbSyncOutcome.skipped;
+            if (!await _ownsSession(ownerHash, revision)) {
+              return XbSyncOutcome.skipped;
+            }
             await _port.deleteProfile(id);
             await _db.deleteByProfileId(id);
           }
-          if (!await _ownsSession(ownerHash, revision)) return XbSyncOutcome.skipped;
+          if (!await _ownsSession(ownerHash, revision)) {
+            return XbSyncOutcome.skipped;
+          }
           _stage = 'write_apply_profile';
           final newId = await _port.putFileProfile(
             profileId: existingId,
@@ -351,7 +368,7 @@ class XboardSubscriptionService {
 
     // 4. 回馈命中 host（接线层可更新竞速 current sub；纯通知，失败无害）。
     final host = _hostOf(result.winnerUrl);
-    if (host != null && vpnActive == _vpnActive()) _onWinnerHost?.call(host);
+    if (host != null && vpnActive == _vpnActive()) recordWinner?.call(host);
     _stage = 'complete';
 
     return XbSyncOutcome.ok;
@@ -381,29 +398,39 @@ class XboardSubscriptionService {
 
   Future<void> _clearSessionOwner(String ownerHash) async {
     final deferred = _db.profileMutations.isBusy(_flavorId, ownerHash);
-    final stop = deferred ? _deactivateSessionOwner(ownerHash) : Future<void>.value();
-    final cleanup = _db.profileMutations.run(
-      _flavorId, ownerHash, () async {
-        await stop;
-        await _clearSessionOwnerNow(ownerHash);
-      },
-    );
+    final stop = deferred
+        ? _deactivateSessionOwner(ownerHash)
+        : Future<void>.value();
+    final cleanup = _db.profileMutations.run(_flavorId, ownerHash, () async {
+      await stop;
+      await _clearSessionOwnerNow(ownerHash);
+    });
     if (!deferred) return cleanup;
     // Do not hold logout UI behind an uninterruptible file/core operation.
     // The queued cleanup precedes subsequent same-owner writes, even after the
     // provider is disposed. Its errors are observed and ownership is retained.
-    unawaited(cleanup.catchError((Object error, StackTrace stack) {
-      SentryBootstrap.captureException(error, stackTrace: stack,
-          where: 'subscription deferred session cleanup');
-    }));
+    unawaited(
+      cleanup.catchError((Object error, StackTrace stack) {
+        SentryBootstrap.captureException(
+          error,
+          stackTrace: stack,
+          where: 'subscription deferred session cleanup',
+        );
+      }),
+    );
     // Preserve logout's immediate stop of the selected owned VPN Profile.
     // Only destructive disk cleanup waits for the persistence lane.
     await stop;
   }
 
   Future<void> _deactivateSessionOwner(String ownerHash) async {
-    final ids = await _db.findProfileIds(flavorId: _flavorId, userIdHash: ownerHash);
-    for (final id in ids) { await _port.deactivateProfile(id); }
+    final ids = await _db.findProfileIds(
+      flavorId: _flavorId,
+      userIdHash: ownerHash,
+    );
+    for (final id in ids) {
+      await _port.deactivateProfile(id);
+    }
   }
 
   Future<void> _clearSessionOwnerNow(String ownerHash) async {
@@ -449,15 +476,18 @@ class XboardSubscriptionService {
       final owner = await _currentUserIdHash();
       if (!await _ownsSession(owner, revision)) return;
       await _db.profileMutations.run(_flavorId, owner, () async {
-      if (!await _ownsSession(owner, revision)) return;
-      final ids = await _db.findProfileIds(flavorId: _flavorId, userIdHash: owner);
-      for (final id in ids) {
         if (!await _ownsSession(owner, revision)) return;
-        if (!_port.currentProfileIds().contains(id)) {
-          await _port.deleteProfile(id);
-          await _db.deleteByProfileId(id);
+        final ids = await _db.findProfileIds(
+          flavorId: _flavorId,
+          userIdHash: owner,
+        );
+        for (final id in ids) {
+          if (!await _ownsSession(owner, revision)) return;
+          if (!_port.currentProfileIds().contains(id)) {
+            await _port.deleteProfile(id);
+            await _db.deleteByProfileId(id);
+          }
         }
-      }
       });
     } finally {
       _reconciling = false;

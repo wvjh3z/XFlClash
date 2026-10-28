@@ -58,6 +58,13 @@ void main() {
     expect(find.text('出口 IP'), findsOneWidget); // 无国家括号
   });
 
+  testWidgets('重测即使有旧值也显示检测中而非旧 IP', (t) async {
+    await _pump(t, const XbIpStatus(loading: true, ip: '203.0.113.1', countryCode: 'HK'));
+    expect(find.text('检测中…'), findsOneWidget);
+    expect(find.text('203.0.113.1'), findsNothing);
+    expect(find.byType(CircularProgressIndicator), findsOneWidget);
+  });
+
   testWidgets('检测失败（非加载 + 无 IP）→ 检测失败', (t) async {
     await _pump(t, const XbIpStatus(loading: false, ip: null));
     expect(find.text('检测失败'), findsOneWidget);

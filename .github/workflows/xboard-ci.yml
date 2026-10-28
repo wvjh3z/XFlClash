@@ -16,7 +16,7 @@ on:
         description: 'Current documentation commit'
         type: string
         required: true
-        default: '8d11c771452d0ed5225c906ccdd3721616a52bb1'
+        default: '5238784a4be511b7e5a64b8bf04a4ffe6a90bb56'
 
 permissions:
   contents: read
@@ -98,7 +98,7 @@ jobs:
 
       # 接缝点白名单完整性（改 FlClash 既有文件必登记 PATCHES.md）。
       - name: Check seam whitelist
-        run: dart --packages=.dart_tool/package_config.json tool/check-seam-whitelist.dart --baseline 8d4f9744948751f1273fe871e1d05276fac09b0e
+        run: dart --packages=.dart_tool/package_config.json tool/check-seam-whitelist.dart --baseline 7fd417fb9a9a277c6a9339a8ac87f907df7c25f7
 
       # 形态 A 复用和主题约束；全量上游差异已由上面的统一白名单检查覆盖。
       - name: Seam import guard (adapter rule)

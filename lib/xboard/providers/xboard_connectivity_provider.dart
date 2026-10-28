@@ -43,7 +43,8 @@ Stream<List<ConnectivityResult>> xboardConnectivity(Ref ref) async* {
     yield results;
   } catch (_) {
     SentryBootstrap.tagConnectivity(online: false);
-    yield const [ConnectivityResult.none];
+    // A platform/permission failure is unknown, not a confirmed disconnection.
+    yield const <ConnectivityResult>[];
   }
   await for (final results in connectivity.onConnectivityChanged) {
     SentryBootstrap.tagConnectivity(

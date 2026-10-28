@@ -219,15 +219,16 @@ Map<String, Uint8List> desktopSystemIconWrites(
   if (!{'windows', 'linux', 'macos'}.contains(platform)) {
     throw const FormatException('Unsupported desktop system icon platform');
   }
-  final extension = platform == 'windows' ? 'ico' : 'png';
-  final directory = platform == 'linux' ? 'unix' : platform;
-  final states = platform == 'macos' ? [1, 4] : [1, 2, 3, 4];
-  final scales = platform == 'windows' ? [''] : ['', '2.0x/', '3.0x/', '4.0x/'];
+  // macOS can select either its template icons or the shared Unix color set.
+  final sources = platform == 'macos' ? ['macos', 'linux'] : [platform];
   return {
-    for (final state in states)
-      for (final scale in scales)
-        'assets/images/tray/$directory/${scale}status_$state.$extension': assets
-            .files['$platform/status_${state == 4 ? 1 : state}.$extension']!,
+    for (final source in sources)
+      for (final state in source == 'macos' ? [1, 4] : [1, 2, 3, 4])
+        for (final scale
+            in source == 'windows' ? [''] : ['', '2.0x/', '3.0x/', '4.0x/'])
+          'assets/images/tray/${source == 'linux' ? 'unix' : source}/${scale}status_$state.${source == 'windows' ? 'ico' : 'png'}':
+              assets
+                  .files['$source/status_${state == 4 ? 1 : state}.${source == 'windows' ? 'ico' : 'png'}']!,
   };
 }
 

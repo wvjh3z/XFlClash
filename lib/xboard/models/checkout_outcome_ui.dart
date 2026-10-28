@@ -15,7 +15,7 @@ final class CheckoutRedirect extends CheckoutOutcomeUi {
   const CheckoutRedirect(this.url);
 }
 
-/// qr_flutter 渲染 + 轮询订单（AlipayF2f 等）。
+/// 共享 QrCodeView 渲染 + 轮询订单（AlipayF2f 等）。
 final class CheckoutQrCode extends CheckoutOutcomeUi {
   final String qrCodeUrl;
   const CheckoutQrCode(this.qrCodeUrl);

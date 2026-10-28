@@ -98,6 +98,11 @@ String injectStableIdentity(
     case 'windows/packaging/exe/inno_setup.iss':
       s = replaceIdentity(
         s,
+        RegExp(r'#define XbDataSlug "[^"]+"'),
+        '#define XbDataSlug "${id['slug']}"',
+      );
+      s = replaceIdentity(
+        s,
         RegExp(r'#define XbServiceName "[^"]+"'),
         '#define XbServiceName "${id['windowsService']}"',
       );

@@ -41,7 +41,12 @@ import 'xb_speed_card.dart';
 
 /// 首页 Tab。
 class HomeTab extends ConsumerStatefulWidget {
-  const HomeTab({super.key, this.onTapToNodes, this.onTapLogin, this.onTapRenew});
+  const HomeTab({
+    super.key,
+    this.onTapToNodes,
+    this.onTapLogin,
+    this.onTapRenew,
+  });
 
   /// 点击线路卡 → 切节点 Tab（shell 注入）。带上选中节点的所属分组 + 节点名供定位。
   final void Function(String? group, String? node)? onTapToNodes;
@@ -73,10 +78,14 @@ class _HomeTabState extends ConsumerState<HomeTab> {
   /// - 游客 → notLoggedIn；
   /// - 已登录但无可用线路：订阅正在 sync → preparing；否则 → noNodes。
   /// 命中则弹居中提示并返回原因（不连接）；放行返回 null。
-  XbConnectBlock? _checkConnectBlock(bool isGuest) {
-    if (isGuest) {
-      XbCenterToast.show(context, '请先登录账号后再连接',
-          icon: Icons.info_outline_rounded);
+  XbConnectBlock? _checkConnectBlock() {
+    // Authentication may change before the previous frame is repainted.
+    if (ref.read(authStateProvider) != AuthState.authenticated) {
+      XbCenterToast.show(
+        context,
+        '请先登录账号后再连接',
+        icon: Icons.info_outline_rounded,
+      );
       return XbConnectBlock.notLoggedIn;
     }
     final hasNodes = !ref.read(xbNodesAdapterProvider).nodesView(ref).isEmpty;
@@ -89,19 +98,24 @@ class _HomeTabState extends ConsumerState<HomeTab> {
       // provider 未就绪 → 当作非加载中。
     }
     if (syncing) {
-      XbCenterToast.show(context, '正在准备线路，请稍候…',
-          icon: Icons.hourglass_top_rounded);
+      XbCenterToast.show(
+        context,
+        '正在准备线路，请稍候…',
+        icon: Icons.hourglass_top_rounded,
+      );
       return XbConnectBlock.preparing;
     }
-    XbCenterToast.show(context, '当前无可用线路，请前往「节点」刷新或购买套餐',
-        icon: Icons.warning_amber_rounded);
+    XbCenterToast.show(
+      context,
+      '当前无可用线路，请前往「节点」刷新或购买套餐',
+      icon: Icons.warning_amber_rounded,
+    );
     return XbConnectBlock.noNodes;
   }
 
   @override
   Widget build(BuildContext context) {
-    final isGuest =
-        ref.watch(authStateProvider) != AuthState.authenticated;
+    final isGuest = ref.watch(authStateProvider) != AuthState.authenticated;
     final scheme = Theme.of(context).colorScheme;
     // 首页延迟：读独立的 homeLatencyProvider（仅「连接/切换节点」时由 measureCurrentNodeBest
     // 现测 3 次取最低写入），不读节点列表的全局延迟表。游客 → null（显示「--」）。
@@ -119,9 +133,13 @@ class _HomeTabState extends ConsumerState<HomeTab> {
                   isGuest: isGuest,
                   latencyMs: latencyMs,
                   scheme: scheme,
-                  availWidth: constraints.maxWidth)
+                  availWidth: constraints.maxWidth,
+                )
               : _buildMobileBody(
-                  isGuest: isGuest, latencyMs: latencyMs, scheme: scheme);
+                  isGuest: isGuest,
+                  latencyMs: latencyMs,
+                  scheme: scheme,
+                );
         },
       ),
     );
@@ -171,7 +189,7 @@ class _HomeTabState extends ConsumerState<HomeTab> {
                 XbConnectOrb(
                   showLock: isGuest,
                   guest: isGuest,
-                  onBlocked: () => _checkConnectBlock(isGuest),
+                  onBlocked: _checkConnectBlock,
                 ),
               ],
             ),
@@ -227,97 +245,100 @@ class _HomeTabState extends ConsumerState<HomeTab> {
             padding: const EdgeInsets.fromLTRB(28, 24, 28, 28),
             child: Center(
               child: ConstrainedBox(
-                constraints:
-                    BoxConstraints(maxWidth: xbContentMaxWidth(availWidth)),
+                constraints: BoxConstraints(
+                  maxWidth: xbContentMaxWidth(availWidth),
+                ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     if (isGuest) ...[
                       _GuestBanner(
-                          onTapLogin: widget.onTapLogin, centered: true),
+                        onTapLogin: widget.onTapLogin,
+                        centered: true,
+                      ),
                       const SizedBox(height: 12),
                     ],
                     XbExpiryCard(onTapRenew: widget.onTapRenew, centered: true),
                     const SizedBox(height: 8),
                     Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // 左栏：连接球 hero 卡（重心）+ 三个独立速率磁贴。
-                  Expanded(
-                    flex: 56,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        _HomeHeroCard(
+                        // 左栏：连接球 hero 卡（重心）+ 三个独立速率磁贴。
+                        Expanded(
+                          flex: 56,
                           child: Column(
-                            mainAxisSize: MainAxisSize.min,
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
                             children: [
-                              Center(
-                                child: XbConnectOrb(
-                                  size: 196,
-                                  showLock: isGuest,
-                                  guest: isGuest,
-                                  statusBelow: true,
-                                  onBlocked: () => _checkConnectBlock(isGuest),
+                              _HomeHeroCard(
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Center(
+                                      child: XbConnectOrb(
+                                        size: 196,
+                                        showLock: isGuest,
+                                        guest: isGuest,
+                                        statusBelow: true,
+                                        onBlocked: _checkConnectBlock,
+                                      ),
+                                    ),
+                                  ],
                                 ),
+                              ),
+                              const SizedBox(height: 14),
+                              _SpeedTilesDesktop(latencyMs: latencyMs),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 22),
+                        // 右栏：当前线路（已登录）/ 代理模式 / 出口信息，各自成「带标题卡」。
+                        Expanded(
+                          flex: 44,
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              if (!isGuest) ...[
+                                _DesktopInfoCard(
+                                  icon: Icons.lan_outlined,
+                                  title: '当前线路',
+                                  child: XbLineCard(
+                                    embedded: true,
+                                    onTapToNodes: widget.onTapToNodes,
+                                  ),
+                                ),
+                                const SizedBox(height: 14),
+                              ],
+                              _DesktopInfoCard(
+                                icon: Icons.tune,
+                                title: '代理模式',
+                                onInfo: () => showModeInfoSheet(context),
+                                child: const XbModeSegment(showTitle: false),
+                              ),
+                              const SizedBox(height: 14),
+                              const _DesktopInfoCard(
+                                icon: Icons.public,
+                                title: '出口信息',
+                                child: XbIpCard(embedded: true),
+                              ),
+                              const SizedBox(height: 14),
+                              // 网络接管方式（桌面专属）：系统代理 / 虚拟网卡(TUN) 两个独立开关。
+                              _DesktopInfoCard(
+                                icon: Icons.settings_ethernet,
+                                title: '网络接管方式',
+                                onInfo: () => showTakeoverInfoSheet(context),
+                                child: const _TakeoverOptions(),
                               ),
                             ],
                           ),
                         ),
-                        const SizedBox(height: 14),
-                        _SpeedTilesDesktop(latencyMs: latencyMs),
                       ],
                     ),
-                  ),
-                  const SizedBox(width: 22),
-                  // 右栏：当前线路（已登录）/ 代理模式 / 出口信息，各自成「带标题卡」。
-                  Expanded(
-                    flex: 44,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        if (!isGuest) ...[
-                          _DesktopInfoCard(
-                            icon: Icons.lan_outlined,
-                            title: '当前线路',
-                            child: XbLineCard(
-                              embedded: true,
-                              onTapToNodes: widget.onTapToNodes,
-                            ),
-                          ),
-                          const SizedBox(height: 14),
-                        ],
-                        _DesktopInfoCard(
-                          icon: Icons.tune,
-                          title: '代理模式',
-                          onInfo: () => showModeInfoSheet(context),
-                          child: const XbModeSegment(showTitle: false),
-                        ),
-                        const SizedBox(height: 14),
-                        const _DesktopInfoCard(
-                          icon: Icons.public,
-                          title: '出口信息',
-                          child: XbIpCard(embedded: true),
-                        ),
-                        const SizedBox(height: 14),
-                        // 网络接管方式（桌面专属）：系统代理 / 虚拟网卡(TUN) 两个独立开关。
-                        _DesktopInfoCard(
-                          icon: Icons.settings_ethernet,
-                          title: '网络接管方式',
-                          onInfo: () => showTakeoverInfoSheet(context),
-                          child: const _TakeoverOptions(),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
+                  ],
+                ),
               ),
-            ],
+            ),
           ),
         ),
-      ),
-        ),
-      ),
       ],
     );
   }
@@ -370,31 +391,33 @@ class _HomeUpdatePill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Consumer(builder: (ctx, r, _) {
-      final update = r.watch(availableUpdateProvider);
-      if (update == null) return const SizedBox.shrink();
-      return GestureDetector(
-        onTap: () => showXbUpdateDialog(ctx, update),
-        child: Container(
-          padding: large
-              ? const EdgeInsets.symmetric(horizontal: 16, vertical: 7)
-              : const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-          decoration: BoxDecoration(
-            color: const Color(0x142E8B57),
-            border: Border.all(color: const Color(0x382E8B57), width: 1),
-            borderRadius: BorderRadius.circular(20),
-          ),
-          child: XbEmojiText(
-            '🎉 有新版本啦',
-            style: TextStyle(
-              fontSize: large ? 13 : 11,
-              fontWeight: FontWeight.w600,
-              color: const Color(0xFF2E8B57),
+    return Consumer(
+      builder: (ctx, r, _) {
+        final update = r.watch(availableUpdateProvider);
+        if (update == null) return const SizedBox.shrink();
+        return GestureDetector(
+          onTap: () => showXbUpdateDialog(ctx, update),
+          child: Container(
+            padding: large
+                ? const EdgeInsets.symmetric(horizontal: 16, vertical: 7)
+                : const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+            decoration: BoxDecoration(
+              color: const Color(0x142E8B57),
+              border: Border.all(color: const Color(0x382E8B57), width: 1),
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: XbEmojiText(
+              '🎉 有新版本啦',
+              style: TextStyle(
+                fontSize: large ? 13 : 11,
+                fontWeight: FontWeight.w600,
+                color: const Color(0xFF2E8B57),
+              ),
             ),
           ),
-        ),
-      );
-    });
+        );
+      },
+    );
   }
 }
 
@@ -426,10 +449,7 @@ class _GuestBanner extends StatelessWidget {
         const SizedBox(height: 2),
         Text(
           '未登录 · 登录后即可连接',
-          style: TextStyle(
-            fontSize: 11.5,
-            color: scheme.onSurfaceVariant,
-          ),
+          style: TextStyle(fontSize: 11.5, color: scheme.onSurfaceVariant),
         ),
       ],
     );
@@ -453,9 +473,7 @@ class _GuestBanner extends StatelessWidget {
                 scheme.surfaceContainerLow,
               ],
             ),
-            border: Border.all(
-              color: scheme.primary.withValues(alpha: 0.24),
-            ),
+            border: Border.all(color: scheme.primary.withValues(alpha: 0.24)),
           ),
           child: Padding(
             padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 14),
@@ -490,8 +508,10 @@ class _GuestBanner extends StatelessWidget {
                 const SizedBox(width: 10),
                 // 右侧实心品牌红「登录」按钮。
                 Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 17, vertical: 9),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 17,
+                    vertical: 9,
+                  ),
                   decoration: BoxDecoration(
                     color: scheme.primary,
                     borderRadius: BorderRadius.circular(XbTokens.rSm),
@@ -512,7 +532,9 @@ class _GuestBanner extends StatelessWidget {
       ),
     );
     // 桌面：居中收窄（Align 让子按自身首选宽度布局）。移动：返回全宽横幅。
-    return centered ? Align(alignment: Alignment.center, child: banner) : banner;
+    return centered
+        ? Align(alignment: Alignment.center, child: banner)
+        : banner;
   }
 }
 

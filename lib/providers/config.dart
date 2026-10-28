@@ -1,3 +1,4 @@
+import 'package:fl_clash/xboard/config/xb_mode_policy.dart';
 import 'package:fl_clash/common/common.dart';
 import 'package:fl_clash/models/models.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
@@ -83,7 +84,13 @@ class _PatchClashConfig extends _$PatchClashConfig
     with AutoDisposeNotifierMixin {
   @override
   PatchClashConfig build() {
-    return const PatchClashConfig();
+    return xbNormalizeModeConfig(const PatchClashConfig());
+  }
+
+  // Brand policy applies before listeners/Core see direct, including update().
+  @override
+  set value(PatchClashConfig next) {
+    super.value = xbNormalizeModeConfig(next);
   }
 }
 
@@ -155,7 +162,7 @@ List<Override> buildConfigOverrides(Config config) {
       (_, _) => config.proxiesStyleProps,
     ),
     patchClashConfigProvider.overrideWithBuild(
-      (_, _) => config.patchClashConfig,
+      (_, _) => xbNormalizeModeConfig(config.patchClashConfig),
     ),
     excludeSSIDsProvider.overrideWithBuild((_, _) => config.excludeSSIDs),
   ];

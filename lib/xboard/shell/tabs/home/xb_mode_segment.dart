@@ -29,21 +29,18 @@ class XbModeSegment extends ConsumerWidget {
     final scheme = Theme.of(context).colorScheme;
 
     // 游客态 dim（R3.6）：未登录时控件半透明（仍可点，仅视觉弱化，与原型一致）。
-    final isGuest =
-        ref.watch(authStateProvider) != AuthState.authenticated;
+    final isGuest = ref.watch(authStateProvider) != AuthState.authenticated;
 
     return Opacity(
       opacity: isGuest ? 0.5 : 1.0,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          if (mode == null) const Text('模式状态异常，请选择智能或全局'),
           if (showTitle) ...[
             Row(
               children: [
-                Text(
-                  '代理模式',
-                  style: Theme.of(context).textTheme.titleMedium,
-                ),
+                Text('代理模式', style: Theme.of(context).textTheme.titleMedium),
                 const SizedBox(width: 4),
                 // ⓘ 模式说明（R3.3）。
                 IconButton(
@@ -51,8 +48,10 @@ class XbModeSegment extends ConsumerWidget {
                   iconSize: 18,
                   padding: EdgeInsets.zero,
                   constraints: const BoxConstraints(),
-                  icon: Icon(Icons.help_outline,
-                      color: scheme.onSurfaceVariant),
+                  icon: Icon(
+                    Icons.help_outline,
+                    color: scheme.onSurfaceVariant,
+                  ),
                   onPressed: () => showModeInfoSheet(context),
                   tooltip: '代理模式说明',
                 ),
@@ -116,7 +115,9 @@ class _ModePill extends StatelessWidget {
           duration: const Duration(milliseconds: 180),
           padding: const EdgeInsets.symmetric(vertical: 11),
           decoration: BoxDecoration(
-            color: selected ? scheme.surfaceContainerLowest : Colors.transparent,
+            color: selected
+                ? scheme.surfaceContainerLowest
+                : Colors.transparent,
             borderRadius: BorderRadius.circular(10),
             boxShadow: selected
                 ? [

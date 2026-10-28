@@ -81,12 +81,11 @@ void main() {
   );
 
   test(
-    'initial platform error falls back to offline then recovers through the stream',
+    'initial platform error is unknown then recovers through the stream',
     () async {
       createContainer(_InitiallyFailingConnectivity());
-      expect(await container.read(xboardConnectivityProvider.future), [
-        ConnectivityResult.none,
-      ]);
+      expect(await container.read(xboardConnectivityProvider.future), isEmpty);
+      expect(container.read(isOfflineProvider), isFalse);
       expect(
         SentryBootstrap.tagsSnapshot[SentryTagKeys.connectivityOnline],
         'false',

@@ -3,6 +3,10 @@
 library;
 
 import 'dart:async';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:fl_clash/xboard/providers/xboard_providers.dart';
+import 'package:fl_clash/xboard/services/endpoint_race_controller.dart';
+import 'package:fl_clash/xboard/models/bootstrap_payload.dart';
 import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
@@ -100,7 +104,9 @@ class _FakePort implements ProfileSyncPort {
   }
 
   @override
-  Future<void> deactivateProfile(int profileId) async { deactivatedIds.add(profileId); }
+  Future<void> deactivateProfile(int profileId) async {
+    deactivatedIds.add(profileId);
+  }
 
   @override
   Future<void> deleteProfile(int profileId) async {
@@ -177,6 +183,8 @@ void main() {
     EncryptedSubscriptionService enc, {
     List<String> candidates = const [],
     void Function(String)? onWinnerHost,
+    void Function(String)? Function()? captureWinnerRecorder,
+    bool Function()? vpnActive,
     FakeTokenStorage? tokenStorage,
     int Function()? sessionRevision,
     List<Duration> retryDelays = const [],
@@ -192,6 +200,8 @@ void main() {
       retryDelays: retryDelays,
       subscriptionCandidates: () => candidates,
       onWinnerHost: onWinnerHost,
+      captureWinnerRecorder: captureWinnerRecorder,
+      vpnActive: vpnActive,
       flavorId: flavorId,
     );
     addTearDown(instance.dispose);
@@ -199,22 +209,119 @@ void main() {
   }
 
   for (final brand in ['brand_a', 'brand_b']) {
-    test('$brand missing main row reuses index across repeated sync and restart', () async {
-      final enc = encWith(_StubAdapter((_) async => _plain(cipher)));
-      final first = sut(enc, flavorId: brand);
-      expect(await first.sync(), XbSyncOutcome.ok);
-      final id = (await db.allRows()).single.profileId;
-      port.profiles.remove(id);
-      first.dispose();
-      final restarted = sut(enc, flavorId: brand);
-      expect(await restarted.sync(), XbSyncOutcome.ok);
-      expect(await restarted.sync(), XbSyncOutcome.ok);
-      expect(port.profiles.keys, [id]);
-      expect((await db.allRows()).single.profileId, id);
-      await restarted.clearForSessionOwner(_hash('tokA'));
-      expect(await db.allRows(), isEmpty);
-      expect(port.profiles, isEmpty);
-    });
+    for (final scenario in [
+      'unchanged',
+      'physical',
+      'vpn_roundtrip',
+      'replacement',
+      'disposed',
+      'race_disposed',
+      'no_controller',
+      'removed',
+    ]) {
+      test(
+        '$brand winner recorder $scenario preserves data and current preference',
+        () async {
+          var winner = 'https://orig.com';
+          final race = EndpointRaceController(
+            probe: (url) async => url == winner,
+          );
+          final replacement = EndpointRaceController(
+            probe: (url) async => url == 'https://new.example',
+          );
+          addTearDown(race.dispose);
+          addTearDown(replacement.dispose);
+          const entries = [
+            BootstrapEndpoint(url: 'https://orig.com'),
+            BootstrapEndpoint(url: 'https://new.example'),
+          ];
+          await race.raceSubscription(entries);
+          final container = ProviderContainer();
+          var disposed = false;
+          addTearDown(() {
+            if (!disposed) container.dispose();
+          });
+          if (scenario != 'no_controller') {
+            container.read(injectedRaceControllerProvider.notifier).set(race);
+          }
+          final recorderFactory = Provider(
+            (ref) =>
+                () => captureSubscriptionWinnerRecorder(ref),
+          );
+          final capture = container.read(recorderFactory);
+          port.fileStarted = Completer<void>();
+          port.fileGate = Completer<void>();
+          final subscription = sut(
+            encWith(_StubAdapter((_) async => _plain(cipher))),
+            flavorId: brand,
+            captureWinnerRecorder: capture,
+            vpnActive: () => false,
+          );
+          final pending = subscription.sync();
+          await port.fileStarted!.future;
+          winner = 'https://new.example';
+          if (scenario == 'physical') race.networkChanged(rerace: false);
+          if (scenario == 'vpn_roundtrip') {
+            race.setVpnActive(true, rerace: false);
+            race.setVpnActive(false, rerace: false);
+          }
+          if (scenario == 'replacement' || scenario == 'no_controller') {
+            await replacement.raceSubscription(entries);
+            container
+                .read(injectedRaceControllerProvider.notifier)
+                .set(replacement);
+          }
+          if (scenario == 'disposed') {
+            container.dispose();
+            disposed = true;
+          }
+          await race.raceSubscription(
+            scenario == 'removed' ? [entries.last] : entries,
+          );
+          expect(race.currentSubscriptionEndpoint, 'https://new.example');
+          if (scenario == 'race_disposed') race.dispose();
+          port.fileGate!.complete();
+          expect(await pending, XbSyncOutcome.ok);
+          expect(port.fileCalls, 1);
+          expect(port.profiles, hasLength(1));
+          expect(await db.allRows(), hasLength(1));
+          expect(
+            race.currentSubscriptionEndpoint,
+            scenario == 'unchanged'
+                ? 'https://orig.com'
+                : 'https://new.example',
+          );
+          if (scenario == 'replacement' || scenario == 'no_controller') {
+            expect(
+              replacement.currentSubscriptionEndpoint,
+              'https://new.example',
+            );
+          }
+        },
+      );
+    }
+  }
+
+  for (final brand in ['brand_a', 'brand_b']) {
+    test(
+      '$brand missing main row reuses index across repeated sync and restart',
+      () async {
+        final enc = encWith(_StubAdapter((_) async => _plain(cipher)));
+        final first = sut(enc, flavorId: brand);
+        expect(await first.sync(), XbSyncOutcome.ok);
+        final id = (await db.allRows()).single.profileId;
+        port.profiles.remove(id);
+        first.dispose();
+        final restarted = sut(enc, flavorId: brand);
+        expect(await restarted.sync(), XbSyncOutcome.ok);
+        expect(await restarted.sync(), XbSyncOutcome.ok);
+        expect(port.profiles.keys, [id]);
+        expect((await db.allRows()).single.profileId, id);
+        await restarted.clearForSessionOwner(_hash('tokA'));
+        expect(await db.allRows(), isEmpty);
+        expect(port.profiles, isEmpty);
+      },
+    );
 
     test('$brand failed write keeps reservation and retry reuses it', () async {
       final enc = encWith(_StubAdapter((_) async => _plain(cipher)));
@@ -230,68 +337,104 @@ void main() {
       expect(await db.allRows(), hasLength(1));
     });
 
-    test('$brand duplicate repair preserves other owners and retries failed cleanup', () async {
-      await db.putIndex(profileId: 1, flavorId: brand, userIdHash: _hash('tokA'));
-      await seedLegacyDuplicate(db, 2, brand, _hash('tokA'));
-      await db.putIndex(profileId: 3, flavorId: brand, userIdHash: _hash('tokB'));
-      port.profiles.addAll({1: 'owned', 2: 'duplicate', 3: 'other', 4: 'manual'});
-      port.failingDeletes.add(2);
-      final s = sut(encWith(_StubAdapter((_) async => _plain(cipher))), flavorId: brand);
-      expect(await s.sync(), XbSyncOutcome.failed);
-      expect(await db.findProfileIds(flavorId: brand, userIdHash: _hash('tokA')), [1, 2]);
-      expect(port.fileCalls, 0);
-      port.failingDeletes.clear();
-      expect(await s.sync(), XbSyncOutcome.ok);
-      expect(await s.sync(), XbSyncOutcome.ok);
-      expect(await db.findProfileIds(flavorId: brand, userIdHash: _hash('tokA')), [1]);
-      expect(port.profiles.keys, unorderedEquals([1, 3, 4]));
-    });
+    test(
+      '$brand duplicate repair preserves other owners and retries failed cleanup',
+      () async {
+        await db.putIndex(
+          profileId: 1,
+          flavorId: brand,
+          userIdHash: _hash('tokA'),
+        );
+        await seedLegacyDuplicate(db, 2, brand, _hash('tokA'));
+        await db.putIndex(
+          profileId: 3,
+          flavorId: brand,
+          userIdHash: _hash('tokB'),
+        );
+        port.profiles.addAll({
+          1: 'owned',
+          2: 'duplicate',
+          3: 'other',
+          4: 'manual',
+        });
+        port.failingDeletes.add(2);
+        final s = sut(
+          encWith(_StubAdapter((_) async => _plain(cipher))),
+          flavorId: brand,
+        );
+        expect(await s.sync(), XbSyncOutcome.failed);
+        expect(
+          await db.findProfileIds(flavorId: brand, userIdHash: _hash('tokA')),
+          [1, 2],
+        );
+        expect(port.fileCalls, 0);
+        port.failingDeletes.clear();
+        expect(await s.sync(), XbSyncOutcome.ok);
+        expect(await s.sync(), XbSyncOutcome.ok);
+        expect(
+          await db.findProfileIds(flavorId: brand, userIdHash: _hash('tokA')),
+          [1],
+        );
+        expect(port.profiles.keys, unorderedEquals([1, 3, 4]));
+      },
+    );
   }
 
   for (final brand in ['brand_a', 'brand_b']) {
     for (final cleanupFails in [false, true]) {
-      test('$brand late old write cannot delete new session; cleanupFails=$cleanupFails', () async {
-        final enc = encWith(_StubAdapter((_) async => _plain(cipher)));
-        final old = sut(enc, flavorId: brand);
-        final started = Completer<void>();
-        final gate = Completer<void>();
-        port.fileStarted = started;
-        port.fileGate = gate;
-        final oldFlight = old.sync();
-        await started.future;
-        final id = (await db.allRows()).single.profileId;
-        if (cleanupFails) port.failingDeletes.add(id);
-        // Logout returns before the slow save; cleanup is still ordered before
-        // a new same-owner persistence operation, not reported as completed I/O.
-        await old.clearForSessionOwner(_hash('tokA'));
-        expect(port.deletedIds, isEmpty);
-        expect(port.deactivatedIds, [id]);
-        expect(await db.allRows(), hasLength(1));
-        port.fileStarted = null;
-        port.fileGate = null;
-        final next = sut(enc, flavorId: brand);
-        var nextFinished = false;
-        final nextFlight = next.sync().then((value) { nextFinished = true; return value; });
-        // Wait until the new local operation has really queued, not an arbitrary timer.
-        final watch = Stopwatch()..start();
-        while (db.profileMutations.pendingFor(brand, _hash('tokA')) < 3) {
-          if (watch.elapsed > const Duration(seconds: 5)) fail('new persistence did not queue');
-          await Future<void>.delayed(const Duration(milliseconds: 1));
-        }
-        expect(nextFinished, isFalse);
-        gate.complete();
-        expect(await oldFlight, cleanupFails ? XbSyncOutcome.failed : XbSyncOutcome.skipped);
-        expect(await nextFlight, XbSyncOutcome.ok);
-        final nextId = (await db.allRows()).single.profileId;
-        expect(port.profiles.keys, [nextId]);
-        if (cleanupFails) expect(nextId, id);
-        port.failingDeletes.clear();
-        expect(await next.sync(), XbSyncOutcome.ok);
-        expect(port.profiles.keys, [nextId]);
-        await next.clearForSessionOwner(_hash('tokA'));
-        expect(port.profiles, isEmpty);
-        expect(await db.allRows(), isEmpty);
-      });
+      test(
+        '$brand late old write cannot delete new session; cleanupFails=$cleanupFails',
+        () async {
+          final enc = encWith(_StubAdapter((_) async => _plain(cipher)));
+          final old = sut(enc, flavorId: brand);
+          final started = Completer<void>();
+          final gate = Completer<void>();
+          port.fileStarted = started;
+          port.fileGate = gate;
+          final oldFlight = old.sync();
+          await started.future;
+          final id = (await db.allRows()).single.profileId;
+          if (cleanupFails) port.failingDeletes.add(id);
+          // Logout returns before the slow save; cleanup is still ordered before
+          // a new same-owner persistence operation, not reported as completed I/O.
+          await old.clearForSessionOwner(_hash('tokA'));
+          expect(port.deletedIds, isEmpty);
+          expect(port.deactivatedIds, [id]);
+          expect(await db.allRows(), hasLength(1));
+          port.fileStarted = null;
+          port.fileGate = null;
+          final next = sut(enc, flavorId: brand);
+          var nextFinished = false;
+          final nextFlight = next.sync().then((value) {
+            nextFinished = true;
+            return value;
+          });
+          // Wait until the new local operation has really queued, not an arbitrary timer.
+          final watch = Stopwatch()..start();
+          while (db.profileMutations.pendingFor(brand, _hash('tokA')) < 3) {
+            if (watch.elapsed > const Duration(seconds: 5)) {
+              fail('new persistence did not queue');
+            }
+            await Future<void>.delayed(const Duration(milliseconds: 1));
+          }
+          expect(nextFinished, isFalse);
+          gate.complete();
+          expect(
+            await oldFlight,
+            cleanupFails ? XbSyncOutcome.failed : XbSyncOutcome.skipped,
+          );
+          expect(await nextFlight, XbSyncOutcome.ok);
+          final nextId = (await db.allRows()).single.profileId;
+          expect(port.profiles.keys, [nextId]);
+          if (cleanupFails) expect(nextId, id);
+          port.failingDeletes.clear();
+          expect(await next.sync(), XbSyncOutcome.ok);
+          expect(port.profiles.keys, [nextId]);
+          await next.clearForSessionOwner(_hash('tokA'));
+          expect(port.profiles, isEmpty);
+          expect(await db.allRows(), isEmpty);
+        },
+      );
     }
   }
 
@@ -850,8 +993,17 @@ void main() {
 String _hash(String token) => userIdHashFromToken(token);
 
 // Seed data produced by schema 1 without weakening the schema 2 under test.
-Future<void> seedLegacyDuplicate(XboardDatabase db, int id, String flavor, String owner) async {
-  final row = await db.customSelect("SELECT sql FROM sqlite_master WHERE name = 'xboard_index_owner_insert'").getSingle();
+Future<void> seedLegacyDuplicate(
+  XboardDatabase db,
+  int id,
+  String flavor,
+  String owner,
+) async {
+  final row = await db
+      .customSelect(
+        "SELECT sql FROM sqlite_master WHERE name = 'xboard_index_owner_insert'",
+      )
+      .getSingle();
   final sql = row.read<String>('sql');
   await db.customStatement('DROP TRIGGER xboard_index_owner_insert');
   try {

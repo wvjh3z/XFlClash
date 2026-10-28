@@ -4,7 +4,7 @@
 /// - 同组内节点切换（rule）：选香港/日本/DIRECT，首页跟随；
 /// - 模式切换序列：rule→global→rule（含 currentGroupName 被污染的回归）；
 /// - global 入口取 GLOBAL、rule 入口取首个业务组（不依赖 currentGroupName）；
-/// - 节点页 nodesView 按 mode 过滤（global 只剩 GLOBAL；rule 不含 GLOBAL）；
+/// - 节点页 nodesView 按 mode 过滤（global 保留全部；rule 过滤隐藏组）；
 /// - 多层下钻（主组选子组 → 下钻到叶子）；
 /// - 边界：未手选回退首个真实节点 / computed 组用 now / 空组。
 library;
@@ -60,6 +60,7 @@ List<Group> _groups({
       Group(
         type: GroupType.Selector,
         name: 'GLOBAL',
+        hidden: true,
         now: globalNow,
         all: const [
           Proxy(name: 'DIRECT', type: 'Direct'),
@@ -309,10 +310,10 @@ void main() {
       expect(names, isNot(contains('GLOBAL')));
     });
 
-    testWidgets('global → 只剩 GLOBAL（业务组在 global 选了不生效，隐藏）', (t) async {
+    testWidgets('global → 保留全部组，包括隐藏的内建 GLOBAL', (t) async {
       final names = await visibleGroups(t,
           mode: Mode.global, groups: _groups(globalNow: 'DIRECT'));
-      expect(names, ['GLOBAL']);
+      expect(names, ['omofly 手动选择', '自动选择', 'GLOBAL']);
     });
   });
 

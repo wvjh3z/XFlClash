@@ -1,14 +1,10 @@
 /// 形态 A 网络检测适配器（出口 IP，spec `xboard-form-a-ui-revamp` / W3）。
 ///
-/// 复用 v0.9.1 的 outboundIpProbeProvider，以 routedOutbound 标识当前路由出口。
-/// provider 生命周期内登记 watch/unwatch；刷新沿用底座的探测世代与旧结果隔离，
-/// 页面只消费 XbIpStatus，不自行请求第三方 IP 接口。
+/// 首页使用旧版七源 Dart 竞速；宿主路由变化只负责触发刷新，不等待 Core IP 探测。
 library;
 
-import 'package:fl_clash/providers/outbound_ip.dart';
-import 'package:fl_clash/providers/routed_probe.dart';
-import 'package:fl_clash/common/service_probe.dart' show routedOutbound;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../providers/exit_ip_provider.dart';
 
 /// 出口 IP 状态（轻量投影，primitive only）。
 class XbIpStatus {
@@ -33,33 +29,29 @@ class XbNetworkAdapter {
 
   /// 投影当前路由出口的 IP 探测状态。
   XbIpStatus ipStatus(WidgetRef ref) {
-    final s = ref.watch(outboundIpProbeProvider).entryOf(routedOutbound);
+    final s = ref.watch(xbExitIpProvider);
     return XbIpStatus(
-      loading: s.isLoading || s.phase == ProbePhase.empty,
-      ip: s.value?.ip,
-      countryCode: s.value?.countryCode,
+      loading: s.loading,
+      ip: s.result?.ip,
+      countryCode: s.result?.countryCode,
     );
   }
 
   /// 主动触发一次出口 IP 检测（首页初始化 / 连接 / 切换节点后调用）。
-  /// 通过底座 route-aware probe 刷新，保留其请求合并与过期结果处理。
+  /// 自动触发合并为一轮，取消旧轮次并隔离迟到结果。
   void startCheck(WidgetRef ref) {
-    ref.read(outboundIpProbeProvider.notifier).refresh(const [routedOutbound]);
+    ref.read(xbExitIpProvider.notifier).refresh();
   }
 
   /// 强制重新检测（IP 卡刷新按钮用）。
   ///
-  /// 与主动检测共用底座 refresh；不再销毁 provider 或重建探测所有者。
+  /// 立即清空旧值并重测，不销毁 provider。
   void forceCheck(WidgetRef ref) {
-    // The route-aware probe supersedes stale results without replacing its owner.
-    ref.read(outboundIpProbeProvider.notifier).refresh(const [routedOutbound]);
+    ref.read(xbExitIpProvider.notifier).refresh(immediate: true);
   }
 }
 
 /// 网络检测适配器单例 provider（Tab 经此取，测试可 override）。
-final xbNetworkAdapterProvider = Provider<XbNetworkAdapter>((ref) {
-  final probe = ref.read(outboundIpProbeProvider.notifier);
-  probe.watch(routedOutbound);
-  ref.onDispose(() => probe.unwatch(routedOutbound));
-  return const XbNetworkAdapter();
-});
+final xbNetworkAdapterProvider = Provider<XbNetworkAdapter>(
+  (ref) => const XbNetworkAdapter(),
+);

@@ -11,52 +11,50 @@ final systemProxyQueue = proxy == null ? null : SystemProxyQueue(proxy!);
 
 /// Exit's stop goes through the same queue as every other change, so a start
 /// still waiting behind a slow call cannot turn the proxy back on after it.
+/// A stop also clears settings someone else made, so it only undoes a start
+/// of this run.
 class SystemProxyQueue {
   final Proxy _proxy;
   Future<void> _tail = Future.value();
   bool _closed = false;
-  bool _startedHere = false;
-  final bool _ownedOnly;
+  bool _applied = false;
 
-  SystemProxyQueue(
-    this._proxy, {
-    bool ownedOnly = const String.fromEnvironment('XB_NATIVE_ID') != '',
-  }) : _ownedOnly = ownedOnly;
-
-  Future<bool> _stopOwned() async {
-    if (_ownedOnly && !_startedHere) return true;
-    final stopped = await _proxy.stopProxy();
-    if (stopped) _startedHere = false;
-    return stopped;
-  }
+  SystemProxyQueue(this._proxy);
 
   Future<void> apply(ProxyState state) {
     return _enqueue(() async {
       if (_closed) {
         return;
       }
-      final bool applied;
       if (state.isStart && state.systemProxy) {
-        // A failed start can still have changed the OS setting; retain cleanup ownership.
-        _startedHere = true;
-        applied = await _proxy.startProxy(state.port, state.bassDomain);
+        _applied = true;
+        if (!await _proxy.startProxy(state.port, state.bassDomain)) {
+          _logFailure();
+        }
       } else {
-        applied = await _stopOwned();
-      }
-      if (!applied) {
-        commonPrint.log(
-          'update system proxy failed',
-          logLevel: LogLevel.warning,
-        );
+        await _stop();
       }
     });
   }
 
   Future<void> close() {
     _closed = true;
-    return _enqueue(() async {
-      await _stopOwned();
-    });
+    return _enqueue(_stop);
+  }
+
+  Future<void> _stop() async {
+    if (!_applied) {
+      return;
+    }
+    if (!await _proxy.stopProxy()) {
+      _logFailure();
+      return;
+    }
+    _applied = false;
+  }
+
+  void _logFailure() {
+    commonPrint.log('update system proxy failed', logLevel: LogLevel.warning);
   }
 
   Future<void> _enqueue(Future<void> Function() task) {

@@ -1,7 +1,7 @@
 name: fl_clash
 description: A multi-platform proxy client based on ClashMeta, simple and easy to use, open-source and ad-free.
 publish_to: 'none'
-version: 0.9.1+2026101702
+version: 0.9.2+2026102401
 environment:
   sdk: '>=3.10.0 <4.0.0'
 
@@ -83,7 +83,6 @@ dependencies:
   cryptography: ^2.7.0             # D58/D59 — AES-256-GCM 解密 Bootstrap JSON
   sentry_flutter: 9.30.1          # NFR-7 — pin SDK and matching native bindings; CLI stays 2.58.4.
   flutter_secure_storage: 10.3.1   # NFR-3 — TokenStorage 注入实现
-  qr_flutter: ^4.1.0               # R8 AC 6.bis（F346）— AlipayF2f 支付二维码渲染
   flutter_html: ^3.0.0             # R8 — 套餐 content 富文本 HTML 渲染（emoji 标题/✓✗列表/颜色）
   flutter_inappwebview: 6.1.5       # Tutorial reader: Android, Windows and macOS native WebView.
   flutter_inappwebview_windows: 0.6.0 # Public environment adapter for this pinned Windows implementation.
@@ -92,6 +91,7 @@ dependencies:
   desktop_webview_window: 0.4.0   # Crisp desktop transport; keep native navigation fixes reproducible.
   crisp_chat:
     path: plugins/crisp_chat # 3.0.0 mobile SDK + desktop 0.4.0 compatibility
+  qr: ^4.0.0
 dev_dependencies:
   connectivity_plus_platform_interface: 2.1.0 # Native smoke: controlled network events.
   flutter_test:
@@ -127,7 +127,7 @@ flutter:
     - assets/images/services/
     - core/Clash.Meta/component/ca/ca-certificates.crt
     - path: assets/images/tray/unix/
-      platforms: [ linux ]
+      platforms: [ linux, macos ]
     - path: assets/images/tray/macos/
       platforms: [ macos ]
     - path: assets/images/tray/windows/

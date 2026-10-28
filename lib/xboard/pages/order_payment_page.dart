@@ -10,7 +10,7 @@ import 'dart:async';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:qr_flutter/qr_flutter.dart';
+import 'package:fl_clash/ui/qr_code.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../models/checkout_outcome_ui.dart';
@@ -793,7 +793,7 @@ class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage>
             children: [
               SizedBox.square(
                 dimension: 220,
-                child: QrImageView(data: qrUrl, size: 220),
+                child: QrCodeView(data: qrUrl, size: 220),
               ),
               const SizedBox(height: 12),
               const Text('请用支付宝 / 微信扫描二维码完成支付', textAlign: TextAlign.center),

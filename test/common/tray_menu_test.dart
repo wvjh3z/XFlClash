@@ -1,5 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
+import 'package:fl_clash/xboard/config/xboard_config.dart';
+import 'package:fl_clash/providers/config.dart';
 
 import 'package:fl_clash/common/app_localizations.dart';
 import 'package:fl_clash/common/app_ports.dart';
@@ -48,6 +50,7 @@ TrayState _trayState({
   bool systemProxy = false,
   bool autoLaunch = false,
   bool showTrayTitle = false,
+  bool monochromeTrayIcon = true,
   bool safeMode = false,
   Mode mode = Mode.rule,
   List<Group> groups = const [],
@@ -63,6 +66,7 @@ TrayState _trayState({
     groups: groups,
     selectedMap: const {},
     showTrayTitle: showTrayTitle,
+    monochromeTrayIcon: monochromeTrayIcon,
     safeMode: safeMode,
     hotKeys: hotKeys,
   );
@@ -144,6 +148,64 @@ void main() {
       traffic: const Traffic(),
       read: container.read,
     );
+  }
+
+  for (final brand in ['brand_a', 'brand_b']) {
+    for (final platform in ['windows', 'macos', 'linux']) {
+      test(
+        '$brand $platform only brand modes and real menu callbacks',
+        () async {
+          XboardConfig.bind(
+            XboardConfig(
+              subscribeUserAgent: 'test',
+              devApiEndpoint: 'https://api.example.invalid',
+              devSubscriptionEndpoint: 'https://sub.example.invalid',
+              debug: false,
+              kIsTest: true,
+              flavorId: brand,
+              formA: true,
+            ),
+          );
+          addTearDown(XboardConfig.resetForTest);
+          container.dispose();
+          container = ProviderContainer(
+            overrides: [currentProfileProvider.overrideWith((_) => null)],
+          );
+          final target = AppTray.forPlatform(
+            isMacOS: platform == 'macos',
+            isWindows: platform == 'windows',
+          );
+          await update(_trayState(), on: target);
+          expect(_labels(showCall()), contains(Mode.rule.label));
+          expect(_labels(showCall()), contains(Mode.global.label));
+          expect(_labels(showCall()), isNot(contains(Mode.direct.label)));
+          final item = _item(showCall(), Mode.global.label);
+          await TestDefaultBinaryMessengerBinding
+              .instance
+              .defaultBinaryMessenger
+              .handlePlatformMessage(
+                _channel.name,
+                const StandardMethodCodec().encodeMethodCall(
+                  MethodCall('onMenuItemSelected', {'id': item['id']}),
+                ),
+                (_) {},
+              );
+          expect(container.read(patchClashConfigProvider).mode, Mode.global);
+          final rule = _item(showCall(), Mode.rule.label);
+          await TestDefaultBinaryMessengerBinding
+              .instance
+              .defaultBinaryMessenger
+              .handlePlatformMessage(
+                _channel.name,
+                const StandardMethodCodec().encodeMethodCall(
+                  MethodCall('onMenuItemSelected', {'id': rule['id']}),
+                ),
+                (_) {},
+              );
+          expect(container.read(patchClashConfigProvider).mode, Mode.rule);
+        },
+      );
+    }
   }
 
   test(
@@ -236,6 +298,27 @@ void main() {
     expect(reps.map((rep) => rep['scale']), containsAll([1.0, 2.0, 3.0, 4.0]));
     expect(reps.map((rep) => rep['bytes']), everyElement(isNotEmpty));
     expect((arguments['icon'] as Map)['isTemplate'], isTrue);
+  });
+
+  test('ships the color status icon once monochrome is off', () async {
+    await update(
+      _trayState(isStart: true, tunEnable: true, monochromeTrayIcon: false),
+    );
+
+    final arguments = showCall()!.arguments as Map;
+    expect((arguments['icon'] as Map)['isTemplate'], isFalse);
+    final reps = ((arguments['icon'] as Map)['reps'] as List).cast<Map>();
+    final base = reps.firstWhere((rep) => rep['scale'] == 1.0);
+    expect(
+      base['bytes'],
+      base64Encode(
+        File('assets/images/tray/unix/status_3.png').readAsBytesSync(),
+      ),
+    );
+    expect(
+      _item(showCall(), currentAppLocalizations.monochromeIcon)['checked'],
+      isFalse,
+    );
   });
 
   test('skips the platform call when the tray state is unchanged', () async {
@@ -390,6 +473,10 @@ void main() {
       expect(
         _labels(showCall()),
         isNot(contains(currentAppLocalizations.speedStatistics)),
+      );
+      expect(
+        _labels(showCall()),
+        isNot(contains(currentAppLocalizations.monochromeIcon)),
       );
       expect(_labels(showCall()), isNot(contains(HotAction.delayTest.label)));
     });

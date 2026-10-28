@@ -305,7 +305,7 @@ void main() {
     });
     tearDown(() => target.deleteSync(recursive: true));
 
-    test('platform mappings cover v0.9.1 tray states and pixel-density variants', () {
+    test('platform mappings cover v0.9.2 monochrome and color tray states', () {
       for (final platform in ['windows', 'linux', 'macos']) {
         final writes = desktopSystemIconWrites(brandA, platform: platform);
         final extension = platform == 'windows' ? 'ico' : 'png';
@@ -317,6 +317,10 @@ void main() {
         expect(
           writes.keys,
           unorderedEquals([
+            if (platform == 'macos')
+              for (final state in [1, 2, 3, 4])
+                for (final scale in ['', '2.0x/', '3.0x/', '4.0x/'])
+                  'assets/images/tray/unix/${scale}status_$state.png',
             for (final state in states)
               for (final scale in scales)
                 'assets/images/tray/$directory/${scale}status_$state.$extension',

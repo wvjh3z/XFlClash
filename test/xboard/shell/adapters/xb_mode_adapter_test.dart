@@ -21,24 +21,27 @@ class _Probe extends ConsumerWidget {
     const adapter = XbModeAdapter();
     return Directionality(
       textDirection: TextDirection.ltr,
-      child: Text(adapter.currentMode(ref).name),
+      child: Text(adapter.currentMode(ref)?.name ?? 'unavailable'),
     );
   }
 }
 
 void main() {
-  Future<XbMode> readMode(WidgetTester tester, Mode flMode) async {
+  Future<XbMode?> readMode(WidgetTester tester, Mode flMode) async {
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
-          patchClashConfigProvider
-              .overrideWithBuild((ref, _) => PatchClashConfig(mode: flMode)),
+          patchClashConfigProvider.overrideWithBuild(
+            (ref, _) => PatchClashConfig(mode: flMode),
+          ),
         ],
         child: const _Probe(),
       ),
     );
     final name = tester.widget<Text>(find.byType(Text)).data!;
-    return XbMode.values.firstWhere((m) => m.name == name);
+    return name == 'unavailable'
+        ? null
+        : XbMode.values.firstWhere((m) => m.name == name);
   }
 
   testWidgets('Mode.rule → smart', (tester) async {
@@ -49,7 +52,7 @@ void main() {
     expect(await readMode(tester, Mode.global), XbMode.global);
   });
 
-  testWidgets('Mode.direct → smart（归一，formA 无 direct）', (tester) async {
-    expect(await readMode(tester, Mode.direct), XbMode.smart);
+  testWidgets('Mode.direct is not falsely labelled smart', (tester) async {
+    expect(await readMode(tester, Mode.direct), isNull);
   });
 }

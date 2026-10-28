@@ -431,7 +431,7 @@ class _RailVersion extends StatelessWidget {
         ),
         const SizedBox(height: 2),
         Text(
-          '内核 FlClash 0.9.1',
+          '内核 FlClash 0.9.2',
           textAlign: TextAlign.center,
           style: TextStyle(fontSize: 10, color: scheme.onSurfaceVariant),
         ),

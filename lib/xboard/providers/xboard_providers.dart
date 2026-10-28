@@ -156,6 +156,19 @@ EncryptedSubscriptionService encryptedSubscriptionService(Ref ref) {
   return EncryptedSubscriptionService(decryptor: decryptor);
 }
 
+/// Capture both controller identity and network epoch before starting a download.
+void Function(String)? captureSubscriptionWinnerRecorder(Ref ref) {
+  final race = ref.read(injectedRaceControllerProvider);
+  if (race == null) return null;
+  final record = race.captureSubscriptionWinnerRecorder();
+  return (host) {
+    if (ref.mounted &&
+        identical(ref.read(injectedRaceControllerProvider), race)) {
+      record(host);
+    }
+  };
+}
+
 /// R4.6 订阅自动同步服务（组装：反腐层 + 加密订阅 + profile 端口 + DB + tokenStorage + 竞速候选）。
 ///
 /// **gate**：依赖 `xboardServiceProvider`（SDK 未就绪抛 StateError）+ tokenStorage 已注入
@@ -181,9 +194,7 @@ XboardSubscriptionService subscriptionService(Ref ref) {
         const [],
     vpnActive: () =>
         ref.read(injectedRaceControllerProvider)?.vpnActive ?? false,
-    onWinnerHost: (host) => ref
-        .read(injectedRaceControllerProvider)
-        ?.rememberSubscriptionWinner(host),
+    captureWinnerRecorder: () => captureSubscriptionWinnerRecorder(ref),
     // Compatibility host view; production uses the typed regional snapshot.
     subscriptionCandidates: () =>
         ref.read(injectedRaceControllerProvider)?.subscriptionCandidates() ??

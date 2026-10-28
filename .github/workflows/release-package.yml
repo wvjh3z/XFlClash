@@ -228,6 +228,10 @@ jobs:
         if: matrix.platform == 'windows'
         shell: powershell
         run: |
+          python tool/test/windows_brand_data_cleanup_contract_test.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & tool/test/windows_brand_data_cleanup_test.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           & tool/test/windows_brand_installation_test.ps1
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           & tool/test/windows_vc_runtime_test.ps1

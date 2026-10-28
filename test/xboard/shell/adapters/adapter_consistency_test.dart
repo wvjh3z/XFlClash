@@ -35,7 +35,7 @@ void main() {
   testWidgets('Property 4：FlClash mode 真值变 → adapter 读回一致（无影子状态）', (
     tester,
   ) async {
-    late XbMode observed;
+    XbMode? observed;
     const adapter = XbModeAdapter();
     final container = ProviderContainer();
     addTearDown(container.dispose);
@@ -59,12 +59,12 @@ void main() {
     // adapter 读出即变（无中间缓存）。
     expect(observed, XbMode.global);
 
-    // direct（formA 无法表达）→ 归一为 smart。
+    // Unexpected direct must not be labelled as smart.
     container
         .read(patchClashConfigProvider.notifier)
         .update((s) => s.copyWith(mode: Mode.direct));
     await tester.pump();
-    expect(observed, XbMode.smart);
+    expect(observed, isNull);
   });
 
   test('Property 4：XbModeAdapter 无实例字段（结构性无影子状态）', () {

@@ -1,3 +1,4 @@
+import 'package:fl_clash/ui/qr_code.dart';
 import 'dart:async';
 
 import 'package:material_ui/material_ui.dart';
@@ -532,24 +533,31 @@ void main() {
     expect(t.takeException(), isNull);
   });
 
-  _paymentTest('asynchronous query rejection releases the shared request for retry', (t, h) async {
-    await h.mount(t);
-    final response = Completer<XbResult<OrderDetail?>>();
-    h.service.onRead = (_) => response.future;
-    await tap(t, '检测支付状态');
-    response.completeError(StateError('controlled asynchronous failure'));
-    await t.pump();
-    await t.pump(const Duration(milliseconds: 350));
-    expect(text('重新检测'), findsOneWidget);
-    expect(t.takeException(), isNull);
-    final previous = h.service.reads;
-    h.service.onRead = (_) async => XbResult.success(order(XbOrderStatus.pending));
-    await tap(t, '重新检测');
-    expect(h.service.reads, previous + 1);
-    expect(t.takeException(), isNull);
-  });
+  _paymentTest(
+    'asynchronous query rejection releases the shared request for retry',
+    (t, h) async {
+      await h.mount(t);
+      final response = Completer<XbResult<OrderDetail?>>();
+      h.service.onRead = (_) => response.future;
+      await tap(t, '检测支付状态');
+      response.completeError(StateError('controlled asynchronous failure'));
+      await t.pump();
+      await t.pump(const Duration(milliseconds: 350));
+      expect(text('重新检测'), findsOneWidget);
+      expect(t.takeException(), isNull);
+      final previous = h.service.reads;
+      h.service.onRead = (_) async =>
+          XbResult.success(order(XbOrderStatus.pending));
+      await tap(t, '重新检测');
+      expect(h.service.reads, previous + 1);
+      expect(t.takeException(), isNull);
+    },
+  );
 
-  _paymentTest('disposed payment query consumes a late rejection', (t, h) async {
+  _paymentTest('disposed payment query consumes a late rejection', (
+    t,
+    h,
+  ) async {
     await h.mount(t);
     final response = Completer<XbResult<OrderDetail?>>();
     h.service.onRead = (_) => response.future;
@@ -676,20 +684,23 @@ void main() {
     },
   );
 
-  _paymentTest(
-    'payment uses remaining panel width after a desktop sidebar',
-    (t, h) async {
-      h.service.onRead = (_) async =>
-          XbResult.success(order(XbOrderStatus.processing));
-      await h.mount(t, size: const Size(840, 900), panelWidth: 632);
-      final check = t.getRect(text('检测支付状态'));
-      final information = t.getRect(text('订单信息'));
-      expect(check.top, greaterThan(information.bottom),
-          reason: '840窗口扣除208侧栏后只剩632，应使用单列');
-      expect(t.takeException(), isNull);
-      expect(h.service.reads, 1);
-    },
-  );
+  _paymentTest('payment uses remaining panel width after a desktop sidebar', (
+    t,
+    h,
+  ) async {
+    h.service.onRead = (_) async =>
+        XbResult.success(order(XbOrderStatus.processing));
+    await h.mount(t, size: const Size(840, 900), panelWidth: 632);
+    final check = t.getRect(text('检测支付状态'));
+    final information = t.getRect(text('订单信息'));
+    expect(
+      check.top,
+      greaterThan(information.bottom),
+      reason: '840窗口扣除208侧栏后只剩632，应使用单列',
+    );
+    expect(t.takeException(), isNull);
+    expect(h.service.reads, 1);
+  });
 
   _paymentTest(
     'dark narrow opening and long order at large text scale do not overflow',
@@ -724,6 +735,11 @@ void main() {
       await tap(t, '立即支付');
       await t.pump(const Duration(milliseconds: 350));
       expect(text('扫码支付'), findsOneWidget);
+      expect(
+        t.widget<QrCodeView>(find.byType(QrCodeView)).data,
+        'fixture-payment-qr',
+      );
+      expect(t.takeException(), isNull);
       h.service.onRead = (_) async =>
           XbResult.success(order(XbOrderStatus.completed));
       await t.pump(const Duration(seconds: 5));

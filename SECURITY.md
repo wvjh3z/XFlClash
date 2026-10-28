@@ -59,3 +59,8 @@ FlClash 上游自身的安全策略见上游仓库。
 
 - 移动端：`flutter_secure_storage` + Android `EncryptedSharedPreferences`（θ-10）；`allowBackup=false` 防卸载重装残留。
 - Linux 桌面无 D-Bus / gnome-keyring 时降级 AES-256-GCM 加密 SharedPreferences（ζ1）。
+
+
+## v0.9.2 品牌全新安装默认值（2026-10-29，尚未发布）
+
+用户要求全新安装默认关闭“校验TLS证书”。在既有启动接缝、网络层初始化前应用，保留已有用户的开关选择；不修改系统证书库、第三方原生组件或节点协议各自的TLS字段。当前实现与验证状态以升级Docs/ARCHITECTURE的“v0.9.2 品牌首次TLS默认值”和STATUS为准。本节历史管理流量独立放行策略仍保留，不能把用户打开宿主开关理解为Xboard API自动恢复严格验证。

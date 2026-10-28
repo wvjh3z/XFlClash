@@ -2,10 +2,13 @@
 #define XbBundle "{{SOURCE_DIR}}"
 ; xboard-service-identity: injected before packaging
 #define XbServiceName "UNCONFIGURED"
+#define XbDataSlug "UNCONFIGURED"
 #include "..\windows\packaging\exe\vc_runtime.iss"
 
 [Files]
 Source: "{#XbRoot}tool\windows\stop_brand_installation.ps1"; Flags: dontcopy
+Source: "{#XbRoot}tool\windows\stop_brand_installation.ps1"; DestDir: "{app}\maintenance"; Flags: ignoreversion
+Source: "{#XbRoot}tool\windows\remove_brand_user_data.ps1"; DestDir: "{app}\maintenance"; Flags: ignoreversion
 
 [Setup]
 MinVersion=10.0
@@ -35,20 +38,40 @@ chineseSimplified.XbBuildLabel=构建
 english.XbBuildLabel=build
 chineseSimplified.XbOwnedInstallError=无法安全关闭当前客户端，请先退出此客户端后重试。
 english.XbOwnedInstallError=Cannot stop this installation safely. Close this client and retry.
+chineseSimplified.XbDataBrand={{DISPLAY_NAME}}
+english.XbDataBrand={{DISPLAY_NAME}}
+chineseSimplified.XbRemoveData=是否删除 %1 的本地配置与缓存（含其中保存的登录信息）？其他品牌和原版 FlClash 的数据会保留。
+english.XbRemoveData=Delete local settings, login information and cache for %1? Other brands and original FlClash data will be retained.
+chineseSimplified.XbDataUserUnknown=无法确认当前桌面用户与卸载账户一致，已保留所有用户数据。
+english.XbDataUserUnknown=The desktop user could not be matched to the uninstall account. All user data was retained.
+chineseSimplified.XbDataIncomplete=部分数据未清理，可能存在占用、权限问题或不安全的目录链接。请检查以下品牌目录（不要删除其父目录）：
+english.XbDataIncomplete=Some data was retained because of active files, permissions or unsafe directory links. Check these brand directories; do not delete their parent:
 
 [Code]
 function StopOwnedInstallation(): Boolean;
 var
   ResultCode: Integer;
   PowerShellPath: String;
+  ScriptPath: String;
 begin
-  ExtractTemporaryFile('stop_brand_installation.ps1');
+  if IsUninstaller then
+    ScriptPath := ExpandConstant('{app}\maintenance\stop_brand_installation.ps1')
+  else
+  begin
+    ExtractTemporaryFile('stop_brand_installation.ps1');
+    ScriptPath := ExpandConstant('{tmp}\stop_brand_installation.ps1');
+  end;
+  if not FileExists(ScriptPath) then
+  begin
+    Result := False;
+    exit;
+  end;
   PowerShellPath := ExpandConstant('{sysnative}\WindowsPowerShell\v1.0\powershell.exe');
   if not FileExists(PowerShellPath) then
     PowerShellPath := ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe');
   Result := Exec(PowerShellPath,
     '-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "' +
-    ExpandConstant('{tmp}\stop_brand_installation.ps1') + '" -InstallDirectory "' +
+    ScriptPath + '" -InstallDirectory "' +
     ExpandConstant('{app}') + '" -ServiceName "{#XbServiceName}"',
     ExpandConstant('{tmp}'), SW_HIDE, ewWaitUntilTerminated, ResultCode);
   Result := Result and (ResultCode = 0);
@@ -96,12 +119,47 @@ begin
   Result := StopOwnedInstallation();
 end;
 
+// Called only after the user confirms an interactive uninstall, while the
+// installed maintenance script still exists. Never delete data during update.
+procedure RemoveUserData;
+var
+  PowerShellPath, ScriptPath, RetainedPaths: String;
+  ResultCode: Integer;
+  Started: Boolean;
+begin
+  ScriptPath := ExpandConstant('{app}\maintenance\remove_brand_user_data.ps1');
+  PowerShellPath := ExpandConstant('{sysnative}\WindowsPowerShell\v1.0\powershell.exe');
+  if not FileExists(PowerShellPath) then
+    PowerShellPath := ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe');
+  ResultCode := 20;
+  Started := False;
+  if FileExists(ScriptPath) then
+    Started := Exec(PowerShellPath,
+      '-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "' +
+      ScriptPath + '" -Brand "{#XbDataSlug}"',
+      ExpandConstant('{app}'), SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  if Started and (ResultCode = 0) then exit;
+  Log('Brand user data retained; cleanup exit code=' + IntToStr(ResultCode));
+  if Started and (ResultCode = 10) then
+    MsgBox(CustomMessage('XbDataUserUnknown'), mbInformation, MB_OK)
+  else
+  begin
+    RetainedPaths := ExpandConstant('{userappdata}\com.cloud.app\{#XbDataSlug}') + #13#10 +
+      ExpandConstant('{localappdata}\com.cloud.app\{#XbDataSlug}');
+    MsgBox(CustomMessage('XbDataIncomplete') + #13#10 + RetainedPaths, mbInformation, MB_OK);
+  end;
+end;
+
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 begin
-  if CurUninstallStep = usPostUninstall then
+  if (CurUninstallStep = usUninstall) and not UninstallSilent then
   begin
-    RemoveUserRegistrations;
+    if MsgBox(FmtMessage(CustomMessage('XbRemoveData'), [CustomMessage('XbDataBrand')]),
+        mbConfirmation, MB_YESNO or MB_DEFBUTTON2) = IDYES then
+      RemoveUserData;
   end;
+  if CurUninstallStep = usPostUninstall then
+    RemoveUserRegistrations;
 end;
 
 [Languages]

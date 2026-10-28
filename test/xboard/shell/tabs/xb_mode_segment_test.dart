@@ -21,8 +21,9 @@ Future<void> pumpSegment(
   await tester.pumpWidget(
     ProviderScope(
       overrides: [
-        patchClashConfigProvider
-            .overrideWithBuild((ref, _) => PatchClashConfig(mode: mode)),
+        patchClashConfigProvider.overrideWithBuild(
+          (ref, _) => PatchClashConfig(mode: mode),
+        ),
         authStateProvider.overrideWith(() => _FakeAuth(auth)),
       ],
       child: const MaterialApp(home: Scaffold(body: XbModeSegment())),
@@ -39,6 +40,23 @@ class _FakeAuth extends AuthStateNotifier {
 }
 
 void main() {
+  testWidgets('unexpected direct is not falsely highlighted as smart', (
+    tester,
+  ) async {
+    await pumpSegment(tester, mode: Mode.direct, auth: AuthState.authenticated);
+    expect(find.text('模式状态异常，请选择智能或全局'), findsOneWidget);
+    final scheme = Theme.of(
+      tester.element(find.byType(XbModeSegment)),
+    ).colorScheme;
+    for (final label in ['智能', '全局']) {
+      expect(
+        tester.widget<Text>(find.text(label)).style!.color,
+        scheme.onSurfaceVariant,
+      );
+    }
+    expect(find.text('直连'), findsNothing);
+  });
+
   testWidgets('显示智能/全局二选一（不出现直连）', (tester) async {
     await pumpSegment(tester, mode: Mode.rule, auth: AuthState.authenticated);
     expect(find.text('智能'), findsOneWidget);
@@ -56,10 +74,11 @@ void main() {
   });
 
   testWidgets('游客态 dim（Opacity 0.5）', (tester) async {
-    await pumpSegment(
-        tester, mode: Mode.rule, auth: AuthState.unauthenticated);
+    await pumpSegment(tester, mode: Mode.rule, auth: AuthState.unauthenticated);
     final opacity = tester.widget<Opacity>(
-      find.ancestor(of: find.text('代理模式'), matching: find.byType(Opacity)).first,
+      find
+          .ancestor(of: find.text('代理模式'), matching: find.byType(Opacity))
+          .first,
     );
     expect(opacity.opacity, 0.5);
   });
@@ -67,7 +86,9 @@ void main() {
   testWidgets('已登录态不 dim（Opacity 1.0）', (tester) async {
     await pumpSegment(tester, mode: Mode.rule, auth: AuthState.authenticated);
     final opacity = tester.widget<Opacity>(
-      find.ancestor(of: find.text('代理模式'), matching: find.byType(Opacity)).first,
+      find
+          .ancestor(of: find.text('代理模式'), matching: find.byType(Opacity))
+          .first,
     );
     expect(opacity.opacity, 1.0);
   });

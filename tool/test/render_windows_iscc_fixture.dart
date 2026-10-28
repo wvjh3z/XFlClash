@@ -50,15 +50,20 @@ Future<void> main(List<String> args) async {
         'tool/windows/vc_runtime.ps1',
         'tool/windows/vc_runtime.json',
         'tool/windows/stop_brand_installation.ps1',
+        'tool/windows/remove_brand_user_data.ps1',
       ]) {
         File(relative).parent.createSync(recursive: true);
         File('$repo/$relative').copySync(relative);
       }
       File('windows/packaging/exe/make_config.yaml').writeAsStringSync(
-        injectStableIdentity(injectWindowsInstallerConfig(
-          brand.injectMakeConfigNames(configSource, entry.value),
-          metadata,
-        ), 'windows/packaging/exe/make_config.yaml', brandIdentity(entry.key, root: repo)),
+        injectStableIdentity(
+          injectWindowsInstallerConfig(
+            brand.injectMakeConfigNames(configSource, entry.value),
+            metadata,
+          ),
+          'windows/packaging/exe/make_config.yaml',
+          brandIdentity(entry.key, root: repo),
+        ),
       );
       final version = WindowsInstallerVersion(
         entry.key == 'brand_a' ? '0.1.2' : '1.2.3-rc.1+fixture',
@@ -66,17 +71,20 @@ Future<void> main(List<String> args) async {
       );
       File('windows/packaging/exe/inno_setup.iss').writeAsStringSync(
         injectWindowsInstallerVersion(
-          injectStableIdentity(injectWindowsInstallerLinks(templateSource, metadata),
-            'windows/packaging/exe/inno_setup.iss', brandIdentity(entry.key,root:repo)),
+          injectStableIdentity(
+            injectWindowsInstallerLinks(templateSource, metadata),
+            'windows/packaging/exe/inno_setup.iss',
+            brandIdentity(entry.key, root: repo),
+          ),
           version,
         ),
       );
       File(
         'pubspec.yaml',
       ).writeAsStringSync('name: iscc_fixture\nversion: 0.8.93+2026052901\n');
-      File(
-        'distribute_options.yaml',
-      ).writeAsStringSync('app_name: ${brandIdentity(entry.key, root: repo)['name']}\n');
+      File('distribute_options.yaml').writeAsStringSync(
+        'app_name: ${brandIdentity(entry.key, root: repo)['name']}\n',
+      );
       final loader = MakeExeConfigLoader()
         ..platform = 'windows'
         ..packageFormat = 'exe';

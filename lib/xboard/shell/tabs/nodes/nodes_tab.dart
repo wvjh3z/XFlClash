@@ -74,6 +74,7 @@ class _NodesTabState extends ConsumerState<NodesTab>
 
   /// 当前选中的分组名（顶部 tab）。null = 用首个可见分组。
   String? _selectedGroup;
+  bool? _lastGlobalMode;
 
   /// 待定位到的节点名（传给 XbNodeGroup 滚动居中）；消费后清空（只定位一次）。
   String? _pendingScrollNode;
@@ -257,16 +258,29 @@ class _NodesTabState extends ConsumerState<NodesTab>
     final adapter = ref.watch(xbNodesAdapterProvider);
     final view = adapter.nodesView(ref);
 
+    // Match upstream's global-mode entry without pinning the user to GLOBAL:
+    // subsequent manual group browsing remains available until mode changes.
+    if (_lastGlobalMode != view.isGlobal) {
+      if (view.isGlobal && (_lastGlobalMode != null || _selectedGroup == null)) {
+        _selectedGroup = view.preferredGroupName;
+      }
+      _lastGlobalMode = view.isGlobal;
+    }
+
     // 空态：一个节点都没有。刷新中仍显示空态 + 横幅（旧节点本就为空，无可保留）。
     if (view.isEmpty) {
       return _emptyShell(_EmptyNodes(onTapRenew: widget.onTapRenew));
     }
 
-    // 选中分组：选中名不在当前可见分组里（刷新后分组变化）→ 回退首个。
+    // Preserve browsing, then use the upstream entry if the selected group disappeared.
     final groups = view.groups;
+    final preferred = groups.firstWhere(
+      (g) => g.name == view.preferredGroupName,
+      orElse: () => groups.first,
+    );
     final current = groups.firstWhere(
       (g) => g.name == _selectedGroup,
-      orElse: () => groups.first,
+      orElse: () => preferred,
     );
 
     // 顶部分组 tab：窄窗口横向；宽窗口 master-detail（左竖排分组栏 + 右双列节点网格，C-分支）。

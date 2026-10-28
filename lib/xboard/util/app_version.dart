@@ -2,7 +2,7 @@
 ///
 /// **两套版本号，不同来源（用户决策）**：
 /// - 设置 → 关于（FlClash 原生 AboutView）：显示**底座版本**（`packageInfo.version` = build-name
-///   = FlClash 0.9.1），沿用上游不动。
+///   = FlClash 0.9.2），沿用上游不动。
 /// - 我的 Tab → 关于（本函数）：显示 **MyClient 自有产品版本 + 构建时间戳**，即 `v0.0.1-{tag}`。
 ///   产品版本与底座脱钩，不走 packageInfo（那是底座版本），改由编译期 `--dart-define` 注入。
 library;

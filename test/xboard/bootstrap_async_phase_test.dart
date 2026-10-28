@@ -12,6 +12,10 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/widgets.dart';
+import 'package:fl_clash/providers/state.dart'
+    show isStartProvider, suspendProvider;
+import 'package:fl_clash/xboard/providers/xboard_connectivity_provider.dart';
+import '../_fixtures/fake_connectivity.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -110,6 +114,53 @@ void main() {
       kBootstrapCacheKey: jsonEncode(env.toJson()),
     });
   }
+
+  test(
+    'module wires physical changes and suspended VPN to real race controller',
+    () async {
+      container.dispose();
+      var running = false;
+      var suspended = false;
+      final hardware = FakeConnectivity();
+      addTearDown(hardware.close);
+      container = ProviderContainer(
+        overrides: [
+          xboardConnectivityClientProvider.overrideWithValue(hardware),
+          isStartProvider.overrideWith((_) => running),
+          suspendProvider.overrideWith((_) => suspended),
+        ],
+      );
+      bindTestConfig();
+      await seedCache();
+      Completer<void>? next;
+      await XboardModule.bootstrap(
+        container,
+        sdk: sdk,
+        tokenStorage: FakeTokenStorage(),
+        debugProbe: (_) async {
+          if (next != null && !next.isCompleted) {
+            next.complete();
+          }
+          return true;
+        },
+      );
+      await XboardModule.bootstrapAsync(container);
+      final race = container.read(injectedRaceControllerProvider)!;
+      next = Completer<void>();
+      hardware.goMobile();
+      await next.future.timeout(const Duration(seconds: 3));
+      next = Completer<void>();
+      running = true;
+      container.invalidate(isStartProvider);
+      await next.future.timeout(const Duration(seconds: 3));
+      expect(race.vpnActive, isTrue);
+      next = Completer<void>();
+      suspended = true;
+      container.invalidate(suspendProvider);
+      await next.future.timeout(const Duration(seconds: 3));
+      expect(race.vpnActive, isFalse);
+    },
+  );
 
   test('同步阶段 loadLocal 命中缓存 → 用缓存 endpoint（替代出厂 stub）', () async {
     bindTestConfig();

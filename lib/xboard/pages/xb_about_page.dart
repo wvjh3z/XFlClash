@@ -139,7 +139,7 @@ class _AboutBodyState extends ConsumerState<_AboutBody> {
               ),
               const SizedBox(height: 2),
               Text(
-                '内核 FlClash 0.9.1',
+                '内核 FlClash 0.9.2',
                 style: TextStyle(fontSize: 11, color: scheme.onSurfaceVariant),
               ),
               const SizedBox(height: 24),

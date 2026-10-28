@@ -11,11 +11,12 @@ library;
 
 import 'package:fl_clash/common/compute.dart'
     show computeRealSelectedProxyState;
-import 'package:fl_clash/providers/core.dart' show coreHandlerProvider;
 import 'package:fl_clash/models/models.dart' show Delay, Group, GroupExt, Proxy;
 import 'package:fl_clash/providers/providers.dart';
 import 'package:fl_clash/enum/enum.dart' show GroupType, GroupName, Mode;
 import 'package:material_ui/material_ui.dart';
+import 'package:flutter/foundation.dart' show mapEquals;
+import '../../providers/auth_state_provider.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../tabs/home/home_latency_provider.dart';
@@ -102,9 +103,16 @@ class XbGroupSummary {
 
 /// 形态 A 节点视图（轻量投影）。
 class XbNodesView {
-  const XbNodesView({required this.groups});
+  const XbNodesView({
+    required this.groups,
+    this.isGlobal = false,
+    this.preferredGroupName,
+  });
 
-  /// 可见分组摘要列表（已过滤 hidden）。
+  final bool isGlobal;
+  final String? preferredGroupName;
+
+  /// 按当前模式投影的可见分组；全局模式保留隐藏组。
   final List<XbGroupSummary> groups;
 
   /// 是否无可用分组（空态引导续费，R4.6）。
@@ -115,22 +123,21 @@ class XbNodesView {
 class XbNodesAdapter {
   const XbNodesAdapter();
 
-  /// 投影轻量节点视图（过滤 hidden 组）。
-  ///
-  /// **mode 一致性（修复「全局选节点不生效」）**：global 模式下 core 只认 `GLOBAL` 组的选择，
-  /// 故节点页 global 模式**只展示 GLOBAL 组**（用户在 GLOBAL 里选 → 与首页 GLOBAL 入口一致、
-  /// 与 core 实际生效一致）。rule 模式展示业务组（`currentGroupsState` 已排除 GLOBAL）。
+  /// Follow upstream visibility: global keeps hidden groups too, rule filters
+  /// them, and direct has no groups. GLOBAL is the initial global-mode page.
   XbNodesView nodesView(WidgetRef ref) {
     final tabState = ref.watch(proxiesTabStateProvider);
     final mode = ref.watch(patchClashConfigProvider.select((s) => s.mode));
-    final summaries = <XbGroupSummary>[];
-    for (final group in tabState.groups) {
-      if (group.hidden == true) continue;
-      // global 模式只保留 GLOBAL 组（其余业务组在 global 下选了也不生效，隐藏避免误导）。
-      if (mode == Mode.global && group.name != GroupName.GLOBAL.name) continue;
-      summaries.add(_toSummary(group));
-    }
-    return XbNodesView(groups: summaries);
+    // Upstream currentGroupsState/filterGroupsState already applies mode,
+    // hidden flags and user filters. Do not filter hidden GLOBAL a second time.
+    final groups = tabState.groups.map(_toSummary).toList();
+    return XbNodesView(
+      groups: groups,
+      isGlobal: mode == Mode.global,
+      preferredGroupName: mode == Mode.global
+          ? GroupName.GLOBAL.name
+          : tabState.currentGroupName,
+    );
   }
 
   /// 当前生效的「叶子节点名 + 所属分组名」（首页线路卡用）。
@@ -258,39 +265,70 @@ class XbNodesAdapter {
     String? explicitNode,
     int rounds = 3,
   }) async {
-    final home = ref.read(homeLatencyProvider.notifier);
-    // 决定测哪个真实节点 + 用哪个 testUrl（纯决策，已抽出可单测，见 resolveMeasureTarget）。
-    final target = resolveMeasureTarget(ref, explicitNode: explicitNode);
-    if (target == null) {
-      home.setResult(null);
+    // Capture resources before awaiting; WidgetRef is not usable after disposal.
+    final context = ref.context;
+    final container = ProviderScope.containerOf(context, listen: false);
+    final home = container.read(homeLatencyProvider.notifier);
+    if (!container.read(isStartProvider) ||
+        container.read(suspendProvider) ||
+        container.read(authStateProvider) != AuthState.authenticated) {
+      home.reset();
       return;
     }
+    final target = resolveMeasureTarget(ref, explicitNode: explicitNode);
+    if (target == null) {
+      home.reset();
+      return;
+    }
+    final auth = container.read(authStateProvider.notifier);
+    final revision = auth.sessionRevision;
+    final core = container.read(coreHandlerProvider);
+    final actions = container.read(proxiesActionProvider.notifier);
+    final measuring = container.read(xbMeasuringNodesProvider.notifier);
+    final generation = home.startMeasuring();
+    final selection = container.listen(selectedMapProvider, (previous, next) {
+      if (!mapEquals(previous, next) && home.isCurrent(generation)) {
+        home.reset();
+      }
+    });
+    bool current() =>
+        home.isCurrent(generation) &&
+        context.mounted &&
+        container.read(isStartProvider) &&
+        !container.read(suspendProvider) &&
+        container.read(authStateProvider) == AuthState.authenticated &&
+        identical(container.read(authStateProvider.notifier), auth) &&
+        auth.sessionRevision == revision;
     final proxyName = target.proxyName;
     final testUrl = target.testUrl;
-    home.startMeasuring();
+    final timeout = Duration(
+      milliseconds: container.read(appSettingProvider).delayTestTimeout,
+    );
+    int? best;
+    measuring.start(proxyName);
     try {
-      // 标记该节点「测速中」：节点页延迟行显示转圈、屏蔽中间 3 次跳变。
-      final measuring = ref.read(xbMeasuringNodesProvider.notifier);
-      measuring.start(proxyName);
-      int? best;
-      try {
-        for (var i = 0; i < rounds; i++) {
-          final d = await ref
-              .read(coreHandlerProvider)
-              .getDelay(testUrl, proxyName);
-          final v = d?.value;
-          if (v != null && v > 0 && (best == null || v < best)) best = v;
+      for (var i = 0; i < rounds && current(); i++) {
+        final delay = await core.getDelay(testUrl, proxyName, timeout);
+        if (!current()) return;
+        final value = delay?.value;
+        if (value != null && value > 0 && (best == null || value < best)) {
+          best = value;
         }
-      } finally {
-        // 把最低值写回全局延迟表（节点页显示最低，覆盖 core onDelay 推送的中间值），再解除转圈。
-        ref
-            .read(proxiesActionProvider.notifier)
-            .setDelay(Delay(url: testUrl, name: proxyName, value: best ?? -1));
-        measuring.finish(proxyName);
       }
-      home.setResult(best); // null/失败 → 清空显示
+      if (current()) {
+        actions.setDelay(
+          Delay(url: testUrl, name: proxyName, value: best ?? -1),
+        );
+        home.finish(generation, best);
+      }
     } catch (_) {
-      home.setResult(null); // 永不抛
+      home.finish(generation, null);
+    } finally {
+      selection.close();
+      // A failed write or a disposed page must never skip reference-count release.
+      measuring.finish(proxyName);
+      // Disposed owner / changed session may still own the latest ticket.
+      home.finish(generation, null);
     }
   }
 
@@ -525,6 +563,7 @@ class XbMeasuringNodesNotifier extends Notifier<Set<String>> {
   }
 
   void finish(String name) {
+    if (!ref.mounted) return;
     final count = _activeTests[name];
     if (count == null) return;
     if (count > 1) {
