@@ -11,13 +11,13 @@
 | Docs | `https://github.com/wvjh3z/proxy-suite-docs.git` | 私有详细约定、架构、契约、环境、状态与接缝 |
 | 上游 | `https://github.com/chen08209/FlClash.git` | 只读对照；标签不能代替实际commit |
 
-当前维护机已用Git凭据助手成功读取和推送上述项目升级分支（最近客户端提交见UPGRADE_BASELINE）。这不保证未来Token未过期，也不等于任意账号有相同权限。提交署名不是认证。不要打印 `.git-credentials` 或直接把 `git credential fill` 输出到终端；该凭据可能同时服务其他项目。
+当前维护机已用Git凭据助手成功读取和推送上述项目main及历史升级分支（最近客户端提交见UPGRADE_BASELINE）。这不保证未来Token未过期，也不等于任意账号有相同权限。提交署名不是认证。不要打印 `.git-credentials` 或直接把 `git credential fill` 输出到终端；该凭据可能同时服务其他项目。
 
 在已授权访问的客户端检出内，只读检查：
 
 ```bash
 git status --short --branch
-GIT_TERMINAL_PROMPT=0 git ls-remote origin refs/heads/upgrade/flclash-v0.9.2
+GIT_TERMINAL_PROMPT=0 git ls-remote origin refs/heads/main
 ```
 
 成功表示可读该远端引用，不表示构建、写Secrets或管理账号已获授权。新机器先由用户交付访问条件；未取得时可继续审读已交付资料，不能凭仓库URL臆造Token或把私有仓库404当删除。SDK/Docs分别核验访问，不能拿客户端可读作为它们可读的证明。

@@ -1,11 +1,11 @@
 <!-- docs-migration:start -->
-> **持续维护的 UI 专项参考。** 当前跨仓规则见 [CONVENTIONS](https://github.com/wvjh3z/proxy-suite-docs/blob/upgrade/flclash-v0.9.2/CONVENTIONS.md)，实现与验证状态见 [STATUS](https://github.com/wvjh3z/proxy-suite-docs/blob/upgrade/flclash-v0.9.2/STATUS.md)。本文件继续维护组件/token/guard 用法，不重复跨仓规则与版本状态。Docs 为私有仓库，需要 GitHub 授权；本地 checkout 路径为客户端平级的 `Docs/`。
+> **持续维护的 UI 专项参考。** 当前跨仓规则见 [CONVENTIONS](https://github.com/wvjh3z/proxy-suite-docs/blob/main/CONVENTIONS.md)，实现与验证状态见 [STATUS](https://github.com/wvjh3z/proxy-suite-docs/blob/main/STATUS.md)。本文件继续维护组件/token/guard 用法，不重复跨仓规则与版本状态。Docs 为私有仓库，需要 GitHub 授权；本地 checkout 路径为客户端平级的 `Docs/`。
 <!-- docs-migration:end -->
 
 # XFlclash 形态 A · UI 框架参考
 
 > 适用范围：`lib/xboard/` 自有 UI 层（形态 A 商业客户端 XFlclash）。
-> 设计原型源：[移动端 full.html](https://github.com/wvjh3z/proxy-suite-docs/blob/upgrade/flclash-v0.9.2/prototypes/xflclash/full.html)（CSS）+ [full.js](https://github.com/wvjh3z/proxy-suite-docs/blob/upgrade/flclash-v0.9.2/prototypes/xflclash/full.js)（各屏渲染），桌面端见 [full-win.html](https://github.com/wvjh3z/proxy-suite-docs/blob/upgrade/flclash-v0.9.2/prototypes/xflclash/full-win.html)；[维护与预览说明](https://github.com/wvjh3z/proxy-suite-docs/blob/upgrade/flclash-v0.9.2/prototypes/xflclash/README.md)。原型已迁入当前 Docs 仓库，旧 spec 仅保留设计背景。
+> 设计原型源：[移动端 full.html](https://github.com/wvjh3z/proxy-suite-docs/blob/main/prototypes/xflclash/full.html)（CSS）+ [full.js](https://github.com/wvjh3z/proxy-suite-docs/blob/main/prototypes/xflclash/full.js)（各屏渲染），桌面端见 [full-win.html](https://github.com/wvjh3z/proxy-suite-docs/blob/main/prototypes/xflclash/full-win.html)；[维护与预览说明](https://github.com/wvjh3z/proxy-suite-docs/blob/main/prototypes/xflclash/README.md)。原型已迁入当前 Docs 仓库，旧 spec 仅保留设计背景。
 > 本文档为「加页面 / 改页面」时的组件与 token 速查表，避免散改、避免重复造轮子。
 
 ## 0. 分层总览

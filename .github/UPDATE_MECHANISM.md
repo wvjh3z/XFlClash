@@ -1,5 +1,5 @@
 <!-- docs-migration:start -->
-> **当前更新导航与上游参考。** 完整接口与失败语义见 [CONTRACTS](https://github.com/wvjh3z/proxy-suite-docs/blob/upgrade/flclash-v0.9.2/CONTRACTS.md#免登录自更新)，运行链见 [ARCHITECTURE](https://github.com/wvjh3z/proxy-suite-docs/blob/upgrade/flclash-v0.9.2/ARCHITECTURE.md#更新检查提示与安装的运行链)，发布及平台验收见 [DEVELOPMENT](https://github.com/wvjh3z/proxy-suite-docs/blob/upgrade/flclash-v0.9.2/DEVELOPMENT.md#自更新排障与平台验收)。Docs 为私有仓库，需要 GitHub 授权；本地 checkout 为客户端平级的 `Docs/`。
+> **当前更新导航与上游参考。** 完整接口与失败语义见 [CONTRACTS](https://github.com/wvjh3z/proxy-suite-docs/blob/main/CONTRACTS.md#免登录自更新)，运行链见 [ARCHITECTURE](https://github.com/wvjh3z/proxy-suite-docs/blob/main/ARCHITECTURE.md#更新检查提示与安装的运行链)，发布及平台验收见 [DEVELOPMENT](https://github.com/wvjh3z/proxy-suite-docs/blob/main/DEVELOPMENT.md#自更新排障与平台验收)。Docs 为私有仓库，需要 GitHub 授权；本地 checkout 为客户端平级的 `Docs/`。
 <!-- docs-migration:end -->
 
 # XFlclash 更新机制
@@ -15,13 +15,13 @@ XFlclash 当前使用形态 A 商业 UI，FlClash 底座仍为 **v0.8.93**。形
 
 冷启动、手动检查、resume/VPN 自动检查有各自触发和节流规则，详见当前 ARCHITECTURE；不能沿用早期“统一 30 分钟”或“所有触发均 24 小时”的说法。Android 更新 ABI 读取 `XB_ANDROID_ABI`，Gradle 的 `XB_TARGET_ABI` 是另一输入。每个发布批次都核对实际 APK 与 Dart 配置，不能只凭文件名或默认值判断。
 
-Xboard业务的SDK API、Bootstrap、加密订阅、端点探测与安装包下载继承宿主既有HttpOverrides，不改原FlClash全局HTTP或通用请求规则，不额外添加直连回退。业务Dart通道关闭持久连接，避免后续HTTPS复用旧代理隧道。应用内与浏览器共用合法URL的稳定地区排序，浏览器打开失败换源、成功才关窗；其实际网络出口仍由浏览器与系统决定。调用与平台验收见[ARCHITECTURE](https://github.com/wvjh3z/proxy-suite-docs/blob/upgrade/flclash-v0.9.2/ARCHITECTURE.md#更新检查提示与安装的运行链)、[DEVELOPMENT](https://github.com/wvjh3z/proxy-suite-docs/blob/upgrade/flclash-v0.9.2/DEVELOPMENT.md#自更新排障与平台验收)。
+Xboard业务的SDK API、Bootstrap、加密订阅、端点探测与安装包下载继承宿主既有HttpOverrides，不改原FlClash全局HTTP或通用请求规则，不额外添加直连回退。业务Dart通道关闭持久连接，避免后续HTTPS复用旧代理隧道。应用内与浏览器共用合法URL的稳定地区排序，浏览器打开失败换源、成功才关窗；其实际网络出口仍由浏览器与系统决定。调用与平台验收见[ARCHITECTURE](https://github.com/wvjh3z/proxy-suite-docs/blob/main/ARCHITECTURE.md#更新检查提示与安装的运行链)、[DEVELOPMENT](https://github.com/wvjh3z/proxy-suite-docs/blob/main/DEVELOPMENT.md#自更新排障与平台验收)。
 
 产品展示版本、底座原生版本与构建号分别维护，见 [构建入口](BUILD_AND_RELEASE.md)。AppVersion 的 version_code 应对应批次 `XB_BUILD_NUMBER`，Android 覆盖安装另检查真实 versionCode、包名和原签名。
 
 ## 2. 已知边界与验收
 
-当前缺口统一在 [STATUS](https://github.com/wvjh3z/proxy-suite-docs/blob/upgrade/flclash-v0.9.2/STATUS.md) 维护，包括 arm32 的更新 ABI、强制更新门控、下载异常的状态释放与清单撤回后旧提示等。字段或平台入口存在，不等于对应场景已经修复或真机验收。
+当前缺口统一在 [STATUS](https://github.com/wvjh3z/proxy-suite-docs/blob/main/STATUS.md) 维护，包括 arm32 的更新 ABI、强制更新门控、下载异常的状态释放与清单撤回后旧提示等。字段或平台入口存在，不等于对应场景已经修复或真机验收。
 
 下载校验一致不替代品牌发行签名；弹窗或安装服务返回成功不保证安装完成。发布前后应记录清单版本、目标平台/ABI、每包 hash、下载文件 hash、原签名和重启后的实际版本。生产插件配置、清单发布、下载安装和源代码推送是不同动作，按具体任务授权执行。
 
@@ -38,7 +38,7 @@ Future<void> autoCheckUpdate() async {
 }
 ```
 
-形态 A 使用自己的产品更新链；底座其他入口按源码及接缝范围核对。接缝点 #10 当前登记在 [PATCHES](https://github.com/wvjh3z/proxy-suite-docs/blob/upgrade/flclash-v0.9.2/PATCHES.md)，稳定符号在 [FLCLASH_ANCHORS](https://github.com/wvjh3z/proxy-suite-docs/blob/upgrade/flclash-v0.9.2/FLCLASH_ANCHORS.md) 维护。旧 `.kiro/PATCHES.md` 只是历史来源，不再要求读取或双写。
+形态 A 使用自己的产品更新链；底座其他入口按源码及接缝范围核对。接缝点 #10 当前登记在 [PATCHES](https://github.com/wvjh3z/proxy-suite-docs/blob/main/PATCHES.md)，稳定符号在 [FLCLASH_ANCHORS](https://github.com/wvjh3z/proxy-suite-docs/blob/main/FLCLASH_ANCHORS.md) 维护。旧 `.kiro/PATCHES.md` 只是历史来源，不再要求读取或双写。
 
 上游机制保留为同步参考：
 

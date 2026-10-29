@@ -1,14 +1,14 @@
 <!-- docs-migration:start -->
 
 品牌构建的目标确认、访问条件、失败处理与交付流程先见[维护流程](../docs/maintainers/WORKFLOWS.md)；当前平台和底座见[升级基线](../docs/maintainers/UPGRADE_BASELINE.md)。本文的命令不构成构建授权。
-> **当前品牌构建导航。** 完整流程见 [DEVELOPMENT](https://github.com/wvjh3z/proxy-suite-docs/blob/upgrade/flclash-v0.9.2/DEVELOPMENT.md) 与 [Android release skill](https://github.com/wvjh3z/proxy-suite-docs/blob/upgrade/flclash-v0.9.2/skills/xflclash-android-release/SKILL.md)。旧构建说明已由当前 Docs 承接；Docs 为私有仓库，需要 GitHub 授权。
+> **当前品牌构建导航。** 完整流程见 [DEVELOPMENT](https://github.com/wvjh3z/proxy-suite-docs/blob/main/DEVELOPMENT.md) 与 [Android release skill](https://github.com/wvjh3z/proxy-suite-docs/blob/main/skills/xflclash-android-release/SKILL.md)。旧构建说明已由当前 Docs 承接；Docs 为私有仓库，需要 GitHub 授权。
 <!-- docs-migration:end -->
 
 # XFlclash 品牌构建与发布入口
 
-XFlclash 当前维护形态 A 商业客户端，本独立分支的 FlClash 底座目标为 **v0.9.2**，正式成品仍待验收。产品展示版本、底座版本、构建号及 APK 原生版本分别核对，不能用一个“版本号”代替全部发布输入。
+XFlclash 当前维护形态 A 商业客户端，main 的 FlClash 底座为 **v0.9.2**，正式成品与设备验收分别见 Docs/STATUS。产品展示版本、底座版本、构建号及 APK 原生版本分别核对，不能用一个“版本号”代替全部发布输入。
 
-完整流程由 [DEVELOPMENT](https://github.com/wvjh3z/proxy-suite-docs/blob/upgrade/flclash-v0.9.2/runbooks/BUILD_RELEASE.md#多品牌构建和版本) 和 [Android release skill](https://github.com/wvjh3z/proxy-suite-docs/blob/upgrade/flclash-v0.9.2/skills/xflclash-android-release/SKILL.md) 唯一维护。本页是客户端仓库的导航与检查摘要。Docs 仓库及 [SDK](https://github.com/wvjh3z/Xboard_sdk) 为私有仓库，需要维护者授予 GitHub 访问权限；本地分别 checkout 为客户端平级的 `Docs/` 和 `Xboard_sdk/`。
+完整流程由 [DEVELOPMENT](https://github.com/wvjh3z/proxy-suite-docs/blob/main/runbooks/BUILD_RELEASE.md#多品牌构建和版本) 和 [Android release skill](https://github.com/wvjh3z/proxy-suite-docs/blob/main/skills/xflclash-android-release/SKILL.md) 唯一维护。本页是客户端仓库的导航与检查摘要。Docs 仓库及 [SDK](https://github.com/wvjh3z/Xboard_sdk) 为私有仓库，需要维护者授予 GitHub 访问权限；本地分别 checkout 为客户端平级的 `Docs/` 和 `Xboard_sdk/`。
 
 ## 选择入口
 
@@ -37,7 +37,7 @@ XFlclash 当前维护形态 A 商业客户端，本独立分支的 FlClash 底�
 
 `prepare_flavor` 当前不会把 pubspec 改为 `<产品版本>+flclash<底座版本>`。应用内更新比较 `XB_BUILD_NUMBER`，Android 安装另检查原生 versionCode、包名和签名；两层都要验证。
 
-本机 Android 首次使用时，将仓库品牌计数只读复制为本机起点；以后只读写 `.local-build/`，不修改 GitHub 计数。该目录位于 Flutter build 输出之外，普通 clean 不会清除。新 release 默认本机计数+1；失败重试沿用同一批次冻结编号，已有更高本机成功号时拒绝过期批次，不能回退覆盖。成功并完成产物核验后才推进本机计数，debug/诊断不推进；首次复制起点不表示执行过构建。CI 的计数更新时序按其 workflow 和构建记录核对，仓库中的数字不自动等于某个旧下载包的编号。最新实际 APK 和验证状态见 [STATUS](https://github.com/wvjh3z/proxy-suite-docs/blob/upgrade/flclash-v0.9.2/STATUS.md)。
+本机 Android 首次使用时，将仓库品牌计数只读复制为本机起点；以后只读写 `.local-build/`，不修改 GitHub 计数。该目录位于 Flutter build 输出之外，普通 clean 不会清除。新 release 默认本机计数+1；失败重试沿用同一批次冻结编号，已有更高本机成功号时拒绝过期批次，不能回退覆盖。成功并完成产物核验后才推进本机计数，debug/诊断不推进；首次复制起点不表示执行过构建。CI 的计数更新时序按其 workflow 和构建记录核对，仓库中的数字不自动等于某个旧下载包的编号。最新实际 APK 和验证状态见 [STATUS](https://github.com/wvjh3z/proxy-suite-docs/blob/main/STATUS.md)。
 
 GitHub Release Package 表单只提供 `flavor`、`target`、`build_number`、`upload` 四项。SDK 固定引用与默认 false 的 `verify_symbolication` 由本次源码的 `tool/release-config.json` 维护；该开关只控制额外桌面受控探针，正式符号链仍执行。
 
@@ -51,8 +51,8 @@ setup 使用本次手动触发的固定 SHA/ref 归一请求并读取 SDK/探针
 
 ## 品牌配置与签名
 
-- Windows 安装器发布者与可选官网/支持/更新网页由公开 `flavors/<brand>/windows_installer.yaml` 维护：A 为 Omofly，B 为 Daishu；三个网址可全部不填，未配置不生成链接。现有桌面注入入口读取该文件，无需更新品牌 Secrets。字段与离线检查见 [Windows 安装器公开信息](https://github.com/wvjh3z/proxy-suite-docs/blob/upgrade/flclash-v0.9.2/runbooks/BUILD_RELEASE.md#windows-安装器公开信息)。
-- 系统图标由公开 `flavors/<brand>/system_icons/` 维护：Windows/Linux 三态品牌托盘、macOS 单色 template、Android 单色通知/磁贴。桌面入口显式传 `--platform` 校验并复制预生成资源；Android 使用品牌 sourceSet，正式构建不运行图像生成器或浏览器。资源维护与验收见 [品牌系统图标](https://github.com/wvjh3z/proxy-suite-docs/blob/upgrade/flclash-v0.9.2/runbooks/BUILD_RELEASE.md#品牌托盘与-android-系统图标)。
+- Windows 安装器发布者与可选官网/支持/更新网页由公开 `flavors/<brand>/windows_installer.yaml` 维护：A 为 Omofly，B 为 Daishu；三个网址可全部不填，未配置不生成链接。现有桌面注入入口读取该文件，无需更新品牌 Secrets。字段与离线检查见 [Windows 安装器公开信息](https://github.com/wvjh3z/proxy-suite-docs/blob/main/runbooks/BUILD_RELEASE.md#windows-安装器公开信息)。
+- 系统图标由公开 `flavors/<brand>/system_icons/` 维护：Windows/Linux 三态品牌托盘、macOS 单色 template、Android 单色通知/磁贴。桌面入口显式传 `--platform` 校验并复制预生成资源；Android 使用品牌 sourceSet，正式构建不运行图像生成器或浏览器。资源维护与验收见 [品牌系统图标](https://github.com/wvjh3z/proxy-suite-docs/blob/main/runbooks/BUILD_RELEASE.md#品牌托盘与-android-系统图标)。
 - 真实 `flavor.yaml`、`fallback.bin`、AES、Token、Sentry 上传凭据和签名材料保持 Git 忽略，不写入公开文档或构建日志。
 - 从该品牌私密配置准备生产输入；AES 可以存在于被忽略的 flavor 配置中，不能沿用早期“生成文件恒为空、从开发 secrets 文档补 key”的说法。
 - 生产包使用该品牌原签名。缺少签名材料时停止生产打包，不以 debug 签名替代，也不生成新的 keystore 冒充原签名。
@@ -73,7 +73,7 @@ dart run tool/prepare_flavor.dart --flavor brand_a --target prod --android-signi
 3. 本机 Dart 业务改动的发布执行项目 `flutter clean`，然后严格使用当前 lockfile 重新解析依赖并完整编译。项目 clean 与全局 SDK / Gradle / Pub / Go 缓存清理是不同动作。
 4. 使用 aapt 检查包名、名称、原生版本、min/target SDK、debuggable 和 ABI；使用 apksigner 验签并比较原品牌证书，使用 zipalign 检查 APK 对齐。
 5. 核对必需原生库、品牌 fallback，以及未将 flavor、keystore 或生成的敏感输入作为独立文件误打入 APK。
-6. 比较最终 APK 内 `libapp.so` 的 AOT `.text` 和 `.rodata` 与本轮 Flutter 输出，使用 [check_apk_aot.py](https://github.com/wvjh3z/proxy-suite-docs/blob/upgrade/flclash-v0.9.2/skills/xflclash-android-release/scripts/check_apk_aot.py)。签名成功、versionCode 增加或 APK hash 变化均不能替代业务代码入包核验。
+6. 比较最终 APK 内 `libapp.so` 的 AOT `.text` 和 `.rodata` 与本轮 Flutter 输出，使用 [check_apk_aot.py](https://github.com/wvjh3z/proxy-suite-docs/blob/main/skills/xflclash-android-release/scripts/check_apk_aot.py)。签名成功、versionCode 增加或 APK hash 变化均不能替代业务代码入包核验。
 7. 核验后才复制到 dist、写校验和与报告、更新计数；下载安装后的实际品牌、账号、订阅、节点和 VPN 行为按任务范围另行验收。
 
 完整 clean 是本机曾出现 Gradle 合并旧 Dart 库后的规避措施。AOT 代码段比较证明当轮代码入包；签名、APK 对齐和组件测试各证明自己的边界，不能因此宣称所有设备或 ELF 页大小均已验证。
@@ -82,9 +82,9 @@ dart run tool/prepare_flavor.dart --flavor brand_a --target prod --android-signi
 
 Debug 用于开发输入、日志与界面验证；生产 release 使用生产品牌配置和原签名。不同构建的 applicationId、后缀和签名以实际工程与产物为准，不沿用早期文档写死的通用包名。覆盖安装必须满足同一 applicationId、签名兼容及系统版本规则。
 
-本机原型与安卓下载站的配置和发布流程见 [NGINX 维护](https://github.com/wvjh3z/proxy-suite-docs/blob/upgrade/flclash-v0.9.2/runbooks/ENVIRONMENT.md#nginx-原型与安卓下载服务)。现有策略为同名覆盖 APK，构建号与大小在下载页及 manifest 中记录，不增加 build-N 下载目录。只有任务授权包含下载站发布时才执行部署，并核对页面、完整下载、Range、校验和及原型服务状态。
+本机原型与安卓下载站的配置和发布流程见 [NGINX 维护](https://github.com/wvjh3z/proxy-suite-docs/blob/main/runbooks/ENVIRONMENT.md#nginx-原型与安卓下载服务)。现有策略为同名覆盖 APK，构建号与大小在下载页及 manifest 中记录，不增加 build-N 下载目录。只有任务授权包含下载站发布时才执行部署，并核对页面、完整下载、Range、校验和及原型服务状态。
 
-上传源码、测试下载站更新和 AppVersion 自更新清单发布是不同动作。正式发布要维护 [CHANGELOG_XBOARD](../CHANGELOG_XBOARD.md)，按 [更新契约](https://github.com/wvjh3z/proxy-suite-docs/blob/upgrade/flclash-v0.9.2/CONTRACTS.md#免登录自更新) 核对每包 hash、镜像、版本与 ABI；更新插件生产配置、创建 release/tag 或推送安装包都按具体任务授权执行。
+上传源码、测试下载站更新和 AppVersion 自更新清单发布是不同动作。正式发布要维护 [CHANGELOG_XBOARD](../CHANGELOG_XBOARD.md)，按 [更新契约](https://github.com/wvjh3z/proxy-suite-docs/blob/main/CONTRACTS.md#免登录自更新) 核对每包 hash、镜像、版本与 ABI；更新插件生产配置、创建 release/tag 或推送安装包都按具体任务授权执行。
 
 早期构建说明曾包含旧 `.kiro` 路径、开发 key 补写、debug 签名回退及旧下载目录；这些步骤已经由当前 Docs 承接，不作为现行生产流程。
 

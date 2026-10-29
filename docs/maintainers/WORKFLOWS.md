@@ -91,7 +91,7 @@ git var GIT_AUTHOR_IDENT
 
 ## 专项操作导航
 
-这些链接指向当前升级 Docs 的负责章节。先核对其前提、主机和版本，再执行；章节中的历史验收只证明对应批次。
+这些链接指向当前main Docs的负责章节。先核对其前提、主机和版本，再执行；章节中的历史验收只证明对应批次。
 
 | 要完成的工作 | 唯一详细步骤 | 完成条件 / 失败时 |
 | --- | --- | --- |
@@ -109,7 +109,7 @@ POST `https://api.github.com/repos/wvjh3z/XFlClash/actions/workflows/release-pac
 下列JSON是**品牌 A 全平台草稿的请求示例，不代表当前任务授权**；ref须与实际目标及远端提交核对。品牌B只有在明确授权B时改flavor；构建号留空使用目标分支编号。
 
 ```json
-{"ref":"upgrade/flclash-v0.9.2","inputs":{"flavor":"brand_a","target":"all","build_number":"","upload":"true"}}
+{"ref":"main","inputs":{"flavor":"brand_a","target":"all","build_number":"","upload":"true"}}
 ```
 
 204表示接受派发，不表示构建成功；回到ACCESS的GET方法确认新运行及源码。使用具Actions写权限的认证，但不得将Token写入命令历史、JSON文件或日志。请求超时先查询运行记录，不立即重复POST。
