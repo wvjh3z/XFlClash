@@ -11,7 +11,7 @@
 | 当前维护分支 | 三仓main | 升级分支保留历史，不作为默认操作入口 |
 | 品牌客户端 | `dd61c4e9884b8bbd4d5b5d06b67ff1797523f429` | 与#144/#146构建源码2959e792的运行代码一致；后续变更需更新受影响ID |
 | 原版FlClash | v0.9.2，`7fd417fb9a9a277c6a9339a8ac87f907df7c25f7` | 下文原版链接固定该commit；不能用品牌HEAD或移动的upstream/main替代 |
-| SDK | `aef9d33525054e09fccaa71ad9cdb480f1f88f39` | 发布真源[release-config.json](../../tool/release-config.json)，不能凭Docs版本猜SDK版本 |
+| 审计时SDK | `aef9d33525054e09fccaa71ad9cdb480f1f88f39` | 冻结审计输入；当前发行引用读取[release-config.json](../../tool/release-config.json)，不能凭Docs版本猜SDK版本 |
 | 审计起点Docs | `2653d9853a1dbab3ffa88cb057b58ec58a6e360d` | 细化前的冻结文档起点；本文随后随main交付，当前CI引用以[xboard-ci.yml](../../.github/workflows/xboard-ci.yml)为准 |
 | 原版内核gitlink | `c5062921054902b25215a6a933e72ccd714c9bfa` | `core/Clash.Meta`现有CA脏修改保留；不提交、不用它反推官方源码 |
 | 追溯基线 | 原版v0.9.1 `8d4f9744948751f1273fe871e1d05276fac09b0e`；旧品牌v0.8.93 `ae148e64694ab276c35796f95d77f6bbbe25f0d2` | 只追溯历史，不恢复旧工具链，不把旧品牌代码称为原版 |
@@ -24,6 +24,8 @@
 - **F01—F28稳定不改号**，a/b子项用于拆同一功能的层次；S01—S09只是本文的接缝索引组，**不是新接缝、锚点或数量**；P为平台入口，U为未接入，UB-GAP为本表局部缺口，不占用项目已有D/G编号；缺口对应关系与当前状态见[STATUS](https://github.com/wvjh3z/proxy-suite-docs/blob/main/STATUS.md#当前缺口索引)。测试链接仅证明入口存在，本轮不运行Flutter/Dart或构建。
 - 关系字段区分**输入/直接调用**与**下游/联查**：后者表示升级影响范围，不宣称页面直接调用彼此；同一个宿主事件的并列消费者也不是串行处理链。
 - 下文F项默认适用于**品牌A和品牌B × Android/Windows/macOS/Linux**；平台专属差异必须叠加P表，不以共用代码代替各品牌成品或原生验收。iOS/Windows ARM64只做共享影响分析，不承诺发布。
+
+当前源码的包/相对导入、导出候选及配置/入口清单见[只读依赖报告](https://github.com/wvjh3z/proxy-suite-docs/blob/main/evidence/upgrade-v0.9.2/DEPENDENCY_CONFIG_REACHABILITY.md)。这是报告模式，不能替代符号解析、运行证明或现有禁止规则。
 
 ## 主链路逐项对照
 
@@ -123,7 +125,7 @@
 
 - **归类／要求**：自有。维护约束：提交基于原会话/原服务，写请求不盲目重发；返回浏览器不等于支付成功。用户要求：兼容当前Xboard新金额字段并保留真实异常上报。 决定出处：REQ-API（见文末）。
 - **原版0.9.2**：原版没有面板商业业务；邀请/佣金/分享另见F26；仅复用Flutter生命周期、通用弹窗/共享二维码组件等基础UI，不把这些复用等同订单逻辑来自上游。
-- **当前品牌实现**：[lib/xboard/sdk/xboard_service_impl.dart](../../lib/xboard/sdk/xboard_service_impl.dart)对接SDK；套餐确认捕获会话和服务，订单刷新处理异步失败；[XBoardOrderApi](https://github.com/wvjh3z/Xboard_sdk/blob/main/lib/src/panels/xboard/apis/xboard_order_api.dart)与订单adapter解析响应。
+- **当前品牌实现**：[lib/xboard/sdk/xboard_service_impl.dart](../../lib/xboard/sdk/xboard_service_impl.dart)对接SDK；套餐确认捕获会话和服务，订单刷新处理异步失败；[支付页order_payment_page.dart](../../lib/xboard/pages/order_payment_page.dart)实际使用共享QrCodeView；[XBoardOrderApi](https://github.com/wvjh3z/Xboard_sdk/blob/main/lib/src/panels/xboard/apis/xboard_order_api.dart)与订单adapter解析响应。
 - **依赖／平台／接缝**：直接依赖F03请求恢复、F05会话、F14网络及共享UI；联查F21主题/F22异常分类。无订单专用底座接缝。两品牌业务页面共用，服务端配置/实际订单独立；所有平台的外部支付打开后都需查订单终态。
 - **回归入口与必测分支**：确认期间换号/换服务、旧结果迟到、非法优惠券、支付打开失败、订单写响应不明。[test/xboard/pages/plan_confirmation_lifecycle_test.dart](../../test/xboard/pages/plan_confirmation_lifecycle_test.dart)、[test/xboard/pages/async_reload_error_test.dart](../../test/xboard/pages/async_reload_error_test.dart)、[SDK订单并发](https://github.com/wvjh3z/Xboard_sdk/blob/main/test/adapters/xboard/order_cache_concurrency_test.dart)。
 - **限制／状态**：Docs/CONTRACTS登记retryableCheckout未接入且不能保证同套餐复用；不将该辅助工具当已上线保障，也不在本轮接线。
@@ -283,7 +285,7 @@
 
 - **归类／要求**：复用页面/执行+自有导航。既有决定：保留新版设置能力，品牌只组织入口；来源REQ-SETTINGS。ToolsView方法存在不等于品牌页面实际进入整张工具页。
 - **原版0.9.2**：原版`lib/views/tools.dart`导航到theme、backup_and_restore、access、config/general、config/advanced、connection/requests、connection/connections、resources和about；对应动作可能改写整份Config或更新Core资源。
-- **当前品牌实现**：[xb_settings_page.dart](../../lib/xboard/shell/tabs/mine/xb_settings_page.dart)经[xb_native_page_adapter.dart](../../lib/xboard/shell/adapters/xb_native_page_adapter.dart)实际打开上述子页；访问控制按钮仅Android显示。桌面设置Tab也嵌入XbSettingsPage，不再嵌入ToolsView；openNativeTools/toolsView仅保留适配方法，本轮lib/xboard搜索未找到生产调用。
+- **当前品牌实现**：[xb_settings_page.dart](../../lib/xboard/shell/tabs/mine/xb_settings_page.dart)经[xb_native_page_adapter.dart](../../lib/xboard/shell/adapters/xb_native_page_adapter.dart)提供上述适配方法，但当前语言和“其他”组隐藏，原版About/免责声明不是当前可见入口；原生push页面当前Android可见8个、桌面7个，访问控制仅Android。完整条件及动作见[配置与可达性清单](https://github.com/wvjh3z/proxy-suite-docs/blob/main/evidence/upgrade-v0.9.2/DEPENDENCY_CONFIG_REACHABILITY.md#f23实际可达性)。桌面设置Tab也嵌入XbSettingsPage，不再嵌入ToolsView；openNativeTools/toolsView仅保留适配方法，本轮lib/xboard搜索未找到生产调用。
 - **依赖／平台／接缝**：直接依赖底座视图/动作，输入受F19路径与配置影响。BackupAction完整恢复（非onlyProfiles）调用writeConfig，会重引入U03 hideTimeoutProxies；ResourcesView手动Geo更新与F13b共用Core/完成事件，需并发核对。S09/FA-toolsview是参照，不应误标为已使用Widget。
 - **回归入口与必测分支**：[导航测试](../../test/xboard/shell/adapters/xb_native_page_adapter_test.dart)只证明openNativeTools可push，不能证明所有生产子页与副作用；[设置页测试](../../test/xboard/shell/tabs/xb_settings_page_test.dart)、上游备份/资源测试及真实Config恢复按入口补验。
 - **限制／状态**：备份统一协调仍按U04暂缓；手动Geo、Core自动Geo与品牌自动Geo的同类型完成事件是否会互相满足，列UB-GAP-10待核对，不假定独立请求ID隔离。
@@ -375,12 +377,12 @@ P01—P07对应系统入口、原版依赖与品牌差异。四个正式平台�
 
 | ID / 平台 | 原版0.9.2依赖入口（相对原版根；固定commit见上） | 当前品牌接入／必须保持 | 回归入口与原生验收 |
 | --- | --- | --- | --- |
-| P01 Android ARM64 / ARMv7 | `android/app/src/main/kotlin/com/follow/clash/MainActivity.kt`、`ServiceController.kt`、`TileService.kt`；`lib/core/lib.dart`的CoreLib（由CoreController选择）；Gradle及gomobile | F01/F08沿Service/VPN生命周期；F19用品牌applicationId与运行通道，AGP兼容和sourceSet资源独立；F16增加ApkInstallerPlugin，系统安装界面接管，不提前保证安装完成；F17原生Crisp；F18平台WebView | [Android身份/通道](../../tool/test/android_brand_identity_test.dart)、[真实Gradle身份/AGP兼容](../../tool/test/android_brand_identity_gradle_test.py)、[真实Flutter插件版本码](../../tool/test/android_version_gradle_test.py)、[APK资源契约](../../tool/check_android_release_contract.py)。设备必须覆盖旧正式包更新、权限拒绝、后台/磁贴、VPN断连、客服；不发行x86 |
+| P01 Android ARM64 / ARMv7 | `android/app/src/main/kotlin/com/follow/clash/MainActivity.kt`、`android/app/src/main/kotlin/com/follow/clash/ServiceController.kt`、`android/app/src/main/kotlin/com/follow/clash/TileService.kt`；`lib/core/lib.dart`的CoreLib（由CoreController选择）；Gradle及gomobile | F01/F08沿Service/VPN生命周期；F19用品牌applicationId与运行通道，AGP兼容和sourceSet资源独立；F16增加ApkInstallerPlugin，系统安装界面接管，不提前保证安装完成；F17原生Crisp；F18平台WebView | [Android身份/通道](../../tool/test/android_brand_identity_test.dart)、[真实Gradle身份/AGP兼容](../../tool/test/android_brand_identity_gradle_test.py)、[真实Flutter插件版本码](../../tool/test/android_version_gradle_test.py)、[APK资源契约](../../tool/check_android_release_contract.py)。设备必须覆盖旧正式包更新、权限拒绝、后台/磁贴、VPN断连、客服；不发行x86 |
 | P02 Windows AMD64 | `windows/runner/main.cpp`、`lib/core/service.dart`的CoreService、`lib/providers/actions/system.dart`、`lib/common/proxy.dart`、`services/helper`、Inno模板 | F08/F13借Core/Helper和系统代理；F19提前数据目录锁及专属服务；F16按原版准备/安装后/卸载顺序替换品牌名，Inno常规关闭提示保留。品牌额外VC门禁、可选安全数据清理、WebView退出修复保留；不再增加用户已拒绝的服务路径/最终进程复查 | [原版事件顺序](../../tool/test/windows_upstream_installation_test.py)、[VC原生进程](../../tool/test/windows_vc_runtime_process_test.ps1)、[目录安全删除](../../tool/test/windows_brand_data_cleanup_test.ps1)、[WebView退出](../../tool/test/windows_webview_shutdown_test.py)。原生Windows需覆盖中文路径、已运行覆盖/取消、Helper、代理及junction竞争 |
-| P03 macOS AMD64 | `lib/core/service.dart`的CoreService、`macos/Runner/AppDelegate.swift`、`MainFlutterWindow.swift`、Info.plist、Podfile/Swift包、系统退出 | F19 Bundle ID/Keychain/偏好目录/显示名注入；F16浏览器下载DMG，不使用Android/Windows安装器；F17桌面WebView窗口聚焦，F18教程WebView；F22 dSYM及单架构库 | [macOS成品清单](../../tool/test/macos_final_inventory_test.py)、[符号回执](../../tool/test/sentry_macos_receipt_validation_test.py)、[存储恢复](../../test/xboard/sdk/token_storage_recovery_test.dart)。原生Keychain、Gatekeeper、Finder/Dock、覆盖安装和退出待设备证据 |
+| P03 macOS AMD64 | `lib/core/service.dart`的CoreService、`macos/Runner/AppDelegate.swift`、`macos/Runner/MainFlutterWindow.swift`、`macos/Runner/Info.plist`、`macos/Runner.xcodeproj/project.pbxproj`中的FlutterGeneratedPluginSwiftPackage；原版快照没有Podfile、系统退出 | F19 Bundle ID/Keychain/偏好目录/显示名注入；F16浏览器下载DMG，不使用Android/Windows安装器；F17桌面WebView窗口聚焦，F18教程WebView；F22 dSYM及单架构库 | [macOS成品清单](../../tool/test/macos_final_inventory_test.py)、[符号回执](../../tool/test/sentry_macos_receipt_validation_test.py)、[存储恢复](../../test/xboard/sdk/token_storage_recovery_test.dart)。原生Keychain、Gatekeeper、Finder/Dock、覆盖安装和退出待设备证据 |
 | P04 macOS ARM64 | 与P03入口共用，但原生运行库和符号必须是ARM64 | 不能将AMD64清单/测试结果当ARM64结果；原版亦有声明12与部分Mach-O minOS13矛盾，用户要求系统支持跟随原版，不擅自改门槛 | 与P03相同入口按ARM64独立跑；对照原版实际成品及macOS12/13设备，具体矛盾见STATUS，不能用Xcode部署目标代替成品检查 |
 | P05 Linux AppImage AMD64 / ARM64 | `linux/runner/my_application.cc`、`lib/core/service.dart`的CoreService、`lib/providers/actions/system.dart`、`lib/common/path.dart`、`services/helper/src/service/linux.rs` | F19品牌应用/Helper/单实例/目录；F16仅实际AppImage可自替换，启动失败恢复并重启旧版，失败保留备份；F17浏览器环境净化及格式识别，F18仍有回退阅读器。ARM64正式构建走GitHub，VDS路线已退役 | [AppImage重启](../../tool/test/appimage_restart_test.py)、[浏览器环境](../../tool/test/crisp_appimage_browser_test.dart)、[品牌原生路径](../../tool/test/brand_data_runtime_test.py)。真实AppRun、系统代理/Helper、HOME符号链接、外链子进程与新旧进程交接另验；两个架构ELF各查 |
-| P06 Linux DEB / RPM | 同Linux底座，另有`linux/packaging/deb`、`rpm` | 客服继续内嵌WebKit，教程回退行为不变；共享Linux下载代码不等于支持包管理器自动覆盖，自替换要求APPIMAGE，非该运行方式可能返回installFailed并提示手动安装。RPM现行仅AMD64 | [WebView身份](../../tool/test/linux_webview_identity_test.py)、[原生发行迁移](../../tool/test/native_release_migration_test.py)；真实包依赖、安装/卸载、systemd及WebKit辅助进程须目标发行版验收，不能套AppImage浏览器结论 |
+| P06 Linux DEB / RPM | 同Linux底座：`linux/runner/my_application.cc`、`lib/core/service.dart`、`lib/providers/actions/system.dart`、`lib/common/path.dart`、`services/helper/src/service/linux.rs`；另有`linux/packaging/deb`、`linux/packaging/rpm` | 客服继续内嵌WebKit，教程回退行为不变；共享Linux下载代码不等于支持包管理器自动覆盖，自替换要求APPIMAGE，非该运行方式可能返回installFailed并提示手动安装。RPM现行仅AMD64 | [WebView身份](../../tool/test/linux_webview_identity_test.py)、[原生发行迁移](../../tool/test/native_release_migration_test.py)；真实包依赖、安装/卸载、systemd及WebKit辅助进程须目标发行版验收，不能套AppImage浏览器结论 |
 | P07 iOS / Windows ARM64 | 仓内可能存在iOS工程/移动插件及平台枚举 | 当前正式workflow无这两个发行目标；只核对共享改动会否破坏保留源码，不因为有枚举就接入新平台 | 工具链、原生依赖、签名/打包与设备测试均待单独评估授权；没有测试入口或证据时标待确认，不列通过 |
 
 安装/退出是不同平台契约：Windows用户取消向导不应提前退出客户端；Android调起安装器不等于安装完成；macOS网页打开不等于DMG已安装；AppImage旧进程退出与新版exec/回滚需单独确认。系统退出仍复用原版，不引入U05的额外严格协议。
@@ -407,11 +409,11 @@ U项同时列出明确暂缓的品牌增强，但不把已使用的底座能力�
 
 | ID / 分类 | 用户要求与当前源码事实 | 影响链、回归及处理 |
 | --- | --- | --- |
-| U01 原版仪表盘布局：未使用 | 品牌使用Home/Nodes/Mine外壳；不自动采用上游dashboard布局 | 仍共享actions、theme、状态和设置；查F08—F13/F21、S09。上游只改布局可不接入，改provider则必须继续追踪 |
-| U02 上游IP探测展示/缓存：未使用于品牌卡片 | F11使用Dio七源，原版OutboundIpProbe/RoutedProbe保留给其他消费者 | RouteTracker仍是F11依赖；上游缓存/初始化改动可能间接触发品牌重测，不能把整组IP模块判成无关。以exit_ip_lifecycle回归和真实路由事件核对 |
+| U01 原版仪表盘布局：未使用 | 品牌使用Home/Nodes/Mine外壳；不自动采用上游`lib/views/dashboard/dashboard.dart`布局 | 仍共享actions、theme、状态和设置；查F08—F13/F21、S09。上游只改布局可不接入，改provider则必须继续追踪 |
+| U02 上游IP探测展示/缓存：未使用于品牌卡片 | F11使用Dio七源，原版`lib/providers/outbound_ip.dart`和`lib/providers/routed_probe.dart`保留给其他消费者 | RouteTracker仍是F11依赖；上游缓存/初始化改动可能间接触发品牌重测，不能把整组IP模块判成无关。以exit_ip_lifecycle回归和真实路由事件核对 |
 | U03 隐藏超时节点：用户不需要，但存在间接影响 | 用户要求不接入；[proxies状态](../../lib/providers/state/proxies.dart)的filterGroupsState→visibleGroupsState→_hideTimeoutProxies仍读配置，品牌nodesView消费该链 | 旧配置true，或F23的完整Config备份恢复重新写回该值，都可能影响品牌列表；列为已知源码影响、未修复，非期望规则。下一步需真实provider+旧配置回归，不能只用默认false替身；本轮不改实现 |
-| U04 统一备份恢复协调：明确暂缓 | 用户暂不处理把BackupAction恢复、回滚与订阅写入统一协调的方案；底座BackupAction仍被使用，未接入的是品牌统一协调覆写，不是恢复功能本身 | 仍依赖底座数据库/目录/恢复格式。审F06/F20和原版BackupAction，但不擅增恢复覆写接缝；现有写入队列不覆盖全部恢复路径 |
-| U05 严格退出握手/安装全局门禁：明确不采用 | 用户选择跟随原版Windows清理顺序，取消额外服务路径核验、结束进程复查等保护 | 按F16/P02/S07核对上游事件和品牌身份；保留已接受边界，不能借升级重新加入被拒绝设计。AppImage自替换恢复是另一个已授权能力，不随之删除 |
+| U04 统一备份恢复协调：明确暂缓 | 用户暂不处理把BackupAction恢复、回滚与订阅写入统一协调的方案；底座`lib/providers/actions/backup.dart`的BackupAction仍被使用，未接入的是品牌统一协调覆写，不是恢复功能本身 | 仍依赖底座数据库/目录/恢复格式。审F06/F20和原版BackupAction，但不擅增恢复覆写接缝；现有写入队列不覆盖全部恢复路径 |
+| U05 严格退出握手/安装全局门禁：明确不采用 | 用户选择跟随原版`windows/packaging/exe/inno_setup.iss`及`lib/providers/actions/system_exit.dart`的正常清理/退出，取消额外服务路径核验、结束进程复查等保护 | 按F16/P02/S07核对上游事件和品牌身份；保留已接受边界，不能借升级重新加入被拒绝设计。AppImage自替换恢复是另一个已授权能力，不随之删除 |
 | U06 非正式平台：未交付 | iOS及Windows ARM64不在当前正式发行矩阵；存在工程或架构枚举不构成支持承诺 | 按P07检查共享影响；新增目标先评估工具链、原生依赖和签名，再取得授权，不能靠套用其他平台测试判通过 |
 
 ## 缺口索引与证据边界
@@ -420,17 +422,17 @@ U项同时列出明确暂缓的品牌增强，但不把已使用的底座能力�
 
 | ID | 性质／相关行为 | 不能作出的结论 | 关闭或进一步判断所需证据 |
 | --- | --- | --- | --- |
-| UB-GAP-01 | 待验收；所有F/P | 两品牌正式任务成功不等于全部成品、Sentry逐ID、操作系统最低版本与设备业务都成功 | 按STATUS已验批次核对实际包；Android/Windows用户设备及macOS/Linux缺失环境分别列明；实际链路和恢复材料证明不得互相替代 |
-| UB-GAP-02 | 已知限制；F09/F11 | 路由通知不能证明特定模式配置已完成，第一轮IP不保证一定晚于配置应用 | 若要进一步修复，需设计操作对应的成功/失败/取消语义及快速切回测试；新增接缝先告知。本轮只保留事实，不把限制列为产品要求 |
-| UB-GAP-03 | 上游/成品兼容矛盾；P04/P05/P06 | 源码部署目标、Runner版本、依赖声明不等于实际最低系统版本 | macOS官方包与品牌Mach-O、Linux ELF/glibc及用户发行版实证；用户要求支持范围跟随原版，不能自行提高或扩大 |
-| UB-GAP-04 | 已知间接影响；U03/F10 | 无品牌开关不等于旧配置不会过滤节点 | 使用真实共享provider、旧hideTimeoutProxies=true和超时结果构造回归，再按用户决定修复 |
-| UB-GAP-05 | 明确暂缓；U04/F06/F20 | 品牌写入串行不等于底座备份恢复也串行 | 获得用户新授权前保持暂缓，不虚构并发恢复全链路保护 |
-| UB-GAP-06（关联原G02） | 未接线能力；F07 | 未接线的retryableCheckout不能作为同套餐订单复用保证 | 按Docs/CONTRACTS确认当前调用者、不同套餐/周期/终态及失败恢复，未授权不增加自动下单重试 |
-| UB-GAP-07 / REL-01 | 待实现；品牌发布编号 | 分支内安全回写不能保证跨分支唯一 | 全局预留方案及并发回归另行授权，本轮不改代码 |
-| UB-GAP-08 / REL-02 | 待实现；CI最终APK验签 | 签名配置和job通过不能代替原证书比对 | 先独立验最终包，CI自动化另行授权 |
-| UB-GAP-09 | 用户暂缓；F25 | 公告账号已读分区不等于迟到弹窗会话隔离 | 按STATUS暂缓决定，不擅改 |
-| UB-GAP-10 | 待核对；F13b/F23 | Geo按资源类型完成不能据此保证请求级隔离 | 手动、Core自动及品牌自动同时更新的真实事件、完成归属与节流回归；仍为待核对，不宣称已复现 |
-| UB-GAP-11 | 待补覆盖；F23 | 现有适配器测试验证无生产调用的openNativeTools；设置页测试只实际打开通用设置，其余生产入口缺逐入口适配器级覆盖 | 按实际10个入口、品牌及平台条件补导航/返回/失败测试；本次只登记，不执行或新增业务测试 |
+| UB-GAP-01 | 见对应行为与STATUS | 当前状态与关闭条件统一见[STATUS缺口索引](https://github.com/wvjh3z/proxy-suite-docs/blob/main/STATUS.md#基线局部缺口与发布待办)，不在本表另行更新进度 |
+| UB-GAP-02 | F09,F11 | 当前状态与关闭条件统一见[STATUS缺口索引](https://github.com/wvjh3z/proxy-suite-docs/blob/main/STATUS.md#基线局部缺口与发布待办)，不在本表另行更新进度 |
+| UB-GAP-03 | 见对应行为与STATUS | 当前状态与关闭条件统一见[STATUS缺口索引](https://github.com/wvjh3z/proxy-suite-docs/blob/main/STATUS.md#基线局部缺口与发布待办)，不在本表另行更新进度 |
+| UB-GAP-04 | F10 | 当前状态与关闭条件统一见[STATUS缺口索引](https://github.com/wvjh3z/proxy-suite-docs/blob/main/STATUS.md#基线局部缺口与发布待办)，不在本表另行更新进度 |
+| UB-GAP-05 | F06,F20 | 当前状态与关闭条件统一见[STATUS缺口索引](https://github.com/wvjh3z/proxy-suite-docs/blob/main/STATUS.md#基线局部缺口与发布待办)，不在本表另行更新进度 |
+| UB-GAP-06 | F07 | 当前状态与关闭条件统一见[STATUS缺口索引](https://github.com/wvjh3z/proxy-suite-docs/blob/main/STATUS.md#基线局部缺口与发布待办)，不在本表另行更新进度 |
+| UB-GAP-07 | 见对应行为与STATUS | 当前状态与关闭条件统一见[STATUS缺口索引](https://github.com/wvjh3z/proxy-suite-docs/blob/main/STATUS.md#基线局部缺口与发布待办)，不在本表另行更新进度 |
+| UB-GAP-08 | 见对应行为与STATUS | 当前状态与关闭条件统一见[STATUS缺口索引](https://github.com/wvjh3z/proxy-suite-docs/blob/main/STATUS.md#基线局部缺口与发布待办)，不在本表另行更新进度 |
+| UB-GAP-09 | F25 | 当前状态与关闭条件统一见[STATUS缺口索引](https://github.com/wvjh3z/proxy-suite-docs/blob/main/STATUS.md#基线局部缺口与发布待办)，不在本表另行更新进度 |
+| UB-GAP-10 | F13b,F23 | 当前状态与关闭条件统一见[STATUS缺口索引](https://github.com/wvjh3z/proxy-suite-docs/blob/main/STATUS.md#基线局部缺口与发布待办)，不在本表另行更新进度 |
+| UB-GAP-11 | F23 | 当前状态与关闭条件统一见[STATUS缺口索引](https://github.com/wvjh3z/proxy-suite-docs/blob/main/STATUS.md#基线局部缺口与发布待办)，不在本表另行更新进度 |
 
 
 已修复过的漏洞应成为回归条件，不成为必须复制的旧行为：全局GLOBAL被二次过滤、暂停显示为已连接、点击读取旧认证、旧异步结果串会话、IP结果被迟到通知清空、数据库中断迁移不可重入。各自测试入口已在F项登记；本轮没有重新跑这些Flutter或原生测试，不以文档完善关闭任何设备问题。
