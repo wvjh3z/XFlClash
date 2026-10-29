@@ -111,3 +111,37 @@ PY
 ## 本机凭据集中快照
 
 用户明确选择本机明文、不额外加密、不外传。项目凭据快照入口为`/root/dev/secrets/xflclash/CURRENT`；目录0700、文件0600，原脚本消费源保持不变。用途、恢复步骤、轮换及待验边界唯一见[恢复手册](https://github.com/wvjh3z/proxy-suite-docs/blob/main/runbooks/RECOVERY.md)。这里只登记位置，不复制任何凭据值；本机快照不等于异机备份。
+
+## 上游AI配置与工具加载边界
+
+2026-10-30静态核对：客户端`.agents/`含14个文件，与固定FlClash v0.9.2参考逐字节相同。它们描述上游，不是本品牌项目的第二套业务要求。
+
+| 仓内位置 | 已确认配置 | 使用边界 |
+| --- | --- | --- |
+| `.agents/` | 上游架构、命令、规则及4份skills | 按上游参考阅读；品牌需求、当前行为和授权从本项目AGENTS及Docs核对 |
+| `.claude/skills/` | 4个链接指向`.agents/skills` | 能被某工具发现不代表已被授权执行全部步骤 |
+| `.claude/settings.json` | PostToolUse匹配Edit/Write等，调用comment_density.sh | 是可执行hook配置，不能仅当文字参考；是否实际启用需核对所用工具 |
+| `.codex/config.toml` | PostToolUse匹配apply_patch/Bash，调用同一脚本 | 配置存在已确认，当前工具是否支持/加载未验证 |
+| `.mcp.json`、`opencode.jsonc` | codegraph本地服务配置，后者enabled=true | 服务可用性、运行状态及工具权限需独立核对，不自动安装或启动 |
+| `tool/hooks/comment_density.sh` | 对源码变更执行注释密度检查 | 静态检查脚本用途已确认；不能据配置文件声称本次已执行 |
+
+当前决定是保留原文件，登记并隔离解释：这些配置不扩大构建、网络服务、生产修改或提交授权。本次文档整理没有禁用hook、修改技能或启动codegraph。工具接入前检查其实际加载机制和执行范围；有冲突时停止冲突动作并按项目约定处理，调整上游配置前按接缝规则告知和核对授权。不能仅写一句“项目规则优先”就假定运行中的hook已被关闭。
+
+## 本机分发渠道
+
+下表是2026-10-30读取配置文件的结果，未重载服务、未发布文件，未通过HTTP验收当前响应。品牌身份必须继续核对页面和实际包，不能只据目录名判断。
+
+| 端口 | 配置入口 / 目标目录 | 已确认用途及待确认项 |
+| --- | --- | --- |
+| 8080 | `/root/dev/infra/nginx/proxy-suite.conf`；`/srv/www/preview/xflclash/current` | 已登记原型预览 |
+| 8081 | 同上；`/srv/www/downloads/brand_a` | 已登记品牌A Android测试下载；具体包以当前发布记录和文件核验为准 |
+| 8082 | `/etc/nginx/sites-enabled/download-gate-dev.conf`；`/srv/www/download-A/current` | 启用配置存在；渠道归属、发布维护源和当前用途待确认，未获授权不覆盖 |
+| 8083 | `/etc/nginx/sites-enabled/download-brand-b.conf`；`/srv/www/download-B/current` | 启用配置存在；品牌B对用户正式分发流程及发布维护源待确认，不能认定仅此渠道 |
+
+GitHub草稿与下载站是不同发布目标。站点用途未确认会阻塞对应发布或清理，不阻塞源码审阅。核对时只读检查目标配置、符号链接和包元数据，沿用MATERIALS的归属规则；避免扫描或输出配置内其他凭据。连接主机资料由BUILD_HOSTS维护，不用本表替代主机授权。
+
+## 预检环境选择
+
+从“构建机与平台能力”表选择环境，按WORKFLOWS的正式入口选命令，再到BUILD_HOSTS查询已登记工具路径。测试前核对目标源码HEAD、dirty差异、平台/工具版本和独立输出目录；测试后记录实际命令、退出码及报告。临时测试目录按任务建立，不把旧证据目录当长期检出路径。
+
+本次文档整理仅核对本地配置，没有连接Windows或VDS，因此未重新证明在线状态。原生测试未授权或主机不可用时，保留未验边界；不用本机恢复工具链代替。macOS实机能力、8082/8083发布职责等未知项按ACCESS/STATUS对应事实维护，不用示例值填空。

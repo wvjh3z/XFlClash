@@ -8,7 +8,7 @@ XFlclash 是 FlClash fork，形态 A 商业客户端在 `lib/xboard/` 中维护�
 
 先读[跨 AI 维护入口](docs/README.md)和[零上下文接手](docs/maintainers/HANDOVER.md)。这些资料适用于人工及所有 AI 提供商；文档合格以支持授权任务实际完成为准，不以篇幅或链接检查通过代替。
 
-先读 [统一约定](https://github.com/wvjh3z/proxy-suite-docs/blob/main/CONVENTIONS.md)、[当前架构](https://github.com/wvjh3z/proxy-suite-docs/blob/main/ARCHITECTURE.md) 与本任务涉及的 [契约](https://github.com/wvjh3z/proxy-suite-docs/blob/main/CONTRACTS.md)。环境、生成、测试、构建和同步流程见 [DEVELOPMENT](https://github.com/wvjh3z/proxy-suite-docs/blob/main/DEVELOPMENT.md)，基线和未关闭问题见 [STATUS](https://github.com/wvjh3z/proxy-suite-docs/blob/main/STATUS.md)。
+先核对 [硬规则索引](https://github.com/wvjh3z/proxy-suite-docs/blob/main/CONVENTIONS.md#硬规则索引)，再按任务查 [当前架构](https://github.com/wvjh3z/proxy-suite-docs/blob/main/ARCHITECTURE.md) 与 [契约](https://github.com/wvjh3z/proxy-suite-docs/blob/main/CONTRACTS.md) 的相关章节；不要求通读。环境、生成、测试、构建和同步流程见 [DEVELOPMENT](https://github.com/wvjh3z/proxy-suite-docs/blob/main/DEVELOPMENT.md)，基线和未关闭问题见 [STATUS](https://github.com/wvjh3z/proxy-suite-docs/blob/main/STATUS.md)。
 
 当前 Docs 仓库 `wvjh3z/proxy-suite-docs` 和 SDK 仓库 `wvjh3z/Xboard_sdk` 为私有仓库，需要 GitHub 授权；未授权时可能显示 404。本地将 Docs checkout 为 `../Docs`、SDK checkout 为 `../Xboard_sdk`，保留工具和 path 依赖所需的平级布局。当前维护 main，已合入 FlClash v0.9.2 品牌适配；upgrade/flclash-v0.9.2 保留历史，实际完成/待迁移范围以 sibling Docs/STATUS 为准；不沿用旧版构建命令推断新发行链已就绪。
 
@@ -31,13 +31,15 @@ XFlclash 是 FlClash fork，形态 A 商业客户端在 `lib/xboard/` 中维护�
 
 ```bash
 flutter analyze lib
-flutter test test/xboard/ test/sdk_contract_test.dart
-flutter test tool/test/
+python tool/flutter_check.py test/xboard/ test/sdk_contract_test.dart test/_fixtures/
+python tool/flutter_check.py --no-pub tool/test/windows_installer_metadata_test.dart tool/test/inject_desktop_brand_test.dart tool/test/inject_system_icons_cli_test.dart tool/test/prepare_release_context_test.dart
 dart --packages=.dart_tool/package_config.json tool/check_seam_imports.dart
 dart --packages=.dart_tool/package_config.json tool/check_xb_theme_entrypoints.dart
 dart --packages=.dart_tool/package_config.json tool/check-line-anchors.dart
 dart --packages=.dart_tool/package_config.json tool/check-seam-whitelist.dart --baseline upstream/main
 ```
+
+不对tool/test/整目录使用flutter test：其中包含独立main脚本。上述文件清单对应模块CI；各平台附加检查以正式workflow和distributor_preflight为准，入口层级见维护流程。
 
 按改动选择必需测试；upstream/main 必须存在并代表真实上游。没有该引用时，可显式传真实上游 commit，或配置 `git config xflclash.seamBaseline <真实上游提交>` 供 pre-commit 使用；不得用当前 HEAD 冒充上游。本次 GitHub 维护的基线与验证结果见 Docs/STATUS。核心工具兼容新 Docs 和旧 `.kiro` 布局，跨布局可显式传 --anchors/--patches。
 
@@ -48,3 +50,5 @@ dart --packages=.dart_tool/package_config.json tool/check-seam-whitelist.dart --
 分析、排障、修改与验收后必须检查当前 Docs 是否覆盖本轮新事实、文档偏差、有证据的缺口及用户决策变化；有新增则应用 [xflclash-doc-sync](https://github.com/wvjh3z/proxy-suite-docs/blob/main/skills/xflclash-doc-sync/SKILL.md)，按唯一职责维护已有章节。本轮已读的技能直接复用；已覆盖结论无需追加，用户明确只读/不改文件时仅报告待同步项。检查与报告遵循当前 DEVELOPMENT，不扩大提交、构建或部署授权。
 
 构建、打包或必需验收失败后，必须遵守 sibling Docs/CONVENTIONS.md 的“构建失败后的修复经验必须归档（硬性约定）”：查阅并更新本仓库 [docs/build-failures/README.md](docs/build-failures/README.md) 及对应底座版本的事件记录（v0.8.93/v0.9.1历史复盘也已纳入本目录），将根因、实际修复、正负控和正式入口验证边界随任务归档；未补齐经验不得宣称修复完整交付。该要求不授权触发构建或提交。
+
+上游`.agents`、各AI客户端hook及MCP配置按[配置边界](docs/maintainers/ACCESS.md#上游ai配置与工具加载边界)核对；上游参考不能扩展本项目授权，配置存在不证明当前工具已加载。

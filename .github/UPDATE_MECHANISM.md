@@ -1,5 +1,5 @@
 <!-- docs-migration:start -->
-> **当前更新导航与上游参考。** 完整接口与失败语义见 [CONTRACTS](https://github.com/wvjh3z/proxy-suite-docs/blob/main/CONTRACTS.md#免登录自更新)，运行链见 [ARCHITECTURE](https://github.com/wvjh3z/proxy-suite-docs/blob/main/ARCHITECTURE.md#更新检查提示与安装的运行链)，发布及平台验收见 [DEVELOPMENT](https://github.com/wvjh3z/proxy-suite-docs/blob/main/DEVELOPMENT.md#自更新排障与平台验收)。Docs 为私有仓库，需要 GitHub 授权；本地 checkout 为客户端平级的 `Docs/`。
+> **当前更新导航与上游参考。** 完整接口与失败语义见 [CONTRACTS](https://github.com/wvjh3z/proxy-suite-docs/blob/main/CONTRACTS.md#免登录自更新)，运行链见 [ARCHITECTURE](https://github.com/wvjh3z/proxy-suite-docs/blob/main/ARCHITECTURE.md#更新检查提示与安装的运行链)，发布及平台验收见 [DEVELOPMENT](https://github.com/wvjh3z/proxy-suite-docs/blob/main/runbooks/PLATFORM_REGRESSION.md#自更新排障与平台验收)。Docs 为私有仓库，需要 GitHub 授权；本地 checkout 为客户端平级的 `Docs/`。
 <!-- docs-migration:end -->
 
 # XFlclash 更新机制
@@ -15,7 +15,7 @@ XFlclash 当前使用形态 A 商业 UI，FlClash 底座仍为 **v0.8.93**。形
 
 冷启动、手动检查、resume/VPN 自动检查有各自触发和节流规则，详见当前 ARCHITECTURE；不能沿用早期“统一 30 分钟”或“所有触发均 24 小时”的说法。Android 更新 ABI 读取 `XB_ANDROID_ABI`，Gradle 的 `XB_TARGET_ABI` 是另一输入。每个发布批次都核对实际 APK 与 Dart 配置，不能只凭文件名或默认值判断。
 
-Xboard业务的SDK API、Bootstrap、加密订阅、端点探测与安装包下载继承宿主既有HttpOverrides，不改原FlClash全局HTTP或通用请求规则，不额外添加直连回退。业务Dart通道关闭持久连接，避免后续HTTPS复用旧代理隧道。应用内与浏览器共用合法URL的稳定地区排序，浏览器打开失败换源、成功才关窗；其实际网络出口仍由浏览器与系统决定。调用与平台验收见[ARCHITECTURE](https://github.com/wvjh3z/proxy-suite-docs/blob/main/ARCHITECTURE.md#更新检查提示与安装的运行链)、[DEVELOPMENT](https://github.com/wvjh3z/proxy-suite-docs/blob/main/DEVELOPMENT.md#自更新排障与平台验收)。
+Xboard业务的SDK API、Bootstrap、加密订阅、端点探测与安装包下载继承宿主既有HttpOverrides，不改原FlClash全局HTTP或通用请求规则，不额外添加直连回退。业务Dart通道关闭持久连接，避免后续HTTPS复用旧代理隧道。应用内与浏览器共用合法URL的稳定地区排序，浏览器打开失败换源、成功才关窗；其实际网络出口仍由浏览器与系统决定。调用与平台验收见[ARCHITECTURE](https://github.com/wvjh3z/proxy-suite-docs/blob/main/ARCHITECTURE.md#更新检查提示与安装的运行链)、[DEVELOPMENT](https://github.com/wvjh3z/proxy-suite-docs/blob/main/runbooks/PLATFORM_REGRESSION.md#自更新排障与平台验收)。
 
 产品展示版本、底座原生版本与构建号分别维护，见 [构建入口](BUILD_AND_RELEASE.md)。AppVersion 的 version_code 应对应批次 `XB_BUILD_NUMBER`，Android 覆盖安装另检查真实 versionCode、包名和原签名。
 

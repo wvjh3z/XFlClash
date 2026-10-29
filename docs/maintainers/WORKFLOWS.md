@@ -100,7 +100,7 @@ git var GIT_AUTHOR_IDENT
 | 选择代码回归 | [按改动选验收](https://github.com/wvjh3z/proxy-suite-docs/blob/main/DEVELOPMENT.md#按改动选测试和验收) | 记录同源码、正式入口、正负控及跳过；缺平台则保留待验 |
 | 核对符号 | [生成匹配上传](https://github.com/wvjh3z/proxy-suite-docs/blob/main/runbooks/SENTRY.md#四平台符号生成匹配与自动上传) | 包与debug ID匹配、服务端逐项确认；上传成功与真实崩溃解析分开 |
 | 只补传已有符号 | [已有符号补传](https://github.com/wvjh3z/proxy-suite-docs/blob/main/runbooks/SENTRY.md#已有符号补传与本地上传凭据) | 必须匹配该成品；没有匹配符号就记录缺口，不重新编译替代 |
-| 测试失败后取证 | [指定主机报告留存](https://github.com/wvjh3z/proxy-suite-docs/blob/main/DEVELOPMENT.md#指定构建机的诊断收尾与留存) | 原退出码不被收尾覆盖；采集完整/部分/缺失分别报告 |
+| 测试失败后取证 | [指定主机报告留存](https://github.com/wvjh3z/proxy-suite-docs/blob/main/runbooks/PLATFORM_REGRESSION.md#指定构建机的诊断收尾与留存) | 原退出码不被收尾覆盖；采集完整/部分/缺失分别报告 |
 
 ### 自动化派发的接口契约（只在获准构建后使用）
 
@@ -113,3 +113,74 @@ POST `https://api.github.com/repos/wvjh3z/XFlClash/actions/workflows/release-pac
 ```
 
 204表示接受派发，不表示构建成功；回到ACCESS的GET方法确认新运行及源码。使用具Actions写权限的认证，但不得将Token写入命令历史、JSON文件或日志。请求超时先查询运行记录，不立即重复POST。
+
+## 回归入口选择
+
+只在具备工具链且已获授权的测试主机执行；本机不恢复工具链。以实际文件内容和正式workflow/preflight为准，不能按扩展名猜测入口。`tool/test/`有独立Dart main脚本，禁止整目录套用flutter test。
+
+| 类型 | 正式入口／前提 |
+| --- | --- |
+| 客户端Flutter套件 | `python tool/flutter_check.py --no-pub <明确测试文件>`；工具临时关闭setup/rust_api原生build_assets并在finally恢复；先准备依赖/codegen，不能把禁用hook的副本用于发布 |
+| 模块CI工具测试 | 文件白名单取`.github/workflows/xboard-ci.yml`，客户端AGENTS同步同一入口，不额外递归执行tool/test |
+| AppImage浏览器独立Dart脚本 | Linux上由distributor_preflight.py执行`dart --packages=build/packaging-tools/flutter_distributor/packages/flutter_distributor/.dart_tool/package_config.json tool/test/crisp_appimage_browser_test.dart`，先准备锁定打包工具包图 |
+| Gradle/MSVC/ISCC等原生fixture | 正式workflow相应平台步骤；即使入口是.py也需要原生环境，不能视作维护机轻量测试 |
+| SDK套件 | 在SDK根、准备其Flutter依赖后执行指定测试；不要套客户端hook修改器到SDK |
+
+## 升级差异采集
+
+以下为只读Git示例，输出写入本次已选证据目录；变量必须由实际固定提交及授权目录提供，不可照抄占位值。`OLD_BRAND`是升级前**已提交**品牌快照；未提交改动另归档差异及摘要，不能把两种口径混成一个重叠数。
+
+```bash
+: "${OLD_UPSTREAM:?需实际提交}" "${NEW_UPSTREAM:?需实际提交}"
+: "${OLD_BRAND:?需升级前品牌提交}" "${EVIDENCE_DIR:?需本次证据目录}"
+export OLD_UPSTREAM NEW_UPSTREAM OLD_BRAND EVIDENCE_DIR
+python3 - <<'UPGRADE_AUDIT'
+import json, os, re, subprocess
+from pathlib import Path
+out=Path(os.environ['EVIDENCE_DIR']); out.mkdir(parents=True, exist_ok=True)
+def git(*args): return subprocess.check_output(['git',*args])
+old,new,brand=(os.environ[k] for k in ('OLD_UPSTREAM','NEW_UPSTREAM','OLD_BRAND'))
+for ref in (old,new,brand): git('cat-file','-e',ref+'^{commit}')
+diff_flags=['--no-ext-diff','--no-textconv','--find-renames=50%','-l0']
+def changed(a,b): return set(filter(None,git('diff',*diff_flags,'--name-only','-z',a,b).decode().split('\0')))
+up=changed(old,new); fork=changed(old,brand)
+imports={}
+for path in filter(None,git('ls-tree','-r','--name-only','-z',brand,'lib/xboard').decode().split('\0')):
+    if not path.endswith('.dart'): continue
+    text=git('show',brand+':'+path).decode()
+    for module in re.findall(r"(?:import|export)\s+['\"]package:fl_clash/([^'\"]+)",text):
+        target='lib/'+module
+        if not target.startswith('lib/xboard/'): imports.setdefault(target,[]).append(path)
+result={'old_upstream':old,'new_upstream':new,'old_brand':brand,'git_diff_flags':diff_flags,
+        'upstream_paths':sorted(up),'overlap_paths':sorted(up & fork),
+        'direct_imports':imports,'direct_import_changed_paths':sorted(up & set(imports)),
+        'limitation':'Only direct Dart package imports; exports, relative imports, native code, resources and new modules require manual review.'}
+(out/'diff-inputs.json').write_text(json.dumps(result,ensure_ascii=False,indent=2)+'\n')
+(out/'upstream-name-status.txt').write_bytes(git('diff',*diff_flags,'--name-status',old,new))
+UPGRADE_AUDIT
+```
+
+统计固定重命名阈值50%且不限重命名候选数，禁用外部diff/textconv；name-only以重命名后的路径计数，旧路径保存在name-status。导入扫描是源码文本匹配而非Dart AST，可能包含注释示例，须人工确认。消费者筛选是快速定位而非完成审计：聚合providers导出、相对导入、原生通道、构建脚本、数据库及新增模块继续按基线F/P/S核对，不能丢弃剩余上游路径。
+
+## 合并升级成果到 main
+
+仅在用户明确授权合并、且ACCEPTANCE的合并门槛满足后执行；不自动派发构建。以下步骤不授权清理未知工作区或改变远端默认分支。
+
+1. fetch三仓源/目标，记录HEAD、工作区差异、远端default_branch及分支保护；未知并发提交先核对。default_branch由GitHub仓库API只读确认，不能从origin/HEAD缓存推定。
+2. 合并保留两边提交历史及独立变更。每品牌编号文件取两边合法值的较大者，保留用户更大编号；这只避免回退，不代表已实现跨分支唯一预留（REL-01）。
+3. SDK/Docs先通过本任务检查并提交推送，客户端再固定真实sdk_ref/docs_ref。当前操作导航改指main，历史批次引用保留原身份；核对链接、引用可取得性及无凭据入Git。远端默认分支若不是main，报告差异并按单独授权处理，不静默更改。
+4. 用户允许时推送main，确认远端SHA/祖先关系；不force覆盖已发布历史，不擅删升级分支。合并提交不等于新安装包已验证。
+5. 本机active三仓保持唯一开发入口。若旧历史worktree占用main，在确认无其他任务使用且保存HEAD/差异摘要后，仅在原HEAD detach解除占用；比对差异未变，再将active切到main。其他机器没有此占用时跳过，不能机械改所有检出。
+6. 按AGENTS各自声明同步安装副本：根工作区与Xboard入口分别对维护源做字节比对，客户端/SDK仓内AGENTS直接随仓维护；不覆盖其他未确认的本地差异。收尾核对三仓分支、pin、两品牌编号、工作区状态、默认分支和同步结果，记录STATUS。
+
+## 发布编号跨分支核对
+
+这是REL-01自动化前的人工检查，需发布任务授权；只读核对本身不授权取号、写回、构建或改AppVersion。按品牌分别建立已使用编号集合，产品build与Android versionCode分别记录。
+
+1. 在已授权访问的客户端仓库读取`git branch -r`和远端分支列表，确认是否过期；更新远端跟踪引用须保留本地差异。对各发布分支用`git show <远端引用>:scripts/build_number.brand_a.txt`或brand_b读取计数文件（占位符须替换）；先核对脚本语义，文件是下一编号候选，不是完整使用历史。
+2. 按ACCESS的Actions GET入口分页读取相关工作流历史，以真实run_id核对分支、品牌、产品build、源码和发布结果。包含升级分支与main；对取消/失败但已创建Release或Sentry release的批次也记录占用可能，未知则不直接重用。
+3. 核对已有Release/草稿标签、资产来源和发布报告。tag及文件名可能仅含产品版本而不含build，草稿也可能被覆盖；不能仅看当前列表断言历史编号未使用。结合历史证据、用户交付包和Sentry release身份处理冲突。
+4. 在已授权的只读后台访问范围内核对AppVersion发布配置或guest接口结果；guest只暴露当前启用目标，不是完整历史。无访问权时列出缺项，由部署维护者确认，不从客户端缓存替代后台事实。
+5. 候选需高于同品牌所有已确认使用编号，且不与其他发布分支同时分配。正式派发前再核对一次；没有全局预留时采用人工串行协调。发现未知历史、并发任务或重复编号则阻止发布结论并记录REL-01；不要自动修改任何分支编号。
+
+#132/#146重复的品牌B/build35是已知历史冲突，不通过文档改名、修改现有包或合并取max消除；后续新包用经确认的唯一编号，旧批次保留真实身份。检查记录只保存品牌、编号、分支/run和来源，不恢复安装包hash记录要求。

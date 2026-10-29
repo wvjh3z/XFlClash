@@ -1,6 +1,42 @@
 # 零上下文接手
 
-目的：没有参与历史讨论的维护者能够识别目标、执行授权工作并验证结果。先读[入口](../README.md)、[工作区路径](WORKSPACE.md)及[访问条件](ACCESS.md)，再进入任务。不要把另一项目ops的网络规则/部署权限移植到客户端项目。
+本页是首次接手的必读摘要。读完后按[任务导航](../README.md#首次接手)打开相关章节，无需通读ARCHITECTURE、CONTRACTS、DEVELOPMENT或全部行为表。所有AI和人工使用同一入口；访问私有资料受阻时报告具体缺项。
+
+## 产品和当前目标
+
+这是基于FlClash v0.9.2的Xboard商业客户端：品牌A为OmoFly，品牌B为袋鼠加速。两品牌共用业务实现，面向Android、Windows、macOS、Linux；“形态A”是当前产品界面，和“品牌A/B”是不同概念。没有应用级iOS发行目标。
+
+当前客户端、SDK、Docs维护分支均为main。按[工作区](WORKSPACE.md)取得三个平级仓库；本机入口为`/root/dev/workspace/proxy-suite/active/`下的`XFlclash`、`Xboard_sdk`、`Docs`。实际HEAD和CI固定引用从Git及workflow读取，不在本页复制滚动提交号。
+
+- 客户端：`wvjh3z/XFlClash`，业务、适配、原生入口、测试和维护导航。
+- SDK：`wvjh3z/Xboard_sdk`，私有协议、认证、HTTP和面板适配。
+- Docs：`wvjh3z/proxy-suite-docs`，私有规则、架构、契约、状态和证据。
+
+## 最小规则入口
+
+硬规则按[CONVENTIONS的RUL索引](https://github.com/wvjh3z/proxy-suite-docs/blob/main/CONVENTIONS.md#硬规则索引)定位原文，本页只保留执行提示：
+
+1. 先确认目标和Git状态，保留已有差异（RUL-01）。
+2. 客户端、SDK和插件可维护，Xboard主程序只读（RUL-02）。
+3. 本机仅源码、文档和轻量检查，不恢复工具链或隐式构建（RUL-03）。
+4. 构建、推送、发布和合并按任务授权；已有授权不重复确认（RUL-04）。
+5. 接缝变更先告知；新增接缝/依赖核对授权（RUL-05）。
+6. 升级按三原则：复用能力核行为、自有逻辑保留、未用功能检查间接影响（RUL-06）。
+7. 凭据只在受限资料中使用，不回显、不入Git（RUL-07）。
+8. 区分要求、实现、证据和待确认；事实只在负责文档维护（RUL-08）。
+9. 失败经验归档，测试和恢复材料按用途保留（RUL-09）。
+
+## 当前状态从哪里判断
+
+先看[当前交付表](https://github.com/wvjh3z/proxy-suite-docs/blob/main/STATUS.md#当前交付与设备验收概览)和[当前缺口索引](https://github.com/wvjh3z/proxy-suite-docs/blob/main/STATUS.md#当前缺口索引)。成功构建批次、设备验收和修复源码分别列证据，不在本页复制结果清单。
+
+涉及发布时还需读[发布待办](https://github.com/wvjh3z/proxy-suite-docs/blob/main/STATUS.md#基线局部缺口与发布待办)：全局构建编号、最终APK验签以及设备/恢复材料缺口以该表为准。历史缺陷先复核，不能据旧记录直接宣布仍然复现或已经修复。
+
+## 选择执行环境
+
+本机可做Git只读检查、Python文档/工具轻量检查；Windows原生预检去Windows构建机，Linux AMD64及Android专项去VDS。Linux ARM64和macOS原生环境按GitHub授权处理，不恢复已退役的VDS Linux ARM64构建路线。主机当前在线和工具完整性需当次核验，详见[环境能力](ACCESS.md#构建机与平台能力)。
+
+先执行下方只读仓库核对，再按[WORKFLOWS](WORKFLOWS.md)选择检查。远端连接、当前授权和工具准备见[ACCESS](ACCESS.md)，不从历史任务目录复制命令直接出包。文档入口不需要任何AI专有插件；仓内上游AI配置的清单与边界见[说明](ACCESS.md#上游ai配置与工具加载边界)。
 
 ## 1. 识别当前目录和Git状态
 

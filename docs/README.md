@@ -4,7 +4,7 @@
 
 ## 首次接手
 
-依次阅读[HANDOVER](maintainers/HANDOVER.md) → [当前基线和功能对照](maintainers/UPGRADE_BASELINE.md) → [项目约定](https://github.com/wvjh3z/proxy-suite-docs/blob/main/CONVENTIONS.md) → 本次任务手册。没有明确权限/目标的关键歧义先确认；已授权的常规实施自行完成。不要先执行历史构建命令。
+首次只需读[HANDOVER](maintainers/HANDOVER.md)，再按下表选择本次任务的章节；规则按HANDOVER中的RUL索引查询，行为表按涉及的F/P编号查询。无需依次通读所有资料。没有明确权限/目标的关键歧义先确认；已授权的常规实施自行完成。不要先执行历史构建命令。
 
 | 任务 | 直接入口 |
 | --- | --- |
@@ -12,13 +12,15 @@
 | 临时文件、测试、证据和恢复材料放哪里 | [材料归档](maintainers/MATERIALS.md) |
 | 当前目录职责、旧路径和迁移规则 | [工作区路径](maintainers/WORKSPACE.md) |
 | 识别工作区、分支、仓库及执行权限 | [零上下文接手](maintainers/HANDOVER.md) |
-| 按F功能、P平台、S接缝、U未使用与G缺口核对品牌行为和原版依赖 | [升级对照基线](maintainers/UPGRADE_BASELINE.md) |
+| 按F功能、P平台、S接缝、U未使用与UB-GAP局部缺口核对品牌行为和原版依赖 | [升级对照基线](maintainers/UPGRADE_BASELINE.md) |
 | 升级FlClash、SDK或原生插件 | [三个原则与升级流程](maintainers/UPGRADING.md) |
 | 改代码、查日志、跑检查、提交或构建 | [维护流程](maintainers/WORKFLOWS.md) |
 | GitHub/远端主机/Sentry访问条件 | [访问与环境](maintainers/ACCESS.md) |
 | 配置由谁覆盖、何时生效 | [配置来源](https://github.com/wvjh3z/proxy-suite-docs/blob/main/CONTRACTS.md#配置来源与生效顺序) |
 | 支持平台、系统门槛及未验范围 | [兼容范围](maintainers/UPGRADE_BASELINE.md#平台兼容与支持范围) |
 | 登录、节点、数据库、更新或客服故障 | [故障定位](https://github.com/wvjh3z/proxy-suite-docs/blob/main/runbooks/TROUBLESHOOTING.md#客户端业务故障定位入口) |
+| 认证、订阅、支付和刷新回归步骤 | [业务回归手册](https://github.com/wvjh3z/proxy-suite-docs/blob/main/runbooks/BUSINESS_REGRESSION.md) |
+| 教程、客服、安装器和原生专项回归 | [平台回归手册](https://github.com/wvjh3z/proxy-suite-docs/blob/main/runbooks/PLATFORM_REGRESSION.md) |
 | 构建失败 | [版本化失败经验](build-failures/README.md) |
 | 查已找到的成品、符号证据及恢复缺口 | [实际材料索引](https://github.com/wvjh3z/proxy-suite-docs/blob/main/evidence/material-inventory-20261029/README.md) |
 | 查当前未关闭问题、成品及设备验收 | [Docs/STATUS当前快照](https://github.com/wvjh3z/proxy-suite-docs/blob/main/STATUS.md#当前接手快照2026-10-29) |

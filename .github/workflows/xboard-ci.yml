@@ -11,12 +11,12 @@ on:
         description: 'SDK commit or immutable tag'
         type: string
         required: true
-        default: 'aef9d33525054e09fccaa71ad9cdb480f1f88f39'
+        default: 'f5ca8ba00edb845b051e248538eb656de47d444b'
       docs_ref:
         description: 'Current documentation commit'
         type: string
         required: true
-        default: '71089e5cc6fb1fb5d7a9f836e2ddbe68aacecfdf'
+        default: '6b971d03eea9b87a2f20af059ebbbaf65974375e'
 
 permissions:
   contents: read
