@@ -113,6 +113,8 @@
 <a id="f06"></a>
 ### F06 加密订阅到Profile及内核应用
 
+**已核对升级差异**：v0.9.1默认600ms的applyProfileDebounce在v0.9.2改为按上次下发耗时限制于2–10秒；品牌订阅端口会申请此路径，但Profile ID变化还会由CoreManager下一帧调用fullSetup；它在initProvider=false时直接返回而不应用，就绪后才强制申请应用、不经该去抖。同ID刷新、初始化和强制应用等分支不同，不将调度下限差直接等同用户端至少多等1.4秒。语义唯一见[运行边界](https://github.com/wvjh3z/proxy-suite-docs/blob/main/ARCHITECTURE.md#配置应用的返回去抖与迁移边界)。
+
 - **归类／要求**：自有下载+复用Profile执行。用户要求：保留加密订阅、代理继承及证书政策；维护约束：下载/解密/保存/选中/内核生效必须分清，写入属于当前账号。 决定出处：REQ-NET（见文末）。
 - **原版0.9.2**：[lib/providers/actions/profiles.dart · ProfilesAction](https://github.com/chen08209/FlClash/blob/7fd417fb9a9a277c6a9339a8ac87f907df7c25f7/lib/providers/actions/profiles.dart)处理Profile源、校验和文件；[lib/providers/actions/setup.dart · applyProfile](https://github.com/chen08209/FlClash/blob/7fd417fb9a9a277c6a9339a8ac87f907df7c25f7/lib/providers/actions/setup.dart)应用到内核。原版没有Xboard密文和账号归属索引。
 - **当前品牌实现**：[lib/xboard/services/encrypted_subscription_service.dart](../../lib/xboard/services/encrypted_subscription_service.dart)下载解密，[lib/xboard/services/xboard_subscription_service.dart](../../lib/xboard/services/xboard_subscription_service.dart)调度；[lib/xboard/services/riverpod_profile_sync_port.dart](../../lib/xboard/services/riverpod_profile_sync_port.dart)保存file型Profile、检查会话并在Core就绪后申请应用；[lib/xboard/storage/profile_mutation_queue.dart](../../lib/xboard/storage/profile_mutation_queue.dart)协调品牌写入。
@@ -123,7 +125,7 @@
 <a id="f07"></a>
 ### F07 套餐、订单和支付
 
-- **归类／要求**：自有。维护约束：提交基于原会话/原服务，写请求不盲目重发；返回浏览器不等于支付成功。用户要求：兼容当前Xboard新金额字段并保留真实异常上报。 决定出处：REQ-API（见文末）。
+- **归类／要求**：自有业务+复用二维码渲染。QrCodeView采用白底、四格留白，超长内容回退SelectableText；该组件后续变化按直接复用核对。维护约束：提交基于原会话/原服务，写请求不盲目重发；返回浏览器不等于支付成功。用户要求：兼容当前Xboard新金额字段并保留真实异常上报。 决定出处：REQ-API（见文末）。
 - **原版0.9.2**：原版没有面板商业业务；邀请/佣金/分享另见F26；仅复用Flutter生命周期、通用弹窗/共享二维码组件等基础UI，不把这些复用等同订单逻辑来自上游。
 - **当前品牌实现**：[lib/xboard/sdk/xboard_service_impl.dart](../../lib/xboard/sdk/xboard_service_impl.dart)对接SDK；套餐确认捕获会话和服务，订单刷新处理异步失败；[支付页order_payment_page.dart](../../lib/xboard/pages/order_payment_page.dart)实际使用共享QrCodeView；[XBoardOrderApi](https://github.com/wvjh3z/Xboard_sdk/blob/main/lib/src/panels/xboard/apis/xboard_order_api.dart)与订单adapter解析响应。
 - **依赖／平台／接缝**：直接依赖F03请求恢复、F05会话、F14网络及共享UI；联查F21主题/F22异常分类。无订单专用底座接缝。两品牌业务页面共用，服务端配置/实际订单独立；所有平台的外部支付打开后都需查订单终态。
@@ -132,6 +134,8 @@
 
 <a id="f08"></a>
 ### F08 连接、断开、暂停和恢复
+
+**返回边界**：品牌adapter在需要初始化时传initialize；setRunning的true仍不能独立证明监听启动或新配置生效，取代、暂停及补排应用分支必须分别验收；SAFE_MODE当前正式入口未设置，Android启动守卫降级需单独核对。见[配置应用边界](https://github.com/wvjh3z/proxy-suite-docs/blob/main/ARCHITECTURE.md#配置应用的返回去抖与迁移边界)。
 
 - **归类／要求**：自有展示+复用执行。用户要求：跟随上游按需连接/自动恢复；连接失败正确处理。维护约束：点击门禁和实际操作使用同一个最新目标，不依据旧帧认证。 决定出处：REQ-OTHER（见文末）。
 - **原版0.9.2**：[lib/providers/actions/setup.dart · setRunning/syncSuspend](https://github.com/chen08209/FlClash/blob/7fd417fb9a9a277c6a9339a8ac87f907df7c25f7/lib/providers/actions/setup.dart)管理请求世代、运行意图、监听器和失败回滚；[lib/providers/state/proxies.dart · isStart](https://github.com/chen08209/FlClash/blob/7fd417fb9a9a277c6a9339a8ac87f907df7c25f7/lib/providers/state/proxies.dart)并不是系统VPN已确认的证明。
@@ -182,6 +186,9 @@
 
 <a id="f13"></a>
 ### F13 系统代理、TUN、DNS、IPv6与Geo更新
+
+**新装/升级差异**：仅当反序列化的旧配置缺general-override-keys时补回unifiedDelay、tcpConcurrent、ipv6、geodataLoader；新默认集合为空，品牌首次设置补IPv6。已有该键的配置不会无条件补回四项。实际下发还受Profile YAML与内核默认影响；生产模板内容待核实。详见[配置应用边界](https://github.com/wvjh3z/proxy-suite-docs/blob/main/ARCHITECTURE.md#配置应用的返回去抖与迁移边界)。
+
 
 - **归类／要求**：复用执行+自有首次默认/Geo调度。用户要求：使用新版原有配置与执行入口，保留品牌首次IPv6默认策略（不表示品牌设置页布局等同原版）；维护约束：用户后续选择不被启动覆盖，开关显示不能替代系统状态。 决定出处：REQ-SETTINGS / REQ-IPV6（见文末）。
 - **原版0.9.2**：[lib/models/clash_config.dart · PatchClashConfig/toUpdateParams](https://github.com/chen08209/FlClash/blob/7fd417fb9a9a277c6a9339a8ac87f907df7c25f7/lib/models/clash_config.dart)的ipv6默认false，覆盖键决定传给内核哪些值；[lib/providers/actions/setup.dart · updateConfig](https://github.com/chen08209/FlClash/blob/7fd417fb9a9a277c6a9339a8ac87f907df7c25f7/lib/providers/actions/setup.dart)与系统/Helper应用设置。
@@ -243,6 +250,9 @@
 <a id="f19"></a>
 ### F19 品牌身份、目录、图标及并存
 
+**资源缺口入口**：Android宽布局侧栏也读取assets/images/icon.png，不能按桌面组件排除Android；8081旧包资源相等证据、新发布A/B待验及TV资源边界统一见[STATUS](https://github.com/wvjh3z/proxy-suite-docs/blob/main/STATUS.md#基线局部缺口与发布待办)的UB-GAP-12/13。
+
+
 - **归类／要求**：自有隔离+复用平台集成。用户要求：原版、A、B可并存，名字/目录/服务不冲突；中文不可用处B使用daishu；升级保持原签名和可识别包身份。 决定出处：REQ-IDENTITY（见文末）。
 - **原版0.9.2**：[lib/common/constant.dart · packageName](https://github.com/chen08209/FlClash/blob/7fd417fb9a9a277c6a9339a8ac87f907df7c25f7/lib/common/constant.dart)、[lib/common/path.dart · AppPath](https://github.com/chen08209/FlClash/blob/7fd417fb9a9a277c6a9339a8ac87f907df7c25f7/lib/common/path.dart)、原生Runner和Helper使用原版身份。显示名、applicationId、服务名不是同一个字段。
 - **当前品牌实现**：[tool/identity/brands.json](../../tool/identity/brands.json)维护公开内部身份，[tool/brand_identity.dart](../../tool/brand_identity.dart)构建注入，[lib/xboard/storage/brand_paths.dart](../../lib/xboard/storage/brand_paths.dart)选择目录；品牌flavor提供显示/资源及受限配置，不在本文复制值。
@@ -262,6 +272,9 @@
 
 <a id="f21"></a>
 ### F21 主题、字体、设置与界面外壳
+
+**资源核对**：共用侧栏与Android资源范围见[F19](#f19)，不另维护一份缺口说明。
+
 
 - **归类／要求**：自有外壳+复用主题/字体。用户要求：系统亮暗自适应，字体跟随原版方案；设置使用新版入口。维护约束：尊重已有用户偏好，文本保留字体继承，不能把默认改动强推给旧用户。 决定出处：REQ-THEME / REQ-FONT（见文末）。
 - **原版0.9.2**：[lib/models/config.dart · ThemeProps](https://github.com/chen08209/FlClash/blob/7fd417fb9a9a277c6a9339a8ac87f907df7c25f7/lib/models/config.dart)默认ThemeMode.system；[lib/common/system_fonts.dart · system fonts](https://github.com/chen08209/FlClash/blob/7fd417fb9a9a277c6a9339a8ac87f907df7c25f7/lib/common/system_fonts.dart)、[lib/providers/actions/theme.dart · ThemeAction](https://github.com/chen08209/FlClash/blob/7fd417fb9a9a277c6a9339a8ac87f907df7c25f7/lib/providers/actions/theme.dart)负责底座主题/字体。
@@ -285,7 +298,7 @@
 
 - **归类／要求**：复用页面/执行+自有导航。既有决定：保留新版设置能力，品牌只组织入口；来源REQ-SETTINGS。ToolsView方法存在不等于品牌页面实际进入整张工具页。
 - **原版0.9.2**：原版`lib/views/tools.dart`导航到theme、backup_and_restore、access、config/general、config/advanced、connection/requests、connection/connections、resources和about；对应动作可能改写整份Config或更新Core资源。
-- **当前品牌实现**：[xb_settings_page.dart](../../lib/xboard/shell/tabs/mine/xb_settings_page.dart)经[xb_native_page_adapter.dart](../../lib/xboard/shell/adapters/xb_native_page_adapter.dart)提供上述适配方法，但当前语言和“其他”组隐藏，原版About/免责声明不是当前可见入口；原生push页面当前Android可见8个、桌面7个，访问控制仅Android。完整条件及动作见[配置与可达性清单](https://github.com/wvjh3z/proxy-suite-docs/blob/main/evidence/upgrade-v0.9.2/DEPENDENCY_CONFIG_REACHABILITY.md#f23实际可达性)。桌面设置Tab也嵌入XbSettingsPage，不再嵌入ToolsView；openNativeTools/toolsView仅保留适配方法，本轮lib/xboard搜索未找到生产调用。
+- **当前品牌实现**：[xb_settings_page.dart](../../lib/xboard/shell/tabs/mine/xb_settings_page.dart)经[xb_native_page_adapter.dart](../../lib/xboard/shell/adapters/xb_native_page_adapter.dart)提供上述适配方法，但当前语言和“其他”组隐藏，原版About/免责声明不是当前可见入口；原生一级push页面当前Android可见8个、桌面7个，访问控制仅Android；还须沿通用设置的按需连接/UA/映射和进阶配置的网络/DNS/脚本/附加规则继续核对，一级数量不是全部可达页面数。完整条件及动作见[配置与可达性清单](https://github.com/wvjh3z/proxy-suite-docs/blob/main/evidence/upgrade-v0.9.2/DEPENDENCY_CONFIG_REACHABILITY.md#f23实际可达性)。桌面设置Tab也嵌入XbSettingsPage，不再嵌入ToolsView；openNativeTools/toolsView仅保留适配方法，本轮lib/xboard搜索未找到生产调用。
 - **依赖／平台／接缝**：直接依赖底座视图/动作，输入受F19路径与配置影响。BackupAction完整恢复（非onlyProfiles）调用writeConfig，会重引入U03 hideTimeoutProxies；ResourcesView手动Geo更新与F13b共用Core/完成事件，需并发核对。S09/FA-toolsview是参照，不应误标为已使用Widget。
 - **回归入口与必测分支**：[导航测试](../../test/xboard/shell/adapters/xb_native_page_adapter_test.dart)只证明openNativeTools可push，不能证明所有生产子页与副作用；[设置页测试](../../test/xboard/shell/tabs/xb_settings_page_test.dart)、上游备份/资源测试及真实Config恢复按入口补验。
 - **限制／状态**：备份统一协调仍按U04暂缓；手动Geo、Core自动Geo与品牌自动Geo的同类型完成事件是否会互相满足，列UB-GAP-10待核对，不假定独立请求ID隔离。
@@ -433,6 +446,10 @@ U项同时列出明确暂缓的品牌增强，但不把已使用的底座能力�
 | UB-GAP-09 | F25 | 当前状态与关闭条件统一见[STATUS缺口索引](https://github.com/wvjh3z/proxy-suite-docs/blob/main/STATUS.md#基线局部缺口与发布待办)，不在本表另行更新进度 |
 | UB-GAP-10 | F13b,F23 | 当前状态与关闭条件统一见[STATUS缺口索引](https://github.com/wvjh3z/proxy-suite-docs/blob/main/STATUS.md#基线局部缺口与发布待办)，不在本表另行更新进度 |
 | UB-GAP-11 | F23 | 当前状态与关闭条件统一见[STATUS缺口索引](https://github.com/wvjh3z/proxy-suite-docs/blob/main/STATUS.md#基线局部缺口与发布待办)，不在本表另行更新进度 |
+| UB-GAP-12 | F19/F21；Android应用内logo | 状态与关闭条件唯一见[STATUS](https://github.com/wvjh3z/proxy-suite-docs/blob/main/STATUS.md#基线局部缺口与发布待办) |
+| UB-GAP-13 | F19/P01；Android TV资源和范围 | 状态与产品待确认项唯一见[STATUS](https://github.com/wvjh3z/proxy-suite-docs/blob/main/STATUS.md#基线局部缺口与发布待办) |
+| UB-GAP-14 | F08/P01；原生快捷入口门禁 | 当前原生调用已存在；是否额外约束待确认，见[STATUS](https://github.com/wvjh3z/proxy-suite-docs/blob/main/STATUS.md#基线局部缺口与发布待办) |
+| UB-GAP-15 | F19/P01；品牌B Android启动器/通知应用图标 | 状态与设备验收统一见[STATUS](https://github.com/wvjh3z/proxy-suite-docs/blob/main/STATUS.md#基线局部缺口与发布待办) |
 
 
 已修复过的漏洞应成为回归条件，不成为必须复制的旧行为：全局GLOBAL被二次过滤、暂停显示为已连接、点击读取旧认证、旧异步结果串会话、IP结果被迟到通知清空、数据库中断迁移不可重入。各自测试入口已在F项登记；本轮没有重新跑这些Flutter或原生测试，不以文档完善关闭任何设备问题。

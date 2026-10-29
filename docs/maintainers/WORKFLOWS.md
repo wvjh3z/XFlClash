@@ -128,6 +128,16 @@ POST `https://api.github.com/repos/wvjh3z/XFlClash/actions/workflows/release-pac
 
 ## 升级差异采集
 
+正式消费者核对使用Docs的`tools/report_brand_dependencies.py`报告包/相对导入及export/part闭包，再与PATCHES、FLCLASH_ANCHORS和平台入口并集复核。底座文件反向引用品牌、原生通道、资源及构建依赖不由Dart报告穷尽；报告仍是候选，不是使用或验收证明。
+
+当前v0.9.2输入的只读复算，在平级Docs根目录执行：
+
+```bash
+python3 tools/report_brand_dependencies.py --client ../XFlclash --changes evidence/upgrade-v0.9.2/upstream-paths.json --output evidence/upgrade-v0.9.2/brand-dependencies.json --check
+```
+
+下一次升级须换为该次固定输入及证据目录；该工具读取指定检出的工作区源码，旧版与目标版分别采集并登记HEAD/dirty范围，不能拿当前扫描冒充旧版。生成时去掉`--check`只写指定报告；详细口径见[依赖说明](https://github.com/wvjh3z/proxy-suite-docs/blob/main/evidence/upgrade-v0.9.2/DEPENDENCY_CONFIG_REACHABILITY.md)。下方Git脚本负责冻结差异和重叠路径，其中直接package导入只是快速预览，不能替代完整报告及接缝核查。
+
 以下为只读Git示例，输出写入本次已选证据目录；变量必须由实际固定提交及授权目录提供，不可照抄占位值。`OLD_BRAND`是升级前**已提交**品牌快照；未提交改动另归档差异及摘要，不能把两种口径混成一个重叠数。
 
 ```bash
