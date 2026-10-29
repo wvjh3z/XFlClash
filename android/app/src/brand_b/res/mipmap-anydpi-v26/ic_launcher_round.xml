@@ -1,14 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Red edge-to-edge background and a bounded white kangaroo cutout. -->
+<!-- White adaptive mask with the existing red cutout; no separate white disc. -->
 <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
     <background android:drawable="@color/xb_launcher_icon_background"/>
-    <!-- Scale the full foreground to 78%, then optically center its white
-         content. The radius-35 disc becomes radius 27.3; displacement is <4.64,
-         so all white content stays inside the radius-33 adaptive safe circle.
-         Fractional insets live only in v26 resources; splash is unchanged. -->
     <foreground>
-        <inset android:drawable="@drawable/ic_launcher_foreground"
-            android:insetLeft="11.32%" android:insetRight="10.68%"
-            android:insetTop="6.72%" android:insetBottom="15.28%" />
+        <!-- Approved optical alignment: 92% scale, shifted up 1.62/108. -->
+        <inset android:drawable="@mipmap/ic_fg"
+            android:insetLeft="4%" android:insetRight="4%"
+            android:insetTop="2.5%" android:insetBottom="5.5%" />
     </foreground>
 </adaptive-icon>
