@@ -12,7 +12,7 @@
 | 临时文件、测试、证据和恢复材料放哪里 | [材料归档](maintainers/MATERIALS.md) |
 | 当前目录职责、旧路径和迁移规则 | [工作区路径](maintainers/WORKSPACE.md) |
 | 识别工作区、分支、仓库及执行权限 | [零上下文接手](maintainers/HANDOVER.md) |
-| 了解品牌功能由哪层负责、下次升级检查什么 | [升级对照基线](maintainers/UPGRADE_BASELINE.md) |
+| 按F功能、P平台、S接缝、U未使用与G缺口核对品牌行为和原版依赖 | [升级对照基线](maintainers/UPGRADE_BASELINE.md) |
 | 升级FlClash、SDK或原生插件 | [三个原则与升级流程](maintainers/UPGRADING.md) |
 | 改代码、查日志、跑检查、提交或构建 | [维护流程](maintainers/WORKFLOWS.md) |
 | GitHub/远端主机/Sentry访问条件 | [访问与环境](maintainers/ACCESS.md) |

@@ -2,7 +2,7 @@
 
 <a id="构建失败经验索引"></a>
 
-本目录随客户端代码和分支维护，适用于两个品牌、GitHub Actions、Jenkins及指定构建机。排障及修复交付必须读取和更新，见客户端[AGENTS](../../AGENTS.md)。当前升级分支及后续版本的失败事件在此维护；历史记录保留在 [v0.8.93 复盘](v0.8.93.md) 和 [v0.9.1 Jenkins/Actions 复盘](v0.9.1.md)，不复制其正文。当前操作步骤以 [DEVELOPMENT](https://github.com/wvjh3z/proxy-suite-docs/blob/main/DEVELOPMENT.md) 为准，归档硬性要求见 [CONVENTIONS](https://github.com/wvjh3z/proxy-suite-docs/blob/main/CONVENTIONS.md#构建失败后的修复经验必须归档硬性约定)。
+本目录随客户端代码和分支维护，适用于两个品牌、GitHub Actions、Jenkins及指定构建机。排障及修复交付必须读取和更新，见客户端[AGENTS](../../AGENTS.md)。main当前底座及后续版本的失败事件在此维护；历史记录保留在 [v0.8.93 复盘](v0.8.93.md) 和 [v0.9.1 Jenkins/Actions 复盘](v0.9.1.md)，不复制其正文。当前操作步骤以 [DEVELOPMENT](https://github.com/wvjh3z/proxy-suite-docs/blob/main/DEVELOPMENT.md) 为准，归档硬性要求见 [CONVENTIONS](https://github.com/wvjh3z/proxy-suite-docs/blob/main/CONVENTIONS.md#构建失败后的修复经验必须归档硬性约定)。
 
 记录区分“失败已确认”“修复待实施”“受控验证通过”“正式构建复验通过”，不能由后续不相关改动或一次本机成功替代。每次修复更新原事件，记录实际提交/工作区状态、正负控、正式入口及未验证边界，不另建重复事件。
 
@@ -13,7 +13,7 @@
 | --- | --- | --- |
 | v0.8.93 | [完整历史复盘](v0.8.93.md) | 历史事件及跨平台教训；不是当前工具链指南 |
 | v0.9.1 | [Jenkins与Actions复盘](v0.9.1.md) | 原生资产、平台打包、符号和远端构建经验 |
-| v0.9.2 | [#140及后续修复](#actions-140v092首次全平台构建) | 当前升级分支；已实施与待复验分别记录 |
+| v0.9.2 | [#140及后续修复](#actions-140v092首次全平台构建) | 已合入main；已实施与待复验分别记录 |
 
 跨版本排障先按错误阶段搜索三个文件，再核对该事件源码、版本、架构和验证边界；不要把旧配置直接应用到新底座。新版本增加版本项，每个事故在对应记录维护，不丢弃旧经验、不复制同一事实到两处。
 
