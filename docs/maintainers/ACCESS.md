@@ -78,7 +78,7 @@ PY
 | Android真机 | 用户曾可手动测试；本次可用性仍需确认 | 自动远控或已有本次设备日志 |
 | macOS实机/iOS | 本次设备能力待确认 | macOS Runner成功等于用户电脑验收，或iOS可发布 |
 
-远端SSH/Jenkins连接资料、已安装工具与当前主机状态由当前维护机工作区 `infra/jenkins/` 及[当前构建机手册](https://github.com/wvjh3z/proxy-suite-docs/blob/upgrade/flclash-v0.9.2/environments/BUILD_HOSTS.md)登记；升级Docs的DEVELOPMENT链接该维护源。跨机器未交付这些资料时，远端操作是明确缺项，不复制猜测地址或把 `/root/dev/maintenance/` 某次临时脚本当唯一工具。可用标准OpenSSH/Python执行同一受控检查；无法取得等价环境时报告缺项，不绕过检查。
+远端SSH/Jenkins连接资料、已安装工具与当前主机状态由当前维护机工作区 `infra/jenkins/` 及[当前构建机手册](https://github.com/wvjh3z/proxy-suite-docs/blob/main/environments/BUILD_HOSTS.md)登记；升级Docs的DEVELOPMENT链接该维护源。跨机器未交付这些资料时，远端操作是明确缺项，不复制猜测地址或把 `/root/dev/maintenance/` 某次临时脚本当唯一工具。可用标准OpenSSH/Python执行同一受控检查；无法取得等价环境时报告缺项，不绕过检查。
 
 维护机目录检查可用 `test -d /root/dev/infra/jenkins`，不能据目录存在认定主机在线。只能在本次已授权时读取对应凭据，验证主机身份，复制非敏感测试源码到独立测试目录；不覆盖正在工作的checkout，不安装/运行真实客户端来替代小型预检。
 
@@ -110,4 +110,4 @@ PY
 
 ## 本机凭据集中快照
 
-用户明确选择本机明文、不额外加密、不外传。项目凭据快照入口为`/root/dev/secrets/xflclash/CURRENT`；目录0700、文件0600，原脚本消费源保持不变。用途、恢复步骤、轮换及待验边界唯一见[恢复手册](https://github.com/wvjh3z/proxy-suite-docs/blob/upgrade/flclash-v0.9.2/runbooks/RECOVERY.md)。这里只登记位置，不复制任何凭据值；本机快照不等于异机备份。
+用户明确选择本机明文、不额外加密、不外传。项目凭据快照入口为`/root/dev/secrets/xflclash/CURRENT`；目录0700、文件0600，原脚本消费源保持不变。用途、恢复步骤、轮换及待验边界唯一见[恢复手册](https://github.com/wvjh3z/proxy-suite-docs/blob/main/runbooks/RECOVERY.md)。这里只登记位置，不复制任何凭据值；本机快照不等于异机备份。

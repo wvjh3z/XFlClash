@@ -57,7 +57,7 @@ Flutter测试、原生PowerShell/MSVC/ISCC、真实Go预下载等命令见各功
 2. Docs有改动时提交/推送当前Docs分支，取得真实commit。文档新路径需在本次客户端暂存中存在；未推送之前的GitHub链接可能404，不能据此删除正确文件。
 3. 更新客户端实际消费者：[release-config](../../tool/release-config.json)的sdk_ref、[xboard-ci](../../.github/workflows/xboard-ci.yml)的sdk_ref/docs_ref。核对所有引用，不写不存在的SHA。
 4. 客户端暂存前检查内容、忽略规则和接缝登记；运行必要守卫。提交遵守现有`[xfork] type(scope): subject` hook，不用no-verify掩盖失败。
-5. 推送指定升级分支并确认远端SHA；未获授权不合并main、不改默认分支、不触发构建。
+5. 推送本次授权的目标分支（当前默认维护main）并确认远端SHA；未获授权不合并main、不改默认分支、不触发构建。
 
 可执行的只读交付检查：
 
@@ -95,12 +95,12 @@ git var GIT_AUTHOR_IDENT
 
 | 要完成的工作 | 唯一详细步骤 | 完成条件 / 失败时 |
 | --- | --- | --- |
-| 准备私有SDK认证 | [CI源码认证](https://github.com/wvjh3z/proxy-suite-docs/blob/upgrade/flclash-v0.9.2/runbooks/BUILD_RELEASE.md#ci-的-sdk-源码认证) | 拉到指定commit；权限失败保留主错误，不改成公共替代依赖 |
-| 缺品牌输入或签名 | [配置恢复](https://github.com/wvjh3z/proxy-suite-docs/blob/upgrade/flclash-v0.9.2/runbooks/BUILD_RELEASE.md#品牌配置遗失与-github-secrets-恢复) | 正式包身份/原签名/fallback实际通过；缺原签名不能生成新签名冒充升级 |
-| 选择代码回归 | [按改动选验收](https://github.com/wvjh3z/proxy-suite-docs/blob/upgrade/flclash-v0.9.2/DEVELOPMENT.md#按改动选测试和验收) | 记录同源码、正式入口、正负控及跳过；缺平台则保留待验 |
-| 核对符号 | [生成匹配上传](https://github.com/wvjh3z/proxy-suite-docs/blob/upgrade/flclash-v0.9.2/runbooks/SENTRY.md#四平台符号生成匹配与自动上传) | 包与debug ID匹配、服务端逐项确认；上传成功与真实崩溃解析分开 |
-| 只补传已有符号 | [已有符号补传](https://github.com/wvjh3z/proxy-suite-docs/blob/upgrade/flclash-v0.9.2/runbooks/SENTRY.md#已有符号补传与本地上传凭据) | 必须匹配该成品；没有匹配符号就记录缺口，不重新编译替代 |
-| 测试失败后取证 | [指定主机报告留存](https://github.com/wvjh3z/proxy-suite-docs/blob/upgrade/flclash-v0.9.2/DEVELOPMENT.md#指定构建机的诊断收尾与留存) | 原退出码不被收尾覆盖；采集完整/部分/缺失分别报告 |
+| 准备私有SDK认证 | [CI源码认证](https://github.com/wvjh3z/proxy-suite-docs/blob/main/runbooks/BUILD_RELEASE.md#ci-的-sdk-源码认证) | 拉到指定commit；权限失败保留主错误，不改成公共替代依赖 |
+| 缺品牌输入或签名 | [配置恢复](https://github.com/wvjh3z/proxy-suite-docs/blob/main/runbooks/BUILD_RELEASE.md#品牌配置遗失与-github-secrets-恢复) | 正式包身份/原签名/fallback实际通过；缺原签名不能生成新签名冒充升级 |
+| 选择代码回归 | [按改动选验收](https://github.com/wvjh3z/proxy-suite-docs/blob/main/DEVELOPMENT.md#按改动选测试和验收) | 记录同源码、正式入口、正负控及跳过；缺平台则保留待验 |
+| 核对符号 | [生成匹配上传](https://github.com/wvjh3z/proxy-suite-docs/blob/main/runbooks/SENTRY.md#四平台符号生成匹配与自动上传) | 包与debug ID匹配、服务端逐项确认；上传成功与真实崩溃解析分开 |
+| 只补传已有符号 | [已有符号补传](https://github.com/wvjh3z/proxy-suite-docs/blob/main/runbooks/SENTRY.md#已有符号补传与本地上传凭据) | 必须匹配该成品；没有匹配符号就记录缺口，不重新编译替代 |
+| 测试失败后取证 | [指定主机报告留存](https://github.com/wvjh3z/proxy-suite-docs/blob/main/DEVELOPMENT.md#指定构建机的诊断收尾与留存) | 原退出码不被收尾覆盖；采集完整/部分/缺失分别报告 |
 
 ### 自动化派发的接口契约（只在获准构建后使用）
 

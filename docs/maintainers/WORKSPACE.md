@@ -17,13 +17,13 @@
 │   └── Docs/                  平级共享文档仓库，满足现有机器消费者
 ├── upstream/                  只读上游版本源码及来源登记
 ├── Xboard/                    外部维护后端；主程序只读，插件按授权维护
-├── XFlclash/                  旧main检出及Git公共元数据，非活跃开发入口
-├── Docs/                      旧main检出及Git公共元数据；历史检出，不再读取操作资料
+├── XFlclash/                  历史检出及Git公共元数据，非活跃开发入口
+├── Docs/                      历史检出及Git公共元数据；历史检出，不再读取操作资料
 ├── Xboard_sdk -> ../../sdk    旧布局兼容
 └── upgrades/                  旧目录兼容链接已退役，无活跃checkout
 ```
 
-`/root/dev/sdk`同样是旧main检出和SDK公共Git元数据，不是active的SDK源。上面三个active仓库仍为Git worktree；它们的`.git`指向原主仓公共目录。**不要因旧目录名而删除、移到归档或执行git worktree prune**。原位置已有未提交差异不属于本次迁移，本次未清理。
+`/root/dev/sdk`同样是历史检出和SDK公共Git元数据，不是active的SDK源。上面三个active仓库仍为Git worktree；它们的`.git`指向原主仓公共目录。**不要因旧目录名而删除、移到归档或执行git worktree prune**。原位置已有未提交差异不属于本次迁移，本次未清理。
 
 2026-10-29完成当前消费者检查：旧版本目录两条兼容链接已删除；停用的`infra/jenkins/linux-arm64-v091/preflight_test.py`改为读取`XFLCLASH_CLIENT_ROOT`，默认active，四项轻量测试通过。另7条过期插件软链接及5份被Git忽略的生成路径输入已备份归档后移除，未改生成文件内容、未运行Flutter重生成。原始备份与清单位于`/root/dev/maintenance/xflclash/archive/20261029-retired-path-inputs/`。其他历史记录中的旧路径只解释当时环境，不可继续执行；公共Git元数据保留。
 
@@ -47,7 +47,7 @@
 
 ## 本机入口与服务边界
 
-共享构建机操作资料已迁入active Docs的[构建机手册](https://github.com/wvjh3z/proxy-suite-docs/blob/upgrade/flclash-v0.9.2/environments/BUILD_HOSTS.md)，旧Docs不再作为任何当前操作资料来源。`infra/jenkins/`仍是脚本维护源；历史记录集中到当前Docs/history，按原日期解释。
+共享构建机操作资料已迁入active Docs的[构建机手册](https://github.com/wvjh3z/proxy-suite-docs/blob/main/environments/BUILD_HOSTS.md)，旧Docs不再作为任何当前操作资料来源。`infra/jenkins/`仍是脚本维护源；历史记录集中到当前Docs/history，按原日期解释。
 
 项目skill链接应指向active/Docs/skills的维护源；安装副本/root/dev/AGENTS.md与该源字节一致。用户另有工具发现缓存时，重新加载入口；不修改其他项目的skill或规则。
 
@@ -75,3 +75,5 @@ test ! -L /root/dev/workspace/proxy-suite/XFlclash-upgrade-v0.9.1
 如目录曾被外部工具再次移动，先定位真实文件和公共Git目录、保存状态，再对三仓各运行`git worktree repair <实际路径>`；尖括号为必须替换的占位符，不能照抄。repair只修登记，不应通过reset/clean消除用户差异。恢复旧布局必须先处理兼容链接且确认目标无另一份数据，不提供可误删目录的一键回滚命令。没有明确迁移授权时只诊断。
 
 新机器无需复制历史main检出或本机绝对路径：取得私有仓库权限后，按HANDOVER在同一目录下检出XFlclash、Xboard_sdk、Docs即可；CI同样只依赖自己的checkout和平级布局，不读取本机active或旧别名。
+
+2026-10-30三仓合并main后，active路径保持不变并切换到main。为解除同名分支的worktree占用，旧检出只在原HEAD解除分支关联（detached HEAD），文件和既有未提交差异保留；不能将其当成活跃main或清理其公共Git目录。升级分支保留历史，不因合并删除。

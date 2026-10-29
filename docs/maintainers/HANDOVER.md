@@ -23,7 +23,7 @@ git submodule status
 
 ## 2. 确定执行范围
 
-从用户任务确认品牌、平台、分支及允许动作，按[项目约定](https://github.com/wvjh3z/proxy-suite-docs/blob/upgrade/flclash-v0.9.2/CONVENTIONS.md)判断权限；实际环境能力见[ACCESS](ACCESS.md#构建机与平台能力)。代码、测试、构建、发布和生产变更是不同范围，未知关键前提先确认。本机只做源码与轻量检查，不恢复构建工具链。
+从用户任务确认品牌、平台、分支及允许动作，按[项目约定](https://github.com/wvjh3z/proxy-suite-docs/blob/main/CONVENTIONS.md)判断权限；实际环境能力见[ACCESS](ACCESS.md#构建机与平台能力)。代码、测试、构建、发布和生产变更是不同范围，未知关键前提先确认。本机只做源码与轻量检查，不恢复构建工具链。
 
 ## 3. 跟到真实消费者
 

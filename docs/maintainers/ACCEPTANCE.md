@@ -1,6 +1,6 @@
 # 任务验收标准
 
-本页是客户端项目的统一验收入口，适用于品牌A/B、SDK及相关文档和运维任务。权限与产品规则由[CONVENTIONS](https://github.com/wvjh3z/proxy-suite-docs/blob/upgrade/flclash-v0.9.2/CONVENTIONS.md)维护；执行方法见[WORKFLOWS](WORKFLOWS.md)，材料归属见[MATERIALS](MATERIALS.md)。本页定义通过条件，不自动授权提交、构建、部署、联网测试或生产变更。
+本页是客户端项目的统一验收入口，适用于品牌A/B、SDK及相关文档和运维任务。权限与产品规则由[CONVENTIONS](https://github.com/wvjh3z/proxy-suite-docs/blob/main/CONVENTIONS.md)维护；执行方法见[WORKFLOWS](WORKFLOWS.md)，材料归属见[MATERIALS](MATERIALS.md)。本页定义通过条件，不自动授权提交、构建、部署、联网测试或生产变更。
 
 ## 通用通过条件
 
@@ -20,11 +20,11 @@
 | --- | --- | --- | --- |
 | 文档接手与整理 | 从当前入口找到目标、权限、环境、真实命令、成功条件、失败恢复及资料位置；在授权范围内走通代表性接手路径，链接/归属/重复检查通过 | 需翻聊天、依赖某AI记忆或旧Docs；只有链接有效但无法执行；新机器关键输入无入口 | [HANDOVER](HANDOVER.md#4-用证据验收文档是否可接手) |
 | 代码审计与问题定位 | 追踪真实入口和消费者；区分现象、源码事实、根因推断及复现证据，覆盖相关品牌/平台 | 只搜索名字、引用注释、把超时当根因；未复现却称已证根因 | [功能基线](UPGRADE_BASELINE.md)、Docs/ARCHITECTURE |
-| 缺陷修复 | 说明触发条件和修改后的行为；按风险覆盖正常、错误/取消、并发/迟到结果及恢复；回归确实命中缺陷，保持原安全边界 | 仅mock预设通过、放宽断言绕开错误、正式入口未覆盖；没有环境则保留原生/设备待验 | [按改动选测试](https://github.com/wvjh3z/proxy-suite-docs/blob/upgrade/flclash-v0.9.2/DEVELOPMENT.md#按改动选测试和验收) |
+| 缺陷修复 | 说明触发条件和修改后的行为；按风险覆盖正常、错误/取消、并发/迟到结果及恢复；回归确实命中缺陷，保持原安全边界 | 仅mock预设通过、放宽断言绕开错误、正式入口未覆盖；没有环境则保留原生/设备待验 | [按改动选测试](https://github.com/wvjh3z/proxy-suite-docs/blob/main/DEVELOPMENT.md#按改动选测试和验收) |
 | 底座/依赖升级 | 按三原则逐项对照旧品牌行为、新实现、间接影响、接缝及迁移；记录已接受差异和验证缺口 | 只对照上游更新说明、仅解决合并冲突或编译通过 | [UPGRADING](UPGRADING.md) |
-| 构建脚本与预检 | 同源码、正式命令及关键环境；涵盖受影响的干净Runner/空缓存/编码/路径/进程失败场景，正负控有效 | 本机暖缓存成功推定CI成功；负控因缺工具失败；诊断掩盖主退出码 | [失败经验](../build-failures/README.md)、[构建机手册](https://github.com/wvjh3z/proxy-suite-docs/blob/upgrade/flclash-v0.9.2/environments/BUILD_HOSTS.md) |
+| 构建脚本与预检 | 同源码、正式命令及关键环境；涵盖受影响的干净Runner/空缓存/编码/路径/进程失败场景，正负控有效 | 本机暖缓存成功推定CI成功；负控因缺工具失败；诊断掩盖主退出码 | [失败经验](../build-failures/README.md)、[构建机手册](https://github.com/wvjh3z/proxy-suite-docs/blob/main/environments/BUILD_HOSTS.md) |
 | 正式包与草稿发布 | 逐目标job、实际文件名/版本/签名/架构、品牌fallback和关键资源、匹配符号及服务端逐项处理、草稿资产归属分别核对 | 只有总状态绿、混入旧草稿资产、符号命令成功无匹配证据；设备未验则只能称制包/发布层通过 | [构建流程](WORKFLOWS.md#github正式构建需单独授权)、Docs/DEVELOPMENT |
-| 安装/更新与设备业务 | 使用可追溯的实际包；按受影响场景核对旧版覆盖、全新安装、数据/身份隔离、失败恢复及启动登录/订阅/连接链路 | Runner制包成功替代设备安装；进程启动替代业务恢复；停机或数据风险未说明 | [设备操作表](https://github.com/wvjh3z/proxy-suite-docs/blob/upgrade/flclash-v0.9.2/runbooks/DEVICE_ACCEPTANCE.md#设备业务验收执行表)、[平台基线](UPGRADE_BASELINE.md#各平台安装退出边界)、Docs/STATUS对应缺陷关闭条件 |
+| 安装/更新与设备业务 | 使用可追溯的实际包；按受影响场景核对旧版覆盖、全新安装、数据/身份隔离、失败恢复及启动登录/订阅/连接链路 | Runner制包成功替代设备安装；进程启动替代业务恢复；停机或数据风险未说明 | [设备操作表](https://github.com/wvjh3z/proxy-suite-docs/blob/main/runbooks/DEVICE_ACCEPTANCE.md#设备业务验收执行表)、[平台基线](UPGRADE_BASELINE.md#各平台安装退出边界)、Docs/STATUS对应缺陷关闭条件 |
 | 运维查询/变更/恢复 | 真实对象、当前授权、采集时间、动作前后观测；变更有适用的恢复条件与材料；查询不扩大为配置修改 | 命令退出0即称恢复；仅看旧快照；原始数据丢失或不能核对采集是否完整 | [ACCESS](ACCESS.md)、构建机手册及相关专项步骤 |
 | 提交交付 | 审阅三仓范围、敏感/生成文件与既有差异；先提交依赖仓再同步真实SDK/Docs引用，核对远端可取得 | 仅本机未提交即称已交付、pin指向不存在提交、把提交授权扩大为构建/main合并 | [跨仓交付](WORKFLOWS.md#提交与跨仓固定引用) |
 
