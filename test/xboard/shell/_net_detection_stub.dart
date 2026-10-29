@@ -10,8 +10,6 @@ class FakeNetworkAdapter extends XbNetworkAdapter {
   @override
   XbIpStatus ipStatus(WidgetRef ref) => status;
   @override
-  void startCheck(WidgetRef ref) {}
-  @override
   void forceCheck(WidgetRef ref) {}
 }
 

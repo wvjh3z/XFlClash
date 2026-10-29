@@ -48,8 +48,6 @@ class _FakeNetworkAdapter extends XbNetworkAdapter {
   @override
   XbIpStatus ipStatus(WidgetRef ref) => const XbIpStatus(loading: false, ip: '47.243.10.20', countryCode: 'HK');
   @override
-  void startCheck(WidgetRef ref) {}
-  @override
   void forceCheck(WidgetRef ref) {}
 }
 

@@ -6,7 +6,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:fl_clash/enum/enum.dart';
 import 'package:fl_clash/providers/providers.dart';
 import 'package:fl_clash/xboard/providers/xboard_providers.dart';
-import 'package:fl_clash/xboard/shell/adapters/xb_network_adapter.dart';
 import 'package:fl_clash/xboard/shell/adapters/xb_nodes_adapter.dart';
 import 'package:fl_clash/xboard/shell/tabs/home/xb_connect_orb.dart';
 
@@ -34,12 +33,6 @@ class _Nodes extends XbNodesAdapter {
   }
 }
 
-class _Network extends XbNetworkAdapter {
-  int checked = 0;
-  @override
-  void startCheck(WidgetRef ref) => checked++;
-}
-
 void main() {
   for (final brand in ['brand_a', 'brand_b']) {
     for (final platform in [
@@ -55,7 +48,6 @@ void main() {
             (tester) async {
               final setup = _Setup();
               final nodes = _Nodes();
-              final network = _Network();
               final result = Completer<bool>();
               setup.result = () => result.future;
               final container = ProviderContainer(
@@ -64,7 +56,6 @@ void main() {
                   isStartProvider.overrideWith((ref) => started),
                   initProvider.overrideWithBuild((ref, notifier) => false),
                   xbNodesAdapterProvider.overrideWithValue(nodes),
-                  xbNetworkAdapterProvider.overrideWithValue(network),
                 ],
               );
               addTearDown(container.dispose);
@@ -88,7 +79,6 @@ void main() {
               await tester.tap(find.byType(XbConnectOrb));
               await tester.pump();
               expect(nodes.measured, 0);
-              expect(network.checked, 0);
               expect(setup.calls.single, (
                 running: !started,
                 initialize: !started,
@@ -107,14 +97,12 @@ void main() {
               );
               expect(find.textContaining('private native error'), findsNothing);
               expect(nodes.measured, 0);
-              expect(network.checked, 0);
               await tester.pump(const Duration(seconds: 3));
               setup.result = () async => true;
               await tester.tap(find.byType(XbConnectOrb));
               await tester.pump();
               expect(setup.calls, hasLength(2));
               expect(nodes.measured, started ? 0 : 1);
-              expect(network.checked, 1);
               expect(tester.takeException(), isNull);
               await tester.pump(const Duration(seconds: 3));
               await tester.pumpWidget(const SizedBox());
@@ -132,14 +120,12 @@ void main() {
       final first = Completer<bool>();
       setup.result = () => first.future;
       final nodes = _Nodes();
-      final network = _Network();
       final container = ProviderContainer(
         overrides: [
           setupActionProvider.overrideWith(() => setup),
           isStartProvider.overrideWith((ref) => started),
           initProvider.overrideWithBuild((ref, notifier) => true),
           xbNodesAdapterProvider.overrideWithValue(nodes),
-          xbNetworkAdapterProvider.overrideWithValue(network),
         ],
       );
       addTearDown(container.dispose);
@@ -163,7 +149,6 @@ void main() {
       expect(setup.calls.map((c) => c.running), [true, false]);
       expect(find.textContaining('失败'), findsNothing);
       expect(nodes.measured, 0);
-      expect(network.checked, 1);
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox());
     },
@@ -176,14 +161,12 @@ void main() {
       final result = Completer<bool>();
       setup.result = () => result.future;
       final nodes = _Nodes();
-      final network = _Network();
       final container = ProviderContainer(
         overrides: [
           setupActionProvider.overrideWith(() => setup),
           isStartProvider.overrideWith((ref) => false),
           initProvider.overrideWithBuild((ref, notifier) => true),
           xbNodesAdapterProvider.overrideWithValue(nodes),
-          xbNetworkAdapterProvider.overrideWithValue(network),
         ],
       );
       addTearDown(container.dispose);
@@ -205,7 +188,6 @@ void main() {
       await tester.pump();
       expect(tester.takeException(), isNull);
       expect(nodes.measured, 0);
-      expect(network.checked, 0);
     });
   }
 }

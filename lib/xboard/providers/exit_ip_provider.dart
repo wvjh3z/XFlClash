@@ -7,8 +7,9 @@ import 'package:flutter/foundation.dart' show mapEquals;
 import '../services/exit_ip_probe.dart';
 
 class XbExitIpState {
-  const XbExitIpState({this.loading = false, this.result});
+  const XbExitIpState({this.loading = false, this.result, this.failed = false});
   final bool loading;
+  final bool failed;
   final XbExitIpResult? result;
 }
 
@@ -54,12 +55,27 @@ class XbExitIpNotifier extends Notifier<XbExitIpState> {
     });
     // Route snapshots are notifications only: a non-live tracker never blocks
     // direct HTTP lookup (unlike the upstream core-backed IP probe).
-    ref.listen(
-      routeTrackerProvider.select(
-        (s) => (s.coreEpoch, s.routeVersion, s.hostEpoch),
-      ),
-      (_, _) => refresh(),
-    );
+    ref.listen(routeTrackerProvider, (previous, next) {
+      if (previous != null &&
+          previous.coreEpoch == next.coreEpoch &&
+          previous.routeVersion == next.routeVersion &&
+          previous.hostEpoch == next.hostEpoch) {
+        return;
+      }
+      // First subscription is not evidence that an already measured direct
+      // route changed. Later host/core epoch changes invalidate the old IP.
+      final firstSync =
+          previous != null &&
+          !previous.synced &&
+          previous.coreEpoch == 0 &&
+          next.synced;
+      final invalidated =
+          !firstSync &&
+          (previous == null ||
+              previous.coreEpoch != next.coreEpoch ||
+              previous.hostEpoch != next.hostEpoch);
+      refresh(preserveResult: !invalidated);
+    });
     ref.listen(appVisibleProvider, (_, visible) {
       if (visible) {
         refresh();
@@ -87,14 +103,15 @@ class XbExitIpNotifier extends Notifier<XbExitIpState> {
   }
 
   /// Automatic triggers coalesce as in 0.8.93. Manual retry is immediate.
-  void refresh({bool immediate = false}) {
+  void refresh({bool immediate = false, bool preserveResult = false}) {
+    final previousResult = preserveResult ? state.result : null;
     _cancel();
     final generation = _generation;
     if (!ref.read(appVisibleProvider)) {
       state = const XbExitIpState();
       return;
     }
-    state = const XbExitIpState(loading: true);
+    state = XbExitIpState(loading: true, result: previousResult);
     if (immediate) {
       unawaited(_run(generation));
     } else {
@@ -112,10 +129,13 @@ class XbExitIpNotifier extends Notifier<XbExitIpState> {
       _probe = probe;
       final result = await probe.run();
       if (!ref.mounted || generation != _generation) return;
-      state = XbExitIpState(result: result);
+      state = XbExitIpState(
+        result: result ?? state.result,
+        failed: result == null,
+      );
     } on Exception {
       if (ref.mounted && generation == _generation) {
-        state = const XbExitIpState();
+        state = XbExitIpState(result: state.result, failed: true);
       }
     } finally {
       if (generation == _generation) {

@@ -25,7 +25,6 @@ import '../../../widgets/xb_motion.dart';
 import '../../../widgets/xb_feedback.dart';
 import '../../adapters/xb_connect_adapter.dart';
 import '../../adapters/xb_nodes_adapter.dart';
-import '../../adapters/xb_network_adapter.dart';
 
 /// 连接拦截原因（首页连接球点击 gate）：未登录 / 无可用线路 / 线路准备中。
 enum XbConnectBlock {
@@ -279,8 +278,7 @@ class _XbConnectOrbState extends ConsumerState<XbConnectOrb>
     if (initiatingConnect) {
       unawaited(ref.read(xbNodesAdapterProvider).measureCurrentNodeBest(ref));
     }
-    // 连接/断开后重新检测出口 IP（VPN 出口会变；延后让连接态切换后再测）。
-    ref.read(xbNetworkAdapterProvider).startCheck(ref);
+    // Exit IP follows actual running/suspend/route changes in its notifier.
   }
 
   String _semanticLabel(XbConnState state) => switch (state) {

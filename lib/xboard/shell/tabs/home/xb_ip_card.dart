@@ -32,9 +32,14 @@ class XbIpCard extends ConsumerWidget {
         ? _countryCodeToEmoji(status.countryCode)
         : null;
     final country = _countryName(status.countryCode);
-    final label = '出口 IP${country != null ? ' ($country)' : ''}';
+    final baseLabel = '出口 IP${country != null ? ' ($country)' : ''}';
+    final label = status.hasIp && status.loading
+        ? '$baseLabel · 上次结果，复核中'
+        : status.hasIp && status.failed
+            ? '$baseLabel · 上次结果，复核失败'
+            : baseLabel;
     final String value;
-    if (status.loading) {
+    if (status.loading && !status.hasIp) {
       value = '检测中…';
     } else if (status.hasIp) {
       value = status.ip!;

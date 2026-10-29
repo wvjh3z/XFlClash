@@ -8,10 +8,18 @@ import '../../providers/exit_ip_provider.dart';
 
 /// 出口 IP 状态（轻量投影，primitive only）。
 class XbIpStatus {
-  const XbIpStatus({required this.loading, this.ip, this.countryCode});
+  const XbIpStatus({
+    required this.loading,
+    this.ip,
+    this.countryCode,
+    this.failed = false,
+  });
 
   /// 检测中（首测 / 重测进行中）。
   final bool loading;
+
+  /// Last lookup failed; a retained IP is historical, not a fresh success.
+  final bool failed;
 
   /// 出口 IP（null = 未知 / 超时）。
   final String? ip;
@@ -34,13 +42,8 @@ class XbNetworkAdapter {
       loading: s.loading,
       ip: s.result?.ip,
       countryCode: s.result?.countryCode,
+      failed: s.failed,
     );
-  }
-
-  /// 主动触发一次出口 IP 检测（首页初始化 / 连接 / 切换节点后调用）。
-  /// 自动触发合并为一轮，取消旧轮次并隔离迟到结果。
-  void startCheck(WidgetRef ref) {
-    ref.read(xbExitIpProvider.notifier).refresh();
   }
 
   /// 强制重新检测（IP 卡刷新按钮用）。

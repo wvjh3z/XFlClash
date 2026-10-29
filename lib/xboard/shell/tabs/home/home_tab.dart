@@ -22,7 +22,6 @@ import 'package:fl_clash/xboard/widgets/xb_update_dialog.dart';
 
 import '../../adapters/xb_mode_adapter.dart';
 import '../../adapters/xb_nodes_adapter.dart';
-import '../../adapters/xb_network_adapter.dart';
 import '../../adapters/xb_takeover_adapter.dart';
 import '../../adapters/xb_traffic_adapter.dart';
 import '../../widgets/xb_content_header.dart';
@@ -69,8 +68,6 @@ class _HomeTabState extends ConsumerState<HomeTab> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       ref.read(xbModeAdapterProvider).normalizeDirectIfNeeded(ref);
-      // 进入首页触发一次出口 IP 检测（复用 FlClash 多源竞速；debounce 去重安全）。
-      ref.read(xbNetworkAdapterProvider).startCheck(ref);
     });
   }
 

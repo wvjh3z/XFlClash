@@ -22,8 +22,6 @@ class _Setup extends SetupAction {
 }
 
 class _Network extends XbNetworkAdapter {
-  @override
-  void startCheck(WidgetRef ref) {}
 }
 
 class _Nodes extends XbNodesAdapter {

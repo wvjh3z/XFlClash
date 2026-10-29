@@ -145,3 +145,9 @@ Windows夹具不再带着整条锚定目录句柄执行路径File.Move：记录�
 符号CLI仅明确transport_error/server_error最多3次尝试，等待2/5秒，共享原900秒总预算；认证、权限、输入、未知错误、429和单次超时不新增重试，最终仍需原有成功终态与逐ID确认。CI证据上传首次失败仅再传一次，使用同名overwrite避免半完成artifact冲突；取消不重试，第二次失败保持失败，不掩盖原制包/符号错误。新增回归进入既有测试入口，52项选定离线回归通过，VDS运行github-actions-validator原脚本lint-only通过。真实网络故障恢复和新GitHub构建待验，未宣称#141历史运行恢复成功。
 
 用户最终要求系统版本跟随原版0.9.2，因此未修改macOS12工程/Podfile或Linux依赖/Runner。原版官方ARM64 DMG亦含三个minOS13文件；本项目不自行提高支持下限。证据、当前边界及后续设备要求见[修复验收](https://github.com/wvjh3z/proxy-suite-docs/blob/upgrade/flclash-v0.9.2/evidence/run141-fix/README.md)。
+
+#143正式复验：2026-10-29，源码a3152f5b、品牌A/build40，Windows及macOS AMD64正式入口、出包与符号处理成功；全部六目标成功，证据留存及10个草稿资产核对通过。此结果提供新批次正式复验，不改写#141失败，不代替两品牌设备验收，详见[本批证据](https://github.com/wvjh3z/proxy-suite-docs/blob/upgrade/flclash-v0.9.2/evidence/run143/README.md)。
+
+## v0.9.2：隔离 Widget 预检的包图与着色器（2026-10-29）
+
+出口IP定向回归首次仅复制package_config.json，Flutter在加载测试前因缺package_graph.json退出；改为在隔离副本对SDK/client执行缓存离线pub get。随后`--no-test-assets`下首个Android水波纹加载material_ui/ink_sparkle.frag失败，84项通过、1项为资源异常；IP时序测试不验水波纹，使用NoSplash测试主题，生产主题不改。需要验证字体/着色器/金图的任务应准备真实测试资产，不能套用此省略选项。测试副本按CI机制关闭setup/rust_api的build_assets，不能把该副本用于制包。静态检查使用Flutter analyze入口；Dart CLI不接受`--no-fatal-infos`，不得把命令用法错误当作源码分析结果。最终预检证据与未出包边界见当前Docs/STATUS。

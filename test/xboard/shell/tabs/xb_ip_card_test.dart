@@ -14,8 +14,6 @@ class _FakeNetwork extends XbNetworkAdapter {
   @override
   XbIpStatus ipStatus(WidgetRef ref) => status;
   @override
-  void startCheck(WidgetRef ref) {}
-  @override
   void forceCheck(WidgetRef ref) {}
 }
 
@@ -58,10 +56,11 @@ void main() {
     expect(find.text('出口 IP'), findsOneWidget); // 无国家括号
   });
 
-  testWidgets('重测即使有旧值也显示检测中而非旧 IP', (t) async {
+  testWidgets('后台复核显示标注的上次 IP', (t) async {
     await _pump(t, const XbIpStatus(loading: true, ip: '203.0.113.1', countryCode: 'HK'));
-    expect(find.text('检测中…'), findsOneWidget);
-    expect(find.text('203.0.113.1'), findsNothing);
+    expect(find.text('检测中…'), findsNothing);
+    expect(find.text('203.0.113.1'), findsOneWidget);
+    expect(find.textContaining('上次结果，复核中'), findsOneWidget);
     expect(find.byType(CircularProgressIndicator), findsOneWidget);
   });
 
