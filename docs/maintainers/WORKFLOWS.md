@@ -95,11 +95,11 @@ git var GIT_AUTHOR_IDENT
 
 | 要完成的工作 | 唯一详细步骤 | 完成条件 / 失败时 |
 | --- | --- | --- |
-| 准备私有SDK认证 | [CI源码认证](https://github.com/wvjh3z/proxy-suite-docs/blob/upgrade/flclash-v0.9.2/DEVELOPMENT.md#ci-的-sdk-源码认证) | 拉到指定commit；权限失败保留主错误，不改成公共替代依赖 |
-| 缺品牌输入或签名 | [配置恢复](https://github.com/wvjh3z/proxy-suite-docs/blob/upgrade/flclash-v0.9.2/DEVELOPMENT.md#品牌配置遗失与-github-secrets-恢复) | 正式包身份/原签名/fallback实际通过；缺原签名不能生成新签名冒充升级 |
+| 准备私有SDK认证 | [CI源码认证](https://github.com/wvjh3z/proxy-suite-docs/blob/upgrade/flclash-v0.9.2/runbooks/BUILD_RELEASE.md#ci-的-sdk-源码认证) | 拉到指定commit；权限失败保留主错误，不改成公共替代依赖 |
+| 缺品牌输入或签名 | [配置恢复](https://github.com/wvjh3z/proxy-suite-docs/blob/upgrade/flclash-v0.9.2/runbooks/BUILD_RELEASE.md#品牌配置遗失与-github-secrets-恢复) | 正式包身份/原签名/fallback实际通过；缺原签名不能生成新签名冒充升级 |
 | 选择代码回归 | [按改动选验收](https://github.com/wvjh3z/proxy-suite-docs/blob/upgrade/flclash-v0.9.2/DEVELOPMENT.md#按改动选测试和验收) | 记录同源码、正式入口、正负控及跳过；缺平台则保留待验 |
-| 核对符号 | [生成匹配上传](https://github.com/wvjh3z/proxy-suite-docs/blob/upgrade/flclash-v0.9.2/DEVELOPMENT.md#四平台符号生成匹配与自动上传) | 包与debug ID匹配、服务端逐项确认；上传成功与真实崩溃解析分开 |
-| 只补传已有符号 | [已有符号补传](https://github.com/wvjh3z/proxy-suite-docs/blob/upgrade/flclash-v0.9.2/DEVELOPMENT.md#已有符号补传与本地上传凭据) | 必须匹配该成品；没有匹配符号就记录缺口，不重新编译替代 |
+| 核对符号 | [生成匹配上传](https://github.com/wvjh3z/proxy-suite-docs/blob/upgrade/flclash-v0.9.2/runbooks/SENTRY.md#四平台符号生成匹配与自动上传) | 包与debug ID匹配、服务端逐项确认；上传成功与真实崩溃解析分开 |
+| 只补传已有符号 | [已有符号补传](https://github.com/wvjh3z/proxy-suite-docs/blob/upgrade/flclash-v0.9.2/runbooks/SENTRY.md#已有符号补传与本地上传凭据) | 必须匹配该成品；没有匹配符号就记录缺口，不重新编译替代 |
 | 测试失败后取证 | [指定主机报告留存](https://github.com/wvjh3z/proxy-suite-docs/blob/upgrade/flclash-v0.9.2/DEVELOPMENT.md#指定构建机的诊断收尾与留存) | 原退出码不被收尾覆盖；采集完整/部分/缺失分别报告 |
 
 ### 自动化派发的接口契约（只在获准构建后使用）
