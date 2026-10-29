@@ -20,13 +20,12 @@
 ├── XFlclash/                  旧main检出及Git公共元数据，非活跃开发入口
 ├── Docs/                      旧main检出及Git公共元数据；历史检出，不再读取操作资料
 ├── Xboard_sdk -> ../../sdk    旧布局兼容
-├── upgrades/flclash-v0.9.1 -> ../active
-└── XFlclash-upgrade-v0.9.1 -> upgrades/flclash-v0.9.1/XFlclash
+└── upgrades/                  旧目录兼容链接已退役，无活跃checkout
 ```
 
 `/root/dev/sdk`同样是旧main检出和SDK公共Git元数据，不是active的SDK源。上面三个active仓库仍为Git worktree；它们的`.git`指向原主仓公共目录。**不要因旧目录名而删除、移到归档或执行git worktree prune**。原位置已有未提交差异不属于本次迁移，本次未清理。
 
-旧路径软链接指向同一套文件，不是第二份副本。保留用于历史工具、会话和尚未切换的引用；新文档、新命令一律使用active。2026-10-29已确认的历史依赖包括`infra/jenkins/linux-arm64-v091/preflight_test.py`里的旧客户端路径；该停用路线不恢复、不改构建逻辑，依靠兼容链接读取同一源码。未来撤销别名前须查完脚本、技能、服务和外部工具引用，不能直接删除链接。
+2026-10-29完成当前消费者检查：旧版本目录两条兼容链接已删除；停用的`infra/jenkins/linux-arm64-v091/preflight_test.py`改为读取`XFLCLASH_CLIENT_ROOT`，默认active，四项轻量测试通过。另7条过期插件软链接及5份被Git忽略的生成路径输入已备份归档后移除，未改生成文件内容、未运行Flutter重生成。原始备份与清单位于`/root/dev/maintenance/xflclash/archive/20261029-retired-path-inputs/`。其他历史记录中的旧路径只解释当时环境，不可继续执行；公共Git元数据保留。
 
 `upstream/`可以按版本保存只读对照；只有上游参考和历史证据用版本名。需要并行任务时另外创建用户授权的隔离worktree，不把临时任务目录宣称为新的唯一活跃入口。未来升级只修改分支/基线，不搬active。
 
@@ -67,10 +66,11 @@ git -C ../Docs status --short --branch
 python3 ../Docs/tools/check_docs.py
 python3 -m unittest discover -s ../Docs/tools -p test_check_docs.py
 cmp ../Docs/collaboration/workspace/AGENTS.md /root/dev/AGENTS.md
-readlink -f /root/dev/workspace/proxy-suite/upgrades/flclash-v0.9.1
+test ! -L /root/dev/workspace/proxy-suite/upgrades/flclash-v0.9.1
+test ! -L /root/dev/workspace/proxy-suite/XFlclash-upgrade-v0.9.1
 ```
 
-成功标准：三仓分支/HEAD符合任务、既有差异未丢失，worktree登记为active，旧别名解析到同一active目录，文档检查与安装副本一致。链接检查不证明远端GitHub已推送。
+成功标准：三仓分支/HEAD符合任务、既有差异未丢失，worktree登记为active，旧别名已不存在，文档检查与安装副本一致。链接检查不证明远端GitHub已推送。
 
 如目录曾被外部工具再次移动，先定位真实文件和公共Git目录、保存状态，再对三仓各运行`git worktree repair <实际路径>`；尖括号为必须替换的占位符，不能照抄。repair只修登记，不应通过reset/clean消除用户差异。恢复旧布局必须先处理兼容链接且确认目标无另一份数据，不提供可误删目录的一键回滚命令。没有明确迁移授权时只诊断。
 

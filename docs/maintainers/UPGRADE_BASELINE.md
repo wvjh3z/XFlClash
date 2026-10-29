@@ -17,7 +17,7 @@
 | 最后旧品牌基线 | v0.8.93品牌代码`ae148e64694ab276c35796f95d77f6bbbe25f0d2` | 用户要求保留的旧品牌行为按此追溯，不等于原版0.8.93，也不复用旧工具链 |
 | 内核 | [.gitmodules](../../.gitmodules)和实际gitlink | 本次gitlink为`c5062921054902b25215a6a933e72ccd714c9bfa`；dirty CA不等于指针改变 |
 | 工具版本 | [native_toolchain.json](../../tool/native_toolchain.json)、锁文件、workflow | 不在多个手册复制版本表；升级分别验证依赖图与运行行为 |
-| 实际工作区 | `/root/dev/workspace/proxy-suite/active/`下的XFlclash、Xboard_sdk、Docs | 版本由Git分支表达；旧版本目录仅兼容链接，职责见WORKSPACE.md |
+| 实际工作区 | `/root/dev/workspace/proxy-suite/active/`下的XFlclash、Xboard_sdk、Docs | 版本由Git分支表达；旧版本目录兼容链接已退役，职责见WORKSPACE.md |
 | 上游只读参考 | `/root/dev/workspace/proxy-suite/upstream/FlClash-v0.9.2`及同名source.json | 本机便利副本；其他机器以Git对象/官方仓库取得，不能把本机残留当CI输入 |
 
 ## 阅读分类
