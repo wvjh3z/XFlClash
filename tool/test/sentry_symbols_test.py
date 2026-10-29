@@ -413,6 +413,55 @@ class CliMetadataTest(unittest.TestCase):
         self.assertNotIn("secret-token", str(caught.exception))
         self.assertNotIn("env.json", str(caught.exception))
 
+    def test_upload_transient_failure_retries_same_command(self):
+        responses = [subprocess.CompletedProcess([], 1, '', 'connection reset secret'),
+                     subprocess.CompletedProcess([], 1, '', 'HTTP status: 503'),
+                     subprocess.CompletedProcess([], 0, '> File processing complete:', '')]
+        with mock.patch.object(symbols.subprocess, 'run', side_effect=responses) as run, \
+             mock.patch.object(symbols.time, 'sleep') as sleep:
+            out = symbols.run_cli('cli', ['debug-files', 'upload', '--id', DEBUG_ID, '/stage'])
+        self.assertIn('File processing complete', out)
+        self.assertEqual(run.call_count, 3)
+        self.assertEqual(sleep.call_args_list, [mock.call(2), mock.call(5)])
+        self.assertTrue(all(c.args == run.call_args.args for c in run.call_args_list))
+        self.assertTrue(all(0 < c.kwargs['timeout'] <= 900 for c in run.call_args_list))
+
+    def test_upload_permanent_errors_never_retry(self):
+        for error in ['HTTP status: 401', 'HTTP status: 403', 'invalid debug', 'unclassified', 'HTTP status: 429']:
+            with self.subTest(error=error), \
+                 mock.patch.object(symbols.subprocess, 'run', return_value=subprocess.CompletedProcess([], 1, '', error)) as run, \
+                 mock.patch.object(symbols.time, 'sleep') as sleep, \
+                 self.assertRaises(symbols.UploadError):
+                symbols.run_cli('cli', ['debug-files', 'upload', '/stage'])
+            self.assertEqual(run.call_count, 1)
+            sleep.assert_not_called()
+
+    def test_upload_retry_limit_and_remaining_budget(self):
+        response = subprocess.CompletedProcess([], 1, '', 'connection reset')
+        with mock.patch.object(symbols.subprocess, 'run', return_value=response) as run, \
+             mock.patch.object(symbols.time, 'sleep'), \
+             self.assertRaises(symbols.UploadError) as caught:
+            symbols.run_cli('cli', ['debug-files', 'upload', '/stage'])
+        self.assertEqual(run.call_count, 3)
+        self.assertEqual(caught.exception.diagnostic['attempts'], 3)
+        with mock.patch.object(symbols.subprocess, 'run', return_value=response) as run, \
+             mock.patch.object(symbols.time, 'monotonic', side_effect=[0, 0, 899]), \
+             mock.patch.object(symbols.time, 'sleep') as sleep, \
+             self.assertRaises(symbols.UploadError):
+            symbols.run_cli('cli', ['debug-files', 'upload', '/stage'])
+        self.assertEqual(run.call_count, 1)
+        sleep.assert_not_called()
+
+    def test_upload_cancellation_and_timeout_do_not_retry(self):
+        for error in [KeyboardInterrupt(), subprocess.TimeoutExpired('cli', 900)]:
+            with self.subTest(error=type(error).__name__), \
+                 mock.patch.object(symbols.subprocess, 'run', side_effect=error) as run, \
+                 mock.patch.object(symbols.time, 'sleep') as sleep, \
+                 self.assertRaises(type(error)):
+                symbols.run_cli('cli', ['debug-files', 'upload', '/stage'])
+            self.assertEqual(run.call_count, 1)
+            sleep.assert_not_called()
+
 
 @unittest.skipUnless(sys.platform.startswith("linux") and shutil.which("gcc") and shutil.which("objcopy"),
                      "Real ELF fixture needs Linux gcc and objcopy")

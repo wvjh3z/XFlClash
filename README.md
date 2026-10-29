@@ -6,27 +6,13 @@
 
 ## XFlclash
 
-XFlclash is a fork of [FlClash](https://github.com/chen08209/FlClash), with a branded Xboard client in `lib/xboard/`. The current product uses the Form A Home / Nodes / Mine interface; FlClash continues to provide the core, VPN, proxy, Profile and platform integration. This independent branch targets **FlClash v0.9.1**; native release/device validation is tracked in Docs/STATUS.
+XFlclash is a fork of [FlClash](https://github.com/chen08209/FlClash), with a branded Xboard client in `lib/xboard/`. The current product uses the Form A Home / Nodes / Mine interface; FlClash continues to provide the core, VPN, proxy, Profile and platform integration. The active upstream version and source revisions are recorded in the [upgrade baseline](docs/maintainers/UPGRADE_BASELINE.md); native release/device acceptance is tracked separately in Docs/STATUS.
 
 ### Project documentation
 
-- [Product changelog](CHANGELOG_XBOARD.md), [contributor instructions](AGENTS.md) and [security decisions](SECURITY.md).
-- [Current documentation](https://github.com/wvjh3z/proxy-suite-docs/blob/main/README.md): architecture, contracts, development, known issues and verification records.
-- [Xboard SDK fork](https://github.com/wvjh3z/Xboard_sdk): protocol adaptation between the client and Xboard.
-- [UI framework](.github/UI_FRAMEWORK.md), [golden tests](test/xboard/golden/README.md), [build guide](.github/BUILD_AND_RELEASE.md) and [update guide](.github/UPDATE_MECHANISM.md).
+Start at the [maintenance guide](docs/README.md): current state, access, setup, task procedures and acceptance. The SDK and shared Docs are private sibling repositories; obtain authorized access using that guide.
 
-**The SDK and documentation repositories are private and require maintainer-granted GitHub access.** Their relative paths in local tools refer to sibling checkouts, not directories inside this client repository. Keep this layout:
-
-```text
-workspace/
-├── XFlclash/       this client repository
-├── Xboard_sdk/     private SDK; required by pubspec.yaml
-└── Docs/           private proxy-suite-docs repository
-```
-
-For fork development, follow [DEVELOPMENT](https://github.com/wvjh3z/proxy-suite-docs/blob/main/DEVELOPMENT.md). Use the checked-in lockfiles, prepare the private brand inputs and original signing material, and generate SDK code before client code. Real flavor configuration, AES keys, Tokens, signing files and generated sensitive inputs must stay out of Git. The Xboard main program is maintained externally and remains read-only; client, SDK and plugin changes are maintained within their respective boundaries.
-
-Product changes are recorded separately from the upstream changelog. A source push or a successful isolated test is not a formal release or device acceptance; the current status and deferred issues are maintained in [STATUS](https://github.com/wvjh3z/proxy-suite-docs/blob/main/STATUS.md). For fork release assets, see [XFlClash releases](https://github.com/wvjh3z/XFlClash/releases).
+[Contributor rules](AGENTS.md) · [Product changelog](CHANGELOG_XBOARD.md) · [Security decisions](SECURITY.md)
 
 ## Upstream FlClash reference
 

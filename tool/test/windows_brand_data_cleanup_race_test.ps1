@@ -1,7 +1,8 @@
 param(
     [string]$Root = (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)),
     [switch]$LegacyOpenNegative,
-    [switch]$LegacyEnumerationNegative
+    [switch]$LegacyEnumerationNegative,
+    [switch]$LegacyIdentityNegative
 )
 Set-StrictMode -Version Latest
 $ErrorActionPreference='Stop'
@@ -176,7 +177,7 @@ public static class XbCleanupRaceRegression {
         }
         Check(failed && calls==40 && Read(moved)=="original","Persistent conflict was swallowed");
     }
-    static void ReplacedIdentity(string fixture,string brand) {
+    static void ReplacedIdentity(string fixture,string brand,bool legacyIdentity) {
         string target=Path.Combine(fixture,"known","com.cloud.app",brand);
         Directory.CreateDirectory(target);string path=Path.Combine(target,"config.json");
         FixtureIo("create-original",()=>File.WriteAllText(path,"old"));
@@ -186,13 +187,25 @@ public static class XbCleanupRaceRegression {
             FixtureIo("open-original",()=>{child=Call("OpenRelative",parent,"config.json",true,false,false,expected);});
             var childHandle=Handle(child);Close(child);child=null;
             Check(childHandle.IsClosed,"Fixture child handle not closed");
+            // Fixture mutation is not a production deletion. Release the entire
+            // anchored walk (including its DELETE-access directory handle)
+            // before using path-based File.Move, then reopen the same parent.
+            // Keep the enumerated child identity stale for the actual assertion.
+            object parentIdentity=Field(parent,"identity");
+            DisposeAll(held);
+            foreach(object entry in held) Check(Handle(entry).IsClosed,"Fixture ancestor handle not closed");
+            held.Clear();
             FixtureIo("rename-original",()=>File.Move(path,Path.Combine(target,"original.json")));
             FixtureIo("create-replacement",()=>File.WriteAllText(path,"replacement"));
+            parent=Walk(target,true,held);
+            object reopenedIdentity=Field(parent,"identity");
+            foreach(string component in new[]{"volume","low","high"})
+                Check(Field(parentIdentity,component).Equals(Field(reopenedIdentity,component)),"Fixture parent identity changed");
             object actual=Children(parent).Find(c=>(string)Field(c,"name")=="config.json");
             Check(actual!=null && (!Field(actual,"low").Equals(Field(expected,"low")) || !Field(actual,"high").Equals(Field(expected,"high"))),"Fixture did not replace file identity");
             bool rejected=false;
             // Never retry or swallow the production identity assertion.
-            try { child=Call("OpenRelative",parent,"config.json",true,false,false,expected); }
+            try { child=Call("OpenRelative",parent,"config.json",true,false,false,legacyIdentity?null:expected); }
             catch(IOException e) { rejected=e.Message.Contains("Enumerated object identity changed"); }
             Check(rejected,"REPLACED_IDENTITY_ACCEPTED");
             FixtureIo("read-replacement",()=>Check(Read(path)=="replacement","Replacement touched"));
@@ -220,7 +233,7 @@ public static class XbCleanupRaceRegression {
         Check((bool)result && !Directory.Exists(target),"Multi-page directory cleanup incomplete");
         Check(Directory.Exists(Path.Combine(known,"com.cloud.app")),"Shared parent removed");
     }
-    public static int Run(Type production,bool legacyOpen,bool legacyEnumeration) {
+    public static int Run(Type production,bool legacyOpen,bool legacyEnumeration,bool legacyIdentity) {
         model=production;int passed=0,failed=0;
         foreach(string brand in new[]{"omofly","daishu"}) {
             foreach(string stage in new[]{"company","empty-child","after-preflight","identity","sharing-controls","invalid-child","multi-page"}) {
@@ -228,7 +241,7 @@ public static class XbCleanupRaceRegression {
                 try {
                     if(stage=="company" || stage=="empty-child") NativeBoundary(fixture,brand,stage,legacyOpen,legacyEnumeration);
                     else if(stage=="after-preflight") AfterPreflight(fixture,brand);
-                    else if(stage=="identity") ReplacedIdentity(fixture,brand);
+                    else if(stage=="identity") ReplacedIdentity(fixture,brand,legacyIdentity);
                     else if(stage=="sharing-controls") SharingControls(fixture);
                     else if(stage=="invalid-child") InvalidChildren(fixture,brand);
                     else MultiPage(fixture,brand);
@@ -242,5 +255,5 @@ public static class XbCleanupRaceRegression {
 }
 '@
 }
-$code=[XbCleanupRaceRegression]::Run([XbBrandDataRemoval],$LegacyOpenNegative.IsPresent,$LegacyEnumerationNegative.IsPresent)
+$code=[XbCleanupRaceRegression]::Run([XbBrandDataRemoval],$LegacyOpenNegative.IsPresent,$LegacyEnumerationNegative.IsPresent,$LegacyIdentityNegative.IsPresent)
 exit $code

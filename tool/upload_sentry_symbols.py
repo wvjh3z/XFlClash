@@ -45,11 +45,32 @@ class SymbolError(RuntimeError):
 def run_cli(cli: str, arguments: list[str]) -> str:
     # No token on the command line; never relay verbose diagnostics, response
     # bodies, configuration, or absolute paths into public CI output.
-    result = subprocess.run(
-        [cli, *arguments], capture_output=True, text=True, encoding="utf-8",
-        errors="replace", timeout=900,
-        env={**os.environ, "SENTRY_LOG_LEVEL": "warn", "SENTRY_URL": "https://us.sentry.io/"},
-    )
+    upload = arguments[:2] == ["debug-files", "upload"]
+    deadline = time.monotonic() + 900
+    for attempt in range(3 if upload else 1):
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise UploadError("cli_timeout", phase="upload")
+        result = subprocess.run(
+            [cli, *arguments], capture_output=True, text=True, encoding="utf-8",
+            errors="replace", timeout=remaining if upload else 900,
+            env={**os.environ, "SENTRY_LOG_LEVEL": "warn", "SENTRY_URL": "https://us.sentry.io/"},
+        )
+        if not upload or not result.returncode:
+            break
+        failure = cli_failure(result.returncode, result.stdout, result.stderr)
+        # The staged companions and explicit ID filter are unchanged. Retry
+        # only classified transient transport/5xx errors, within the original
+        # total CLI budget. Auth, invalid input and unknown failures stay fatal.
+        if failure.category not in {"transport_error", "server_error"} or attempt == 2:
+            failure.diagnostic["attempts"] = attempt + 1
+            raise failure
+        delay = (2, 5)[attempt]
+        if deadline - time.monotonic() <= delay:
+            failure.diagnostic["attempts"] = attempt + 1
+            raise failure
+        print(f"Sentry upload retry {attempt + 1}/2: {failure.category}")
+        time.sleep(delay)
     # `check --json` returns 1 for a PE with a valid debug ID but no embedded
     # unwind/debug sections. Its matching PDB can still be fully usable.
     check_metadata = arguments[:3] == ["debug-files", "check", "--json"]

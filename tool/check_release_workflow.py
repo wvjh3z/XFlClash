@@ -49,6 +49,7 @@ MODULES = (
     "tool.test.build_asset_download_test",
     "tool.test.prepare_test_gradle_test",
     "tool.test.sentry_upload_confirmation_test",
+    "tool.test.sentry_symbols_test.CliMetadataTest",
     "tool.test.local_release_automation_test.CliOutputEncodingTests",
 )
 

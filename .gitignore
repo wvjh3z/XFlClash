@@ -51,6 +51,9 @@ app.*.map.json
 docs/*
 !docs/build-failures/
 !docs/build-failures/**
+!docs/README.md
+!docs/maintainers/
+!docs/maintainers/**
 
 
 # Android Studio will place build artifacts here

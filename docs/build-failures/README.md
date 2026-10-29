@@ -133,3 +133,15 @@
 改动只涉及自有构建工具、既有桌面/Android入口及测试，无新增底座接缝或运行依赖。维护经验：报告留存必须跨实际clean步骤验证；取消保护必须覆盖到清理及报告阶段；诊断属于收尾信息，不得变成覆盖主错误的新失败源。
 
 本轮证据：maintenance/run140-finalization/vds-results.log、windows-results-final.log。Windows首轮隔离副本漏带公开JSON契约，补齐后重跑；随后发现Git Bash未在SSH默认PATH导致桌面测试跳过，显式使用既有工具后再次运行，最终只剩两项已明确的POSIX专属跳过。未为通过测试修改生产安全边界或安装新工具链。诊断是收尾时现存hook缓存的观测，若失败发生在hook执行前，不应据此断言标记来自本轮。
+
+## #141：Windows夹具文件占用与macOS符号传输失败
+
+2026-10-29只读核对，源码3b6a5fbb、品牌A/build39。Windows两品牌identity夹具rename-original native32/40次失败，不能认为#140测试修复已被正式Runner验收；macOS AMD64符号上传transport_error，随后GitHub CreateArtifact五次超时，不能据旧草稿DMG宣布成功。四目标成功及成品兼容缺口见[本轮证据](https://github.com/wvjh3z/proxy-suite-docs/blob/upgrade/flclash-v0.9.2/evidence/run141/README.md)。本轮只定位、归档和更新说明，尚未修复或重建。后续正负控应分别覆盖Windows真实共享访问/重命名阶段、上传网络错误与诊断留存，保持生产安全保护和原退出码。
+
+### #141工作区修复与原版支持基线核对（未提交、未构建）
+
+Windows夹具不再带着整条锚定目录句柄执行路径File.Move：记录旧child和parent身份，确认所有句柄关闭，替换文件后重开同一parent并核对volume/low/high一致，再检查新child与旧ID不同、执行原生产拒绝断言。保留40次布置重试边界、junction等保护，生产删除脚本字节未改。原生PowerShell5.1的37项基础与14项竞态通过；新增LegacyIdentityNegative省略expected，两品牌必须命中REPLACED_IDENTITY_ACCEPTED，不能把夹具布置失败算作安全负控成功。此修复消除夹具自己持有的目录句柄这一干扰，不声称已经确定#141的具体外部占用进程。
+
+符号CLI仅明确transport_error/server_error最多3次尝试，等待2/5秒，共享原900秒总预算；认证、权限、输入、未知错误、429和单次超时不新增重试，最终仍需原有成功终态与逐ID确认。CI证据上传首次失败仅再传一次，使用同名overwrite避免半完成artifact冲突；取消不重试，第二次失败保持失败，不掩盖原制包/符号错误。新增回归进入既有测试入口，52项选定离线回归通过，VDS运行github-actions-validator原脚本lint-only通过。真实网络故障恢复和新GitHub构建待验，未宣称#141历史运行恢复成功。
+
+用户最终要求系统版本跟随原版0.9.2，因此未修改macOS12工程/Podfile或Linux依赖/Runner。原版官方ARM64 DMG亦含三个minOS13文件；本项目不自行提高支持下限。证据、当前边界及后续设备要求见[修复验收](https://github.com/wvjh3z/proxy-suite-docs/blob/upgrade/flclash-v0.9.2/evidence/run141-fix/README.md)。

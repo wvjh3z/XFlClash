@@ -652,6 +652,8 @@ jobs:
           fi
 
       - name: Preserve safe Sentry symbol evidence
+        id: symbol_evidence
+        continue-on-error: true
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -679,6 +681,38 @@ jobs:
             build/macos/sentry-manifest-diagnostics.json
             build/macos/sentry-symbol-preparation.json
             build/sentry-diagnostics/macos/
+          if-no-files-found: ignore
+          retention-days: 30
+
+      - name: Retry safe Sentry symbol evidence after upload failure
+        if: ${{ always() && !cancelled() && steps.symbol_evidence.outcome == 'failure' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: sentry-symbol-evidence-${{ env.FLAVOR }}-${{ matrix.platform }}-${{ matrix.arch || 'default' }}
+          path: |
+            build/sentry-symbols-evidence.json
+            build/sentry-native-preparation.json
+            build/sentry-symbolication-probe.json
+            build/sentry-package-resolution.json
+            build/dependency-retries/
+            build/native-hook-diagnostics.json
+            build/windows-iscc-preflight.json
+            build/windows-title-preflight.json
+            build/distributor-preflight/
+            build/release-context.json
+            build/release-artifacts.json
+            build/android-release-contract/
+            build/fallback-assets-evidence.json
+            build/toolchain-versions.json
+            build/appimage-elf-audit.json
+            build/linux-package-audit.json
+            build/macos/sentry-inventory-validation.json
+            build/macos/sentry-native-inventory.json
+            build/macos/sentry-native-build.json
+            build/macos/sentry-manifest-diagnostics.json
+            build/macos/sentry-symbol-preparation.json
+            build/sentry-diagnostics/macos/
+          overwrite: true
           if-no-files-found: ignore
           retention-days: 30
 

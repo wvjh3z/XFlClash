@@ -98,6 +98,21 @@ def flutter_test_commands(script):
     return commands
 
 
+class EvidenceRetryContractTest(unittest.TestCase):
+    def test_retry_preserves_paths_and_final_failure(self):
+        source = WORKFLOW.read_text(encoding='utf-8')
+        first = source.split('      - name: Preserve safe Sentry symbol evidence\n', 1)[1].split('      - name:', 1)[0]
+        second = source.split('      - name: Retry safe Sentry symbol evidence after upload failure\n', 1)[1].split('      - name:', 1)[0]
+        self.assertIn('id: symbol_evidence', first)
+        self.assertIn('continue-on-error: true', first)
+        self.assertIn("always() && !cancelled() && steps.symbol_evidence.outcome == 'failure'", second)
+        self.assertNotIn('continue-on-error:', second)
+        self.assertIn('overwrite: true', second)
+        paths = lambda block: block.split('          path: |\n', 1)[1].split('          overwrite:', 1)[0].split('          if-no-files-found:', 1)[0]
+        self.assertEqual(paths(first), paths(second))
+        self.assertIn('build/sentry-symbols-evidence.json', paths(second))
+
+
 class ReleaseWorkflowStructureTests(unittest.TestCase):
     def test_formal_launcher_gate_runs_real_tools_after_dependencies(self):
         workflow=WORKFLOW.read_text(encoding='utf-8')
