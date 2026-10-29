@@ -29,7 +29,7 @@ FlClash 上游自身的安全策略见上游仓库。
   - **SDK HttpService**（登录/账号/订单/支付/版本检查等）：生产注入 `HttpConfig.allowBadCertificate=true`；普通 HttpClient 与显式 SOCKS 自行创建的 TLS 共用该证书决策。
   - **教程资源**：Android/macOS 服务端信任回调返回 PROCEED；Windows 独立 WebView2 环境传 `--ignore-certificate-errors`。原生 WebView 不继承 Dart 回调，必须分别接线。
 - 客户端未启用 `enableCertificatePinning`；SDK 保留其他调用方显式启用该功能时的既有语义，没有为客户端增加新的验证限制。
-- 按本次明确范围，Crisp、Sentry 原生/早期发送、mihomo 节点协议和系统浏览器保持现状；不能把上述放行称为这些组件也全局生效。不修改系统证书库。调用链、平台边界与验收见[当前架构](https://github.com/wvjh3z/proxy-suite-docs/blob/upgrade/flclash-v0.9.2/ARCHITECTURE.md#教程正文的渲染与网页兼容边界)。
+- 按本次明确范围，Crisp、Sentry 原生/早期发送、mihomo 节点协议和系统浏览器保持现状；不能把上述放行称为这些组件也全局生效。不修改系统证书库。调用链、平台边界与验收见[当前架构](https://github.com/wvjh3z/proxy-suite-docs/blob/main/ARCHITECTURE.md#教程正文的渲染与网页兼容边界)。
 
 ### 风险说明
 

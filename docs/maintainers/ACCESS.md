@@ -43,7 +43,7 @@ token = credential.get('password')
 if completed.returncode or not token:
     raise SystemExit('GitHub authentication unavailable; obtain authorized access')
 url = ('https://api.github.com/repos/wvjh3z/XFlClash/actions/workflows/'
-       'release-package.yml/runs?branch=upgrade%2Fflclash-v0.9.2&per_page=10')
+       'release-package.yml/runs?branch=main&per_page=10')
 request = urllib.request.Request(url, headers={
     'Authorization': 'Bearer ' + token,
     'Accept': 'application/vnd.github+json',
