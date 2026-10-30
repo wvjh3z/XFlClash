@@ -9,7 +9,7 @@
 | 对象 | 冻结对照／真源 | 边界 |
 | --- | --- | --- |
 | 当前维护分支 | 三仓main | 升级分支保留历史，不作为默认操作入口 |
-| 品牌客户端 | `dd61c4e9884b8bbd4d5b5d06b67ff1797523f429` | 与#144/#146构建源码2959e792的运行代码一致；后续变更需更新受影响ID |
+| 冻结审计时品牌客户端 | `dd61c4e9884b8bbd4d5b5d06b67ff1797523f429` | 仅该冻结点与#144/#146构建源码2959e792一致；当前main已有后续资源变化，见F19，不代表当前全部实现 |
 | 原版FlClash | v0.9.2，`7fd417fb9a9a277c6a9339a8ac87f907df7c25f7` | 下文原版链接固定该commit；不能用品牌HEAD或移动的upstream/main替代 |
 | 审计时SDK | `aef9d33525054e09fccaa71ad9cdb480f1f88f39` | 冻结审计输入；当前发行引用读取[release-config.json](../../tool/release-config.json)，不能凭Docs版本猜SDK版本 |
 | 审计起点Docs | `2653d9853a1dbab3ffa88cb057b58ec58a6e360d` | 细化前的冻结文档起点；本文随后随main交付，当前CI引用以[xboard-ci.yml](../../.github/workflows/xboard-ci.yml)为准 |
@@ -142,7 +142,7 @@
 - **当前品牌实现**：[nextStartTarget/setStatus](../../lib/xboard/shell/adapters/xb_connect_adapter.dart)固定目标；[_checkConnectBlock](../../lib/xboard/shell/tabs/home/home_tab.dart)点击时读认证；[lib/xboard/shell/tabs/home/xb_connect_orb.dart](../../lib/xboard/shell/tabs/home/xb_connect_orb.dart)区分准备/连接/未连接/已连接/暂停。
 - **依赖／平台／接缝**：输入为F01就绪、F05认证门禁和F06已选Profile；执行使用底座SetupAction，结果通知F04/F11，联查F09/F13配置。S01/S03是既有接入及复用定位。Android Service/VPN、桌面Core/Helper/代理路径见P矩阵。
 - **回归入口与必测分支**：未重绘的登录/退出、连续点击、真实stop失败/无响应、暂停后点停止、自动恢复。[test/xboard/shell/tabs/xb_connection_target_test.dart](../../test/xboard/shell/tabs/xb_connection_target_test.dart)、[test/xboard/shell/tabs/xb_connection_failure_test.dart](../../test/xboard/shell/tabs/xb_connection_failure_test.dart)、[test/xboard/shell/tabs/xb_paused_connection_test.dart](../../test/xboard/shell/tabs/xb_paused_connection_test.dart)、[test/providers/setup_action_test.dart](../../test/providers/setup_action_test.dart)。
-- **限制／状态**：运行意图为false不能等同原生停止完成；保留上游无响应时的安全语义，不强行回显暂停。设备结果仍按UB-GAP-01。
+- **限制／状态**：启动守卫与品牌订阅同步的协调见UB-GAP-16，非首页入口见UB-GAP-14；运行意图为false不能等同原生停止完成；保留上游无响应时的安全语义，不强行回显暂停。设备结果仍按UB-GAP-01。
 
 <a id="f09"></a>
 ### F09 智能／全局模式及入口一致性
@@ -249,6 +249,8 @@
 
 <a id="f19"></a>
 ### F19 品牌身份、目录、图标及并存
+
+**冻结点后的变化**：6055a4be修改品牌B Android三份adaptive资源及回归；VDS build36同号包和设备待验见[批次记录](https://github.com/wvjh3z/proxy-suite-docs/blob/main/evidence/brand-b-build36-vds-icon-replacement/README.md)。几何测试只覆盖B，不能用作A或所有最终包的图标证明。
 
 **资源缺口入口**：Android宽布局侧栏也读取assets/images/icon.png，不能按桌面组件排除Android；8081旧包资源相等证据、新发布A/B待验及TV资源边界统一见[STATUS](https://github.com/wvjh3z/proxy-suite-docs/blob/main/STATUS.md#基线局部缺口与发布待办)的UB-GAP-12/13。
 
@@ -449,6 +451,9 @@ U项同时列出明确暂缓的品牌增强，但不把已使用的底座能力�
 | UB-GAP-12 | F19/F21；Android应用内logo | 状态与关闭条件唯一见[STATUS](https://github.com/wvjh3z/proxy-suite-docs/blob/main/STATUS.md#基线局部缺口与发布待办) |
 | UB-GAP-13 | F19/P01；Android TV资源和范围 | 状态与产品待确认项唯一见[STATUS](https://github.com/wvjh3z/proxy-suite-docs/blob/main/STATUS.md#基线局部缺口与发布待办) |
 | UB-GAP-14 | F08/P01；原生快捷入口门禁 | 当前原生调用已存在；是否额外约束待确认，见[STATUS](https://github.com/wvjh3z/proxy-suite-docs/blob/main/STATUS.md#基线局部缺口与发布待办) |
+| UB-GAP-16 | F01/F06/F08 | 启动守卫与品牌订阅同步风险，状态唯一见[STATUS](https://github.com/wvjh3z/proxy-suite-docs/blob/main/STATUS.md#基线局部缺口与发布待办) |
+| UB-GAP-17 | F06/F19/F23 | 深链导入外部入口，状态见同一STATUS索引 |
+| UB-GAP-18 | F19/F20 | Android文档提供器，状态见同一STATUS索引 |
 | UB-GAP-15 | F19/P01；品牌B Android启动器/通知应用图标 | 状态与设备验收统一见[STATUS](https://github.com/wvjh3z/proxy-suite-docs/blob/main/STATUS.md#基线局部缺口与发布待办) |
 
 
@@ -492,6 +497,11 @@ Dart依赖的实际解析版本取[pubspec.lock](../../pubspec.lock)，直接约
 | drift / sqlite3 | 底座主库与品牌外挂库 | F06/F20/F23；schema21与schema2分别迁移、原生锁/隔离线程/备份格式 |
 | cryptography | 品牌密文及存储降级保护 | F02/F05/F06；算法/编码/tag验证和错误处理，不能仅验证能解某个样例 |
 | path_provider / shared_preferences | 共享路径和配置；品牌加归属/首次默认 | F01/F05/F19/F20/F24/F25；原生路径、缓存/落盘、账号与品牌隔离 |
+| dio | 品牌HTTP、订阅、更新及IP请求 | F02/F06/F11/F14/F15；适配器、超时、证书及取消 |
+| url_launcher | 品牌客服/教程/支付等外部跳转 | F07/F15/F17/F18；平台支持、失败回退与进程环境 |
+| flutter_html / html | 品牌HTML展示与解析 | F18/F25/F07；链接回调、渲染与输入兼容 |
+| emoji_regex | 品牌文字与emoji分段 | F21；Unicode匹配及字体回退 |
+| drift_flutter | 品牌外挂数据库接入 | F20；打开路径、迁移与原生依赖，区别底座主库 |
 | qr | 上游共享二维码组件 | F07；品牌实际QrCodeView渲染在order_payment_page.dart，checkout_outcome_ui.dart是结果模型；分享和F23实际入口未使用二维码，不据上游组件可用性扩大归属 |
 
 ## 用户决定的出处

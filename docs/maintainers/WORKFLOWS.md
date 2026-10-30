@@ -72,7 +72,7 @@ git var GIT_AUTHOR_IDENT
 
 ## GitHub正式构建（需单独授权）
 
-使用仓库Actions中的 **Release Package**，不是历史上游workflow或维护机直接Flutter命令。用户授权构建后，在Run workflow选择实际活跃升级分支并核对远端SHA，填写（用户已要求今后 GitHub 默认全平台；除非本次明确另定，target 选 all，不能沿用网页默认 android）：
+使用仓库Actions中的 **Release Package**，不是历史上游workflow或维护机直接Flutter命令。用户授权构建后，在Run workflow选择本次授权分支（当前默认维护main；明确升级任务才选指定升级分支）并核对远端SHA，填写（用户已要求今后 GitHub 默认全平台；除非本次明确另定，target 选 all，不能沿用网页默认 android）：
 
 | 字段 | 含义 / 判断 |
 | --- | --- |
@@ -198,3 +198,15 @@ UPGRADE_AUDIT
 ## 品牌底座依赖报告（只读）
 
 升级与共享配置审查先查[依赖、配置和可达性清单](https://github.com/wvjh3z/proxy-suite-docs/blob/main/evidence/upgrade-v0.9.2/DEPENDENCY_CONFIG_REACHABILITY.md)。按其中命令在Docs执行Python报告或--check，只读客户端已追踪Dart源码，不调用Flutter、不创建原生资产、不改变check_seam_imports禁止范围。源码或导入变化后重新生成并审阅差异；候选导出闭包不是实际调用证明，具体字段/平台副作用继续人工核对。
+
+## 升级守卫执行与资源边界
+
+pre-commit使用固定路径触发，并不自动覆盖所有PATCHES/锚点文件，模块CI也需手动触发。升级验收在已授权测试主机完成依赖准备后，从客户端根目录执行：
+
+```bash
+: "${UPSTREAM_BASELINE:?填写已核对的真实上游提交，不得用品牌HEAD}"
+dart --packages=.dart_tool/package_config.json tool/check-line-anchors.dart
+dart --packages=.dart_tool/package_config.json tool/check-seam-whitelist.dart --baseline "$UPSTREAM_BASELINE"
+```
+
+保存实际源码、Docs引用、基线和退出结果；缺环境明确待验，不在本机恢复工具链。守卫通过只证明其检查范围；最终图标核验见BUILD_RELEASE的资源验收层级，设备效果另验。正式产物格式以tool/release_pipeline.py为准：Linux ARM64为deb及AppImage；workflow头部旧“仅deb”注释待代码维护任务修正，本次不修改工作流。

@@ -21,8 +21,11 @@
 
 | 事件 | 品牌 / 目标 | 首个失败阶段 | 当前状态 |
 | --- | --- | --- | --- |
-| [Actions #140](#actions-140v092首次全平台构建) | A / Windows AMD64 | Windows runtime prerequisite rules：identity竞态夹具 | 夹具稳定性与诊断已修复，原生预检通过；GitHub待复验 |
-| [Actions #140](#actions-140v092首次全平台构建) | A / Linux AMD64 | Package：Native Assets Go依赖获取 | 固定依赖预下载/有限重试已实施；文件变化已补采集，GitHub待复验 |
+| [Actions #140](#actions-140v092首次全平台构建) | A / Windows AMD64 | Windows runtime prerequisite rules：identity竞态夹具 | 首修3b6a5fbb后#141仍失败；9c136383补修，#143正式新批次通过（历史失败保留） |
+| [Actions #140](#actions-140v092首次全平台构建) | A / Linux AMD64 | Package：Native Assets Go依赖获取 | 3b6a5fbb修复后#143全六目标通过；#140原始变化文件/写入者仍未查明 |
+| [Actions #141](#141windows夹具文件占用与macos符号传输失败) | A / Windows、macOS AMD64 | 夹具占用、符号传输及证据上传网络失败 | 9c136383修复，#143源码a3152f5b正式复验通过；非设备业务验收 |
+
+**当前结论**：以下“未提交/待修/待复验”是各历史阶段当时状态，不是当前main状态。首轮修复提交3b6a5fbb，#141暴露剩余问题，9c136383补修，#143（a3152f5b）全六目标成功；已合入main。正式证据见[run143](https://github.com/wvjh3z/proxy-suite-docs/blob/main/evidence/run143/README.md)。不能由新批次成功反推#140具体文件变化原因已经找到。后续按新失败证据另评估，不覆盖历史。
 
 ## Actions #140：v0.9.2首次全平台构建
 
@@ -76,7 +79,7 @@
 
 **验证**：Windows构建机PowerShell5.1的正式用户数据清理入口37项基础+14项竞态通过；三组退回旧行为/移除身份保护负控命中预期失败，恢复后通过。Windows和VDS均执行真实Go、隔离空模块缓存、回环模块代理先503后成功、中文/空格路径验证；不用公网假包或生产凭据，也不编译Go代码。VDS正式python tool/prepare_native_build.py --platform linux --prepare-go通过，固定输入未变。Python离线正负控覆盖网络耗尽、永久错误、输入变化、取消、旧报告恢复与hook诊断过滤；共享工作流预检218项通过（随后追加取消回归单项及相关套件通过）；actionlint/ShellCheck与github-actions-validator静态检查通过。证据maintenance/run140-fix及windows-uninstall-race-fix-20261029的本轮输出；受控网络故障不等于复现公网HTTP/2连接本身。
 
-当前仅工作区修复，无修复commit，未提交、未构建；#140失败尚未通过新GitHub运行关闭。没有新增/调整客户端底座接缝或新依赖，改动位于自有tool、已有构建脚本/工作流及文档；实施前已告知范围。
+该预检阶段仅工作区修复、尚无提交/新运行；后续提交及正式复验以本页事件索引的当前结论为准。没有新增/调整客户端底座接缝或新依赖，改动位于自有tool、已有构建脚本/工作流及文档；实施前已告知范围。
 
 ### #140修复再次审核：仍需补齐的两项边界（2026-10-29）
 
@@ -136,7 +139,7 @@
 
 ## #141：Windows夹具文件占用与macOS符号传输失败
 
-2026-10-29只读核对，源码3b6a5fbb、品牌A/build39。Windows两品牌identity夹具rename-original native32/40次失败，不能认为#140测试修复已被正式Runner验收；macOS AMD64符号上传transport_error，随后GitHub CreateArtifact五次超时，不能据旧草稿DMG宣布成功。四目标成功及成品兼容缺口见[本轮证据](https://github.com/wvjh3z/proxy-suite-docs/blob/upgrade/flclash-v0.9.2/evidence/run141/README.md)。本轮只定位、归档和更新说明，尚未修复或重建。后续正负控应分别覆盖Windows真实共享访问/重命名阶段、上传网络错误与诊断留存，保持生产安全保护和原退出码。
+2026-10-29只读核对，源码3b6a5fbb、品牌A/build39。Windows两品牌identity夹具rename-original native32/40次失败，不能认为#140测试修复已被正式Runner验收；macOS AMD64符号上传transport_error，随后GitHub CreateArtifact五次超时，不能据旧草稿DMG宣布成功。四目标成功及成品兼容缺口见[本轮证据](https://github.com/wvjh3z/proxy-suite-docs/blob/main/evidence/run141/README.md)。本轮只定位、归档和更新说明，尚未修复或重建。后续正负控应分别覆盖Windows真实共享访问/重命名阶段、上传网络错误与诊断留存，保持生产安全保护和原退出码。
 
 ### #141工作区修复与原版支持基线核对（未提交、未构建）
 
@@ -144,9 +147,9 @@ Windows夹具不再带着整条锚定目录句柄执行路径File.Move：记录�
 
 符号CLI仅明确transport_error/server_error最多3次尝试，等待2/5秒，共享原900秒总预算；认证、权限、输入、未知错误、429和单次超时不新增重试，最终仍需原有成功终态与逐ID确认。CI证据上传首次失败仅再传一次，使用同名overwrite避免半完成artifact冲突；取消不重试，第二次失败保持失败，不掩盖原制包/符号错误。新增回归进入既有测试入口，52项选定离线回归通过，VDS运行github-actions-validator原脚本lint-only通过。真实网络故障恢复和新GitHub构建待验，未宣称#141历史运行恢复成功。
 
-用户最终要求系统版本跟随原版0.9.2，因此未修改macOS12工程/Podfile或Linux依赖/Runner。原版官方ARM64 DMG亦含三个minOS13文件；本项目不自行提高支持下限。证据、当前边界及后续设备要求见[修复验收](https://github.com/wvjh3z/proxy-suite-docs/blob/upgrade/flclash-v0.9.2/evidence/run141-fix/README.md)。
+用户最终要求系统版本跟随原版0.9.2，因此未修改macOS12工程/Podfile或Linux依赖/Runner。原版官方ARM64 DMG亦含三个minOS13文件；本项目不自行提高支持下限。证据、当前边界及后续设备要求见[修复验收](https://github.com/wvjh3z/proxy-suite-docs/blob/main/evidence/run141-fix/README.md)。
 
-#143正式复验：2026-10-29，源码a3152f5b、品牌A/build40，Windows及macOS AMD64正式入口、出包与符号处理成功；全部六目标成功，证据留存及10个草稿资产核对通过。此结果提供新批次正式复验，不改写#141失败，不代替两品牌设备验收，详见[本批证据](https://github.com/wvjh3z/proxy-suite-docs/blob/upgrade/flclash-v0.9.2/evidence/run143/README.md)。
+#143正式复验：2026-10-29，源码a3152f5b、品牌A/build40，Windows及macOS AMD64正式入口、出包与符号处理成功；全部六目标成功，证据留存及10个草稿资产核对通过。此结果提供新批次正式复验，不改写#141失败，不代替两品牌设备验收，详见[本批证据](https://github.com/wvjh3z/proxy-suite-docs/blob/main/evidence/run143/README.md)。
 
 ## v0.9.2：隔离 Widget 预检的包图与着色器（2026-10-29）
 
