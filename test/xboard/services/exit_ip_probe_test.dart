@@ -53,6 +53,18 @@ class _Policy extends HttpOverrides {
 }
 
 void main() {
+  test('update country probe ignores valid IP without country', () async {
+    final requests = _Requests();
+    final dio = Dio()..httpClientAdapter = requests;
+    final probe = XbExitIpProbe(dio: dio, requireCountry: true);
+    final result = probe.run();
+    await requests.ready.future;
+    requests.answer('https://ipwho.is', {'ip': '1.2.3.4'});
+    requests.answer('https://api.myip.com', {'ip': '1.2.3.5', 'cc': 'CN'});
+    expect((await result)?.countryCode, 'CN');
+    expect(requests.closed, 1);
+  });
+
   test('legacy source list, schema, IPv4/IPv6 and ten second defaults', () {
     expect(xbLegacyExitIpSources.map((s) => s.url), [
       'https://ipwho.is',

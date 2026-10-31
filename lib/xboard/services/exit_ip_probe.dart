@@ -63,11 +63,13 @@ class XbExitIpProbe {
     Dio? dio,
     this.sources = xbLegacyExitIpSources,
     this.timeout = const Duration(seconds: 10),
+    this.requireCountry = false,
   }) : _dio = dio ?? createExitIpDio();
 
   final Dio _dio;
   final List<XbExitIpSource> sources;
   final Duration timeout;
+  final bool requireCountry;
   final List<CancelToken> _tokens = [];
   final Completer<XbExitIpResult?> _answer = Completer();
   bool _started = false;
@@ -103,7 +105,9 @@ class XbExitIpProbe {
               );
           if (_closed || response.statusCode != 200) return;
           final value = source.parse(jsonDecode(utf8.decode(response.data!)));
-          if (value != null && !_answer.isCompleted) {
+          if (value != null &&
+              (!requireCountry || value.countryCode != null) &&
+              !_answer.isCompleted) {
             _answer.complete(value);
             cancel();
           }

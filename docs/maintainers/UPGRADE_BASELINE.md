@@ -232,6 +232,8 @@
 <a id="f16"></a>
 ### F16 下载、安装交接与退出
 
+**点击选源**：更新与浏览器下载入口新建独立地区探测（最多3秒，不改变首页IP）；CN/海外优先，地区组内随机，URL去重并冻结本轮顺序。检测失败回退接口region，仍未知保留后台顺序；不做下载地址测活，既有5秒连接/5分钟接收超时未改。浏览器只能确认打开请求。具体实现与回归见xb_update_region.dart、xb_update_sources.dart和xb_update_region_test/xb_update_selection_test，实际验收归STATUS。
+
 **补充边界**：非AppImage的Linux路径在下载完成后才检查APPIMAGE，缺失时返回installFailed，界面提示手动安装；未实现下载前格式阻断，不能由源码注释推断自动浏览器回退。是否提前提示待产品决定。
 
 - **归类／要求**：自有更新能力+复用退出/安装器。用户要求：保留应用内下载/安装和AppImage自替换；取消安装包SHA256校验；Windows常规关闭遵循原版，不恢复额外服务路径/最终进程检查。 决定出处：REQ-UPDATE（见文末）。

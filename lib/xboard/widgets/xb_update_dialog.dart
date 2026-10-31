@@ -1,7 +1,7 @@
 /// 更新弹窗组件（档2 app 内下载安装，失败回退档1 浏览器打开）。
 ///
 /// 按钮即进度条：点击后品牌红从左往右填充 + 白色百分比数字。
-/// 无 HEAD 探活延迟（直接开始下载，dio 超时自动切源）。
+/// 点击后独立判断地区，组内随机；不做下载地址HEAD测活。
 library;
 
 import 'dart:async';
@@ -19,6 +19,7 @@ import '../providers/xboard_providers.dart';
 import '../services/xb_apk_downloader.dart';
 import '../services/xb_update_service.dart';
 import '../services/xb_update_sources.dart';
+import '../services/xb_update_region.dart';
 import 'xb_feedback.dart' show xbBrandColor;
 import 'xb_theme.dart' show xbShowDialog, XbTokens;
 
@@ -32,7 +33,7 @@ void showXbUpdateDialog(BuildContext context, AppUpdateModel info) {
   );
 }
 
-enum _DialogState { initial, downloading, failed }
+enum _DialogState { initial, selecting, downloading, failed }
 
 class _UpdateDialog extends ConsumerStatefulWidget {
   const _UpdateDialog({required this.info});
@@ -49,8 +50,11 @@ class _UpdateDialogState extends ConsumerState<_UpdateDialog> {
   int _totalBytes = 0;
   String? _errorMsg;
   CancelToken? _cancelToken;
+  XbUpdateRegionLookup? _regionLookup;
+  bool get _busy =>
+      _state == _DialogState.selecting || _state == _DialogState.downloading;
 
-  /// 当前生效的更新信息（初始为传入值；下载前会重拉刷新，避免同名文件被新版本覆盖导致 sha 过期）。
+  /// 当前生效的更新信息（初始为传入值；下载前会重拉刷新，取得最新下载地址和版本信息）。
   late AppUpdateModel _info = widget.info;
 
   /// 节流：上次 UI 更新时间。
@@ -59,24 +63,48 @@ class _UpdateDialogState extends ConsumerState<_UpdateDialog> {
   @override
   void dispose() {
     _cancelToken?.cancel('dialog dismissed');
+    _regionLookup?.cancel();
     super.dispose();
   }
 
   /// 档2：重拉最新版本信息与下载地址，下载完成后交给平台安装流程。
   /// 不在客户端比对安装包摘要；失败时保留浏览器下载入口。
   Future<void> _onUpdate() async {
-    // macOS / 不支持应用内安装的平台 → 直接走浏览器下载（不进 APK/installer 路径）。
-    if (!XbApkDownloader.isInAppInstallSupported) {
-      await _fallbackToBrowser();
-      return;
-    }
-    // 立即切到下载态
+    if (_busy) return;
     setState(() {
-      _state = _DialogState.downloading;
+      _state = _DialogState.selecting;
       _progress = 0;
+      _receivedBytes = 0;
+      _totalBytes = 0;
       _errorMsg = null;
     });
+    try {
+      await _performUpdate();
+    } on Exception {
+      if (mounted) {
+        setState(() {
+          _state = _DialogState.failed;
+          _errorMsg = '无法准备更新，请重试';
+        });
+      }
+    }
+  }
 
+  Future<List<String>> _selectUrls() async {
+    final lookup = ref.read(xbUpdateRegionLookupFactoryProvider)();
+    _regionLookup = lookup;
+    final country = await lookup.run();
+    if (identical(_regionLookup, lookup)) _regionLookup = null;
+    return xbRandomizedUpdateUrls(_info, countryCode: country);
+  }
+
+  Future<void> _performUpdate() async {
+    // macOS / 不支持应用内安装的平台 → 直接走浏览器下载（不进 APK/installer 路径）。
+    if (!XbApkDownloader.isInAppInstallSupported) {
+      final urls = await _selectUrls();
+      if (mounted) await _openBrowser(urls);
+      return;
+    }
     // 下载前重拉最新版本信息（带 failover）；成功则用最新版本信息/URL，失败沿用缓存（best effort）。
     final sdk = ref.read(xboardSdkProvider);
     if (sdk != null) {
@@ -92,12 +120,14 @@ class _UpdateDialogState extends ConsumerState<_UpdateDialog> {
     }
 
     // 按 region 排序 URL（不探活,直接传给 downloader）
-    final urls = _getSortedUrls();
+    final urls = await _selectUrls();
+    if (!mounted) return;
     if (urls.isEmpty) {
-      await _fallbackToBrowser();
+      await _openBrowser(urls);
       return;
     }
 
+    setState(() => _state = _DialogState.downloading);
     _cancelToken = CancelToken();
 
     // Capture the long-lived action before awaiting download. Installation
@@ -155,8 +185,19 @@ class _UpdateDialogState extends ConsumerState<_UpdateDialog> {
 
   /// 档1 兜底：浏览器打开。
   Future<void> _fallbackToBrowser() async {
+    if (_busy) return;
+    setState(() {
+      _state = _DialogState.selecting;
+      _errorMsg = null;
+    });
+    final urls = await _selectUrls();
+    if (mounted) await _openBrowser(urls);
+  }
+
+  Future<void> _openBrowser(List<String> urls) async {
     final opened = await xbOpenUpdateDownload(
       _info,
+      orderedUrls: urls,
       open: (uri) async {
         if (!mounted) return false;
         return launchUrl(uri, mode: LaunchMode.externalApplication);
@@ -173,9 +214,6 @@ class _UpdateDialogState extends ConsumerState<_UpdateDialog> {
     });
   }
 
-  /// 按 region 优先排序（不做 HEAD 探活,避免延迟）。
-  List<String> _getSortedUrls() => xbSortedUpdateUrls(_info);
-
   @override
   Widget build(BuildContext context) {
     final t = XbTokens.of(context);
@@ -185,7 +223,7 @@ class _UpdateDialogState extends ConsumerState<_UpdateDialog> {
     // barrier-tap 走 Navigator.maybePop（受 PopScope 约束），按钮用的直接 Navigator.pop 不受影响。
     // 初始/失败态 canPop=true，非强制更新仍可点外部「稍后再说」。
     return PopScope(
-      canPop: _state != _DialogState.downloading,
+      canPop: !_busy,
       child: AlertDialog(
         title: Column(
           mainAxisSize: MainAxisSize.min,
@@ -264,6 +302,7 @@ class _UpdateDialogState extends ConsumerState<_UpdateDialog> {
               ),
           ],
         );
+      case _DialogState.selecting:
       case _DialogState.downloading:
         return _downloadingFooter(scheme);
       case _DialogState.failed:
@@ -373,7 +412,7 @@ class _UpdateDialogState extends ConsumerState<_UpdateDialog> {
 
   Widget _downloadingFooter(ColorScheme scheme) {
     final pct = (_progress * 100).toInt();
-    final hasProgress = _progress > 0;
+    final hasProgress = _state != _DialogState.selecting && _progress > 0;
     if (!hasProgress) {
       // 未收到进度：spinner + 文字（琥珀色，居中）
       return Row(
@@ -389,9 +428,13 @@ class _UpdateDialogState extends ConsumerState<_UpdateDialog> {
             ),
           ),
           const SizedBox(width: 8),
-          Text(
-            '正在准备下载…',
-            style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
+          Flexible(
+            child: Text(
+              _state == _DialogState.selecting ? '选择线路中…' : '正在准备下载…',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
+            ),
           ),
         ],
       );

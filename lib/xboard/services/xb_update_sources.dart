@@ -1,3 +1,5 @@
+import 'dart:math';
+
 import 'package:flutter_xboard_sdk/flutter_xboard_sdk.dart' show AppUpdateModel;
 
 /// 应用内下载和浏览器共用的更新候选：合法 HTTP(S) 地址，匹配地区优先。
@@ -41,8 +43,9 @@ List<String> xbSortedUpdateUrls(AppUpdateModel info) {
 Future<bool> xbOpenUpdateDownload(
   AppUpdateModel info, {
   required Future<bool> Function(Uri uri) open,
+  List<String>? orderedUrls,
 }) async {
-  for (final url in xbSortedUpdateUrls(info)) {
+  for (final url in orderedUrls ?? xbSortedUpdateUrls(info)) {
     try {
       if (await open(Uri.parse(url))) return true;
     } catch (_) {
@@ -50,4 +53,41 @@ Future<bool> xbOpenUpdateDownload(
     }
   }
   return false;
+}
+
+/// Freeze one attempt's order; duplicate URLs are attempted only once.
+/// Unknown location preserves the server order. Unknown mirror labels are last.
+List<String> xbRandomizedUpdateUrls(
+  AppUpdateModel info, {
+  String? countryCode,
+  Random? random,
+}) {
+  final region =
+      countryCode != null && RegExp(r'^[a-zA-Z]{2}$').hasMatch(countryCode)
+      ? (countryCode.toUpperCase() == 'CN' ? 'cn' : 'overseas')
+      : info.region;
+  final valid = xbSortedUpdateUrls(info).toSet();
+  final seen = <String>{};
+  final groups = <String, List<String>>{
+    'cn': [],
+    'overseas': [],
+    'unknown': [],
+  };
+  final original = <String>[];
+  for (final item in info.downloads) {
+    final url = item.url.trim();
+    if (!valid.contains(url) || !seen.add(url)) continue;
+    original.add(url);
+    groups[groups.containsKey(item.region) ? item.region : 'unknown']!.add(url);
+  }
+  if (region != 'cn' && region != 'overseas') return original;
+  final rng = random ?? Random();
+  for (final group in groups.values) {
+    group.shuffle(rng);
+  }
+  return [
+    ...groups[region]!,
+    ...groups[region == 'cn' ? 'overseas' : 'cn']!,
+    ...groups['unknown']!,
+  ];
 }
