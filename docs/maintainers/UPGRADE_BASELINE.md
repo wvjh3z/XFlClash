@@ -37,7 +37,7 @@
 | [F04](#f04) | 物理网络、VPN有效状态与前后台 | 自有接线+复用事件 |
 | [F05](#f05) | 登录、登出与会话持久化 | 自有+平台存储依赖 |
 | [F06](#f06) | 加密订阅到Profile及内核应用 | 自有下载+复用Profile执行 |
-| [F07](#f07) | 套餐、订单和支付 | 自有 |
+| [F07](#f07) | 套餐、订单和支付 | 自有业务+复用二维码渲染 |
 | [F08](#f08) | 连接、断开、暂停和恢复 | 自有展示+复用执行 |
 | [F09](#f09) | 智能／全局模式及入口一致性 | 自有规则+复用模式执行 |
 | [F10](#f10) | 节点列表与当前选择 | 自有页面+复用分组/选择 |
@@ -51,7 +51,7 @@
 | [F18](#f18) | 教程与链接导航 | 自有阅读器+平台WebView |
 | [F19](#f19) | 品牌身份、目录、图标及并存 | 自有隔离+复用平台集成 |
 | [F20](#f20) | 数据库、旧数据迁移及恢复 | 复用主库+自有归属/有限重试 |
-| [F21](#f21) | 主题、字体、设置与界面外壳 | 自有外壳+复用主题/字体 |
+| [F21](#f21) | 主题、字体、设置与界面外壳 | 自有外壳+部分复用主题；字体衔接见UB-GAP-19 |
 | [F22](#f22) | 异常分类、Sentry与符号链 | 自有上报/构建治理+复用错误入口 |
 | [F23](#f23) | 底座原生子页及设置恢复 | 复用页面/执行+自有导航 |
 | [F24](#f24) | 账号资料刷新与订阅触发 | 自有调度+复用生命周期 |
@@ -63,7 +63,7 @@
 <a id="f01"></a>
 ### F01 启动、就绪与入口分流
 
-**缺口关联**：UB-GAP-01/16，当前进度和关闭条件见本文缺口索引所指STATUS。
+**缺口关联**：UB-GAP-01/14/16，当前进度和关闭条件见本文缺口索引所指STATUS。
 
 - **归类／要求**：自有+复用。维护约束：单实例占有先于共享数据写入；首屏就绪、SDK可用与内核可用不能混为同一状态；保留品牌欢迎与上报选择。
 - **原版0.9.2**：[lib/main.dart · main](https://github.com/chen08209/FlClash/blob/7fd417fb9a9a277c6a9339a8ac87f907df7c25f7/lib/main.dart)依次准备Rust、system、bootstrap、HttpOverrides；[lib/bootstrap.dart · Bootstrap._initData](https://github.com/chen08209/FlClash/blob/7fd417fb9a9a277c6a9339a8ac87f907df7c25f7/lib/bootstrap.dart)处理迁移、容器和启动恢复。原版没有Xboard同步/异步阶段。
@@ -163,7 +163,7 @@
 <a id="f10"></a>
 ### F10 节点列表与当前选择
 
-**补充边界**：撤回“选中超时节点会被过滤”的旧推断。computeHideTimeout保留当前选中项、子分组及不可测类型，过滤为空时恢复原列表；通常只隐藏非选中超时节点。首页无法取得有效真实选中项而回退首个真实节点时，该回退项可能不在过滤结果中，仍需真实provider验证。v0.8.93没有该字段；来源应限定为后续已含该字段的配置/完整恢复等，不能归因于0.8.93普通迁移。见UB-GAP-04。
+**补充边界**：撤回“选中超时节点会被过滤”的旧推断。computeHideTimeout保留当前选中项、子分组及不可测类型，过滤为空时恢复原列表；通常只隐藏非选中超时节点。首页无法取得有效真实选中项而回退首个真实节点时，该回退项可能不在过滤结果中，仍需真实provider验证。v0.8.93没有该字段；来源应限定为后续已含该字段的配置/完整恢复等，不能归因于0.8.93普通迁移。过滤依据为delaysAtLastTestBatchProvider快照：初始化/重建、sortNum变化（批量测速完成）或延迟表清空会更新，不是每个单节点结果即时重滤。见UB-GAP-04。
 
 - **归类／要求**：自有页面+复用分组/选择。用户要求：全局节点按原版处理，不能因GLOBAL.hidden导致空列表。维护约束：乐观选择失败回滚，首页/节点页对当前分组与叶子节点一致。 决定出处：REQ-OTHER（原版全局分组行为复用；具体决定日期待确认）。
 - **原版0.9.2**：[lib/providers/state/proxies.dart · currentGroupsState/proxiesTabState](https://github.com/chen08209/FlClash/blob/7fd417fb9a9a277c6a9339a8ac87f907df7c25f7/lib/providers/state/proxies.dart)对rule/global/direct采用不同分组过滤；[lib/providers/actions/proxies.dart · changeProxyDebounce](https://github.com/chen08209/FlClash/blob/7fd417fb9a9a277c6a9339a8ac87f907df7c25f7/lib/providers/actions/proxies.dart)处理选择及回滚。
@@ -178,12 +178,14 @@
 - **归类／要求**：自有探测+复用网络/路由通知。用户要求：旧品牌七源机制和网址，跟随全局证书政策；手动刷新可见检测状态。维护约束：迟到结果不覆盖新轮，保留旧值时必须标注不是新成功。 决定出处：REQ-IP（见文末）。
 - **原版0.9.2**：[lib/providers/outbound_ip.dart · OutboundIpProbe](https://github.com/chen08209/FlClash/blob/7fd417fb9a9a277c6a9339a8ac87f907df7c25f7/lib/providers/outbound_ip.dart)通过Core查询，[lib/providers/routed_probe.dart · RoutedProbe](https://github.com/chen08209/FlClash/blob/7fd417fb9a9a277c6a9339a8ac87f907df7c25f7/lib/providers/routed_probe.dart)以路由stamp/hits验证缓存；不是品牌Dio七源机制。
 - **当前品牌实现**：[lib/xboard/services/exit_ip_probe.dart](../../lib/xboard/services/exit_ip_probe.dart)并发七源首个有效结果胜出；[lib/xboard/providers/exit_ip_provider.dart](../../lib/xboard/providers/exit_ip_provider.dart)集中触发、取消及generation隔离；[lib/xboard/shell/tabs/home/xb_ip_card.dart](../../lib/xboard/shell/tabs/home/xb_ip_card.dart)区别首测/手动、上次结果复核及复核失败；移除首页/连接按钮重复startCheck。
-- **依赖／平台／接缝**：F11a=七源HTTP，UA直接依赖[lib/common/constant.dart · browserUa](https://github.com/chen08209/FlClash/blob/7fd417fb9a9a277c6a9339a8ac87f907df7c25f7/lib/common/constant.dart)，联查F28；F11b=全局路由，F11c=事件调度，F11d=状态展示。直接监听F08运行/暂停、F09模式、F10选择、mixedPort和代理认证，以及底座RouteTracker/appVisible，HTTP使用F14；与F04品牌竞速观察器是并列消费者，不调用其race。S01 HttpOverrides是既有依赖，IP本身没有新增底座接缝。
+- **依赖／平台／接缝**：F11a=七源HTTP，也被F16独立更新地区探测复用；更新显式3秒且要求国家码，首页保持原默认参数，不共享状态。修改源/解析/取消策略须联查F16。UA直接依赖[lib/common/constant.dart · browserUa](https://github.com/chen08209/FlClash/blob/7fd417fb9a9a277c6a9339a8ac87f907df7c25f7/lib/common/constant.dart)，联查F28；F11b=全局路由，F11c=事件调度，F11d=状态展示。直接监听F08运行/暂停、F09模式、F10选择、mixedPort和代理认证，以及底座RouteTracker/appVisible，HTTP使用F14；与F04品牌竞速观察器是并列消费者，不调用其race。S01 HttpOverrides是既有依赖，IP本身没有新增底座接缝。
 - **回归入口与必测分支**：首测快于RouteTracker首次同步、迟到版本通知、真实世代变化、同快照、取消/失败/恢复。[test/xboard/services/exit_ip_probe_test.dart](../../test/xboard/services/exit_ip_probe_test.dart)、[test/xboard/shell/tabs/exit_ip_lifecycle_test.dart](../../test/xboard/shell/tabs/exit_ip_lifecycle_test.dart)、[test/xboard/shell/tabs/xb_ip_card_test.dart](../../test/xboard/shell/tabs/xb_ip_card_test.dart)。
 - **限制／状态**：UB-GAP-02：没有配置操作编号关联；底座600ms与IP300ms调度独立，第一轮可能先于配置生效，后续复核仍必要。#144/#146含显示修复，真机复验未关闭；不把副作用固化为需求。
 
 <a id="f12"></a>
 ### F12 节点测速与首页延迟
+
+**状态缺口**：品牌testNode直接调用底座proxyDelayTest；底座在pendingDelayTestsProvider标记在途，不再先写延迟0。节点行只检查xbMeasuringNodesProvider或delay==0，未接delayTestPhaseProvider，故可能保留旧值/闪电而不显示单次测速中；源码接线缺口登记UB-GAP-21，真实provider/Widget和设备仍待验，不在此修改代码。
 
 **源码补充**：首页测速在有效世代完成时把多轮最小有效值（无有效值为-1）写回共享延迟表，再更新首页状态，因此也可能影响节点页延迟；异常分支与世代失效不等同正常完成写回。
 
@@ -198,6 +200,8 @@
 ### F13 系统代理、TUN、DNS、IPv6与Geo更新
 
 **源码补充**：首页系统代理/TUN开关位于双栏布局，条件是内容宽度达到840逻辑像素，不以OS判断；Android宽屏也可能显示。属于既有布局行为，不认定0.9.2新增回归；Android上的实际效果与是否保留待验证/决定。Geo事件归属见UB-GAP-10。
+
+**资源更新入口**：ResourcesAction.autoUpdate先检查geoAutoUpdate且防并发，再按geoUpdateInterval更新远程图标/脚本/规则提供者，不包含Geo；内核自动Geo沿自身配置执行。ResourcesView手动“全部更新”调用updateAll，包含GeoResource各项，不以自动开关为前提；请求应答不等于Geo下载完成，联查UB-GAP-10。
 
 **新装/升级差异**：仅当反序列化的旧配置缺general-override-keys时补回unifiedDelay、tcpConcurrent、ipv6、geodataLoader；新默认集合为空，品牌首次设置补IPv6。已有该键的配置不会无条件补回四项。实际下发还受Profile YAML与内核默认影响；生产模板内容待核实。详见[配置应用边界](https://github.com/wvjh3z/proxy-suite-docs/blob/main/ARCHITECTURE.md#配置应用的返回去抖与迁移边界)。
 
@@ -232,9 +236,9 @@
 <a id="f16"></a>
 ### F16 下载、安装交接与退出
 
-**点击选源**：更新与浏览器下载入口新建独立地区探测（最多3秒，不改变首页IP）；CN/海外优先，地区组内随机，URL去重并冻结本轮顺序。检测失败回退接口region，仍未知保留后台顺序；不做下载地址测活，既有5秒连接/5分钟接收超时未改。浏览器只能确认打开请求。具体实现与回归见xb_update_region.dart、xb_update_sources.dart和xb_update_region_test/xb_update_selection_test，实际验收归STATUS。
+**点击选源**：“选择线路中…”还包含应用内清单重查及等待有效API的时间；3秒仅限制之后的地区探测，不是整个界面等待上限。更新与浏览器下载入口新建独立地区探测（最多3秒，不改变首页IP）；CN/海外优先，地区组内随机，URL去重并冻结本轮顺序。检测失败回退接口region，仍未知保留后台顺序；不做下载地址测活，既有5秒连接/5分钟接收超时未改。浏览器只能确认打开请求。具体实现与回归见xb_update_region.dart、xb_update_sources.dart和xb_update_region_test/xb_update_selection_test，实际验收归STATUS。
 
-**补充边界**：非AppImage的Linux路径在下载完成后才检查APPIMAGE，缺失时返回installFailed，界面提示手动安装；未实现下载前格式阻断，不能由源码注释推断自动浏览器回退。是否提前提示待产品决定。
+**补充边界**：AppImage目标归属缺口见UB-GAP-20。非AppImage的Linux路径在下载完成后才检查APPIMAGE，缺失时返回installFailed，界面提示手动安装；未实现下载前格式阻断，不能由源码注释推断自动浏览器回退。是否提前提示待产品决定。
 
 - **归类／要求**：自有更新能力+复用退出/安装器。用户要求：保留应用内下载/安装和AppImage自替换；取消安装包SHA256校验；Windows常规关闭遵循原版，不恢复额外服务路径/最终进程检查。 决定出处：REQ-UPDATE（见文末）。
 - **原版0.9.2**：[lib/providers/actions/common.dart · checkUpdateResultHandle](https://github.com/chen08209/FlClash/blob/7fd417fb9a9a277c6a9339a8ac87f907df7c25f7/lib/providers/actions/common.dart)可打开原版发布页；[lib/providers/actions/system.dart · handleExit](https://github.com/chen08209/FlClash/blob/7fd417fb9a9a277c6a9339a8ac87f907df7c25f7/lib/providers/actions/system.dart)执行正常退出；[windows/packaging/exe/inno_setup.iss · PrepareToInstall/InitializeUninstall](https://github.com/chen08209/FlClash/blob/7fd417fb9a9a277c6a9339a8ac87f907df7c25f7/windows/packaging/exe/inno_setup.iss)负责安装事件。
@@ -266,7 +270,7 @@
 <a id="f19"></a>
 ### F19 品牌身份、目录、图标及并存
 
-**补充边界**：资源修复与设备状态见UB-GAP-15；深链及FilesProvider入口分别见UB-GAP-17/18。
+**补充边界**：编号/验签缺口见UB-GAP-07/08，资源修复与设备状态见UB-GAP-15；深链及FilesProvider入口分别见UB-GAP-17/18。
 
 **冻结点后的变化**：6055a4be修改品牌B Android三份adaptive资源及回归；VDS build36同号包和设备待验见[批次记录](https://github.com/wvjh3z/proxy-suite-docs/blob/main/evidence/brand-b-build36-vds-icon-replacement/README.md)。几何测试只覆盖B，不能用作A或所有最终包的图标证明。
 
@@ -374,7 +378,7 @@
 
 - **归类／要求**：自有HTTP政策+复用底座通用UA。品牌管理流量按平台固定浏览器UA，用户已撤销强制覆盖底座globalUa；撤销覆盖的出处为REQ-IPV6及PATCHES接缝点#7（2026-06-09历史决定）。三条链分别按实际消费者核对，不以UA策略承诺网络可达。
 - **原版0.9.2**：原版`lib/state.dart`的GlobalState.ua读取patchClashConfig.globalUa并回退packageInfo.ua，B1-globalua定位此getter。
-- **当前品牌实现**：[xboard_user_agent.dart](../../lib/xboard/config/xboard_user_agent.dart)为SDK、Bootstrap、密文下载、探针/更新业务通道提供current；[xboard_release_dio.dart](../../lib/xboard/services/xboard_release_dio.dart)与module配置SDK。底座GlobalState.ua并不是XboardUserAgent.current的别名；第三条链是[lib/common/constant.dart · browserUa](https://github.com/chen08209/FlClash/blob/7fd417fb9a9a277c6a9339a8ac87f907df7c25f7/lib/common/constant.dart)，品牌exit_ip_probe直接使用它，固定浏览器字符串不随品牌UA切换。
+- **当前品牌实现**：[xboard_user_agent.dart](../../lib/xboard/config/xboard_user_agent.dart)为SDK、Bootstrap、密文下载、探针/更新业务通道提供current；[xboard_release_dio.dart](../../lib/xboard/services/xboard_release_dio.dart)与module配置SDK。底座GlobalState.ua并不是XboardUserAgent.current的别名；第三条链是[lib/common/constant.dart · browserUa](https://github.com/chen08209/FlClash/blob/7fd417fb9a9a277c6a9339a8ac87f907df7c25f7/lib/common/constant.dart)，品牌exit_ip_probe直接使用它，首页F11及更新地区探测F16均为消费者，固定浏览器字符串不随品牌UA切换；安装包下载仍用XboardUserAgent.current，不能混同探测UA。
 - **依赖／平台／接缝**：输入平台身份，作用F02/F03/F06/F14/F16/F18（教程回退阅读器也使用品牌UA）；B1-globalua只标底座依赖。浏览器实际请求与第三方SDK不保证使用该Dart UA。
 - **回归入口与必测分支**：[xboard_user_agent_test.dart](../../test/xboard/config/xboard_user_agent_test.dart)、bootstrap同步配置和HTTPS路由测试；检查具体生产消费者而非只断言字符串。
 - **限制／状态**：固定UA值取源码，不在文档复制版本；远端UA模板当前未接入，不因上游默认UA更新直接覆盖品牌通道。
@@ -418,10 +422,10 @@ P01—P07对应系统入口、原版依赖与品牌差异。四个正式平台�
 | --- | --- | --- | --- |
 | P01 Android ARM64 / ARMv7 | `android/app/src/main/kotlin/com/follow/clash/MainActivity.kt`、`android/app/src/main/kotlin/com/follow/clash/ServiceController.kt`、`android/app/src/main/kotlin/com/follow/clash/TileService.kt`；`lib/core/lib.dart`的CoreLib（由CoreController选择）；Gradle及gomobile | F01/F08沿Service/VPN生命周期；F19用品牌applicationId与运行通道，AGP兼容和sourceSet资源独立；F16增加ApkInstallerPlugin，系统安装界面接管，不提前保证安装完成；F17原生Crisp；F18平台WebView | [Android身份/通道](../../tool/test/android_brand_identity_test.dart)、[真实Gradle身份/AGP兼容](../../tool/test/android_brand_identity_gradle_test.py)、[真实Flutter插件版本码](../../tool/test/android_version_gradle_test.py)、[APK资源契约](../../tool/check_android_release_contract.py)。设备必须覆盖旧正式包更新、权限拒绝、后台/磁贴、VPN断连、客服；不发行x86 |
 | P02 Windows AMD64 | `windows/runner/main.cpp`、`lib/core/service.dart`的CoreService、`lib/providers/actions/system.dart`、`lib/common/proxy.dart`、`services/helper`、Inno模板 | F08/F13借Core/Helper和系统代理；F19提前数据目录锁及专属服务；F16按原版准备/安装后/卸载顺序替换品牌名；MinVersion=10.0、CloseApplications/RestartApplications为品牌显式声明，原版v0.9.2未声明，不将未声明解释为Inno默认禁用。品牌额外VC门禁、可选安全数据清理、WebView退出修复保留；不再增加用户已拒绝的服务路径/最终进程复查 | [原版事件顺序](../../tool/test/windows_upstream_installation_test.py)、[VC原生进程](../../tool/test/windows_vc_runtime_process_test.ps1)、[目录安全删除](../../tool/test/windows_brand_data_cleanup_test.ps1)、[WebView退出](../../tool/test/windows_webview_shutdown_test.py)。原生Windows需覆盖中文路径、已运行覆盖/取消、Helper、代理及junction竞争 |
-| P03 macOS AMD64 | `lib/core/service.dart`的CoreService、`macos/Runner/AppDelegate.swift`、`macos/Runner/MainFlutterWindow.swift`、`macos/Runner/Info.plist`、`macos/Runner.xcodeproj/project.pbxproj`中的FlutterGeneratedPluginSwiftPackage；原版快照没有Podfile、系统退出 | F19 Bundle ID/Keychain/偏好目录/显示名注入；F16浏览器下载DMG，不使用Android/Windows安装器；F17桌面WebView窗口聚焦，F18教程WebView；F22 dSYM及单架构库 | [macOS成品清单](../../tool/test/macos_final_inventory_test.py)、[符号回执](../../tool/test/sentry_macos_receipt_validation_test.py)、[存储恢复](../../test/xboard/sdk/token_storage_recovery_test.dart)。原生Keychain、Gatekeeper、Finder/Dock、覆盖安装和退出待设备证据 |
+| P03 macOS AMD64 | `lib/core/service.dart`的CoreService、`macos/Runner/AppDelegate.swift`、`macos/Runner/MainFlutterWindow.swift`、`macos/Runner/Info.plist`、`macos/Runner.xcodeproj/project.pbxproj`中的FlutterGeneratedPluginSwiftPackage；原版快照没有Podfile；退出沿底座SystemAction | 品牌另保留macos/Podfile及CocoaPods插件适配，需与SPM依赖和最终库一起核对；F19 Bundle ID/Keychain/偏好目录/显示名注入；F16浏览器下载DMG，不使用Android/Windows安装器；F17桌面WebView窗口聚焦，F18教程WebView；F22 dSYM及单架构库 | [macOS成品清单](../../tool/test/macos_final_inventory_test.py)、[符号回执](../../tool/test/sentry_macos_receipt_validation_test.py)、[存储恢复](../../test/xboard/sdk/token_storage_recovery_test.dart)。原生Keychain、Gatekeeper、Finder/Dock、覆盖安装和退出待设备证据 |
 | P04 macOS ARM64 | 与P03入口共用，但原生运行库和符号必须是ARM64 | 不能将AMD64清单/测试结果当ARM64结果；原版亦有声明12与部分Mach-O minOS13矛盾，用户要求系统支持跟随原版，不擅自改门槛 | 与P03相同入口按ARM64独立跑；对照原版实际成品及macOS12/13设备，具体矛盾见UB-GAP-03对应STATUS，不能用Xcode部署目标代替成品检查 |
 | P05 Linux AppImage AMD64 / ARM64 | `linux/runner/my_application.cc`、`lib/core/service.dart`的CoreService、`lib/providers/actions/system.dart`、`lib/common/path.dart`、`services/helper/src/service/linux.rs` | F19品牌应用/Helper/单实例/目录；F16当前按APPIMAGE环境变量选择替换目标，尚未核验当前进程归属（UB-GAP-20），启动失败恢复并重启旧版，失败恢复及成功交接后均可能保留备份，未有统一清理策略；F17浏览器环境净化及格式识别，F18仍有回退阅读器。ARM64正式构建走GitHub，VDS路线已退役 | [AppImage重启](../../tool/test/appimage_restart_test.py)、[浏览器环境](../../tool/test/crisp_appimage_browser_test.dart)、[品牌原生路径](../../tool/test/brand_data_runtime_test.py)。真实AppRun、系统代理/Helper、HOME符号链接、外链子进程与新旧进程交接另验；两个架构ELF各查 |
-| P06 Linux DEB / RPM | 同Linux底座：`linux/runner/my_application.cc`、`lib/core/service.dart`、`lib/providers/actions/system.dart`、`lib/common/path.dart`、`services/helper/src/service/linux.rs`；另有`linux/packaging/deb`、`linux/packaging/rpm` | 客服继续内嵌WebKit，教程回退行为不变；共享Linux下载代码不等于支持包管理器自动覆盖，自替换要求APPIMAGE，非该运行方式可能返回installFailed并提示手动安装。RPM现行仅AMD64 | [WebView身份](../../tool/test/linux_webview_identity_test.py)、[原生发行迁移](../../tool/test/native_release_migration_test.py)；真实包依赖、安装/卸载、systemd及WebKit辅助进程须目标发行版验收，不能套AppImage浏览器结论 |
+| P06 Linux DEB / RPM | 同Linux底座：`linux/runner/my_application.cc`、`lib/core/service.dart`、`lib/providers/actions/system.dart`、`lib/common/path.dart`、`services/helper/src/service/linux.rs`；另有`linux/packaging/deb`、`linux/packaging/rpm` | 客服继续内嵌WebKit，教程回退行为不变；共享Linux下载代码不等于支持包管理器自动覆盖，更新目标当前只按APPIMAGE变量判断，非AppImage进程也可能继承它，误替换风险见UB-GAP-20；缺失变量时返回installFailed并提示手动安装。RPM现行仅AMD64 | [WebView身份](../../tool/test/linux_webview_identity_test.py)、[原生发行迁移](../../tool/test/native_release_migration_test.py)；真实包依赖、安装/卸载、systemd及WebKit辅助进程须目标发行版验收，不能套AppImage浏览器结论 |
 | P07 iOS / Windows ARM64 | 仓内可能存在iOS工程/移动插件及平台枚举 | 当前正式workflow无这两个发行目标；只核对共享改动会否破坏保留源码，不因为有枚举就接入新平台 | 工具链、原生依赖、签名/打包与设备测试均待单独评估授权；没有测试入口或证据时标待确认，不列通过 |
 
 安装/退出是不同平台契约：Windows用户取消向导不应提前退出客户端；Android调起安装器不等于安装完成；macOS网页打开不等于DMG已安装；AppImage旧进程退出与新版exec/回滚需单独确认。系统退出仍复用原版，不引入U05的额外严格协议。
@@ -481,6 +485,7 @@ U项同时列出明确暂缓的品牌增强，但不把已使用的底座能力�
 | UB-GAP-18 | F19/F20 | Android文档提供器，状态见同一STATUS索引 |
 | UB-GAP-19 | F21/S09 | 字体选择与品牌主题衔接；状态和关闭条件见STATUS，不以默认主题对照替代选择字体验收 |
 | UB-GAP-20 | F16/P05/P06 | AppImage更新目标仅由环境变量指定；风险与关闭条件见STATUS |
+| UB-GAP-21 | F12/S03 | 单节点测速在途状态未接入品牌节点行；当前缺口与验收条件见STATUS |
 
 
 已修复过的漏洞应成为回归条件，不成为必须复制的旧行为：全局GLOBAL被二次过滤、暂停显示为已连接、点击读取旧认证、旧异步结果串会话、IP结果被迟到通知清空、数据库中断迁移不可重入。各自测试入口已在F项登记；本轮没有重新跑这些Flutter或原生测试，不以文档完善关闭任何设备问题。
@@ -519,7 +524,7 @@ Dart依赖的实际解析版本取[pubspec.lock](../../pubspec.lock)，直接约
 | sentry_flutter | 品牌监控 | F01/F22；启动偏好、原生捕获、debug ID及匹配符号 |
 | flutter_inappwebview及平台包 | 品牌教程 | F18/F16；注册、数据目录、WebView2、C++退出资源及原生依赖 |
 | desktop_webview_window / crisp_chat | 品牌桌面/移动客服；本地crisp_chat兼容副本 | F17/F19/F22；窗口聚焦/销毁、原生SDK版本、Android资源；AppImage仍外部浏览器 |
-| connectivity_plus | 宿主及品牌网络观察 | F04/F13/F24；集合事件、未知/错误、桌面服务及VPN标记 |
+| connectivity_plus | 宿主及品牌网络观察 | F04/F11/F13；宿主网络事件与DNS/本地IP、品牌网络观察和IP路由联动；集合事件、未知/错误、桌面服务及VPN标记 |
 | drift / sqlite3 | 底座主库与品牌外挂库 | F06/F20/F23；schema21与schema2分别迁移、原生锁/隔离线程/备份格式 |
 | cryptography | 品牌密文及存储降级保护 | F02/F05/F06；算法/编码/tag验证和错误处理，不能仅验证能解某个样例 |
 | path_provider / shared_preferences | 共享路径和配置；品牌加归属/首次默认 | F01/F02/F05/F13/F14/F16/F17/F19/F20/F22/F24/F25；原生路径、缓存/落盘、账号与品牌隔离 |
