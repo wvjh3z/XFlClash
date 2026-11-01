@@ -351,13 +351,17 @@ class XboardSubscriptionService {
             await _discardProfile(reservedId!);
             return XbSyncOutcome.skipped;
           }
-          // saveFile/validateConfig 失败（中文字符串异常，R7.9）→ failed。
-          // #2 监测：写/校验 ClashMeta 配置失败是核心功能盲区（节点不更新），上报 Sentry。
-          SentryBootstrap.captureException(
-            e,
-            stackTrace: s,
-            where: 'subscription putProfile (saveFile/validateConfig)',
-          );
+          _retryable = e is ProfileValidationUnavailable;
+          // Reuse the existing finite retry budget and owner/revision guards.
+          // Report the real core failure when retries are exhausted; invalid
+          // configuration and filesystem errors are never re-downloaded here.
+          if (!_retryable || _retryAttempt >= _retryDelays.length) {
+            SentryBootstrap.captureException(
+              e is ProfileValidationUnavailable ? e.cause : e,
+              stackTrace: s,
+              where: 'subscription putProfile (validation/persistence)',
+            );
+          }
           return XbSyncOutcome.failed;
         }
 

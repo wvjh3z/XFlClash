@@ -154,3 +154,10 @@ Windows夹具不再带着整条锚定目录句柄执行路径File.Move：记录�
 ## v0.9.2：隔离 Widget 预检的包图与着色器（2026-10-29）
 
 出口IP定向回归首次仅复制package_config.json，Flutter在加载测试前因缺package_graph.json退出；改为在隔离副本对SDK/client执行缓存离线pub get。随后`--no-test-assets`下首个Android水波纹加载material_ui/ink_sparkle.frag失败，84项通过、1项为资源异常；IP时序测试不验水波纹，使用NoSplash测试主题，生产主题不改。需要验证字体/着色器/金图的任务应准备真实测试资产，不能套用此省略选项。测试副本按CI机制关闭setup/rust_api的build_assets，不能把该副本用于制包。静态检查使用Flutter analyze入口；Dart CLI不接受`--no-fatal-infos`，不得把命令用法错误当作源码分析结果。最终预检证据与未出包边界见当前Docs/STATUS。
+
+
+## v0.9.2订阅恢复预检：Windows占用错误码（2026-11-01）
+
+这是修复预检失败经验，不是新增Actions构建失败。Dart3.13.5真实Windows占用文件的rename可返回5，初版仅重试32/33的正控不能恢复；先排除只读/目录后纳入5有限重试，持续占用仍停止并保留旧文件。不能把旧File.copy的183当成单一占用证据。两品牌共享实现的原生正负控与VDS结果见[正式预检记录](https://github.com/wvjh3z/proxy-suite-docs/blob/main/evidence/subscription-recovery-fix-20261101/README.md)，仓库入口为[windows_profile_file_write_test.ps1](../../tool/test/windows_profile_file_write_test.ps1)。无构建/发布复验，不替代用户Windows10现场和Android真机验收。
+
+同日复核发现只包rename的重试漏掉FileShare.None独占读取锁，原生两品牌参数均读取失败32且等待0次。补修后首次读取及目标复查/rename共享三次重试预算，永久只读仍立即拒绝；22组Windows原生与133项VDS回归通过。旧失败对照和最新结果均保留在上述证据记录，不以允许读取的句柄测试替代独占读取负控。

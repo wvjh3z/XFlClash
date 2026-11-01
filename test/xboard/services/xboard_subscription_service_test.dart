@@ -58,6 +58,7 @@ class _FakePort implements ProfileSyncPort {
   int _nextId = 100;
   int fileCalls = 0;
   bool failWrites = false;
+  Object? writeError;
   Completer<void>? fileStarted;
   Completer<void>? fileGate;
   final Set<int> failingDeletes = {};
@@ -97,6 +98,9 @@ class _FakePort implements ProfileSyncPort {
     if (fileGate != null) await fileGate!.future;
     if (isSessionCurrent?.call() == false) {
       throw const ProfileSyncCancelled();
+    }
+    if (writeError != null) {
+      Error.throwWithStackTrace(writeError!, StackTrace.current);
     }
     if (failWrites) throw StateError('fixture write failure');
     profiles[id] = 'file:${yamlBytes.length}b';
@@ -436,6 +440,103 @@ void main() {
         },
       );
     }
+  }
+
+  for (final brand in ['brand_a', 'brand_b']) {
+    test(
+      '$brand transient validation recovery is bounded and keeps one profile',
+      () async {
+        final adapter = _StubAdapter((_) async => _plain(cipher));
+        final s = sut(
+          encWith(adapter),
+          flavorId: brand,
+          retryDelays: const [
+            Duration(milliseconds: 10),
+            Duration(milliseconds: 10),
+          ],
+        );
+        port.writeError = const ProfileValidationUnavailable('core not ready');
+        expect(await s.sync(), XbSyncOutcome.failed);
+        port.writeError = null;
+        s.recoverPending();
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+        expect(port.fileCalls, 2);
+        expect((await db.allRows()).length, 1);
+        await Future<void>.delayed(const Duration(milliseconds: 40));
+        expect(port.fileCalls, 2);
+      },
+    );
+    test(
+      '$brand permanent validation unavailability stops after two retries',
+      () async {
+        final s = sut(
+          encWith(_StubAdapter((_) async => _plain(cipher))),
+          flavorId: brand,
+          retryDelays: const [
+            Duration(milliseconds: 10),
+            Duration(milliseconds: 10),
+          ],
+        );
+        port.writeError = const ProfileValidationUnavailable('core not ready');
+        expect(await s.sync(), XbSyncOutcome.failed);
+        await Future<void>.delayed(const Duration(milliseconds: 160));
+        s.recoverPending();
+        await Future<void>.delayed(const Duration(milliseconds: 40));
+        expect(port.fileCalls, 3);
+      },
+    );
+    test('$brand validation retry cannot cross session or disposal', () async {
+      var revision = 1;
+      final s = sut(
+        encWith(_StubAdapter((_) async => _plain(cipher))),
+        flavorId: brand,
+        sessionRevision: () => revision,
+        retryDelays: const [Duration(milliseconds: 10)],
+      );
+      port.writeError = const ProfileValidationUnavailable('core not ready');
+      expect(await s.sync(), XbSyncOutcome.failed);
+      revision++;
+      s.recoverPending();
+      await Future<void>.delayed(const Duration(milliseconds: 40));
+      expect(port.fileCalls, 1);
+      s.dispose();
+    });
+    for (final end in ['dispose', 'token_change']) {
+      test('$brand validation retry stops on $end', () async {
+        final tokens = FakeTokenStorage(initialToken: 'tokA');
+        final s = sut(
+          encWith(_StubAdapter((_) async => _plain(cipher))),
+          flavorId: brand,
+          tokenStorage: tokens,
+          retryDelays: const [Duration(seconds: 60)],
+        );
+        port.writeError = const ProfileValidationUnavailable('core not ready');
+        expect(await s.sync(), XbSyncOutcome.failed);
+        if (end == 'dispose') {
+          s.dispose();
+        } else {
+          await tokens.writeToken('tokB');
+        }
+        s.recoverPending();
+        await Future<void>.delayed(Duration.zero);
+        expect(port.fileCalls, 1);
+      });
+    }
+    test(
+      '$brand invalid config is not treated as transient core failure',
+      () async {
+        final s = sut(
+          encWith(_StubAdapter((_) async => _plain(cipher))),
+          flavorId: brand,
+          retryDelays: const [Duration(milliseconds: 10)],
+        );
+        port.writeError = StateError('invalid configuration');
+        expect(await s.sync(), XbSyncOutcome.failed);
+        s.recoverPending();
+        await Future<void>.delayed(const Duration(milliseconds: 40));
+        expect(port.fileCalls, 1);
+      },
+    );
   }
 
   test('网络失败自动恢复且仅写一次 Profile，成功后停止重试', () async {

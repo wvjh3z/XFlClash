@@ -1,6 +1,6 @@
 /// FlClash profile 操作的反腐层端口（R7 / D62 / conventions §2.1）。
 ///
-/// 文件化订阅通过现有 Profile.saveFile 校验和落盘；直接在 service 中调用底座会让
+/// 文件化订阅通过品牌暂存写入器复用底座validateProfile并原子落盘；直接在service中调用底座会让
 /// 业务无法单测。生产端用 RiverpodProfileSyncPort，测试端注入 fake。
 library;
 
@@ -9,6 +9,15 @@ import 'dart:typed_data';
 /// 请求所属会话已经结束，端口不再提交或激活它的 Profile。
 class ProfileSyncCancelled implements Exception {
   const ProfileSyncCancelled();
+}
+
+/// Validation could not finish because the core was temporarily unavailable.
+/// The service may retry a bounded number of times while the session is current.
+class ProfileValidationUnavailable implements Exception {
+  const ProfileValidationUnavailable(this.cause);
+  final Object cause;
+  @override
+  String toString() => 'Profile validation temporarily unavailable';
 }
 
 /// profile 同步端口（封装 FlClash Profile.update / putProfile / updateProfile / del）。
@@ -25,7 +34,7 @@ abstract interface class ProfileSyncPort {
   /// `Profile.update` 的 URL 拉取，FlClash 只认明文文件）。
   ///
   /// [profileId]：已存在则原地覆写（保留 id，core 重载），null 则新建。
-  /// 返回写入的 profile id。validateConfig 失败抛中文字符串异常（同 saveFile，调用方 catch）。
+  /// 返回写入的profile id。校验拒绝抛MessageException；临时内核错误包装ProfileValidationUnavailable，调用方有限重试，其他文件/数据库错误不自动重拉订阅。
   /// [beforeWrite] durably reserves the chosen ID before any file/main DB side effect.
   /// Missing main rows reuse a supplied ID so retries keep their ownership evidence.
   /// [isSessionCurrent] 在异步校验/写盘之后、提交和激活之前重新校验会话；失效时清理
