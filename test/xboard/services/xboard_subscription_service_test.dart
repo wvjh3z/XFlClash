@@ -65,6 +65,8 @@ class _FakePort implements ProfileSyncPort {
   final List<int> deletedIds = [];
   final List<int> deactivatedIds = [];
 
+  ProfileRecoveryOwner? savedOwner, deletedOwner;
+
   @override
   Future<int> createAndPutProfile({
     required String url,
@@ -90,7 +92,9 @@ class _FakePort implements ProfileSyncPort {
     required String label,
     bool Function()? isSessionCurrent,
     Future<void> Function(int profileId)? beforeWrite,
+    ProfileRecoveryOwner? recoveryOwner,
   }) async {
+    savedOwner = recoveryOwner;
     fileCalls++;
     final id = profileId ?? _nextId++;
     await beforeWrite?.call(id);
@@ -113,7 +117,11 @@ class _FakePort implements ProfileSyncPort {
   }
 
   @override
-  Future<void> deleteProfile(int profileId) async {
+  Future<void> deleteProfile(
+    int profileId, {
+    ProfileRecoveryOwner? recoveryOwner,
+  }) async {
+    deletedOwner = recoveryOwner;
     deletedIds.add(profileId);
     if (failingDeletes.contains(profileId)) throw StateError('delete failed');
     profiles.remove(profileId);
@@ -443,6 +451,24 @@ void main() {
   }
 
   for (final brand in ['brand_a', 'brand_b']) {
+    test(
+      '$brand recovery ownership survives token replacement before logout',
+      () async {
+        final tokens = FakeTokenStorage(initialToken: 'tokA');
+        final service = sut(
+          encWith(_StubAdapter((_) async => _plain(cipher))),
+          flavorId: brand,
+          tokenStorage: tokens,
+        );
+        expect(await service.sync(), XbSyncOutcome.ok);
+        expect(port.savedOwner?.flavor, brand);
+        expect(port.savedOwner?.ownerHash, _hash('tokA'));
+        await tokens.writeToken('tokB');
+        await service.clearForSessionOwner(_hash('tokA'));
+        expect(port.deletedOwner?.flavor, brand);
+        expect(port.deletedOwner?.ownerHash, _hash('tokA'));
+      },
+    );
     test(
       '$brand transient validation recovery is bounded and keeps one profile',
       () async {

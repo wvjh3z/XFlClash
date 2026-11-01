@@ -119,7 +119,7 @@ class _UpdateDialogState extends ConsumerState<_UpdateDialog> {
       // UpdateNotAvailable / 失败 → 沿用缓存 _info（best effort）。
     }
 
-    // 按 region 排序 URL（不探活,直接传给 downloader）
+    // 新检测地区后按地区优先、组内随机并去重；冻结本轮顺序，不做下载源测活。
     final urls = await _selectUrls();
     if (!mounted) return;
     if (urls.isEmpty) {

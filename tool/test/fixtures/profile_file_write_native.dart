@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 import 'xb_profile_file_write.dart';
+import 'profile_recovery_owner.dart';
 
 Future<void> main(List<String> args) async {
   final target=File(args[1]);
@@ -9,7 +10,7 @@ Future<void> main(List<String> args) async {
   XbProfileFileWrite? write;
   int? code; bool ok=false;
   try {
-    write=await XbProfileFileWrite.create(targetPath:target.path,
+    write=await XbProfileFileWrite.create(targetPath:target.path,recoveryOwner:ProfileRecoveryOwner(target.path.contains('brand_b')?'brand_b':'brand_a','fixture-owner'),
       bytes:Uint8List.fromList('new-config'.codeUnits),ensureCurrent:(){if(!current)throw StateError('fixture session ended');},
       rename:(f,p)async{attempts++;return f.rename(p);},
       wait: (delay)async{

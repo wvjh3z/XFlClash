@@ -5,6 +5,8 @@
 library;
 
 import 'dart:typed_data';
+import 'profile_recovery_owner.dart';
+export 'profile_recovery_owner.dart';
 
 /// 请求所属会话已经结束，端口不再提交或激活它的 Profile。
 class ProfileSyncCancelled implements Exception {
@@ -45,6 +47,7 @@ abstract interface class ProfileSyncPort {
     required String label,
     bool Function()? isSessionCurrent,
     Future<void> Function(int profileId)? beforeWrite,
+    ProfileRecoveryOwner? recoveryOwner,
   });
 
   /// Stop using an owned Profile without racing its in-flight file write.
@@ -52,7 +55,10 @@ abstract interface class ProfileSyncPort {
 
   /// 删除旧账号 Profile 的持久记录和明文文件；正在使用该 Profile 时先停用。
   /// 删除失败必须抛出，调用方保留索引作为恢复线索；手动/其他账号 Profile 不受影响。
-  Future<void> deleteProfile(int profileId);
+  Future<void> deleteProfile(
+    int profileId, {
+    ProfileRecoveryOwner? recoveryOwner,
+  });
 
   /// 当前 FlClash 所有 profile id（孤儿对账用，§C）。
   List<int> currentProfileIds();

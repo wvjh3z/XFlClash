@@ -1,4 +1,6 @@
 import 'dart:io';
+import 'dart:convert';
+import 'profile_recovery_owner.dart';
 import 'dart:typed_data';
 
 /// A same-directory staged write. Never delete the destination to make room.
@@ -46,6 +48,7 @@ class XbProfileFileWrite {
     Future<void> Function(Duration)? wait,
     Future<File> Function(File, String)? rename,
     Future<Uint8List?> Function()? readTarget,
+    ProfileRecoveryOwner? recoveryOwner,
   }) async {
     ensureCurrent();
     final target = File(targetPath);
@@ -65,6 +68,20 @@ class XbProfileFileWrite {
       readTarget,
     );
     try {
+      if (recoveryOwner != null) {
+        final marker = File('${directory.path}/owner.pending');
+        await marker.writeAsString(
+          jsonEncode({
+            'schema': 1,
+            'flavor': recoveryOwner.flavor,
+            'owner': recoveryOwner.ownerHash,
+            'profile': target.uri.pathSegments.last,
+          }),
+          flush: true,
+        );
+        await marker.rename('${directory.path}/owner.json');
+      }
+      ensureCurrent();
       await operation.candidate.writeAsBytes(bytes, flush: true);
       ensureCurrent();
       return operation;
@@ -74,6 +91,84 @@ class XbProfileFileWrite {
         throw XbProfilePreparationFailure(error, cleanupError);
       }
       Error.throwWithStackTrace(error, stack);
+    }
+  }
+
+  /// Caller holds the existing flavor/owner mutation lane. Never recurse into
+  /// unclassified directories or delete another owner's recovery material.
+  static Future<void> cleanupOwned({
+    required String targetPath,
+    required ProfileRecoveryOwner owner,
+    String? excludeDirectory,
+    void Function()? ensureCurrent,
+  }) async {
+    final target = File(targetPath);
+    ensureCurrent?.call();
+    if (!await target.parent.exists()) return;
+    await for (final entity in target.parent.list(followLinks: false)) {
+      ensureCurrent?.call();
+      final name = entity.path.replaceAll('\\', '/').split('/').last;
+      if (!name.startsWith('.xb-profile-') || entity.path == excludeDirectory) {
+        continue;
+      }
+      if (await FileSystemEntity.type(entity.path, followLinks: false) !=
+          FileSystemEntityType.directory) {
+        continue;
+      }
+      final marker = File('${entity.path}/owner.json');
+      if (await FileSystemEntity.type(marker.path, followLinks: false) !=
+          FileSystemEntityType.file) {
+        continue;
+      }
+      final Object? decoded;
+      try {
+        decoded = jsonDecode(await marker.readAsString());
+      } on FormatException {
+        throw FileSystemException(
+          'Unclassified profile recovery metadata',
+          marker.path,
+        );
+      }
+      if (decoded is! Map || decoded['schema'] != 1) {
+        throw FileSystemException(
+          'Unclassified profile recovery metadata',
+          marker.path,
+        );
+      }
+      if (decoded['flavor'] != owner.flavor ||
+          decoded['owner'] != owner.ownerHash ||
+          decoded['profile'] != target.uri.pathSegments.last) {
+        continue;
+      }
+      final children = await Directory(
+        entity.path,
+      ).list(followLinks: false).toList();
+      const allowed = {'candidate.yaml', 'previous.yaml', 'owner.json'};
+      for (final child in children) {
+        final base = child.path.replaceAll('\\', '/').split('/').last;
+        if (!allowed.contains(base) ||
+            await FileSystemEntity.type(child.path, followLinks: false) !=
+                FileSystemEntityType.file) {
+          throw FileSystemException(
+            'Unexpected profile recovery entry; retained',
+            child.path,
+          );
+        }
+      }
+      // Keep ownership until all plaintext is removed; partial failures can retry.
+      for (final base in ['candidate.yaml', 'previous.yaml']) {
+        ensureCurrent?.call();
+        final file = File('${entity.path}/$base');
+        final type = await FileSystemEntity.type(file.path, followLinks: false);
+        if (type == FileSystemEntityType.notFound) continue;
+        if (type != FileSystemEntityType.file) {
+          throw FileSystemException('Recovery entry changed', file.path);
+        }
+        await file.delete();
+      }
+      ensureCurrent?.call();
+      await marker.delete();
+      await Directory(entity.path).delete();
     }
   }
 

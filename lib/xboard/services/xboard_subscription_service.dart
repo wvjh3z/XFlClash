@@ -4,7 +4,7 @@
 /// 加密订阅密文 → 解密 → 明文 ClashMeta YAML 字节 → 写 **file 型 profile** 喂 FlClash core。
 /// 链路：`getSubscribeUrl()`（拿带 token 的原订阅 URL）→ [EncryptedSubscriptionService.fetchWithFailOver]
 /// （按地区分组限并发下载 + 解密）→ [ProfileSyncPort.putFileProfile]
-/// （`Profile.saveFile` 写明文文件 + 通知 core 重载，零改上游）。
+/// （品牌暂存写入器复用底座校验，保存文件后申请 core 应用）。
 ///
 /// **不再调 checkLogin**（用户 2026-06-03 决策）：加密订阅 API 已完全绕过 IpAuth（后端插件坐实），
 /// checkLogin 的「绑出口 IP」对订阅链路失去意义 → 移除，省一次请求 + 一个 IP 名额。
@@ -310,7 +310,10 @@ class XboardSubscriptionService {
             if (!await _ownsSession(ownerHash, revision)) {
               return XbSyncOutcome.skipped;
             }
-            await _port.deleteProfile(id);
+            await _port.deleteProfile(
+              id,
+              recoveryOwner: ProfileRecoveryOwner(_flavorId, ownerHash),
+            );
             await _db.deleteByProfileId(id);
           }
           if (!await _ownsSession(ownerHash, revision)) {
@@ -319,6 +322,7 @@ class XboardSubscriptionService {
           _stage = 'write_apply_profile';
           final newId = await _port.putFileProfile(
             profileId: existingId,
+            recoveryOwner: ProfileRecoveryOwner(_flavorId, ownerHash),
             yamlBytes: result.yamlBytes!,
             label: '我的套餐',
             isSessionCurrent: () => _isCurrent(revision),
@@ -340,15 +344,15 @@ class XboardSubscriptionService {
             },
           );
           if (!await _ownsSession(ownerHash, revision)) {
-            await _discardProfile(newId);
+            await _discardProfile(newId, ownerHash);
             return XbSyncOutcome.skipped;
           }
         } on ProfileSyncCancelled {
-          if (reservedId != null) await _discardProfile(reservedId!);
+          if (reservedId != null) await _discardProfile(reservedId!, ownerHash);
           return XbSyncOutcome.skipped;
         } catch (e, s) {
           if (reservedId != null && !await _ownsSession(ownerHash, revision)) {
-            await _discardProfile(reservedId!);
+            await _discardProfile(reservedId!, ownerHash);
             return XbSyncOutcome.skipped;
           }
           _retryable = e is ProfileValidationUnavailable;
@@ -445,7 +449,10 @@ class XboardSubscriptionService {
     final failures = <int>[];
     for (final id in ids) {
       try {
-        await _port.deleteProfile(id);
+        await _port.deleteProfile(
+          id,
+          recoveryOwner: ProfileRecoveryOwner(_flavorId, ownerHash),
+        );
         await _db.deleteByProfileId(id);
       } catch (e, s) {
         failures.add(id);
@@ -488,7 +495,10 @@ class XboardSubscriptionService {
         for (final id in ids) {
           if (!await _ownsSession(owner, revision)) return;
           if (!_port.currentProfileIds().contains(id)) {
-            await _port.deleteProfile(id);
+            await _port.deleteProfile(
+              id,
+              recoveryOwner: ProfileRecoveryOwner(_flavorId, owner),
+            );
             await _db.deleteByProfileId(id);
           }
         }
@@ -545,8 +555,11 @@ class XboardSubscriptionService {
         userIdHashFromToken(token) == ownerHash;
   }
 
-  Future<void> _discardProfile(int profileId) async {
-    await _port.deleteProfile(profileId);
+  Future<void> _discardProfile(int profileId, String ownerHash) async {
+    await _port.deleteProfile(
+      profileId,
+      recoveryOwner: ProfileRecoveryOwner(_flavorId, ownerHash),
+    );
     await _db.deleteByProfileId(profileId);
   }
 }

@@ -45,7 +45,7 @@ class XbApkDownloader {
 
   /// 下载 → 安装。
   ///
-  /// [urls] — 按优先级排好的下载源列表（已按 region 排序）。
+  /// [urls] — 调用方已按地区优先、组内随机并去重的本轮固定列表；逐源失败切换，不在下载器内重排。
   /// [onProgress] — 进度回调（received, total bytes）。
   /// [cancelToken] — 取消令牌。
   ///

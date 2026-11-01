@@ -66,6 +66,7 @@ class _FakePort implements ProfileSyncPort {
     required String label,
     bool Function()? isSessionCurrent,
     Future<void> Function(int profileId)? beforeWrite,
+    ProfileRecoveryOwner? recoveryOwner,
   }) async {
     final id = profileId ?? 777;
     await beforeWrite?.call(id);
@@ -77,7 +78,10 @@ class _FakePort implements ProfileSyncPort {
   Future<void> deactivateProfile(int profileId) async {}
 
   @override
-  Future<void> deleteProfile(int profileId) async {
+  Future<void> deleteProfile(
+    int profileId, {
+    ProfileRecoveryOwner? recoveryOwner,
+  }) async {
     deleted.add(profileId);
     profiles.remove(profileId);
   }

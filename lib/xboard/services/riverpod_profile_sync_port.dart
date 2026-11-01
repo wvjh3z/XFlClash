@@ -89,6 +89,7 @@ class RiverpodProfileSyncPort implements ProfileSyncPort {
     required String label,
     bool Function()? isSessionCurrent,
     Future<void> Function(int profileId)? beforeWrite,
+    ProfileRecoveryOwner? recoveryOwner,
   }) async {
     bool sessionIsCurrent() =>
         _ref.mounted && isSessionCurrent?.call() != false;
@@ -128,6 +129,7 @@ class RiverpodProfileSyncPort implements ProfileSyncPort {
           targetPath: await _profilePath(pending.id),
           bytes: yamlBytes,
           ensureCurrent: ensureCurrent,
+          recoveryOwner: recoveryOwner,
         );
         final String message;
         try {
@@ -136,8 +138,7 @@ class RiverpodProfileSyncPort implements ProfileSyncPort {
               .validateProfile(write.candidate.path, pending.ageSecretKey);
         } on CoreMethodException catch (error) {
           ensureCurrent();
-          if (error.code == 'no_response' ||
-              error.code == 'transport_disconnected') {
+          if (error.code == 'no_response' || error.isCoreUnavailable) {
             throw ProfileValidationUnavailable(error);
           }
           rethrow;
@@ -163,7 +164,7 @@ class RiverpodProfileSyncPort implements ProfileSyncPort {
         rethrow;
       }
       if (!sessionIsCurrent()) {
-        await deleteProfile(saved.id);
+        await deleteProfile(saved.id, recoveryOwner: recoveryOwner);
         throw const ProfileSyncCancelled();
       }
       // File and row now agree. Later activation failures must not roll the
@@ -171,7 +172,7 @@ class RiverpodProfileSyncPort implements ProfileSyncPort {
       write?.commit();
       _ref.invalidate(profilesProvider);
       if (!sessionIsCurrent()) {
-        await deleteProfile(saved.id);
+        await deleteProfile(saved.id, recoveryOwner: recoveryOwner);
         throw const ProfileSyncCancelled();
       }
 
@@ -184,11 +185,19 @@ class RiverpodProfileSyncPort implements ProfileSyncPort {
             .applyProfileDebounce(silence: true);
       }
       // else: 核心未就绪 → 不触发 setup。initStatus 会在核心 ready 后用 force:true 加载。
+      if (recoveryOwner != null) {
+        await XbProfileFileWrite.cleanupOwned(
+          targetPath: await _profilePath(saved.id),
+          owner: recoveryOwner,
+          excludeDirectory: write?.directory.path,
+          ensureCurrent: ensureCurrent,
+        );
+      }
       return saved.id;
     } catch (error, stack) {
       if (!sessionIsCurrent()) {
         write?.abandonForSessionEnd();
-        await deleteProfile(pending.id);
+        await deleteProfile(pending.id, recoveryOwner: recoveryOwner);
         throw const ProfileSyncCancelled();
       }
       try {
@@ -236,10 +245,19 @@ class RiverpodProfileSyncPort implements ProfileSyncPort {
   }
 
   @override
-  Future<void> deleteProfile(int profileId) async {
+  Future<void> deleteProfile(
+    int profileId, {
+    ProfileRecoveryOwner? recoveryOwner,
+  }) async {
     await deactivateProfile(profileId);
     // 明文文件和 DB 任一步失败都抛出，服务保留外挂索引以供恢复，不能假报清理成功。
     await _deleteFile(profileId);
+    if (recoveryOwner != null) {
+      await XbProfileFileWrite.cleanupOwned(
+        targetPath: await _profilePath(profileId),
+        owner: recoveryOwner,
+      );
+    }
     await _database.profiles.remove((t) => t.id.equals(profileId));
     // 旧订阅服务可能已被认证编排 dispose。补偿删除仍完成持久化，不能再触碰其 Ref。
     if (_ref.mounted) _ref.invalidate(profilesProvider);

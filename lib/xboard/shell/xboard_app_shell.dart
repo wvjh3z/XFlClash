@@ -51,10 +51,10 @@ class _XboardAppShellState extends ConsumerState<XboardAppShell> {
   /// 各 Tab 用 keep-alive 保活（切走不重建，状态/滚动位置不丢）。
   final PageController _pager = PageController();
 
-  /// 桌面内容区嵌套 Navigator（C-分支）：子页（设置/关于/订单/购买/支付/重置）push 进此
+  /// 宽布局内容区嵌套 Navigator（C-分支）：子页（设置/关于/订单/购买/支付/重置）push 进此
   /// Navigator → 只覆盖右侧内容区，左侧 NavRail 始终保留（原型屏4-8 桌面交互）。
   /// Tab 内 `xbPush` 用 `Navigator.of(context)` 会自动解析到此 Navigator；弹窗/sheet 走
-  /// `showDialog`(useRootNavigator) 仍覆盖全屏。移动端无此 Navigator（全屏跳转，符合移动直觉）。
+  /// `showDialog`(useRootNavigator) 仍覆盖全屏。窄布局无此 Navigator；按可用宽度分流，不按操作系统分流。
   final GlobalKey<NavigatorState> _contentNavKey = GlobalKey<NavigatorState>();
 
   /// 驱动内容区 IndexedStack 当前 Tab 的通知器：NavRail 切 Tab 只更新它（重建 IndexedStack），
@@ -71,7 +71,7 @@ class _XboardAppShellState extends ConsumerState<XboardAppShell> {
   String? _nodeTargetNode;
   int _nodeTargetNonce = 0;
 
-  /// 桌面「设置」Tab 是否已被访问过（懒加载守卫）：重的原生 ToolsView 仅在用户首次切到
+  /// 宽布局「设置」Tab 是否已被访问过：品牌 XbSettingsPage 仅在用户首次切到
   /// 设置 Tab 后才构建，之后随 IndexedStack 保活。避免冷启动即构建从未打开的设置页。
   bool _desktopSettingsVisited = false;
 
@@ -120,8 +120,8 @@ class _XboardAppShellState extends ConsumerState<XboardAppShell> {
     }
   }
 
-  /// 切换到目标 Tab（统一入口）。移动端有 PageController → 横滑；
-  /// 桌面分支（嵌套 Navigator + IndexedStack）→ 先弹回内容区根，再切 index（驱动通知器）。
+  /// 切换到目标 Tab（统一入口）。窄布局有 PageController → 横滑；
+  /// 宽布局分支（嵌套 Navigator + IndexedStack）→ 先弹回内容区根，再切 index（驱动通知器）。
   void _goTo(int index) {
     // 桌面：切 Tab 前先把内容区子页栈弹回根（避免切到他 Tab 仍盖着旧子页）。
     _contentNavKey.currentState?.popUntil((r) => r.isFirst);
@@ -227,7 +227,7 @@ class _XboardAppShellState extends ConsumerState<XboardAppShell> {
 
   /// 三个 Tab 子树（含 XbErrorBoundary，R1.7：单 Tab 崩不波及内核 / 其它 Tab）。
   ///
-  /// 抽出供「移动端 PageView」与「桌面 IndexedStack」两种外壳复用（C-分支）。
+  /// 抽出供「窄布局 PageView」与「宽布局 IndexedStack」两种外壳复用（C-分支）。
   /// 不含 _KeepAliveTab：PageView 分支按需包保活；IndexedStack 天然全保活。
   List<Widget> _tabBodies(BuildContext context) {
     return [
@@ -261,7 +261,7 @@ class _XboardAppShellState extends ConsumerState<XboardAppShell> {
 
   /// 外壳骨架：按响应式视图分流（C-分支）。
   /// - 窄窗口（移动 / 桌面小窗）→ PageView + 底栏。
-  /// - 宽窗口（桌面）→ 左侧 NavRail + IndexedStack（win / mac / linux 通用）。
+  /// - 宽窗口（含 Android 横屏/平板）→ 左侧 NavRail + IndexedStack。
   Widget _buildScaffold(BuildContext context) {
     final isMobile = ref.watch(xbIsMobileViewProvider);
     return isMobile
@@ -269,7 +269,7 @@ class _XboardAppShellState extends ConsumerState<XboardAppShell> {
         : _buildDesktopScaffold(context);
   }
 
-  /// 移动端外壳：body 用 PageView 横向滑动切换（点底栏 animateToPage / 手指左右滑）。
+  /// 窄布局外壳：body 用 PageView 横向滑动切换（点底栏 animateToPage / 手指左右滑）。
   /// 每个 Tab 用 _KeepAliveTab 保活（切走不 dispose，状态/滚动位置不丢，等价原 IndexedStack）。
   Widget _buildMobileScaffold(BuildContext context) {
     final bodies = _tabBodies(context);
@@ -292,9 +292,9 @@ class _XboardAppShellState extends ConsumerState<XboardAppShell> {
     );
   }
 
-  /// 桌面外壳：左侧 NavRail（4 项 + 账户芯片 + 版本）+ 内容区嵌套 Navigator（C-分支）。
-  /// 内容区根路由 = IndexedStack（三 Tab + 设置 ToolsView）；子页 push 进此 Navigator →
-  /// 只覆盖内容区、NavRail 保留（原型屏4-8）。第 4 Tab「设置」= 内嵌原生 ToolsView（加而不改）。
+  /// 宽布局外壳：左侧 NavRail（4 项 + 账户芯片 + 版本）+ 内容区嵌套 Navigator（C-分支）。
+  /// 内容区根路由 = IndexedStack（三 Tab + 品牌设置页）；子页 push 进此 Navigator →
+  /// 只覆盖内容区、NavRail 保留（原型屏4-8）。第 4 Tab「设置」为 XbSettingsPage 嵌入态。
   Widget _buildDesktopScaffold(BuildContext context) {
     return Scaffold(
       body: SafeArea(

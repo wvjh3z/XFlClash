@@ -7,7 +7,9 @@ $dart=$DartExecutable
 if(-not (Test-Path -LiteralPath $dart)){throw 'Set DartExecutable to an existing Dart SDK executable'}
 $script=Join-Path $root 'copy_probe.dart'
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'fixtures/profile_file_write_native.dart') -Destination $script
+Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'fixtures/profile_recovery_native.dart') -Destination (Join-Path $root 'profile_recovery_native.dart')
 $rows=@()
+Copy-Item -LiteralPath (Join-Path $PSScriptRoot '../../lib/xboard/services/profile_recovery_owner.dart') -Destination (Join-Path $root 'profile_recovery_owner.dart')
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot '../../lib/xboard/services/xb_profile_file_write.dart') -Destination (Join-Path $root 'xb_profile_file_write.dart')
 foreach($brand in @('brand_a','brand_b')) {
  foreach($case in @('new','existing','read_only','held_no_delete','held_allow_delete','released_during_wait','exclusive_read','released_read','cancel_read','directory')) {
@@ -78,4 +80,23 @@ foreach($row in $rows) {
   if($case -in @('read_only','directory') -and ($r.attempts -ne 0 -or $r.waits -ne 0)){throw 'UNSAFE_RETRY'}
  }
 }
-[pscustomobject]@{os=[Environment]::OSVersion.Version.ToString();dart=(& $dart --version | Out-String).Trim();results=$rows} | ConvertTo-Json -Depth 6
+$recoveryRows=@()
+foreach($brand in @('brand_a','brand_b')) {
+ $dir=Join-Path $root ($brand+'-recovery')
+ $probe=Join-Path $root 'profile_recovery_native.dart'
+ $prepared=(& $dart $probe prepare $dir $brand | Out-String | ConvertFrom-Json)
+ if($LASTEXITCODE -ne 0){throw 'RECOVERY_PREPARE_FAILED'}
+ $handle=[IO.File]::Open((Join-Path $prepared.directory 'candidate.yaml'),[IO.FileMode]::Open,[IO.FileAccess]::ReadWrite,[IO.FileShare]::None)
+ try {
+  $r=(& $dart $probe cleanup $dir $brand | Out-String | ConvertFrom-Json)
+  if($LASTEXITCODE -ne 0 -or $r.ok -or $r.directories -ne 1 -or -not $r.markers[0] -or -not $r.old_preserved){throw 'RECOVERY_FAILURE_LOST_OWNERSHIP'}
+  $recoveryRows += [pscustomobject]@{brand=$brand;phase='blocked';result=$r}
+ }finally{$handle.Dispose()}
+ $r=(& $dart $probe cleanup $dir $brand other | Out-String | ConvertFrom-Json)
+ if($LASTEXITCODE -ne 0 -or -not $r.ok -or $r.directories -ne 1 -or -not $r.markers[0]){throw 'RECOVERY_OWNER_ISOLATION_FAILED'}
+ $recoveryRows += [pscustomobject]@{brand=$brand;phase='other_owner';result=$r}
+ $r=(& $dart $probe cleanup $dir $brand | Out-String | ConvertFrom-Json)
+ if($LASTEXITCODE -ne 0 -or -not $r.ok -or $r.directories -ne 0 -or -not $r.old_preserved){throw 'RECOVERY_RETRY_FAILED'}
+ $recoveryRows += [pscustomobject]@{brand=$brand;phase='released';result=$r}
+}
+[pscustomobject]@{recovery_results=$recoveryRows;os=[Environment]::OSVersion.Version.ToString();dart=(& $dart --version | Out-String).Trim();results=$rows} | ConvertTo-Json -Depth 6
