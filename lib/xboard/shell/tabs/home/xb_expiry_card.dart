@@ -6,7 +6,7 @@
 /// - 剩余 >7 天 / 长期有效（expiredAt==null）/ 游客 → 不显示
 ///
 /// 数据源：复用 `userProfileProvider`（订阅同步已在冷启动 + 24h 节流刷新，无需额外网络检测）。
-/// 点击「去续费」→ 调 [onTapRenew]（shell 注入，跳「我的」Tab 让用户续费当前套餐）。
+/// 点击「去续费」→ 调 [onTapRenew]（可注入测试回调；生产默认直接打开当前套餐续费页）。
 library;
 
 import 'package:material_ui/material_ui.dart';
@@ -14,13 +14,14 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:fl_clash/xboard/providers/auth_state_provider.dart';
 import 'package:fl_clash/xboard/providers/user_profile_provider.dart';
-import 'package:fl_clash/xboard/widgets/xb_theme.dart' show XbTokens;
+import '../../../widgets/xb_plan_notice_card.dart';
+import '../../../navigation/plan_navigation.dart';
 
 /// 到期提醒卡。
 class XbExpiryCard extends ConsumerWidget {
   const XbExpiryCard({super.key, this.onTapRenew, this.centered = false});
 
-  /// 点「去续费」→ 跳「我的」Tab（shell 注入）。
+  /// 点「去续费」→ 直接打开续费页（可注入回调）。
   final VoidCallback? onTapRenew;
 
   /// 桌面态（原型 `.expirecard{width:fit-content;margin:0 auto}`）：按内容宽度收窄并居中，
@@ -48,98 +49,17 @@ class XbExpiryCard extends ConsumerWidget {
     if (!expired && diff.inDays > 7) return const SizedBox.shrink();
 
     final urgent = expired || diff <= const Duration(days: 3);
-    final scheme = Theme.of(context).colorScheme;
-    final t = XbTokens.of(context);
-    final accent = urgent ? XbTokens.bad : XbTokens.warn;
 
     final (title, desc) = _texts(expired, diff);
 
-    final textCol = Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Text(
-          title,
-          style: TextStyle(
-            fontSize: 13,
-            fontWeight: FontWeight.w600,
-            color: t.on,
-          ),
-        ),
-        const SizedBox(height: 1),
-        Text(
-          desc,
-          style: TextStyle(fontSize: 11, color: scheme.onSurfaceVariant),
-        ),
-      ],
-    );
-
-    final card = Material(
-        color: Colors.transparent,
-        borderRadius: BorderRadius.circular(XbTokens.rMd),
-        child: InkWell(
-          onTap: onTapRenew,
-          borderRadius: BorderRadius.circular(XbTokens.rMd),
-          child: Ink(
-            decoration: BoxDecoration(
-              color: Color.alphaBlend(
-                  accent.withValues(alpha: 0.10), scheme.surface),
-              border: Border.all(color: accent.withValues(alpha: 0.32)),
-              borderRadius: BorderRadius.circular(XbTokens.rMd),
-            ),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 10),
-              child: Row(
-                // 桌面 fit-content → min（横幅按内容收窄）；移动全宽 → max。
-                mainAxisSize: centered ? MainAxisSize.min : MainAxisSize.max,
-                children: [
-                  // 图标方块
-                  Container(
-                    width: 34,
-                    height: 34,
-                    decoration: BoxDecoration(
-                      color: accent.withValues(alpha: 0.16),
-                      borderRadius: BorderRadius.circular(XbTokens.rSm),
-                    ),
-                    child: Icon(
-                      expired ? Icons.error_outline : Icons.schedule,
-                      size: 19,
-                      color: accent,
-                    ),
-                  ),
-                  const SizedBox(width: 11),
-                  // 标题 + 描述：全宽态 Expanded（把按钮顶到右缘）；居中态 Flexible（按内容收窄）。
-                  centered
-                      ? Flexible(fit: FlexFit.loose, child: textCol)
-                      : Expanded(child: textCol),
-                  const SizedBox(width: 10),
-                  // 去续费按钮
-                  Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                    decoration: BoxDecoration(
-                      color: accent,
-                      borderRadius: BorderRadius.circular(XbTokens.rSm),
-                    ),
-                    child: const Text(
-                      '去续费',
-                      style: TextStyle(
-                        fontSize: 12.5,
-                        fontWeight: FontWeight.w600,
-                        color: Colors.white,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      );
-
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 13),
-      child: centered ? Align(alignment: Alignment.center, child: card) : card,
+    return XbPlanNoticeCard(
+      title: title,
+      desc: desc,
+      icon: expired ? Icons.error_outline : Icons.schedule,
+      urgent: urgent,
+      actionLabel: '去续费',
+      centered: centered,
+      onTap: onTapRenew ?? () => openCurrentPlanRenew(context, ref),
     );
   }
 

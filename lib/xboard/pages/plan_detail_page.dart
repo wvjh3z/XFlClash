@@ -180,7 +180,7 @@ class _PlanDetailPageState extends ConsumerState<PlanDetailPage> {
     return save > 0 ? save : null;
   }
 
-  /// 可购买周期（排除流量重置包 resetTraffic —— 重置包只在账号卡按需购买，不在下单页选）。
+  /// 可购买周期（排除流量重置包 resetTraffic —— 重置包从首页流量提醒进入购买，不在下单页选）。
   List<PricePlan> get _purchasablePrices =>
       plan.prices
           .where(

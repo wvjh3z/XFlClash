@@ -1,7 +1,7 @@
 /// R8 流量重置包购买页：当前套餐流量用尽（≥90%）时，单独购买一次流量重置。
 ///
 /// **数据源**：反腐层 `getPlans()`（取当前 planId 的 resetTraffic 价）+ `createOrder()`。
-/// 流量重置包不在常规下单页（plan_detail）出现 —— 仅当账号卡触发（用量 ≥ 90%）时进入。
+/// 流量重置包不在常规下单页（plan_detail）出现 —— 从首页流量提醒（用量 ≥ 90%）进入。
 /// 下单成功（`createOrder(planId, resetTraffic)`）→ 跳 [OrderPaymentPage] 选支付方式。
 library;
 
@@ -20,6 +20,9 @@ import '../models/xb_result.dart';
 import '../models/xb_domain_error.dart';
 import 'order_list_page.dart';
 import '../providers/xboard_providers.dart';
+import '../providers/auth_state_provider.dart';
+import '../sdk/xboard_service.dart';
+import '../services/sentry_bootstrap.dart';
 import '../shell/widgets/xb_responsive.dart';
 import '../util/error_text.dart';
 import '../util/format.dart';
@@ -48,10 +51,31 @@ class _ResetTrafficPageState extends ConsumerState<ResetTrafficPage> {
   bool _retrying = false; // 重试中 → 顶部「正在刷新服务」黄条
   bool _submitting = false;
   int _loadGeneration = 0;
+  late final XboardService _ownerService;
+  late final int _ownerRevision;
+
+  bool get _ownerCurrent =>
+      mounted &&
+      ref.read(authStateProvider) == AuthState.authenticated &&
+      ref.read(authStateProvider.notifier).sessionRevision == _ownerRevision &&
+      identical(ref.read(xboardServiceProvider), _ownerService);
+
+  bool _discardInvalidOwner() {
+    if (_ownerCurrent) return false;
+    if (mounted) {
+      setState(() {
+        _loading = false;
+        _retrying = false;
+      });
+    }
+    return true;
+  }
 
   @override
   void initState() {
     super.initState();
+    _ownerService = ref.read(xboardServiceProvider);
+    _ownerRevision = ref.read(authStateProvider.notifier).sessionRevision;
     _load();
   }
 
@@ -68,7 +92,7 @@ class _ResetTrafficPageState extends ConsumerState<ResetTrafficPage> {
   }
 
   Future<void> _load({bool retry = false}) async {
-    if (!mounted) return;
+    if (!_ownerCurrent) return;
     final generation = ++_loadGeneration;
     final planId = widget.planId;
     setState(() {
@@ -78,8 +102,30 @@ class _ResetTrafficPageState extends ConsumerState<ResetTrafficPage> {
       _plan = null;
       _resetPrice = null;
     });
-    final result = await ref.read(xboardServiceProvider).getPlans();
-    if (!mounted || generation != _loadGeneration || planId != widget.planId) {
+    XbResult<List<PlanItem>> result;
+    try {
+      result = await _ownerService.getPlans();
+    } catch (error, stack) {
+      if (_discardInvalidOwner() ||
+          generation != _loadGeneration ||
+          planId != widget.planId) {
+        return;
+      }
+      SentryBootstrap.captureException(
+        error,
+        stackTrace: stack,
+        where: 'reset traffic plans',
+      );
+      setState(() {
+        _loading = false;
+        _retrying = false;
+        _loadError = const XbUnexpected('getPlans', '加载失败，请重试');
+      });
+      return;
+    }
+    if (_discardInvalidOwner() ||
+        generation != _loadGeneration ||
+        planId != widget.planId) {
       return;
     }
     switch (result) {
@@ -118,6 +164,18 @@ class _ResetTrafficPageState extends ConsumerState<ResetTrafficPage> {
 
   @override
   Widget build(BuildContext context) {
+    ref.watch(authStateProvider);
+    ref.watch(xboardServiceProvider);
+    if (!_ownerCurrent) {
+      return const XbBrandScaffold(
+        title: '购买流量重置包',
+        body: XbEmptyState(
+          icon: Icons.lock_outline,
+          title: '账号状态已变化',
+          description: '请返回后重新打开流量重置页。',
+        ),
+      );
+    }
     // 桌面（原型屏37）：内容单列居中限宽 560 + 提交按钮内联列底；窄屏维持固定底栏。
     final wide = xbIsDesktopWidth(MediaQuery.sizeOf(context).width);
     return XbBrandScaffold(
@@ -230,12 +288,35 @@ class _ResetTrafficPageState extends ConsumerState<ResetTrafficPage> {
   }
 
   Future<void> _submitOrder() async {
-    if (_submitting) return;
+    if (!mounted ||
+        _submitting ||
+        _loading ||
+        _loadError != null ||
+        _resetPrice == null) {
+      return;
+    }
+    if (!_ownerCurrent) {
+      setState(
+        () {},
+      ); // A session revision can change before another frame is painted.
+      return;
+    }
+    final service = _ownerService;
+    final revision = _ownerRevision;
+    final planId = widget.planId;
+    bool current() =>
+        _ownerCurrent &&
+        widget.planId == planId &&
+        ref.read(authStateProvider.notifier).sessionRevision == revision &&
+        identical(ref.read(xboardServiceProvider), service);
     setState(() => _submitting = true);
     try {
-      final result = await ref
-          .read(xboardServiceProvider)
-          .createOrder(widget.planId, XbPlanPeriod.resetTraffic);
+      if (!current()) return;
+      final result = await service.createOrder(
+        planId,
+        XbPlanPeriod.resetTraffic,
+      );
+      if (!current()) return;
       switch (result) {
         case XbSuccess(:final data):
           if (!mounted) return;
@@ -264,6 +345,23 @@ class _ResetTrafficPageState extends ConsumerState<ResetTrafficPage> {
           }
           xbToastSafe('提交订单失败：${resolveErrorText(error, fallback: '请稍后重试')}');
       }
+    } catch (error, stack) {
+      // Unexpected transport exceptions may follow a server-side write. Never replay.
+      if (!mounted || !current()) return;
+      SentryBootstrap.captureException(
+        error,
+        stackTrace: stack,
+        where: 'reset traffic order',
+      );
+      xbToastSafe('订单结果暂未确认，请前往订单记录核对，勿重复提交。');
+      unawaited(
+        xbPush(
+          context,
+          const OrderListPage(),
+          brandColor: xbBrandColor(),
+          replace: true,
+        ),
+      );
     } finally {
       if (mounted) setState(() => _submitting = false);
     }

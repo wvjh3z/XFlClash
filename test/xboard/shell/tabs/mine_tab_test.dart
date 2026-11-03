@@ -489,13 +489,14 @@ void main() {
     expect(find.text('流量重置'), findsNothing);
   });
 
-  testWidgets('用量 ≥90% → 显示流量重置入口（R6.3）', (tester) async {
+  testWidgets('用量 ≥90% → 我的不重复显示首页流量提醒', (tester) async {
     await pumpMine(
       tester,
       auth: AuthState.authenticated,
       sub: _sub(total: 100 * gb, used: 95 * gb),
     );
-    expect(find.text('流量重置'), findsOneWidget);
+    expect(find.text('流量重置'), findsNothing);
+    expect(find.textContaining('流量即将用尽'), findsNothing);
   });
 
   testWidgets('已订阅 → 续费 + 购买/更改套餐双入口（R6.4-R6.6）', (tester) async {

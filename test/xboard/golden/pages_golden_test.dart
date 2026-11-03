@@ -259,7 +259,7 @@ void main() {
     await pump(
       t,
       ProviderScope(
-        overrides: [xboardServiceProvider.overrideWithValue(svc)],
+        overrides: [authStateProvider.overrideWith(_FakeAuth.new), xboardServiceProvider.overrideWithValue(svc)],
         child: app(const ResetTrafficPage(planId: 1, planName: '标准套餐')),
       ),
     );

@@ -10,11 +10,17 @@ import 'package:fl_clash/xboard/models/xb_domain_error.dart';
 import 'package:fl_clash/xboard/models/xb_result.dart';
 import 'package:fl_clash/xboard/pages/reset_traffic_page.dart';
 import 'package:fl_clash/xboard/providers/xboard_providers.dart';
+import 'package:fl_clash/xboard/providers/auth_state_provider.dart';
 import 'package:fl_clash/xboard/providers/pending_order_provider.dart';
 import 'package:fl_clash/xboard/sdk/xboard_service.dart';
 import 'package:fl_clash/xboard/widgets/xb_async_view.dart';
 
 class _Service extends Mock implements XboardService {}
+
+class _Auth extends AuthStateNotifier {
+  @override
+  AuthState build() => AuthState.authenticated;
+}
 
 const _failed = XbFailure<List<PlanItem>>(
   XbNetwork(XbNetworkKind.timeout, 'fixture timeout'),
@@ -37,6 +43,7 @@ void main() {
     ]) {
       for (final scenario in [
         'success',
+        'initial-throw',
         'unsupported',
         'dispose-success',
         'dispose-failure',
@@ -71,6 +78,7 @@ void main() {
           await tester.pumpWidget(
             ProviderScope(
               overrides: [
+                authStateProvider.overrideWith(_Auth.new),
                 xboardServiceProvider.overrideWithValue(service),
                 pendingOrderProvider.overrideWith((ref) async => null),
               ],
@@ -81,7 +89,11 @@ void main() {
             ),
           );
           await tester.pump();
-          pending[0].complete(_failed);
+          if (scenario == 'initial-throw') {
+            pending[0].completeError(StateError('fixture load exception'));
+          } else {
+            pending[0].complete(_failed);
+          }
           await tester.pumpAndSettle();
           expect(find.text('重试'), findsOneWidget);
           final retry = tester

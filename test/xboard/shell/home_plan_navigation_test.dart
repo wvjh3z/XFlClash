@@ -1,0 +1,157 @@
+import 'dart:async';
+import 'package:mocktail/mocktail.dart';
+import 'package:fl_clash/xboard/models/plan_item.dart';
+import 'package:fl_clash/xboard/models/xb_result.dart';
+import 'package:fl_clash/xboard/sdk/xboard_service.dart';
+import 'package:fl_clash/xboard/pages/plan_detail_page.dart';
+import 'package:fl_clash/xboard/pages/reset_traffic_page.dart';
+import 'package:fl_clash/xboard/shell/tabs/home/xb_traffic_notice.dart';
+
+/// 真实首页套餐入口：两品牌窄/宽布局直达续费与重置页，
+/// 左侧 NavRail **仍可见**（不再全屏跳转盖掉 NavRail）；返回后回到「我的」。
+
+import 'package:material_ui/material_ui.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_test/flutter_test.dart';
+
+import 'package:fl_clash/enum/enum.dart';
+import 'package:fl_clash/models/models.dart'
+    show PatchClashConfig, Group, Proxy, ProxiesTabState;
+import 'package:fl_clash/providers/app.dart';
+import 'package:fl_clash/providers/config.dart';
+import 'package:fl_clash/providers/state.dart';
+import 'package:fl_clash/providers/providers.dart'
+    show selectedMapProvider, groupsProvider, currentProfileProvider;
+import 'package:fl_clash/xboard/config/xboard_config.dart';
+import 'package:fl_clash/xboard/models/xb_domain_subscription.dart';
+import 'package:fl_clash/xboard/providers/auth_state_provider.dart';
+import 'package:fl_clash/xboard/providers/user_profile_provider.dart';
+import 'package:fl_clash/xboard/providers/xboard_providers.dart'
+    show bootstrapReadyProvider, xboardServiceProvider;
+import 'package:fl_clash/xboard/shell/xboard_app_shell.dart';
+import 'package:fl_clash/xboard/shell/widgets/xb_nav_rail.dart';
+
+import '_net_detection_stub.dart';
+
+class _FakeAuth extends AuthStateNotifier {
+  _FakeAuth(this._initial);
+  final AuthState _initial;
+  @override
+  AuthState build() => _initial;
+}
+
+class _Service extends Mock implements XboardService {}
+
+void main() {
+  setUp(() => Future<void>.delayed(const Duration(milliseconds: 550)));
+  for (final brand in ['brand_a', 'brand_b']) {
+    for (final mobile in [true, false]) {
+      for (final action in ['去续费', '重置流量']) {
+        testWidgets('$brand mobile=$mobile actual shell $action', (t) async {
+          t.view.physicalSize = Size(mobile ? 390 : 1280, 1000);
+          t.view.devicePixelRatio = 1.0;
+          addTearDown(t.view.resetPhysicalSize);
+          addTearDown(t.view.resetDevicePixelRatio);
+
+          XboardConfig.bind(
+            XboardConfig(
+              flavorId: brand,
+              appName: brand,
+              subscribeUserAgent: 'x',
+              devApiEndpoint: 'https://x',
+              devSubscriptionEndpoint: 'https://x',
+              debug: false,
+              kIsTest: true,
+              formA: true,
+            ),
+          );
+          addTearDown(XboardConfig.resetForTest);
+
+          const groups = [
+            Group(
+              type: GroupType.URLTest,
+              name: '优选',
+              now: 'a',
+              all: [Proxy(name: 'a', type: 'ss')],
+            ),
+          ];
+          final service = _Service();
+          when(
+            () => service.getPlans(),
+          ).thenAnswer((_) => Completer<XbResult<List<PlanItem>>>().future);
+          final container = ProviderContainer(
+            overrides: [
+              xboardServiceProvider.overrideWithValue(service),
+              isMobileViewProvider.overrideWith((ref) => mobile),
+              authStateProvider.overrideWith(
+                () => _FakeAuth(AuthState.authenticated),
+              ),
+              isStartProvider.overrideWith((ref) => true),
+              proxiesTabStateProvider.overrideWith(
+                (ref) => const ProxiesTabState(
+                  groups: groups,
+                  currentGroupName: '优选',
+                  proxyCardType: ProxyCardType.standard,
+                ),
+              ),
+              netDetectionOverride(),
+              userProfileProvider.overrideWith(
+                (ref) => Future.value(
+                  XbDomainSubscription(
+                    email: 'u@e.com',
+                    uuid: 'x',
+                    planName: '标准套餐 · VIP',
+                    totalBytes: 250 * 1024 * 1024 * 1024,
+                    usedBytes: 240 * 1024 * 1024 * 1024,
+                    expiredAt: DateTime(2026, 7, 1),
+                    planId: 1,
+                  ),
+                ),
+              ),
+              groupsProvider.overrideWithValue(groups),
+              selectedMapProvider.overrideWith((ref) => const {'优选': 'a'}),
+              currentProfileProvider.overrideWith((ref) => null),
+              patchClashConfigProvider.overrideWithBuild(
+                (ref, _) => const PatchClashConfig(mode: Mode.rule),
+              ),
+            ],
+          );
+          addTearDown(container.dispose);
+          container.read(bootstrapReadyProvider.notifier).set(true);
+          container.read(coreStatusProvider.notifier).value =
+              CoreStatus.connected;
+
+          final eb = ErrorWidget.builder;
+          await t.pumpWidget(
+            UncontrolledProviderScope(
+              container: container,
+              child: const MaterialApp(home: XboardAppShell()),
+            ),
+          );
+          await t.pump();
+          await t.pump(const Duration(milliseconds: 400));
+          expect(find.byType(XbTrafficNotice), findsOneWidget);
+          expect(find.textContaining('已用 96.0%'), findsOneWidget);
+          await t.tap(find.text(action));
+          await t.pump();
+          await t.pump(const Duration(milliseconds: 400));
+          if (action == '去续费') {
+            expect(find.byType(PlanRenewLoader), findsOneWidget);
+            expect(
+              t.widget<PlanRenewLoader>(find.byType(PlanRenewLoader)).planId,
+              1,
+            );
+          } else {
+            expect(find.byType(ResetTrafficPage), findsOneWidget);
+            expect(
+              t.widget<ResetTrafficPage>(find.byType(ResetTrafficPage)).planId,
+              1,
+            );
+          }
+          if (!mobile) expect(find.byType(XbNavRail), findsOneWidget);
+          ErrorWidget.builder = eb;
+        });
+      }
+    }
+  }
+}

@@ -129,6 +129,8 @@
 <a id="f07"></a>
 ### F07 套餐、订单和支付
 
+**首页提醒与续费入口（2026-11-04）**：品牌自有[流量提醒](../../lib/xboard/shell/tabs/home/xb_traffic_notice.dart)、[共享卡片](../../lib/xboard/widgets/xb_plan_notice_card.dart)及[套餐导航](../../lib/xboard/navigation/plan_navigation.dart)复用F24账号资料；首页90/95/100提醒，“我的”旧提醒移除，首页续费直达；点击重读当前账号；重置目标页另绑定原会话/服务并过滤迟到加载及下单结果，源码预检见[重置页记录](https://github.com/wvjh3z/proxy-suite-docs/blob/main/evidence/reset-traffic-session-20261104/README.md)，回归见[reset_traffic_session_test](../../test/xboard/pages/reset_traffic_session_test.dart)。契约见[首页套餐与流量提醒](https://github.com/wvjh3z/proxy-suite-docs/blob/main/CONTRACTS.md#首页套餐与流量提醒)。新增回归[提醒与周期](../../test/xboard/shell/tabs/xb_traffic_notice_test.dart)、[真实Shell导航](../../test/xboard/shell/home_plan_navigation_test.dart)，无底座接缝；实际预检和待出包边界统一见STATUS。
+
 **缺口关联**：UB-GAP-06，当前进度和关闭条件见本文缺口索引所指STATUS。
 
 - **归类／要求**：自有业务+复用二维码渲染。QrCodeView采用白底、四格留白，超长内容回退SelectableText；该组件后续变化按直接复用核对。维护约束：提交基于原会话/原服务，写请求不盲目重发；返回浏览器不等于支付成功。用户要求：兼容当前Xboard新金额字段并保留真实异常上报。 决定出处：REQ-API（见文末）。

@@ -236,7 +236,6 @@ class _XboardAppShellState extends ConsumerState<XboardAppShell> {
         child: HomeTab(
           onTapToNodes: _onTapToNodes,
           onTapLogin: () => showLoginSheet(context),
-          onTapRenew: () => _goTo(2),
         ),
       ),
       XbErrorBoundary(

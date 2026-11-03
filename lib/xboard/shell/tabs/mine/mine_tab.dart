@@ -1,7 +1,7 @@
 /// 形态 A 我的 Tab（spec `xboard-form-a-ui-revamp` / W4.3·W4.4·W4.5 / R6.1-R6.11）。
 ///
 /// 组装：账号卡（W4.3，复用形态 B `userProfileProvider`，F14 先 gate authState）+ 续费/购买
-/// 分流（W4.4，R6.4-R6.6）+ 流量重置入口（用量 ≥90% 才显示，R6.3）+ 设置入口（W4.5，经
+/// 分流（W4.4，R6.4-R6.6）（流量预警入口已移至首页）+ 设置入口（W4.5，经
 /// `XbNativePageAdapter` push 原生 ToolsView，R6.8）+ 退出登录（◇ 复用形态 B logout 编排，R6.11）。
 ///
 /// **复用边界**：账户/套餐/订单/支付/登出全链路 = ◇ **复用形态 B `lib/xboard/`**（自有代码，
@@ -23,9 +23,8 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:fl_clash/xboard/models/xb_domain_subscription.dart';
 import 'package:fl_clash/xboard/pages/invite_commission_page.dart';
 import 'package:fl_clash/xboard/pages/order_list_page.dart';
-import 'package:fl_clash/xboard/pages/plan_detail_page.dart';
 import 'package:fl_clash/xboard/pages/plan_list_page.dart';
-import 'package:fl_clash/xboard/pages/reset_traffic_page.dart';
+import 'package:fl_clash/xboard/navigation/plan_navigation.dart';
 import 'package:fl_clash/xboard/pages/share_friend_page.dart';
 import 'package:fl_clash/xboard/pages/tutorial_list_page.dart';
 import 'package:fl_clash/xboard/providers/auth_state_provider.dart';
@@ -48,7 +47,7 @@ import '../../widgets/xb_content_header.dart';
 import '../../widgets/xb_responsive.dart';
 import 'xb_settings_page.dart';
 
-/// 用量达此比例才显示「流量重置」入口（R6.3）。
+/// 账号卡用量达到此比例时强调进度；提醒与重置入口位于首页。
 const _resetThreshold = 0.90;
 
 /// 「我的」双栏布局：可用宽 ≥ [XbBreakpoints.desktop] 才双栏（策略见 xb_responsive）。
@@ -150,7 +149,7 @@ class _MineTabState extends ConsumerState<MineTab> with XbRefreshThrottleGuard {
                   large: isDesktop,
                 );
 
-          // 宽窗口双栏（C-分支，原型对齐）：左=信息卡/按钮/重置 + 账户组；右=应用组。
+          // 宽窗口双栏（C-分支，原型对齐）：左=信息卡/按钮 + 账户组；右=应用组。
           if (isDesktop) {
             return Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -316,7 +315,7 @@ class _RefreshButton extends StatelessWidget {
   }
 }
 
-/// 已登录账号区：账号卡（loading 骨架 / data）+ 续费购买分流 + 重置入口。
+/// 已登录账号区：账号卡（loading 骨架 / data）+ 续费购买分流。
 class _AccountSection extends ConsumerStatefulWidget {
   const _AccountSection({required this.active, this.now, this.large = false});
 
@@ -672,7 +671,7 @@ class _InfoRow extends StatelessWidget {
   }
 }
 
-/// 续费/购买分流（R6.4/R6.5/R6.6）+ 流量重置入口（≥90%，R6.3）。
+/// 续费/购买分流（R6.4/R6.5/R6.6）（流量提醒已移至首页）。
 class _PlanActions extends ConsumerWidget {
   const _PlanActions({required this.sub, this.large = false});
 
@@ -683,11 +682,6 @@ class _PlanActions extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final usedPct = sub.totalBytes == 0
-        ? 0.0
-        : (sub.usedBytes / sub.totalBytes).clamp(0.0, 1.0);
-    final pctInt = (usedPct * 100).round();
-    final showReset = usedPct >= _resetThreshold && sub.planId != null;
     final scheme = Theme.of(context).colorScheme;
 
     return Column(
@@ -700,7 +694,7 @@ class _PlanActions extends ConsumerWidget {
               if (!sub.hasNoPlan)
                 Expanded(
                   child: FilledButton(
-                    onPressed: () => _openRenew(context),
+                    onPressed: () => openCurrentPlanRenew(context, ref),
                     style: FilledButton.styleFrom(
                       textStyle: const TextStyle(
                         fontSize: 14,
@@ -738,11 +732,6 @@ class _PlanActions extends ConsumerWidget {
             ],
           ),
         ),
-        // 流量重置告警卡（原型 .resetcard，仅 ≥90% 显示）。
-        if (showReset) ...[
-          const SizedBox(height: 11),
-          _ResetCard(pctInt: pctInt, onTap: () => _openReset(context, sub)),
-        ],
       ],
     );
   }
@@ -750,120 +739,6 @@ class _PlanActions extends ConsumerWidget {
   // ◇ 复用形态 B 套餐页（不经 adapter）。
   void _openPlans(BuildContext context) {
     xbPush(context, const PlanListPage(), brandColor: xbBrandColor());
-  }
-
-  /// 续费当前套餐（R6.4）：与「购买/更改」走同一模式——**立即跳转**，由 [PlanRenewLoader]
-  /// 自己拉套餐 + 锁定当前套餐 + 转圈（XbAsyncView），交互统一（不在本页预拉 + 弹遮罩）。
-  void _openRenew(BuildContext context) {
-    final id = sub.planId;
-    if (id == null) {
-      // 异常：有套餐但无 planId → 回退购买/更改列表。
-      xbPush(context, const PlanListPage(), brandColor: xbBrandColor());
-      return;
-    }
-    xbPush(context, PlanRenewLoader(planId: id), brandColor: xbBrandColor());
-  }
-
-  void _openReset(BuildContext context, XbDomainSubscription sub) {
-    xbPush(
-      context,
-      ResetTrafficPage(planId: sub.planId!, planName: sub.planName),
-      brandColor: xbBrandColor(),
-    );
-  }
-}
-
-/// 流量重置告警卡（原型 .resetcard，仅用量 ≥90% 显示，R6.3）。
-class _ResetCard extends StatelessWidget {
-  const _ResetCard({required this.pctInt, required this.onTap});
-
-  final int pctInt;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    // 告警色：原型 .resetcard 用 --warn 琥珀（非品牌红/error 红）。
-    const warn = XbTokens.warn;
-    final cardBg = Color.alphaBlend(
-      warn.withValues(alpha: 0.10),
-      scheme.surfaceContainerLowest,
-    );
-    return Material(
-      color: cardBg,
-      borderRadius: BorderRadius.circular(XbTokens.rMd),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(XbTokens.rMd),
-        child: Container(
-          padding: const EdgeInsets.fromLTRB(13, 10, 13, 10),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(XbTokens.rMd),
-            border: Border.all(color: warn.withValues(alpha: 0.32)),
-          ),
-          child: Row(
-            children: [
-              // 琥珀圆角徽标包警示图标（与全 app 徽标语言统一，不裸放）。
-              Container(
-                width: 34,
-                height: 34,
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  color: warn.withValues(alpha: 0.16),
-                  borderRadius: BorderRadius.circular(XbTokens.rSm),
-                ),
-                child: const Icon(Icons.warning_rounded, color: warn, size: 19),
-              ),
-              const SizedBox(width: 11),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      '流量即将用尽 · 已用 $pctInt%',
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600,
-                        color: scheme.onSurface,
-                      ),
-                    ),
-                    const SizedBox(height: 1),
-                    Text(
-                      '购买重置包立即恢复本月流量',
-                      style: TextStyle(
-                        fontSize: 11,
-                        color: scheme.onSurfaceVariant,
-                        height: 1.4,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 10),
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 14,
-                  vertical: 8,
-                ),
-                decoration: BoxDecoration(
-                  color: warn,
-                  borderRadius: BorderRadius.circular(XbTokens.rSm),
-                ),
-                child: const Text(
-                  '流量重置',
-                  style: TextStyle(
-                    fontSize: 12.5,
-                    fontWeight: FontWeight.w600,
-                    color: Colors.white,
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
   }
 }
 

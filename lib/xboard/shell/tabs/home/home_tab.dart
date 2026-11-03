@@ -28,6 +28,7 @@ import '../../widgets/xb_content_header.dart';
 import '../../widgets/xb_responsive.dart';
 import 'xb_connect_orb.dart';
 import 'xb_expiry_card.dart';
+import 'xb_traffic_notice.dart';
 import 'home_latency_provider.dart';
 import 'xb_ip_card.dart';
 import 'xb_line_card.dart';
@@ -53,7 +54,7 @@ class HomeTab extends ConsumerStatefulWidget {
   /// 点击登录 banner → 弹登录 sheet（shell 注入，W5 接线）。
   final VoidCallback? onTapLogin;
 
-  /// 点击到期卡「去续费」→ 跳「我的」Tab（shell 注入）。
+  /// 点击到期卡「去续费」→ 直接打开当前套餐续费页。
   final VoidCallback? onTapRenew;
 
   @override
@@ -161,6 +162,7 @@ class _HomeTabState extends ConsumerState<HomeTab> {
           ],
           // 套餐到期提醒卡（已登录 + 剩≤7天/已过期才显示）。
           XbExpiryCard(onTapRenew: widget.onTapRenew),
+          const XbTrafficNotice(),
           const SizedBox(height: 8),
           Center(
             child: Stack(
@@ -256,6 +258,7 @@ class _HomeTabState extends ConsumerState<HomeTab> {
                       const SizedBox(height: 12),
                     ],
                     XbExpiryCard(onTapRenew: widget.onTapRenew, centered: true),
+                    const XbTrafficNotice(centered: true),
                     const SizedBox(height: 8),
                     Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
