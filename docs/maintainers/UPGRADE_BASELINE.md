@@ -105,6 +105,8 @@
 <a id="f05"></a>
 ### F05 登录、登出与会话持久化
 
+登录连接失败的手动线路重检复用[LoginSheet](../../lib/xboard/shell/sheets/login_sheet.dart)与[EndpointRaceController.recheckApi](../../lib/xboard/services/endpoint_race_controller.dart)，只调用游客配置GET，保留输入，成功后仍由用户提交登录；F04候选、网络世代及SDK分层冷却影响其结果。回归见[手动探测](../../test/xboard/services/manual_api_recheck_test.dart)、[登录页](../../test/xboard/shell/sheets/login_recheck_test.dart)及[失效轮次接管](../../test/xboard/shell/sheets/login_recheck_round_test.dart)，范围和状态见Docs契约及STATUS。品牌自有入口，不新增底座接缝。
+
 - **归类／要求**：自有+平台存储依赖。用户要求：修复登录保存失败和退出转圈；维护约束：落盘失败不得伪装登录成功，旧会话迟到结果不能写入新会话。 决定出处：REQ-OTHER（见文末）。
 - **原版0.9.2**：原版没有Xboard登录；[lib/common/preferences_store.dart · AtomicFilePreferencesStore](https://github.com/chen08209/FlClash/blob/7fd417fb9a9a277c6a9339a8ac87f907df7c25f7/lib/common/preferences_store.dart)及[lib/common/path.dart · AppPath](https://github.com/chen08209/FlClash/blob/7fd417fb9a9a277c6a9339a8ac87f907df7c25f7/lib/common/path.dart)仍影响宿主偏好目录。
 - **当前品牌实现**：[AuthStateNotifier._endSession](../../lib/xboard/providers/auth_state_provider.dart)协调清理；[lib/xboard/sdk/secure_storage_token_storage.dart](../../lib/xboard/sdk/secure_storage_token_storage.dart)负责持久读写/恢复；[AuthSessionSnapshot](https://github.com/wvjh3z/Xboard_sdk/blob/main/lib/src/core/auth/auth_session.dart)提供会话revision快照供调用方隔离旧结果。

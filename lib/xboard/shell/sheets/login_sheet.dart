@@ -11,6 +11,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:fl_clash/xboard/config/xboard_config.dart';
 import 'package:fl_clash/xboard/models/xb_result.dart';
+import 'package:fl_clash/xboard/models/xb_domain_error.dart';
 import 'package:fl_clash/xboard/providers/auth_state_provider.dart';
 import 'package:fl_clash/xboard/providers/xboard_providers.dart';
 import 'package:fl_clash/xboard/util/error_text.dart';
@@ -42,15 +43,92 @@ class _LoginSheetState extends ConsumerState<LoginSheet>
   final _pwCtrl = TextEditingController();
   bool _obscure = true;
   String? _banner;
+  bool _canRecheck = false;
+  bool _checking = false;
+  bool _checkSucceeded = false;
+  int _checkGeneration = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _emailCtrl.addListener(_invalidateCheck);
+    _pwCtrl.addListener(_invalidateCheck);
+  }
+
+  void _invalidateCheck() {
+    _checkGeneration++;
+    if (mounted && (_checking || _checkSucceeded)) {
+      setState(() {
+        _checking = false;
+        _checkSucceeded = false;
+        _banner = '账号或连接状态已变化，请重新检测线路。';
+      });
+    }
+  }
+
+  Future<void> _recheck() async {
+    if (_checking ||
+        submitting ||
+        !_canRecheck ||
+        !ref.read(bootstrapReadyProvider) ||
+        ref.read(authStateProvider) == AuthState.authenticated) {
+      return;
+    }
+    // A popped route stays mounted during its reverse animation. Reject it
+    // synchronously, including navigation to registration/password recovery.
+    final route = ModalRoute.of(context);
+    if (route == null || !route.isCurrent || !route.isActive) return;
+    final race = ref.read(injectedRaceControllerProvider);
+    final service = ref.read(xboardServiceProvider);
+    final auth = ref.read(authStateProvider.notifier);
+    final revision = auth.sessionRevision;
+    final generation = ++_checkGeneration;
+    bool current() =>
+        mounted &&
+        route.isCurrent &&
+        route.isActive &&
+        generation == _checkGeneration &&
+        auth.sessionRevision == revision &&
+        identical(ref.read(authStateProvider.notifier), auth) &&
+        ref.read(bootstrapReadyProvider) &&
+        ref.read(authStateProvider) != AuthState.authenticated &&
+        identical(ref.read(xboardServiceProvider), service) &&
+        identical(ref.read(injectedRaceControllerProvider), race);
+    setState(() {
+      _checking = true;
+      _checkSucceeded = false;
+      _banner = '正在检测可用线路，请稍候…';
+    });
+    final found = race == null
+        ? false
+        : await race.recheckApi(current: current);
+    if (!current()) return;
+    setState(() {
+      _checking = false;
+      _checkSucceeded = found == true;
+      _banner = found == true
+          ? '线路已更新，请重新登录。'
+          : found == null
+          ? '连接状态已变化，请重新检测线路。'
+          : '暂未找到可用线路，请稍后重试或向客服反馈。';
+    });
+  }
 
   @override
   void dispose() {
+    _checkGeneration++;
+    _emailCtrl.removeListener(_invalidateCheck);
+    _pwCtrl.removeListener(_invalidateCheck);
     _emailCtrl.dispose();
     _pwCtrl.dispose();
     super.dispose();
   }
 
   Future<void> _submit() async {
+    if (_checking || submitting || !ref.read(bootstrapReadyProvider)) return;
+    _checkGeneration++;
+    _canRecheck = false;
+    _checkSucceeded = false;
     final email = _emailCtrl.text.trim();
     final pw = _pwCtrl.text;
     if (email.isEmpty || pw.isEmpty) {
@@ -81,9 +159,13 @@ class _LoginSheetState extends ConsumerState<LoginSheet>
         case XbFailure(:final error):
           if (!auth.isAuthenticationCurrent(attempt)) return;
           auth.failAuthentication(attempt);
-          setState(
-            () => _banner = resolveErrorText(error, fallback: '登录失败，请重试'),
-          );
+          setState(() {
+            _canRecheck =
+                error is XbNetwork || error is XbServer || error is XbSecurity;
+            _banner = _canRecheck
+                ? '暂时无法连接登录服务，可重新检测线路。'
+                : resolveErrorText(error, fallback: '登录失败，请重试');
+          });
       }
     });
   }
@@ -92,11 +174,16 @@ class _LoginSheetState extends ConsumerState<LoginSheet>
   Widget build(BuildContext context) {
     // R5.2 gate：bootstrap 未就绪 → 登录禁用。
     final ready = ref.watch(bootstrapReadyProvider);
+    ref.listen(authStateProvider, (_, _) => _invalidateCheck());
+    ref.listen(authStateProvider.notifier, (_, _) => _invalidateCheck());
+    ref.listen(xboardServiceProvider, (_, _) => _invalidateCheck());
+    ref.listen(injectedRaceControllerProvider, (_, _) => _invalidateCheck());
+    ref.listen(bootstrapReadyProvider, (_, _) => _invalidateCheck());
 
     return XbSheetScaffold(
       title: '登录 ${XboardConfig.current.appName}',
       subtitle: '登录后同步你的专属节点',
-      banner: _banner,
+      banner: _canRecheck ? null : _banner,
       footer: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
@@ -117,6 +204,46 @@ class _LoginSheetState extends ConsumerState<LoginSheet>
         ],
       ),
       children: [
+        if (_canRecheck && _banner != null) ...[
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color:
+                  (_checkSucceeded
+                          ? Colors.green
+                          : Theme.of(context).colorScheme.error)
+                      .withValues(alpha: 0.10),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Row(
+              children: [
+                if (_checking)
+                  const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                else
+                  Icon(
+                    _checkSucceeded
+                        ? Icons.check_circle_outline
+                        : Icons.info_outline,
+                    size: 18,
+                  ),
+                const SizedBox(width: 8),
+                Expanded(child: Text(_banner!)),
+                const SizedBox(width: 8),
+                TextButton(
+                  onPressed: (!ready || _checking || submitting)
+                      ? null
+                      : _recheck,
+                  child: Text(_checking ? '检测中…' : '重新检测'),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+        ],
         TextField(
           controller: _emailCtrl,
           keyboardType: TextInputType.emailAddress,
@@ -140,7 +267,7 @@ class _LoginSheetState extends ConsumerState<LoginSheet>
         SizedBox(
           width: double.infinity,
           child: FilledButton(
-            onPressed: (!ready || submitting) ? null : _submit,
+            onPressed: (!ready || submitting || _checking) ? null : _submit,
             child: submitting
                 ? const SizedBox(
                     width: 20,

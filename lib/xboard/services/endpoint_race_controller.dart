@@ -234,6 +234,50 @@ class EndpointRaceController {
     if (rerace) refreshRaceInBackground();
   }
 
+  ({Object token, bool Function() valid})? _manualRound;
+  void Function(String)? onManualApiReachable;
+
+  /// User initiated guest-config probes may revalidate cooling origins.
+  /// Never clear route quarantine or submit credentials. Late results cannot switch API.
+  Future<bool?> recheckApi({
+    required bool Function() current,
+    Duration timeout = const Duration(seconds: 10),
+  }) async {
+    if (_disposed || !current()) return null;
+    // Only a still-owned round blocks duplicates. An abandoned page/input or
+    // changed network must not hold up a new user request until its timeout.
+    if (_manualRound?.valid() ?? false) return null;
+    final token = Object();
+    final generation = ++_apiGeneration;
+    final network = _networkGeneration;
+    final candidates = List<BootstrapEndpoint>.of(_apiEndpoints);
+    bool valid() =>
+        !_disposed &&
+        current() &&
+        generation == _apiGeneration &&
+        network == _networkGeneration;
+    _manualRound = (token: token, valid: valid);
+    try {
+      final winner = await _race(
+        _orderByRegion(candidates).toSet().toList(),
+      ).timeout(timeout);
+      if (!valid()) return null;
+      if (winner == null) return false;
+      onManualApiReachable?.call(winner);
+      _currentApi = winner;
+      onApiSwitch?.call(winner);
+      _releaseApiWaiters();
+      return true;
+    } on TimeoutException {
+      return valid() ? false : null;
+    } catch (_) {
+      return valid() ? false : null;
+    } finally {
+      // A superseded round may finish after its replacement has started.
+      if (identical(_manualRound?.token, token)) _manualRound = null;
+    }
+  }
+
   /// API endpoint 完整竞速（R15.C.15/19 + R4.9 地区感知）：按 VPN 状态分档竞速。
   Future<void> raceApi(List<BootstrapEndpoint> apiEndpoints) async {
     _replaceApiCandidates(apiEndpoints);

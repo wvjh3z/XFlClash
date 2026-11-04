@@ -518,6 +518,8 @@ class XboardModule {
         candidates: recoveryRace.recoveryCandidates,
         onSuccess: recoveryRace.acceptRecoveredApi,
       );
+      recoveryRace.onManualApiReachable =
+          instance.httpService.confirmEndpointReachable;
       recoveryRace.apiEndpointAvailable =
           instance.httpService.isEndpointAvailable;
       recoveryRace.resetApiEndpointHealth =
