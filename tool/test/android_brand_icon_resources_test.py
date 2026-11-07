@@ -30,6 +30,12 @@ def verify_splash(root):
     assert bitmap.get(A+'gravity') == 'fill'
 
 
+def verify_night_splash(root):
+    assert root.tag == 'bitmap', 'Night splash must have no backing layer'
+    assert root.attrib == {A+'src': '@mipmap/ic_fg', A+'gravity': 'fill'}
+    assert len(root) == 0
+
+
 def verify_launcher(root, colors):
     assert root.tag == 'adaptive-icon'
     assert root.find('background').get(A+'drawable') == '@color/xb_launcher_icon_background'
@@ -143,6 +149,31 @@ class IconResourcesTest(unittest.TestCase):
             self.assertTrue((RES/folder/'xb_brand_system_icon.png').is_file())
         manifest = ET.parse(ROOT/'android/app/src/main/AndroidManifest.xml')
         self.assertEqual(manifest.find('application').get(A+'icon'), '@mipmap/ic_launcher')
+
+    def test_night_splash_uses_unmodified_transparent_bitmap(self):
+        verify_night_splash(ET.parse(RES/'drawable-night/ic_launcher_foreground.xml').getroot())
+        # Android night resource selection overrides the same drawable name.
+        # Theme references remain shared; no night override may change the bitmap itself.
+        self.assertEqual(list((RES/'drawable-night').iterdir()),
+                         [RES/'drawable-night/ic_launcher_foreground.xml'])
+        self.assertFalse(list(RES.glob('mipmap*night*/ic_fg.*')))
+        for density, scale in DENSITIES:
+            width, height, rows = rgba(RES/f'mipmap-{density}/ic_fg.png')
+            alphas = [row[x*4+3] for row in rows for x in range(width)]
+            self.assertIn(0, alphas)
+            self.assertIn(255, alphas)
+            # Fully transparent padding exposes the background, rather than a painted square.
+            self.assertEqual(rows[0][3], 0)
+            self.assertEqual(rows[height//2][3], 0)
+
+    def test_night_splash_rejects_white_backing_tint_and_crop(self):
+        source = (RES/'drawable-night/ic_launcher_foreground.xml').read_text()
+        bad = [(RES/'drawable/ic_launcher_foreground.xml').read_text(),
+               source.replace('gravity="fill"', 'gravity="center"'),
+               source.replace('gravity="fill"', 'gravity="fill" android:tint="#FFFFFF"'),
+               source.replace('@mipmap/ic_fg', '@mipmap/ic_launcher')]
+        for candidate in bad:
+            with self.assertRaises(AssertionError): verify_night_splash(ET.fromstring(candidate))
 
     def test_splash_fixed_size_negative_controls_still_fail(self):
         source = (RES/'drawable/ic_launcher_foreground.xml').read_text()

@@ -23,7 +23,7 @@ FlClash 上游自身的安全策略见上游仓库。
 **原因**：config.json 下发的 endpoint 可能是**裸 IP**（无匹配证书），标准 TLS 校验必失败 → 连不上；可用性优先于 TLS 身份保护。
 
 **当前实现**：
-- 全局 `FlClashHttpOverrides` 对经其创建的 Dart HTTP 客户端设置 `badCertificateCallback => true`。代理路由是独立策略：业务请求继承全局连接状态，不再强制直连。
+- 宿主 `FlClashHttpOverrides` 通过 `allowBadCertificateForReader` 读取 `appSettingProvider.checkCertificate`，返回 `!checkCertificate`：开启“校验TLS证书”时拒绝无效证书，关闭时放行。品牌出口IP等继承该回调的请求随此开关；下列Xboard独立业务通道另有明确放行策略，不能由宿主开关推断它们恢复严格验证。代理路由是独立策略：业务请求继承全局连接状态，不再强制直连。见[实际实现](lib/common/http.dart)。
 - 客户端 `XboardReleaseHttp`（`lib/xboard/services/xboard_release_dio.dart`）集中 UA 与证书策略：
   - **release dio**（config.json / 加密订阅 / 软件更新下载）：`badCertificateCallback => true`。
   - **SDK HttpService**（登录/账号/订单/支付/版本检查等）：生产注入 `HttpConfig.allowBadCertificate=true`；普通 HttpClient 与显式 SOCKS 自行创建的 TLS 共用该证书决策。
@@ -38,6 +38,8 @@ FlClash 上游自身的安全策略见上游仓库。
 - **缓解层不对称**：能 AES-256-GCM 校验的内容（config.json envelope / 加密订阅密文）仍有**完整性保护**（无 AES key 不可伪造）；但**纯 API 请求（登录等）无此加密层**，TLS 关闭后无身份/完整性防线。
 
 ### 历史说明订正
+
+上方2026-06-01决定中的“与上游全局放行一致”描述当时依据，不是当前v0.9.2宿主实现；当前宿主开关与Xboard独立业务放行须按“当前实现”分别判断。
 
 旧文档曾将“自建 IOHttpClientAdapter”解释成“不继承 HttpOverrides”，源码不支持此结论：其工厂中的 `HttpClient()` 仍调用宿主 override。当前 SDK 生产配置另外显式传 `allowBadCertificate=true`，不依赖这一隐式继承；SOCKS 库的独立 TLS 则必须另传回调。本节不据旧注释推断历史设备是否实际严格验证。
 
@@ -61,6 +63,6 @@ FlClash 上游自身的安全策略见上游仓库。
 - Linux 桌面无 D-Bus / gnome-keyring 时降级 AES-256-GCM 加密 SharedPreferences（ζ1）。
 
 
-## v0.9.2 品牌全新安装默认值（2026-10-29，尚未发布）
+## v0.9.2 品牌全新安装默认值（决定日期2026-10-29）
 
-用户要求全新安装默认关闭“校验TLS证书”。在既有启动接缝、网络层初始化前应用，保留已有用户的开关选择；不修改系统证书库、第三方原生组件或节点协议各自的TLS字段。当前实现与验证状态以升级Docs/ARCHITECTURE的“v0.9.2 品牌首次TLS默认值”和STATUS为准。本节历史管理流量独立放行策略仍保留，不能把用户打开宿主开关理解为Xboard API自动恢复严格验证。
+用户要求全新安装默认关闭“校验TLS证书”。在既有启动接缝、网络层初始化前应用，保留已有用户的开关选择；不修改系统证书库、第三方原生组件或节点协议各自的TLS字段。当前实现与验证状态以Docs/ARCHITECTURE的“v0.9.2 品牌首次TLS默认值”和STATUS为准。本节历史管理流量独立放行策略仍保留，不能把用户打开宿主开关理解为Xboard API自动恢复严格验证。

@@ -13,8 +13,8 @@ Future<void> main(List<String> args) async {
     final op=await XbProfileFileWrite.create(targetPath:target.path,bytes:Uint8List.fromList('new-config'.codeUnits),ensureCurrent:(){},recoveryOwner:owner);
     print(jsonEncode({'directory':op.directory.path}));return;
   }
-  var ok=true;int? code;
-  try{await XbProfileFileWrite.cleanupOwned(targetPath:target.path,owner:owner);}on FileSystemException catch(e){ok=false;code=e.osError?.errorCode;}
+  var ok=true;int? code;final warnings=<String>[];
+  try{await XbProfileFileWrite.cleanupOwned(targetPath:target.path,owner:owner,diagnostics:ProfileRecoveryDiagnostics((warning)=>warnings.add(warning.name)),readMetadata:args[0]=='cleanup_disappearing'?(file)async{await file.parent.delete(recursive:true);return file.readAsBytes();}:null);}on FileSystemException catch(e){ok=false;code=e.osError?.errorCode;}
   final dirs=await root.list().where((e)=>e is Directory).toList();
-  print(jsonEncode({'ok':ok,'code':code,'directories':dirs.length,'markers':await Future.wait(dirs.map((e)=>File('${e.path}/owner.json').exists())),'old_preserved':await target.readAsString()=='old-config'}));
+  print(jsonEncode({'ok':ok,'code':code,'warnings':warnings,'directories':dirs.length,'markers':await Future.wait(dirs.map((e)=>File('${e.path}/owner.json').exists())),'old_preserved':await target.readAsString()=='old-config'}));
 }

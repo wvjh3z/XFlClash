@@ -14,7 +14,6 @@
 /// 调用方（XboardSubscriptionService）catch 后归一为 XbSyncOutcome.failed。
 library;
 
-import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:fl_clash/common/path.dart' show appPath;
@@ -190,6 +189,7 @@ class RiverpodProfileSyncPort implements ProfileSyncPort {
           targetPath: await _profilePath(saved.id),
           owner: recoveryOwner,
           excludeDirectory: write?.directory.path,
+          diagnostics: _recoveryDiagnostics,
           ensureCurrent: ensureCurrent,
         );
       }
@@ -220,6 +220,13 @@ class RiverpodProfileSyncPort implements ProfileSyncPort {
       }
     }
   }
+
+  static final _recoveryDiagnostics = ProfileRecoveryDiagnostics((warning) {
+    SentryBootstrap.captureFromSdk(
+      'warning',
+      'Subscription recovery material retained: ${warning.name}',
+    );
+  });
 
   final _deactivations = <int, Future<void>>{};
 
@@ -256,6 +263,7 @@ class RiverpodProfileSyncPort implements ProfileSyncPort {
       await XbProfileFileWrite.cleanupOwned(
         targetPath: await _profilePath(profileId),
         owner: recoveryOwner,
+        diagnostics: _recoveryDiagnostics,
       );
     }
     await _database.profiles.remove((t) => t.id.equals(profileId));
@@ -265,8 +273,7 @@ class RiverpodProfileSyncPort implements ProfileSyncPort {
 
   Future<void> _deleteFile(int profileId) async {
     final path = await _profilePath(profileId);
-    final file = File(path);
-    if (await file.exists()) await file.delete();
+    await XbProfileFileWrite.removeFileIfPresent(path);
   }
 
   @override

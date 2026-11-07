@@ -17,6 +17,7 @@ class XbProfileFileWrite {
     this.wait,
     this.rename,
     this.readTarget,
+    this.remove,
   );
 
   final File target;
@@ -29,6 +30,7 @@ class XbProfileFileWrite {
   final Future<void> Function(Duration) wait;
   final Future<File> Function(File, String) rename;
   final Future<Uint8List?> Function()? readTarget;
+  final Future<void> Function(FileSystemEntity) remove;
   Uint8List? _oldBytes;
   Uint8List? _newBytes;
   bool _published = false;
@@ -49,6 +51,7 @@ class XbProfileFileWrite {
     Future<File> Function(File, String)? rename,
     Future<Uint8List?> Function()? readTarget,
     ProfileRecoveryOwner? recoveryOwner,
+    Future<void> Function(FileSystemEntity)? remove,
   }) async {
     ensureCurrent();
     final target = File(targetPath);
@@ -66,6 +69,7 @@ class XbProfileFileWrite {
       wait ?? Future<void>.delayed,
       rename ?? (file, path) => file.rename(path),
       readTarget,
+      remove ?? _deleteIfPresent,
     );
     try {
       if (recoveryOwner != null) {
@@ -101,80 +105,220 @@ class XbProfileFileWrite {
     required ProfileRecoveryOwner owner,
     String? excludeDirectory,
     void Function()? ensureCurrent,
+    ProfileRecoveryDiagnostics? diagnostics,
+    Future<List<int>> Function(File)? readMetadata,
   }) async {
     final target = File(targetPath);
     ensureCurrent?.call();
-    if (!await target.parent.exists()) return;
-    await for (final entity in target.parent.list(followLinks: false)) {
+    final List<FileSystemEntity> entries;
+    try {
+      entries = await target.parent.list(followLinks: false).toList();
+    } on FileSystemException catch (error) {
+      if (await _confirmedMissing(target.parent.path, error)) return;
+      rethrow;
+    }
+    for (final entity in entries) {
       ensureCurrent?.call();
       final name = entity.path.replaceAll('\\', '/').split('/').last;
       if (!name.startsWith('.xb-profile-') || entity.path == excludeDirectory) {
         continue;
       }
-      if (await FileSystemEntity.type(entity.path, followLinks: false) !=
+      if (await _typeWithErrors(entity.path) !=
           FileSystemEntityType.directory) {
         continue;
       }
       final marker = File('${entity.path}/owner.json');
-      if (await FileSystemEntity.type(marker.path, followLinks: false) !=
-          FileSystemEntityType.file) {
+      if (await _typeWithErrors(marker.path) != FileSystemEntityType.file) {
         continue;
       }
       final Object? decoded;
       try {
-        decoded = jsonDecode(await marker.readAsString());
+        // Decode explicitly: invalid UTF-8 is a format warning, while genuine
+        // read/permission/disk errors retain their FileSystemException semantics.
+        final bytes =
+            await (readMetadata?.call(marker) ?? marker.readAsBytes());
+        decoded = jsonDecode(utf8.decode(bytes));
       } on FormatException {
-        throw FileSystemException(
-          'Unclassified profile recovery metadata',
-          marker.path,
-        );
+        ensureCurrent?.call();
+        diagnostics?.report(ProfileRecoveryWarning.malformedMetadata);
+        continue;
+      } on FileSystemException catch (error) {
+        if (await _confirmedMissing(marker.path, error)) continue;
+        rethrow;
       }
+      ensureCurrent?.call();
       if (decoded is! Map || decoded['schema'] != 1) {
-        throw FileSystemException(
-          'Unclassified profile recovery metadata',
-          marker.path,
-        );
+        diagnostics?.report(ProfileRecoveryWarning.unsupportedSchema);
+        continue;
+      }
+      final identity = [
+        decoded['flavor'],
+        decoded['owner'],
+        decoded['profile'],
+      ];
+      if (identity.any((value) => value is! String || value.isEmpty)) {
+        diagnostics?.report(ProfileRecoveryWarning.invalidIdentity);
+        continue;
       }
       if (decoded['flavor'] != owner.flavor ||
           decoded['owner'] != owner.ownerHash ||
           decoded['profile'] != target.uri.pathSegments.last) {
         continue;
       }
-      final children = await Directory(
-        entity.path,
-      ).list(followLinks: false).toList();
-      const allowed = {'candidate.yaml', 'previous.yaml', 'owner.json'};
-      for (final child in children) {
-        final base = child.path.replaceAll('\\', '/').split('/').last;
-        if (!allowed.contains(base) ||
-            await FileSystemEntity.type(child.path, followLinks: false) !=
-                FileSystemEntityType.file) {
+      await _cleanupDirectory(
+        Directory(entity.path),
+        ensureCurrent: ensureCurrent,
+      );
+    }
+  }
+
+  /// Shared by in-flight cleanup and historical recovery. Never recursively
+  /// remove a marker before knowing that all plaintext has been removed.
+  static Future<void> _cleanupDirectory(
+    Directory directory, {
+    void Function()? ensureCurrent,
+    Future<void> Function(FileSystemEntity)? remove,
+  }) async {
+    final delete = remove ?? _deleteIfPresent;
+    const payloads = ['candidate.yaml', 'previous.yaml'];
+    const markers = ['owner.pending', 'owner.json'];
+    ensureCurrent?.call();
+    final type = await _typeWithErrors(directory.path);
+    if (type == FileSystemEntityType.notFound) return;
+    if (type != FileSystemEntityType.directory) {
+      throw FileSystemException(
+        'Recovery directory changed; retained',
+        directory.path,
+      );
+    }
+    Future<List<FileSystemEntity>?> children() async {
+      try {
+        return await directory.list(followLinks: false).toList();
+      } on FileSystemException catch (error) {
+        if (await _confirmedMissing(directory.path, error)) return null;
+        rethrow;
+      }
+    }
+
+    Future<void> validate(
+      List<FileSystemEntity> entries, {
+      required bool plaintextAllowed,
+    }) async {
+      for (final entry in entries) {
+        ensureCurrent?.call();
+        final entryType = await _typeWithErrors(entry.path);
+        if (entryType == FileSystemEntityType.notFound) continue;
+        final name = entry.uri.pathSegments
+            .where((part) => part.isNotEmpty)
+            .last;
+        if ((!markers.contains(name) &&
+                !(plaintextAllowed && payloads.contains(name))) ||
+            entryType != FileSystemEntityType.file) {
           throw FileSystemException(
-            'Unexpected profile recovery entry; retained',
-            child.path,
+            'Unexpected recovery entry; marker retained',
+            entry.path,
           );
         }
       }
-      // Keep ownership until all plaintext is removed; partial failures can retry.
-      for (final base in ['candidate.yaml', 'previous.yaml']) {
-        ensureCurrent?.call();
-        final file = File('${entity.path}/$base');
-        final type = await FileSystemEntity.type(file.path, followLinks: false);
-        if (type == FileSystemEntityType.notFound) continue;
-        if (type != FileSystemEntityType.file) {
-          throw FileSystemException('Recovery entry changed', file.path);
-        }
-        await file.delete();
-      }
+    }
+
+    final initial = await children();
+    if (initial == null) return;
+    await validate(initial, plaintextAllowed: true);
+    Future<void> removeFile(String name) async {
       ensureCurrent?.call();
-      await marker.delete();
-      await Directory(entity.path).delete();
+      final file = File('${directory.path}/$name');
+      final fileType = await _typeWithErrors(file.path);
+      if (fileType == FileSystemEntityType.notFound) return;
+      if (fileType != FileSystemEntityType.file) {
+        throw FileSystemException(
+          'Recovery entry changed; retained',
+          file.path,
+        );
+      }
+      await delete(file);
+    }
+
+    for (final name in payloads) {
+      await removeFile(name);
+    }
+    // Detect a reappeared payload or unexpected entry before losing ownership.
+    final remaining = await children();
+    if (remaining == null) return;
+    await validate(remaining, plaintextAllowed: false);
+    for (final name in markers) {
+      await removeFile(name);
+    }
+    ensureCurrent?.call();
+    await delete(directory); // non-recursive: any new entry causes a failure
+  }
+
+  /// type()/stat()/exists() can hide lookup errors. When type is unknown,
+  /// enumerate the parent without following links; this preserves I/O failures
+  /// and distinguishes an absent entry from an inaccessible one.
+  static Future<FileSystemEntityType> _typeWithErrors(String path) async {
+    final type = await FileSystemEntity.type(path, followLinks: false);
+    if (type != FileSystemEntityType.notFound) return type;
+    String basename(Uri uri) =>
+        uri.pathSegments.where((part) => part.isNotEmpty).last;
+    final target = File(path);
+    if (target.uri.pathSegments.every((part) => part.isEmpty)) {
+      throw FileSystemException('Cannot determine filesystem root type', path);
+    }
+    final wanted = basename(target.uri);
+    try {
+      await for (final entry in target.parent.list(followLinks: false)) {
+        final name = basename(entry.uri);
+        if (Platform.isWindows
+            ? name.toLowerCase() != wanted.toLowerCase()
+            : name != wanted) {
+          continue;
+        }
+        if (entry is Link) return FileSystemEntityType.link;
+        if (entry is Directory) return FileSystemEntityType.directory;
+        if (entry is File) return FileSystemEntityType.file;
+        throw FileSystemException('Cannot determine profile entry type', path);
+      }
+      return FileSystemEntityType.notFound;
+    } on FileSystemException catch (error) {
+      if (_isMissing(error) &&
+          target.parent.absolute.path != target.absolute.path &&
+          await _typeWithErrors(target.parent.path) ==
+              FileSystemEntityType.notFound) {
+        return FileSystemEntityType.notFound;
+      }
+      rethrow;
+    }
+  }
+
+  static Future<void> removeFileIfPresent(String path) =>
+      _deleteIfPresent(File(path));
+
+  // Some native Dart operations replace a lookup error with ENOENT. Confirm
+  // absence independently before accepting even a "not found" error code.
+  static Future<bool> _confirmedMissing(
+    String path,
+    FileSystemException error,
+  ) async =>
+      _isMissing(error) &&
+      await _typeWithErrors(path) == FileSystemEntityType.notFound;
+
+  static bool _isMissing(FileSystemException error) {
+    final code = error.osError?.errorCode;
+    return code == 2 || (Platform.isWindows && code == 3);
+  }
+
+  static Future<void> _deleteIfPresent(FileSystemEntity entity) async {
+    try {
+      await entity.delete();
+    } on FileSystemException catch (error) {
+      if (!await _confirmedMissing(entity.path, error)) rethrow;
     }
   }
 
   Future<Uint8List?> _readTarget() async {
     if (readTarget != null) return readTarget!();
-    final type = await FileSystemEntity.type(target.path, followLinks: false);
+    final type = await _typeWithErrors(target.path);
     if (type == FileSystemEntityType.notFound) return null;
     if (type != FileSystemEntityType.file) {
       throw FileSystemException(
@@ -182,8 +326,15 @@ class XbProfileFileWrite {
         target.path,
       );
     }
-    if (windows && ((await target.stat()).mode & 0x80) == 0) {
-      throw _ProfileReadOnly(target.path);
+    if (windows) {
+      final stat = await target.stat();
+      if (stat.type == FileSystemEntityType.notFound) {
+        throw FileSystemException(
+          'Profile attributes unavailable',
+          target.path,
+        );
+      }
+      if ((stat.mode & 0x80) == 0) throw _ProfileReadOnly(target.path);
     }
     return target.readAsBytes();
   }
@@ -263,7 +414,7 @@ class XbProfileFileWrite {
   Future<Object?> cleanup() async {
     if (_retainRecovery) return null;
     try {
-      if (await directory.exists()) await directory.delete(recursive: true);
+      await _cleanupDirectory(directory, remove: remove);
       return null;
     } catch (error) {
       return error;

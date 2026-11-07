@@ -21,11 +21,48 @@
 
 | 事件 | 品牌 / 目标 | 首个失败阶段 | 当前状态 |
 | --- | --- | --- | --- |
+| [偏好提交失败候选夹带](#偏好提交失败候选夹带2026-11-08) | A/B Windows/Linux共用适配器；本轮Linux | 失败写入修改适配器缓存，后续无关写入带入 | 旧实现25例20失败，最小提交补丁后188例通过；Windows原生/全局门面边界仍待 |
+| [Jenkins本地工作区快照准备](#jenkins本地工作区快照准备2026-11-08) | Linux / 最新未提交工作区回归 | 源码一致性守卫发现准备步骤改写build_config | 核实为名称补引号后恢复快照原字节；89例通过，3503项前后一致 |
+| [Jenkins测试采集器时区缺失](#jenkins测试采集器时区缺失2026-11-08) | Linux / 偏好存储实文件验收 | 测试前ZoneInfoNotFoundError | 采集器使用明确北京时间UTC+8；测试随后14/14通过，非业务修复 |
+| [Jenkins Gradle计时无报告](#jenkins-gradle计时无报告2026-11-08) | 两品牌共用驱动 / Android；夹具为离线Gradle9.8.0 | init设置profile后任务成功，但报告缺失 | 改用任务完成事件；真实成功/失败夹具通过，完整新包未验 |
+| [Jenkins Android #2内存压力](#jenkins-android-2内存压力2026-11-08) | A / Android ARM64 / 产品build44 | flutter-apk：Gradle/Kotlin持续内存回收 | #2中止；降低节点Android预算后#3正式入口及APK/原证书/Sentry7/7通过，设备待验 |
 | [Actions #140](#actions-140v092首次全平台构建) | A / Windows AMD64 | Windows runtime prerequisite rules：identity竞态夹具 | 首修3b6a5fbb后#141仍失败；9c136383补修，#143正式新批次通过（历史失败保留） |
 | [Actions #140](#actions-140v092首次全平台构建) | A / Linux AMD64 | Package：Native Assets Go依赖获取 | 3b6a5fbb修复后#143全六目标通过；#140原始变化文件/写入者仍未查明 |
 | [Actions #141](#141windows夹具文件占用与macos符号传输失败) | A / Windows、macOS AMD64 | 夹具占用、符号传输及证据上传网络失败 | 9c136383修复，#143源码a3152f5b正式复验通过；非设备业务验收 |
 
 **当前结论**：以下“未提交/待修/待复验”是各历史阶段当时状态，不是当前main状态。首轮修复提交3b6a5fbb，#141暴露剩余问题，9c136383补修，#143（a3152f5b）全六目标成功；已合入main。正式证据见[run143](https://github.com/wvjh3z/proxy-suite-docs/blob/main/evidence/run143/README.md)。不能由新批次成功反推#140具体文件变化原因已经找到。后续按新失败证据另评估，不覆盖历史。
+
+## 偏好提交失败候选夹带（2026-11-08）
+
+原版v0.9.2/v0.9.3及修复前品牌适配器先改Map再排队写盘；失败返回false却保留候选，后续无关键写入会把失败变更一起保存。真实SharedPreferences门面和文件故障证明该行为，不能因原9例通过就认为已有失败恢复覆盖。
+
+按用户授权仅修改lib/common/preferences_store.dart：完整操作串行、候选副本、写成功后提交缓存、列表输入/输出隔离；不改getAll为每次读盘，不改Token补偿或业务退出策略。相同新目标用例先在旧实现25例中20失败，再在新实现九文件188/188通过；去掉测试冗余import后最终13例业务组合复验，定向analyze无问题。系统安全存储和原生Sentry仍为受控替身；Windows原生、真实进程重启、全局门面reload竞态及后置核验未知状态不由此关闭。
+
+首轮白名单检查报12份既有自有文档未登记，核对它们不在固定上游且已有文档治理授权后补机器路径，保持守卫规则；最终74锚点、真实上游白名单通过，移除新存储登记的负控准确失败。源码、测试、差异、原始失败与复验归档见[提交修复证据](https://github.com/wvjh3z/proxy-suite-docs/blob/main/evidence/preferences-store-recovery-20261106/README.md#提交语义修复与验收2026-11-08)。未提交、未出包，不用源码修复替代设备验收。
+
+## Jenkins本地工作区快照准备（2026-11-08）
+
+测试最新未提交工作区时，依赖准备调用prepare_native_build.py的prepare_android_names，把build_config.yaml中core_name/helper_name的相同值加了双引号；全源摘要守卫因此在测试前拒绝继续。保存准备后的文件和失败回执，核对只有这两处格式变化，恢复已校验快照原字节后仅继续测试，不重跑会再次改写的准备步骤。最终四文件89例通过，测试前后3503项文件内容/链接/可执行标记一致。不能为通过而直接忽略全部build_config差异，也不能将依赖准备成功视为源快照始终未变化。
+
+同次传输曾因Groovy单字符串常量超过65535限制失败；改为小段编码在运行时拼接，写入后校验完整摘要。传输/准备失败均未进入业务测试，不作为故障行为负控。快照、准备回执和结果见[最新工作区实测](https://github.com/wvjh3z/proxy-suite-docs/blob/main/evidence/preferences-store-recovery-20261106/README.md#最新工作区复验2026-11-08)。
+
+## Jenkins测试采集器时区缺失（2026-11-08）
+
+在既有Ubuntu22.04隔离环境中，测试采集器调用Python ZoneInfo('Asia/Shanghai')抛ZoneInfoNotFoundError，尚未进入源码准备和Flutter测试。采集器改用当前北京时间明确UTC+8偏移，核对失败只留下空任务目录后重新执行；实际14例测试通过，生产源码和断言未改。经验：预编译Python及隔离工具环境不保证IANA时区数据库可用，采集器元数据失败不能当业务负控或业务失败；时间必须带明确时区，不能回退为未知本地时间。原始失败回执、真实测试和后续待验层级见[偏好存储实测](https://github.com/wvjh3z/proxy-suite-docs/blob/main/evidence/preferences-store-recovery-20261106/README.md)。
+
+## Jenkins Gradle计时无报告（2026-11-08）
+
+缓存优化验证中，真实离线Gradle9.8.0任务成功，但通过init脚本设置`gradle.startParameter.profile=true`没有生成HTML，报告断言失败。不能由参数赋值或解析器单测通过推断已启用采集，也不能将缺报告归因于应用编译失败。
+
+修正在外部维护源`infra/jenkins/project-builds/gradle_timings.py`及`gradle_task_timings.gradle`：临时init只对指定项目注册共享BuildService，以OperationCompletionListener接收任务完成事件；导出任务路径、数字耗时和结果枚举，finally删除init。真实成功任务和故意失败任务分别保持0/1退出码并产生对应耗时；本机损坏报告负控确认不覆盖原始构建错误。13项本机回归通过，三个任务v2配置linter/逐字回读通过。未重新编译完整APK，品牌/平台发行验收仍待后续获准完整构建。详细实测与恢复索引见[缓存优化证据](https://github.com/wvjh3z/proxy-suite-docs/blob/main/evidence/jenkins-codegen-cache-20261108/README.md)。
+
+## Jenkins Android #2内存压力（2026-11-08）
+
+品牌A build44、源码d119c532e813、新transit-linux-android节点。依赖/codegen完成后，Gradle与两个Kotlin JVM各允许4GiB堆，agent仅11GiB高水位/12GiB硬上限；实测内存约11.2GiB、PSI full约97%，长时间回收但未发生OOM kill。日志无进展不能据此直接判断网络或编译死锁，CPU忙也不证明编译有效推进。
+
+#2由维护者中止，Jenkins ABORTED后仍有本任务JVM残留；必须核对任务环境标识和进程启动身份，定向清理，不能按java名称全杀。清理后内存约0.5GiB。当前节点Gradle用户配置改为4 worker、非并行、Gradle堆3GiB、Kotlin堆1GiB，保持12GiB硬上限与冻结源码；#3正式重编约11分46秒完成，APK身份/原证书/AOT及Sentry7/7通过。该成功证明本次资源预算可完成构建，不承诺其他缓存/负载条件的峰值；两次缓存热度不同，不将耗时差当严格单变量性能试验。设备仍待验。
+
+唯一批次结果、配置恢复材料与独立File modified提示边界见[本次试编证据](https://github.com/wvjh3z/proxy-suite-docs/blob/main/evidence/jenkins-brand-a-build44-20261107/README.md#首次试编内存压力与恢复)。该修正为远端环境配置，不增加客户端接缝，也不据此提高用户授权的内存限额。
 
 ## Actions #140：v0.9.2首次全平台构建
 
@@ -161,3 +198,11 @@ Windows夹具不再带着整条锚定目录句柄执行路径File.Move：记录�
 这是修复预检失败经验，不是新增Actions构建失败。Dart3.13.5真实Windows占用文件的rename可返回5，初版仅重试32/33的正控不能恢复；先排除只读/目录后纳入5有限重试，持续占用仍停止并保留旧文件。不能把旧File.copy的183当成单一占用证据。两品牌共享实现的原生正负控与VDS结果见[正式预检记录](https://github.com/wvjh3z/proxy-suite-docs/blob/main/evidence/subscription-recovery-fix-20261101/README.md)，仓库入口为[windows_profile_file_write_test.ps1](../../tool/test/windows_profile_file_write_test.ps1)。无构建/发布复验，不替代用户Windows10现场和Android真机验收。
 
 同日复核发现只包rename的重试漏掉FileShare.None独占读取锁，原生两品牌参数均读取失败32且等待0次。补修后首次读取及目标复查/rename共享三次重试预算，永久只读仍立即拒绝；22组Windows原生与133项VDS回归通过。旧失败对照和最新结果均保留在上述证据记录，不以允许读取的句柄测试替代独占读取负控。
+
+恢复标记隔离预检补充：初版在Object?经Map检查后将变量捕获到any回调，Dart未保留该处类型收窄，VDS/Windows两入口均编译拒绝。改为在已收窄作用域取出字段值，再在回调校验值类型；不通过强制动态访问放宽schema/身份检查。复验与归档见订阅恢复记录的后续标记隔离章节。此为未发布修正的测试编译失败，不是GitHub构建失败。
+
+权限专项预检补充：真实nobody负控揭示Dart文件删除也可将受限查询表现为ENOENT，不能只按错误码忽略；增加独立存在性确认。Windows ACL夹具恢复旧FileSecurity对象可能不写回未标记变更的Access段，需显式重建/设置Access段并验证恢复。对应拒绝与恢复证据在订阅恢复记录“路径查询与删除缺失确认补修”，不通过改全局权限或safe.directory绕过。
+
+Windows测试控制器长时间无返回时，先检查是否已创建本批隔离目录及是否有Dart进程，区分启动前传输和用例执行。此次大JSON夹具传输阶段未进入测试，改压缩文件传输后沿原入口复验；不要一再增加产品或用例超时来掩盖控制器问题，底层传输原因未定则保留该边界。
+
+暂存清理专项：不能用“整个目录权限被拒绝”的负控替代部分删除失败。递归清理可能先删owner.json再在previous.yaml占用处失败；应让本次和历史清理共用明文→标记→空目录的非递归顺序，并用真实publish/commit＋备份句柄占用＋释放后重入验证。归属标记保证持续到明文已删；最后只剩空目录的删除失败单独记录。证据见订阅恢复记录“本次与历史恢复的统一有序清理”。

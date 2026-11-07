@@ -8,6 +8,7 @@ if(-not (Test-Path -LiteralPath $dart)){throw 'Set DartExecutable to an existing
 $script=Join-Path $root 'copy_probe.dart'
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'fixtures/profile_file_write_native.dart') -Destination $script
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'fixtures/profile_recovery_native.dart') -Destination (Join-Path $root 'profile_recovery_native.dart')
+Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'fixtures/profile_cleanup_order_native.dart') -Destination (Join-Path $root 'profile_cleanup_order_native.dart')
 $rows=@()
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot '../../lib/xboard/services/profile_recovery_owner.dart') -Destination (Join-Path $root 'profile_recovery_owner.dart')
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot '../../lib/xboard/services/xb_profile_file_write.dart') -Destination (Join-Path $root 'xb_profile_file_write.dart')
@@ -99,4 +100,70 @@ foreach($brand in @('brand_a','brand_b')) {
  if($LASTEXITCODE -ne 0 -or -not $r.ok -or $r.directories -ne 0 -or -not $r.old_preserved){throw 'RECOVERY_RETRY_FAILED'}
  $recoveryRows += [pscustomobject]@{brand=$brand;phase='released';result=$r}
 }
-[pscustomobject]@{recovery_results=$recoveryRows;os=[Environment]::OSVersion.Version.ToString();dart=(& $dart --version | Out-String).Trim();results=$rows} | ConvertTo-Json -Depth 6
+foreach($brand in @('brand_a','brand_b')) {
+ foreach($kind in @('json','utf8','schema','disappearing','marker_locked','marker_acl')) {
+  $dir=Join-Path $root ($brand+'-metadata-'+$kind)
+  $probe=Join-Path $root 'profile_recovery_native.dart'
+  $prepared=(& $dart $probe prepare $dir $brand | Out-String | ConvertFrom-Json)
+  if($LASTEXITCODE -ne 0){throw 'METADATA_PREPARE_FAILED'}
+  $marker=Join-Path $prepared.directory 'owner.json'
+  if($kind -eq 'json'){[IO.File]::WriteAllText($marker,'{')}
+  if($kind -eq 'utf8'){[IO.File]::WriteAllBytes($marker,[byte[]]@(255))}
+  if($kind -eq 'schema'){[IO.File]::WriteAllText($marker,'{"schema":2}')}
+  $mode='cleanup';if($kind -eq 'disappearing'){$mode='cleanup_disappearing'}
+  $handle=$null;$originalAcl=$null
+  try {
+   if($kind -eq 'marker_acl') {
+    $originalAcl=Get-Acl -LiteralPath $marker
+    $denyAcl=Get-Acl -LiteralPath $marker
+    $sid=[Security.Principal.WindowsIdentity]::GetCurrent().User
+    $rights=[Security.AccessControl.FileSystemRights]([int][Security.AccessControl.FileSystemRights]::ReadData -bor [int][Security.AccessControl.FileSystemRights]::ReadAttributes -bor [int][Security.AccessControl.FileSystemRights]::ReadExtendedAttributes)
+    $rule=New-Object Security.AccessControl.FileSystemAccessRule($sid,$rights,[Security.AccessControl.AccessControlType]::Deny)
+    $denyAcl.AddAccessRule($rule);[IO.File]::SetAccessControl($marker,$denyAcl)
+   }
+   if($kind -eq 'marker_locked'){$handle=[IO.File]::Open($marker,[IO.FileMode]::Open,[IO.FileAccess]::ReadWrite,[IO.FileShare]::None)}
+   $r=(& $dart $probe $mode $dir $brand | Out-String | ConvertFrom-Json)
+   if($LASTEXITCODE -ne 0 -or -not $r.old_preserved){throw 'METADATA_PROBE_FAILED'}
+   if($kind -in @('marker_locked','marker_acl')) {
+    if($r.ok -or $r.directories -ne 1){throw 'READ_ERROR_SWALLOWED'}
+   } elseif($kind -eq 'disappearing') {
+    if(-not $r.ok -or $r.directories -ne 0){throw 'DISAPPEARANCE_BLOCKED_CLEANUP'}
+   } else {
+    if(-not $r.ok -or $r.directories -ne 1 -or $r.warnings.Count -ne 1){throw 'UNKNOWN_METADATA_NOT_ISOLATED'}
+   }
+   $recoveryRows += [pscustomobject]@{brand=$brand;phase=$kind;result=$r}
+  } finally {if($handle){$handle.Dispose()};if($originalAcl){$restoredAcl=New-Object Security.AccessControl.FileSecurity;$restoredAcl.SetSecurityDescriptorSddlForm($originalAcl.GetSecurityDescriptorSddlForm([Security.AccessControl.AccessControlSections]::Access),[Security.AccessControl.AccessControlSections]::Access);[IO.File]::SetAccessControl($marker,$restoredAcl)}}
+  if($kind -in @('marker_locked','marker_acl')) {
+   if(-not (Test-Path -LiteralPath $marker)){throw 'MARKER_LOST_DURING_DENIAL'}
+   $r=(& $dart $probe cleanup $dir $brand | Out-String | ConvertFrom-Json)
+   if($LASTEXITCODE -ne 0 -or -not $r.ok -or $r.directories -ne 0){throw 'MARKER_RELEASE_RECOVERY_FAILED'}
+   $recoveryRows += [pscustomobject]@{brand=$brand;phase=($kind+'_released');result=$r}
+  }
+ }
+}
+$cleanupRows=@()
+foreach($brand in @('brand_a','brand_b')) {
+ $dir=Join-Path $root ($brand+'-cleanup-order')
+ $psi=New-Object Diagnostics.ProcessStartInfo;$psi.FileName=$dart;$psi.Arguments='"'+(Join-Path $root 'profile_cleanup_order_native.dart')+'" "'+$dir+'" '+$brand;$psi.UseShellExecute=$false;$psi.RedirectStandardOutput=$true;$psi.RedirectStandardError=$true
+ $p=New-Object Diagnostics.Process;$p.StartInfo=$psi;$handle=$null
+ try {
+  if(-not $p.Start()){throw 'CLEANUP_PROBE_START_FAILED'}
+  $timer=[Diagnostics.Stopwatch]::StartNew();$ready=Join-Path $dir 'ready.json'
+  while(-not (Test-Path -LiteralPath $ready)){if($p.HasExited -or $timer.Elapsed.TotalSeconds -gt 20){throw 'CLEANUP_READY_TIMEOUT'};Start-Sleep -Milliseconds 20}
+  $info=[IO.File]::ReadAllText($ready)|ConvertFrom-Json
+  $handle=[IO.File]::Open((Join-Path $info.directory 'previous.yaml'),[IO.FileMode]::Open,[IO.FileAccess]::Read,[IO.FileShare]::ReadWrite)
+  [IO.File]::WriteAllText((Join-Path $dir 'go'),'go')
+  $failed=Join-Path $dir 'failed.json';$timer.Restart()
+  while(-not (Test-Path -LiteralPath $failed)){if($p.HasExited -or $timer.Elapsed.TotalSeconds -gt 20){throw 'CLEANUP_FAILURE_TIMEOUT'};Start-Sleep -Milliseconds 20}
+  $state=[IO.File]::ReadAllText($failed)|ConvertFrom-Json
+  if(-not $state.cleanup_failed -or -not $state.marker -or -not $state.backup){throw 'PARTIAL_CLEANUP_LOST_OWNERSHIP'}
+  $handle.Dispose();$handle=$null
+  [IO.File]::WriteAllText((Join-Path $dir 'released'),'released')
+  if(-not $p.WaitForExit(20000)){throw 'CLEANUP_RECOVERY_TIMEOUT'}
+  if($p.ExitCode -ne 0){throw $p.StandardError.ReadToEnd()}
+  $result=$p.StandardOutput.ReadToEnd()|ConvertFrom-Json
+  if(-not $result.recovery_directory_removed -or -not $result.target_new){throw 'CLEANUP_RECOVERY_FAILED'}
+  $cleanupRows+=$result
+ } finally {if($handle){$handle.Dispose()};if(-not $p.HasExited){$p.Kill()};$p.Dispose()}
+}
+[pscustomobject]@{cleanup_order_results=$cleanupRows;recovery_results=$recoveryRows;os=[Environment]::OSVersion.Version.ToString();dart=(& $dart --version | Out-String).Trim();results=$rows} | ConvertTo-Json -Depth 6

@@ -44,6 +44,8 @@ void main() {
       'cleanup_failure',
       'owned_cleanup_success',
       'owned_cleanup_logout',
+      'unclassified_cleanup_success',
+      'unclassified_cleanup_logout',
     ]) {
       test('$brand production staged validation: $scenario', () async {
         final dir = await Directory.systemTemp.createTemp('xb-validation-');
@@ -93,6 +95,18 @@ void main() {
           await File(
             '${recovery.directory.path}/unexpected',
           ).writeAsString('keep');
+        }
+        XbProfileFileWrite? unclassified;
+        if (scenario.startsWith('unclassified_')) {
+          unclassified = await XbProfileFileWrite.create(
+            targetPath: target.path,
+            bytes: Uint8List.fromList([1]),
+            ensureCurrent: () {},
+            recoveryOwner: ProfileRecoveryOwner(brand, 'other'),
+          );
+          await File(
+            '${unclassified.directory.path}/owner.json',
+          ).writeAsString('{');
         }
         final provider = Provider(
           (ref) => RiverpodProfileSyncPort(
@@ -159,11 +173,14 @@ void main() {
             'success',
             'owned_cleanup_success',
             'owned_cleanup_logout',
+            'unclassified_cleanup_success',
+            'unclassified_cleanup_logout',
           ].contains(scenario)) {
             expect(await flight, 42);
             expect(await target.readAsString(), 'proxies: []');
             expect(await recovery.directory.exists(), isFalse);
-            if (scenario == 'owned_cleanup_logout') {
+            if (scenario == 'owned_cleanup_logout' ||
+                scenario == 'unclassified_cleanup_logout') {
               final late = await XbProfileFileWrite.create(
                 targetPath: target.path,
                 bytes: Uint8List(0),
@@ -191,6 +208,10 @@ void main() {
             );
             expect(await target.readAsString(), 'old-config');
             expect(await recovery.directory.exists(), isTrue);
+          }
+          if (unclassified != null) {
+            expect(await unclassified.candidate.exists(), isTrue);
+            await unclassified.directory.delete(recursive: true);
           }
           await recovery.directory.exists().then((exists) async {
             if (exists) await recovery.directory.delete(recursive: true);

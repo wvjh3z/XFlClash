@@ -4,12 +4,12 @@
 
 ## 基线身份
 
-下表记录2026-10-30首次只读审计输入；功能段随后随main及已说明的工作区适配维护。当前受Git管理的下表记录冻结审计输入，当前实现须结合后续变更核对，工作区另有已说明的文档更正和Core CA脏文件，不纳入本表为新行为。
+下表保留2026-10-30首次审计输入；当前行为结合后续提交及对应功能段核对，实际HEAD和未提交差异读取Git。Core CA临时差异不作为底座行为依据。
 
 | 对象 | 冻结对照／真源 | 边界 |
 | --- | --- | --- |
 | 当前维护分支 | 三仓main | 升级分支保留历史，不作为默认操作入口 |
-| 冻结审计时品牌客户端 | `dd61c4e9884b8bbd4d5b5d06b67ff1797523f429` | 仅该冻结点的运行时源码与#144/#146构建源码2959e792一致，非完整Git树一致（文档/CI引用/编号等有差异）；冻结点后还包括F19资源变化、1968175a的F11/F16更新选源和8ecc8c6e的F06订阅保存/恢复；本表结合对应功能段维护，不代表当前全部实现 |
+| 冻结审计时品牌客户端 | `dd61c4e9884b8bbd4d5b5d06b67ff1797523f429` | 仅该冻结点的运行时源码与#144/#146构建源码2959e792一致，非完整Git树一致（文档/CI引用/编号等有差异）；冻结点后还包括F19资源变化、1968175a的F11/F16更新选源和8ecc8c6e的F06订阅保存/恢复、ef8c2866的错误分类与恢复目录归属清理；本表结合对应功能段维护，不代表当前全部实现 |
 | 原版FlClash | v0.9.2，`7fd417fb9a9a277c6a9339a8ac87f907df7c25f7` | 下文原版链接固定该commit；不能用品牌HEAD或移动的upstream/main替代 |
 | 审计时SDK | `aef9d33525054e09fccaa71ad9cdb480f1f88f39` | 冻结审计输入；当前发行引用读取[release-config.json](../../tool/release-config.json)，不能凭Docs版本猜SDK版本 |
 | 审计起点Docs | `2653d9853a1dbab3ffa88cb057b58ec58a6e360d` | 细化前的冻结文档起点；本文随后随main交付，当前CI引用以[xboard-ci.yml](../../.github/workflows/xboard-ci.yml)为准 |
@@ -105,7 +105,7 @@
 <a id="f05"></a>
 ### F05 登录、登出与会话持久化
 
-登录连接失败的手动线路重检复用[LoginSheet](../../lib/xboard/shell/sheets/login_sheet.dart)与[EndpointRaceController.recheckApi](../../lib/xboard/services/endpoint_race_controller.dart)，只调用游客配置GET，保留输入，成功后仍由用户提交登录；F04候选、网络世代及SDK分层冷却影响其结果。回归见[手动探测](../../test/xboard/services/manual_api_recheck_test.dart)、[登录页](../../test/xboard/shell/sheets/login_recheck_test.dart)及[失效轮次接管](../../test/xboard/shell/sheets/login_recheck_round_test.dart)，范围和状态见Docs契约及STATUS。品牌自有入口，不新增底座接缝。
+登录连接失败的手动线路重检复用[LoginSheet](../../lib/xboard/shell/sheets/login_sheet.dart)与[EndpointRaceController.recheckApi](../../lib/xboard/services/endpoint_race_controller.dart)，只调用游客配置GET，保留输入，成功后仍由用户提交登录；F02提供候选来源，F03负责竞速及SDK分层冷却，F04的网络/生命周期变化使旧轮失效。回归见[手动探测](../../test/xboard/services/manual_api_recheck_test.dart)、[登录页](../../test/xboard/shell/sheets/login_recheck_test.dart)及[失效轮次接管](../../test/xboard/shell/sheets/login_recheck_round_test.dart)，范围和状态见Docs契约及STATUS。品牌自有入口，不新增底座接缝。
 
 - **归类／要求**：自有+平台存储依赖。用户要求：修复登录保存失败和退出转圈；维护约束：落盘失败不得伪装登录成功，旧会话迟到结果不能写入新会话。 决定出处：REQ-OTHER（见文末）。
 - **原版0.9.2**：原版没有Xboard登录；[lib/common/preferences_store.dart · AtomicFilePreferencesStore](https://github.com/chen08209/FlClash/blob/7fd417fb9a9a277c6a9339a8ac87f907df7c25f7/lib/common/preferences_store.dart)及[lib/common/path.dart · AppPath](https://github.com/chen08209/FlClash/blob/7fd417fb9a9a277c6a9339a8ac87f907df7c25f7/lib/common/path.dart)仍影响宿主偏好目录。
@@ -124,9 +124,9 @@
 - **归类／要求**：自有下载/文件写入+复用校验与Profile应用。用户要求：保留加密订阅、代理继承及证书政策；维护约束：下载/解密/保存/选中/内核生效必须分清，写入须隔离当前会话；现有持久owner键实际为Token派生哈希，不是稳定账号ID。 决定出处：REQ-NET（见文末）。
 - **原版0.9.2**：[lib/providers/actions/profiles.dart · ProfilesAction](https://github.com/chen08209/FlClash/blob/7fd417fb9a9a277c6a9339a8ac87f907df7c25f7/lib/providers/actions/profiles.dart)处理Profile源、校验和文件；[lib/providers/actions/setup.dart · applyProfile](https://github.com/chen08209/FlClash/blob/7fd417fb9a9a277c6a9339a8ac87f907df7c25f7/lib/providers/actions/setup.dart)应用到内核。原版没有Xboard密文和账号归属索引。
 - **当前品牌实现**：[lib/xboard/services/encrypted_subscription_service.dart](../../lib/xboard/services/encrypted_subscription_service.dart)下载解密，[lib/xboard/services/xboard_subscription_service.dart](../../lib/xboard/services/xboard_subscription_service.dart)调度；[lib/xboard/services/riverpod_profile_sync_port.dart](../../lib/xboard/services/riverpod_profile_sync_port.dart)复用底座validateProfile并通过[品牌文件写入器](../../lib/xboard/services/xb_profile_file_write.dart)暂存/替换/恢复，检查会话后保存Profile并在Core就绪后申请应用；[lib/xboard/storage/profile_mutation_queue.dart](../../lib/xboard/storage/profile_mutation_queue.dart)协调品牌写入。
-- **依赖／平台／接缝**：F06a=取密文，F06b=解密校验，F06c=文件/主库/外挂索引，F06d=请求应用，F06e=内核结果；输入为F01就绪、F05归属、F14网络、F20存储，应用结果影响F08/F10。S03 Profile边界；四平台路径/锁语义不同。 直接依赖[CoreController.validateProfile](../../lib/core/controller.dart)对age密文/分享链接原地改写候选、[CoreMethodException](../../lib/core/method.dart)的错误分类和[appPath.getProfilePath](../../lib/common/path.dart)路径；校验后读取候选字节，不能提前缓存校验前内容。原版Profile.saveFile的后续变更不再自动作用到品牌文件订阅，但URL导入仍复用它。[底座孤儿清理](../../lib/common/task.dart)不扫描profiles子目录，品牌归属恢复清理由自有写入器承担。边界登记见[PATCHES](https://github.com/wvjh3z/proxy-suite-docs/blob/main/PATCHES.md#品牌订阅保存边界调整2026-11-01)。
-- **回归入口与必测分支**：损坏密文、取消、账号切换、DB忙、校验失败、半写回滚、内核尚未ready。补充[文件恢复测试](../../test/xboard/services/xb_profile_file_write_test.dart)、[真实port校验测试](../../test/xboard/services/profile_write_validation_test.dart)和[Windows原生脚本](../../tool/test/windows_profile_file_write_test.ps1)，覆盖临时Core错误与耗尽、只读/目录、外部改写、回滚失败留存、归属隔离及成功/退出清理。服务级恢复会重新取URL、下载解密，和网络失败共用预算；Windows写入占用恢复只重试本次本地操作，是另一层预算。具体次数与分类唯一见[ARCHITECTURE同步阶段](https://github.com/wvjh3z/proxy-suite-docs/blob/main/ARCHITECTURE.md#同步阶段副作用与结果边界)。Windows脚本需已有Dart并显式传-DartExecutable，目前不是CI自动执行项。[test/xboard/services/encrypted_subscription_service_test.dart](../../test/xboard/services/encrypted_subscription_service_test.dart)、[test/xboard/services/xboard_subscription_service_test.dart](../../test/xboard/services/xboard_subscription_service_test.dart)、[test/xboard/services/riverpod_profile_sync_port_cleanup_test.dart](../../test/xboard/services/riverpod_profile_sync_port_cleanup_test.dart)。
-- **限制／状态**：调用applyProfileDebounce不等于内核已生效；统一备份恢复与写入协调仍按U04暂缓，不把该缺口写成已解决。
+- **依赖／平台／接缝**：F06a=取密文，F06b=解密校验，F06c=文件/主库/外挂索引，F06d=请求应用，F06e=内核结果；输入为F01就绪、F05归属、F14网络、F20存储，应用结果影响F08/F10。S03 Profile边界；四平台路径/锁语义不同。无法识别恢复材料的保留警告接F22，按固定类别进程级去重，不携带标记正文。 直接依赖[CoreController.validateProfile](../../lib/core/controller.dart)对age密文/分享链接原地改写候选、[CoreMethodException](../../lib/core/method.dart)的错误分类和[appPath.getProfilePath](../../lib/common/path.dart)路径；校验后读取候选字节，不能提前缓存校验前内容。原版Profile.saveFile的后续变更不再自动作用到品牌文件订阅，但URL导入仍复用它。[底座孤儿清理](../../lib/common/task.dart)不扫描profiles子目录，品牌归属恢复清理由自有写入器承担。边界登记见[PATCHES](https://github.com/wvjh3z/proxy-suite-docs/blob/main/PATCHES.md#品牌订阅保存边界调整2026-11-01)。
+- **回归入口与必测分支**：损坏密文、取消、账号切换、DB忙、校验失败、半写回滚、内核尚未ready。补充[文件恢复测试](../../test/xboard/services/xb_profile_file_write_test.dart)、[真实port校验测试](../../test/xboard/services/profile_write_validation_test.dart)和[Windows原生脚本](../../tool/test/windows_profile_file_write_test.ps1)，覆盖临时Core错误与耗尽、只读/目录、外部改写、回滚失败留存、归属隔离及成功/退出清理、本次暂存部分删除失败保留标记；真实非root权限与不存在/链接对照见[Linux原生夹具](../../tool/test/linux_profile_permissions_test.py)，已有Dart工具参数与权限见BUSINESS_REGRESSION；主要归属回归另见[恢复清理测试](../../test/xboard/services/profile_recovery_cleanup_test.dart)与[退出接线](../../test/xboard/providers/logout_test.dart)。服务级恢复会重新取URL、下载解密，和网络失败共用预算；Windows写入占用恢复只重试本次本地操作，是另一层预算。具体次数与分类唯一见[ARCHITECTURE同步阶段](https://github.com/wvjh3z/proxy-suite-docs/blob/main/ARCHITECTURE.md#同步阶段副作用与结果边界)。Windows脚本需已有Dart，可传-DartExecutable或设置有效的FLUTTER_ROOT，目前不是CI自动执行项。[test/xboard/services/encrypted_subscription_service_test.dart](../../test/xboard/services/encrypted_subscription_service_test.dart)、[test/xboard/services/xboard_subscription_service_test.dart](../../test/xboard/services/xboard_subscription_service_test.dart)、[test/xboard/services/riverpod_profile_sync_port_cleanup_test.dart](../../test/xboard/services/riverpod_profile_sync_port_cleanup_test.dart)。
+- **限制／状态**：putFileProfile或sync失败可能发生在提交之后；调用applyProfileDebounce不等于内核已生效。owner.json格式升级须审计旧读取器：当前未知schema保留告警，但ef8c2866旧实现会抛错，不能倒推所有旧版本均兼容。统一备份恢复与写入协调仍按U04暂缓，不把该缺口写成已解决。
 
 <a id="f07"></a>
 ### F07 套餐、订单和支付
@@ -275,6 +275,8 @@
 ### F19 品牌身份、目录、图标及并存
 
 **补充边界**：编号/验签缺口见UB-GAP-07/08，资源修复与设备状态见UB-GAP-15；深链及FilesProvider入口分别见UB-GAP-17/18。
+
+**启动屏后续调整（2026-11-02，源码）**：品牌B启动屏亮色保留原图，暗色通过drawable-night只显示透明背景原始红图；独立于启动器和通知图标。五密度及小尺寸几何回归通过，APK/真机待验，见[记录](https://github.com/wvjh3z/proxy-suite-docs/blob/main/evidence/android-brand-b-splash-20261102/README.md)。
 
 **冻结点后的变化**：6055a4be修改品牌B Android三份adaptive资源及回归；VDS build36同号包和设备待验见[批次记录](https://github.com/wvjh3z/proxy-suite-docs/blob/main/evidence/brand-b-build36-vds-icon-replacement/README.md)。几何测试只覆盖B，不能用作A或所有最终包的图标证明。
 
@@ -535,7 +537,7 @@ Dart依赖的实际解析版本取[pubspec.lock](../../pubspec.lock)，直接约
 | connectivity_plus | 宿主及品牌网络观察 | F04/F11/F13；宿主网络事件与DNS/本地IP、品牌网络观察和IP路由联动；集合事件、未知/错误、桌面服务及VPN标记 |
 | drift / sqlite3 | 底座主库与品牌外挂库 | F06/F20/F23；schema21与schema2分别迁移、原生锁/隔离线程/备份格式 |
 | cryptography | 品牌密文及存储降级保护 | F02/F05/F06；算法/编码/tag验证和错误处理，不能仅验证能解某个样例 |
-| path_provider / shared_preferences | 共享路径和配置；品牌加归属/首次默认 | F01/F02/F05/F13/F14/F16/F17/F19/F20/F22/F24/F25；原生路径、缓存/落盘、账号与品牌隔离 |
+| path_provider / shared_preferences | 共享路径和配置；品牌加归属/首次默认 | F01/F02/F05/F06/F13/F14/F16/F17/F19/F20/F22/F24/F25；原生路径、缓存/落盘、账号与品牌隔离 |
 | dio | 品牌HTTP、订阅、更新及IP请求 | F02/F03/F06/F11/F14/F15/F16/F18；适配器、超时、证书及取消 |
 | url_launcher | 品牌客服/教程/支付等外部跳转 | F07/F15/F16/F17/F18/F25；平台支持、失败回退与进程环境 |
 | flutter_html / html | 品牌HTML展示与解析 | F18/F25/F07；链接回调、渲染与输入兼容 |

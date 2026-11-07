@@ -17,7 +17,19 @@ class AtomicFilePreferencesStore extends SharedPreferencesStorePlatform {
 
   final Future<String> _path;
   Future<Map<String, Object>>? _values;
-  Future<bool> _lastWrite = Future.value(true);
+  Future<void> _pending = Future.value();
+
+  Future<T> _serialized<T>(Future<T> Function() operation) {
+    final result = _pending.then((_) => operation());
+    _pending = result.then<void>((_) {}, onError: (Object _, StackTrace _) {});
+    return result;
+  }
+
+  Object _snapshotValue(Object value) => value is List ? List.of(value) : value;
+
+  Map<String, Object> _snapshot(Map<String, Object> values) => {
+    for (final entry in values.entries) entry.key: _snapshotValue(entry.value),
+  };
 
   Future<Map<String, Object>> _read() {
     return _values ??= _load().catchError((Object error, StackTrace stack) {
@@ -39,11 +51,15 @@ class AtomicFilePreferencesStore extends SharedPreferencesStorePlatform {
     return data is Map ? Map<String, Object>.from(data) : {};
   }
 
-  Future<bool> _update(void Function(Map<String, Object> values) change) async {
-    final values = await _read();
-    change(values);
-    final content = json.encode(values);
-    return _lastWrite = _lastWrite.then((_) => _write(content));
+  Future<bool> _update(void Function(Map<String, Object> values) change) {
+    return _serialized(() async {
+      final candidate = _snapshot(await _read());
+      change(candidate);
+      if (!await _write(json.encode(candidate))) return false;
+      // Failed candidates must never become input to an unrelated later write.
+      _values = Future.value(candidate);
+      return true;
+    });
   }
 
   Future<bool> _write(String content) async {
@@ -70,18 +86,22 @@ class AtomicFilePreferencesStore extends SharedPreferencesStorePlatform {
   @override
   Future<Map<String, Object>> getAllWithParameters(
     GetAllParameters parameters,
-  ) async {
-    final filter = parameters.filter;
-    final values = await _read();
-    return {
-      for (final entry in values.entries)
-        if (_matches(filter, entry.key)) entry.key: entry.value,
-    };
+  ) {
+    return _serialized(() async {
+      final filter = parameters.filter;
+      final values = await _read();
+      return {
+        for (final entry in values.entries)
+          if (_matches(filter, entry.key))
+            entry.key: _snapshotValue(entry.value),
+      };
+    });
   }
 
   @override
   Future<bool> setValue(String valueType, String key, Object value) {
-    return _update((values) => values[key] = value);
+    final snapshot = _snapshotValue(value);
+    return _update((values) => values[key] = snapshot);
   }
 
   @override
