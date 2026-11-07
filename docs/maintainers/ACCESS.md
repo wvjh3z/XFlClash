@@ -13,6 +13,8 @@
 
 当前维护机已用Git凭据助手成功读取和推送上述项目main及历史升级分支（最近客户端提交见UPGRADE_BASELINE）。这不保证未来Token未过期，也不等于任意账号有相同权限。提交署名不是认证。不要打印 `.git-credentials` 或直接把 `git credential fill` 输出到终端；该凭据可能同时服务其他项目。
 
+2026-11-08用户明确授权复用其指定ops项目登记的当前GitHub凭据，并要求配置到root默认位置。当前使用`/root/.git-credentials`（0600）及全局`credential.helper=store`，三个项目移除旧的仓库级helper覆盖；其他站点条目和其他Git设置保持。账号wvjh3z、三仓访问/推送权限及默认认证的main回读已验证。凭据只保存在受限文件，不随本次提交传输；该授权不扩展为其他生产操作。
+
 在已授权访问的客户端检出内，只读检查：
 
 ```bash
