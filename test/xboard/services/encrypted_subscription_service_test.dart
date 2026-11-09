@@ -241,6 +241,71 @@ void main() {
   });
 
   group('buildEncryptedUrl（方案 b：/{token} 前插 /encrypted/）', () {
+    for (final prefix in ['/omo', '/omoapi', '/ds', '/dsapi']) {
+      test('candidate prefix $prefix is retained', () {
+        expect(
+          EncryptedSubscriptionService.buildEncryptedUrl(
+            'https://origin.test/app/token?flag=clash',
+            overrideHost: 'https://mirror.test$prefix/',
+          ),
+          'https://mirror.test$prefix/app/encrypted/token?flag=clash',
+        );
+      });
+
+      test('download and authenticated decode use candidate prefix $prefix', () async {
+        final cipher = await encryptPayloadRaw(
+          _sampleYaml,
+          aad: kEncryptedSubscriptionAad,
+        );
+        final requested = <Uri>[];
+        final svc = serviceWith((options) async {
+          requested.add(options.uri);
+          return options.uri.path == '$prefix/app/encrypted/token'
+              ? ResponseBody.fromString(cipher, 200)
+              : ResponseBody.fromString('not found', 404);
+        });
+        final result = await svc.fetchWithFailOver(
+          'https://origin.test/app/token?flag=clash',
+          candidateHosts: ['https://mirror.test$prefix'],
+        );
+        expect(result.isSuccess, isTrue);
+        expect(utf8.decode(result.yamlBytes!), _sampleYaml);
+        expect(requested, hasLength(1));
+        expect(requested.single.queryParameters['flag'], 'clash');
+      });
+    }
+
+    test('existing identical path prefix is not duplicated', () {
+      expect(
+        EncryptedSubscriptionService.buildEncryptedUrl(
+          'https://origin.test/ds/app/token',
+          overrideHost: 'https://mirror.test/ds/',
+        ),
+        'https://mirror.test/ds/app/encrypted/token',
+      );
+    });
+
+    test('prefix matching uses path segments, not string startsWith', () {
+      expect(
+        EncryptedSubscriptionService.buildEncryptedUrl(
+          'https://origin.test/ds-other/app/token',
+          overrideHost: 'https://mirror.test/ds',
+        ),
+        'https://mirror.test/ds/ds-other/app/encrypted/token',
+      );
+    });
+
+    test('multi-segment prefix preserves encoded token, query and candidate port', () {
+      final result = Uri.parse(EncryptedSubscriptionService.buildEncryptedUrl(
+        'https://origin.test/app/token%2Fpart?flag=clash&value=a%2Bb',
+        overrideHost: 'https://mirror.test:8443/tenant%20one/ds/',
+      )!);
+      expect(result.host, 'mirror.test');
+      expect(result.port, 8443);
+      expect(result.pathSegments, ['tenant one', 'ds', 'app', 'encrypted', 'token/part']);
+      expect(result.query, 'flag=clash&value=a%2Bb');
+    });
+
     test('标准订阅 URL → 插入 encrypted 段', () {
       final r = EncryptedSubscriptionService.buildEncryptedUrl(
         'https://h.com/thunder/b012ef',

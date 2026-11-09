@@ -36,6 +36,8 @@
 
 ## v0.9.3升级候选验证（2026-11-08）
 
+GitHub发行#150（run42686858157，53feef32，品牌B/build37）六个平台都在Checkout Xboard_sdk的clone阶段退出128，尚未进入应用编译。原助手按凭据隔离要求丢弃Git输出，不能仅凭128断言Token过期；同助手在维护机使用有效root凭据可检出211c6be，固定对象不存在不是当前证据支持的结论。新增手动xboard-ci SDK-only诊断使用CI实际Secret做仓库/commit API检查与真实检出，输出固定状态分类，不反射API正文或Git原始错误；默认模块CI行为保持。用户只授权一次轻量诊断，不能自动重跑发行矩阵；源代码修复需新构建输入，重跑#150仍使用旧53feef32。后续实际诊断与修复回执由Docs/STATUS维护。
+
 build47/48交付与设备阶段：增量Git对象包必须包含提交的根tree（`ls-tree -r -t`仅列其后代），遗漏会在checkout报Could not read tree；补齐根tree后检出真实原提交，不以重建临时提交冒充原源码。Windows Java ProcessBuilder的`python -c`内联引号曾破坏安装驱动，改为base64源码解码执行，避免多层命令行重解释。Linux干净组合使用固定Python3.12.15解包；主机默认旧Python不支持extractall(filter=...)。这三项均为准备失败，不算产品缺陷。IP恢复测试需真实ProviderScope/XbIpCard调度监听；独立容器夹具的失败重试计数误差排除后，最终红17通过/1目标失败、绿32/32。build48设备稳定恢复/手动正控、账号清理及Sentry有独立证据，初轮额外IP查询仍未归因，详见[候选边界](https://github.com/wvjh3z/proxy-suite-docs/blob/main/evidence/upgrade-v0.9.3/windows-candidate-acceptance.md#build48验收与边界)。启动性能专项已由用户停止，不因此修改产品或继续采样。
 
 剩余P1验证的准备失败：Core事件测试的受控Completer须在真实派发Zone创建，并同时排空真实微任务与FakeAsync帧；否则成功对照失败，不能算业务错误。Editor必须等待真实controller和保存按钮可用；真实SQLite单次写入后，若Provider在FakeAsync内销毁、数据库关闭在runAsync内等待，可卡在清理阶段。将销毁/关闭置于同一runAsync并加5秒超时后有效轮次完成。外层600秒超时曾杀掉flutter_check包装器，使pubspec两个build_assets=false未恢复；核对无遗留进程且恢复候选与来源副本逐字节相同后才重跑，不盲覆盖其他变更。再次误传字符串给testWidgets.skip导致三文件加载失败；修正为bool后默认3通过/5跳过，显式XB_VERIFY_UPSTREAM_P1为3通过/5失败，分析无问题。包装采集器把skip计入passed，正式摘要必须按testDone.skipped排除。用户决定上游问题等待上游修复，以上五个红色断言保留；[本批证据](https://github.com/wvjh3z/proxy-suite-docs/blob/main/evidence/upgrade-v0.9.3/remaining-p1-result.json)不代表成品或设备验收。

@@ -13,7 +13,7 @@
 ///
 /// **URL 构造（方案 b，contract 0-B）**：原订阅 URL `https://host/{path}/{token}` → 在
 /// `/{token}` 前插 `/encrypted/` → `https://host/{path}/encrypted/{token}`（无需知 subscribe_path）；
-/// host 可换成 R4.9 竞速选中的订阅 endpoint（path+token 保留，同 v0.1 refreshUrl 逻辑）。
+/// 候选订阅 endpoint 可替换 scheme/host/port 并提供反代路径前缀；原订阅路径与 token 保留。
 ///
 /// **错误分流（contract §5）**：HTTP 非 2xx → 后端明文 JSON `{code,message}`（不加密），按
 /// code 归类（token 类 / 无套餐 / 加密未配置 / 其他）；2xx → 走解密；解密失败 → 数据损坏。
@@ -129,8 +129,8 @@ class EncryptedSubscriptionService {
   /// `https://h/thunder/b012ef` → `https://h/thunder/encrypted/b012ef`。
   /// 保留 scheme / host / 中间 path 段 / query。无法解析或无路径段 → 返 null（调用方降级）。
   ///
-  /// [overrideHost]（可选，R4.9 竞速选中的订阅 endpoint）：形如 `https://1.2.3.4` 或
-  /// `https://sub.cdn.com`，替换原 URL 的 scheme+host（保留改写后的 path+token+query）。
+  /// [overrideHost]（可选，R4.9订阅 endpoint）可带反代路径前缀。
+  /// 按路径段添加尚不存在的同名前缀，保留订阅路径、token和query，不猜测删除其他前缀。
   @visibleForTesting
   static String? buildEncryptedUrl(
     String originalSubscribeUrl, {
@@ -150,10 +150,20 @@ class EncryptedSubscriptionService {
     if (overrideHost != null && overrideHost.trim().isNotEmpty) {
       final hostUri = Uri.tryParse(overrideHost.trim());
       if (hostUri != null && hostUri.host.isNotEmpty) {
+        final prefix = hostUri.pathSegments
+            .where((segment) => segment.isNotEmpty)
+            .toList();
+        final alreadyPrefixed = prefix.length <= segments.length &&
+            Iterable<int>.generate(prefix.length).every(
+              (index) => prefix[index] == segments[index],
+            );
         result = result.replace(
           scheme: hostUri.scheme.isEmpty ? result.scheme : hostUri.scheme,
           host: hostUri.host,
           port: hostUri.hasPort ? hostUri.port : null,
+          pathSegments: alreadyPrefixed
+              ? newSegments
+              : [...prefix, ...newSegments],
         );
       }
     }
@@ -163,7 +173,7 @@ class EncryptedSubscriptionService {
   /// 拉取 + 解密加密订阅，返明文 ClashMeta YAML 字节。永不抛。
   ///
   /// [originalSubscribeUrl]：SDK `getSubscribeUrl()` 返回的原订阅 URL（含 token）。
-  /// [subscriptionEndpoint]（可选，R4.9）：竞速选中的订阅 endpoint host，替换原 URL host。
+  /// [subscriptionEndpoint]（可选，R4.9）：订阅 endpoint，包含可选的反代路径前缀。
   Future<EncryptedSubscriptionResult> fetch(
     String originalSubscribeUrl, {
     String? subscriptionEndpoint,

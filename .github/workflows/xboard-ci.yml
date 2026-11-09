@@ -7,8 +7,13 @@ name: Xboard CI
 on:
   workflow_dispatch:
     inputs:
+      sdk_diagnostic_only:
+        description: 'Only diagnose private SDK access; no Flutter, package or publish'
+        type: boolean
+        required: false
+        default: false
       sdk_ref:
-        description: 'SDK commit or immutable tag'
+        description: 'SDK commit or immutable tag; diagnostic mode requires full SHA'
         type: string
         required: true
         default: '211c6be19ccee55fb9d3458fd79f2a7c6acc13a9'
@@ -16,14 +21,45 @@ on:
         description: 'Current documentation commit'
         type: string
         required: true
-        default: 'c859bdd222f5e0f95e84f9bba87aef63d13ee6f9'
+        default: '968d0a1f4a9c60f6efb70c64ba132f2dedd641ec'
 
 permissions:
   contents: read
 
 jobs:
+  sdk-access-diagnostic:
+    name: Read-only private SDK access diagnostic
+    if: ${{ inputs.sdk_diagnostic_only }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          submodules: false
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Check diagnostic isolation
+        run: python3 tool/test/diagnose_sibling_sdk_test.py
+      - name: Verify repository, immutable commit and SDK checkout
+        env:
+          SDK_READ_TOKEN: ${{ secrets.SIBLING_SDK_TOKEN }}
+          SDK_REF: ${{ inputs.sdk_ref }}
+        run: python3 tool/diagnose_sibling_sdk.py --ref "$SDK_REF"
+      - name: Save safe diagnostic result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sdk-access-diagnostic
+          path: build/sdk-access-diagnostic.json
+          if-no-files-found: ignore
+          retention-days: 7
+
   analyze-and-test:
     name: Analyze + Test (Xboard module)
+    if: ${{ !inputs.sdk_diagnostic_only }}
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
