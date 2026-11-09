@@ -30,6 +30,38 @@ class Ticket extends XbAppImageRestartTicket {
 }
 
 void main() {
+  test('UB20 existing unrelated target is replaced without process identity proof', () async {
+    final root = await Directory.systemTemp.createTemp('unrelated-image-probe-');
+    addTearDown(() => root.delete(recursive: true));
+    final target = File('${root.path}/unrelated.AppImage');
+    final download = File('${root.path}/replacement');
+    await target.writeAsString('unrelated synthetic old image');
+    await download.writeAsString('synthetic replacement');
+    final ticket = Ticket(root);
+    var exits = 0;
+    await xbInstallAppImage(downloadedPath: download.path, appImagePath: target.path,
+      prepareRestart: (_) async => ticket, requestExit: () async { exits++; });
+    expect(await target.readAsString(), 'synthetic replacement');
+    expect(ticket.committed, isTrue);
+    expect(exits, 1);
+    final backups = await root.list(recursive: true)
+      .where((entry) => entry.path.endsWith('/previous.AppImage')).toList();
+    expect(backups, hasLength(1));
+    expect(await File(backups.single.path).readAsString(), 'unrelated synthetic old image');
+  }, skip: !Platform.isLinux);
+
+  test('UB20 missing target fails before restart preparation (control)', () async {
+    final root = await Directory.systemTemp.createTemp('missing-image-probe-');
+    addTearDown(() => root.delete(recursive: true));
+    final download = File('${root.path}/replacement');
+    await download.writeAsString('synthetic replacement');
+    var prepares = 0;
+    await expectLater(xbInstallAppImage(downloadedPath: download.path,
+      appImagePath: '${root.path}/missing.AppImage', requestExit: () async {},
+      prepareRestart: (_) async { prepares++; return Ticket(root); }), throwsStateError);
+    expect(prepares, 0);
+  }, skip: !Platform.isLinux);
+
   for (final brand in ['omofly', 'daishu']) {
     test(
       '$brand real install exit restores and restarts previous image',

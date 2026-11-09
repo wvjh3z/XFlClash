@@ -31,7 +31,8 @@ void main() {
         expect(config.mode, Mode.rule);
         expect(config.ipv6, ipv6);
         expect(
-          config.toUpdateParams(authentication: [], skipCertVerify: false).ipv6,
+          config.toUpdateParams(authentication: [],
+              options: const CoreOptions(testUrl: 'https://example.invalid/test')).ipv6,
           ipv6,
         );
         expect(
@@ -69,7 +70,8 @@ void main() {
       final config = c.read(patchClashConfigProvider);
       expect(config.generalOverrideKeys, isEmpty);
       expect(
-        config.toUpdateParams(authentication: [], skipCertVerify: false).ipv6,
+        config.toUpdateParams(authentication: [],
+            options: const CoreOptions(testUrl: 'https://example.invalid/test')).ipv6,
         isNull,
       );
       expect(config.testUrl, 'https://example.invalid/new');

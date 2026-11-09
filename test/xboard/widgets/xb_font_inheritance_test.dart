@@ -17,6 +17,26 @@ RenderParagraph _paragraph(WidgetTester tester, String text) => tester
     .singleWhere((p) => p.text.toPlainText() == text);
 
 void main() {
+  testWidgets('UB19 custom outer font is not inherited by the brand theme', (tester) async {
+    for (final color in [const Color(0xffd92e1a), const Color(0xff2255aa)]) {
+      String? outer;
+      String? inner;
+      await tester.pumpWidget(MaterialApp(
+        theme: ThemeData(fontFamily: 'FixtureUserSelectedFont'),
+        home: Builder(builder: (context) {
+          outer = Theme.of(context).textTheme.bodyMedium?.fontFamily;
+          return XbBrandTheme(brandColor: color, child: Builder(builder: (context) {
+            inner = Theme.of(context).textTheme.bodyMedium?.fontFamily;
+            return const SizedBox();
+          }));
+        }),
+      ));
+      expect(outer, 'FixtureUserSelectedFont');
+      expect(inner, isNot(outer));
+      expect(tester.takeException(), isNull);
+    }
+  }, variant: const TargetPlatformVariant(_platforms));
+
   for (final brightness in Brightness.values) {
     testWidgets(
       'brand theme retains platform typography in $brightness',

@@ -14,6 +14,25 @@ class _DelayTestTarget {
 
 typedef _DelayTestBatch = ({List<Proxy> proxies, String? testUrl});
 
+class _ProxySelectionRequest {
+  _ProxySelectionRequest({
+    required this.profileId,
+    required this.epoch,
+    required this.groupName,
+    required this.proxyName,
+    required this.rollbackName,
+    required this.core,
+  });
+
+  final int? profileId;
+  final int epoch;
+  final String groupName;
+  final String proxyName;
+  final String rollbackName;
+  final CoreController core;
+  bool completed = false;
+}
+
 class _DelayTestJob {
   _DelayTestJob(Iterable<String> keys, this.timeout) : held = keys.toSet();
 
@@ -21,6 +40,7 @@ class _DelayTestJob {
   final Duration timeout;
   final Set<String> startedOnDispatch = {};
   bool cancelled = false;
+  final List<Delay> results = [];
 }
 
 @Riverpod(keepAlive: true)
@@ -39,11 +59,22 @@ class ProxiesAction extends _$ProxiesAction {
 
   Timer? _delayFlushTimer;
 
-  final Map<String, String> _pendingSelectedRollback = {};
+  final Map<String, _ProxySelectionRequest> _pendingSelections = {};
+  final Map<String, _ProxySelectionRequest> _latestSelections = {};
+  int _selectionEpoch = 0;
 
   @override
   void build() {
-    ref.onDispose(() => _delayFlushTimer?.cancel());
+    ref.onDispose(() {
+      _delayFlushTimer?.cancel();
+      _invalidateSelections();
+    });
+    ref.listen(currentProfileIdProvider, (previous, next) {
+      if (previous != next) _invalidateSelections();
+    });
+    ref.listen(coreHandlerProvider, (previous, next) {
+      if (!identical(previous, next)) _invalidateSelections();
+    });
     ref.listen(coreStatusProvider, (_, next) {
       if (next != CoreStatus.connected) {
         cancelDelayTests();
@@ -92,21 +123,58 @@ class ProxiesAction extends _$ProxiesAction {
   }
 
   void changeProxyDebounce(String groupName, String proxyName) {
-    _pendingSelectedRollback.putIfAbsent(
-      groupName,
-      () => _currentSelectedName(groupName),
-    );
+    final request = _beginSelection(groupName, proxyName);
+    _pendingSelections[groupName] = request;
     ref
         .read(profilesActionProvider.notifier)
         .updateCurrentSelectedMap(groupName, proxyName);
-    debouncer.call((FunctionTag.changeProxy, groupName), (
-      String groupName,
-      String proxyName,
-    ) async {
-      await changeProxy(groupName: groupName, proxyName: proxyName);
-      updateGroupsDebounce();
-    }, args: [groupName, proxyName]);
+    debouncer.call(_selectionTag(groupName), () async {
+      if (!_isSelectionCurrent(request)) return;
+      _pendingSelections.remove(groupName);
+      await _applySelection(request);
+      if (_isSelectionCurrent(request)) updateGroupsDebounce();
+    });
   }
+
+  Object _selectionTag(String groupName) =>
+      (FunctionTag.changeProxy, this, groupName);
+
+  void _invalidateSelections() {
+    _selectionEpoch++;
+    for (final group in _pendingSelections.keys) {
+      debouncer.cancel(_selectionTag(group));
+    }
+    _pendingSelections.clear();
+    _latestSelections.clear();
+  }
+
+  _ProxySelectionRequest _beginSelection(String groupName, String proxyName) {
+    final previous = _latestSelections[groupName];
+    final profileId = ref.read(currentProfileIdProvider);
+    final request = _ProxySelectionRequest(
+      profileId: profileId,
+      epoch: _selectionEpoch,
+      groupName: groupName,
+      proxyName: proxyName,
+      // A superseded optimistic choice is not a confirmed rollback target.
+      rollbackName: previous != null &&
+              !previous.completed &&
+              previous.epoch == _selectionEpoch &&
+              previous.profileId == profileId
+          ? previous.rollbackName
+          : _currentSelectedName(groupName),
+      core: _core,
+    );
+    _latestSelections[groupName] = request;
+    return request;
+  }
+
+  bool _isSelectionCurrent(_ProxySelectionRequest request) =>
+      ref.mounted &&
+      request.epoch == _selectionEpoch &&
+      identical(_latestSelections[request.groupName], request) &&
+      ref.read(currentProfileIdProvider) == request.profileId &&
+      identical(_core, request.core);
 
   String _currentSelectedName(String groupName) {
     return ref.read(currentProfileProvider)?.selectedMap[groupName] ?? '';
@@ -179,14 +247,29 @@ class ProxiesAction extends _$ProxiesAction {
     required String groupName,
     required String proxyName,
   }) async {
-    final profilesAction = ref.read(profilesActionProvider.notifier);
-    final rollbackName =
-        _pendingSelectedRollback.remove(groupName) ??
-        _currentSelectedName(groupName);
-    profilesAction.updateCurrentSelectedMap(groupName, proxyName);
+    debouncer.cancel(_selectionTag(groupName));
+    _pendingSelections.remove(groupName);
+    final request = _beginSelection(groupName, proxyName);
+    ref.read(profilesActionProvider.notifier)
+        .updateCurrentSelectedMap(groupName, proxyName);
+    await _applySelection(request);
+  }
+
+  Future<void> _applySelection(_ProxySelectionRequest request) async {
+    if (!_isSelectionCurrent(request)) return;
+    try {
+      await _dispatchSelection(request);
+    } finally {
+      request.completed = true;
+    }
+  }
+
+  Future<void> _dispatchSelection(_ProxySelectionRequest request) async {
+    final groupName = request.groupName;
+    final proxyName = request.proxyName;
     final ChangeProxyResult result;
     try {
-      result = await _core.changeProxy(
+      result = await request.core.changeProxy(
         ChangeProxyParams(groupName: groupName, proxyName: proxyName),
       );
       if (result.message.isNotEmpty) {
@@ -197,21 +280,25 @@ class ProxiesAction extends _$ProxiesAction {
         'changeProxy($groupName -> $proxyName) failed: $error',
         logLevel: coreFailureLogLevel(error),
       );
-      profilesAction.updateCurrentSelectedMap(groupName, rollbackName);
-      dialogs.showNotifier(
+      if (!_isSelectionCurrent(request)) return;
+      if (_currentSelectedName(groupName) == proxyName) {
+        ref.read(profilesActionProvider.notifier)
+            .updateCurrentSelectedMap(groupName, request.rollbackName);
+      }
+      dialogs.showBanner(
         currentAppLocalizations.changeProxyFailedTip,
-        level: MessageLevel.error,
+        level: BannerLevel.error,
       );
       return;
     }
-    if (!result.changed) {
+    if (!_isSelectionCurrent(request) || !result.changed) {
       return;
     }
     try {
       if (ref.read(appSettingProvider).closeConnections) {
-        await _core.closeConnections();
+        await request.core.closeConnections();
       } else {
-        await _core.resetConnections();
+        await request.core.resetConnections();
       }
     } catch (error) {
       commonPrint.log(
@@ -221,7 +308,7 @@ class ProxiesAction extends _$ProxiesAction {
     }
   }
 
-  Future<String> updateProvider(
+  Future<void> updateProvider(
     ExternalProvider provider, {
     bool showLoading = false,
   }) async {
@@ -236,16 +323,12 @@ class ProxiesAction extends _$ProxiesAction {
       );
       final ruleSet = await clashProvidersAction.remoteProviderOf(provider);
       if (ruleSet != null && !await clashProvidersAction.syncRemote(ruleSet)) {
-        return '';
+        return;
       }
-      final message = await _core.updateExternalProvider(
-        providerName: provider.name,
-      );
-      if (message.isNotEmpty) return message;
+      await _core.updateExternalProvider(provider.name);
       ref
           .read(providersProvider.notifier)
           .setProvider(await _core.getExternalProvider(provider.name));
-      return '';
     } finally {
       if (operation != null) {
         ref
@@ -255,7 +338,7 @@ class ProxiesAction extends _$ProxiesAction {
     }
   }
 
-  Future<String> sideLoadExternalProvider(
+  Future<void> sideLoadExternalProvider(
     ExternalProvider provider,
     String data, {
     bool showLoading = false,
@@ -266,15 +349,13 @@ class ProxiesAction extends _$ProxiesAction {
               .start(provider.updatingKey, scope: UpdatingScope.core)
         : null;
     try {
-      final message = await _core.sideLoadExternalProvider(
+      await _core.sideLoadExternalProvider(
         providerName: provider.name,
         data: data,
       );
-      if (message.isNotEmpty) return message;
       ref
           .read(providersProvider.notifier)
           .setProvider(await _core.getExternalProvider(provider.name));
-      return '';
     } finally {
       if (operation != null) {
         ref
@@ -302,7 +383,7 @@ class ProxiesAction extends _$ProxiesAction {
       groupNames: groupNames.toSet(),
     );
     if (added == null) {
-      dialogs.showNotifier(appLocalizations.alreadyInLocalProxies(name));
+      dialogs.showBanner(appLocalizations.alreadyInLocalProxies(name));
       return;
     }
     final order = indexing.generateKeyBetween(
@@ -312,13 +393,14 @@ class ProxiesAction extends _$ProxiesAction {
     await database.customProxies.put(
       CustomProxy.fromDefinition(added).copyWith(order: order).toCompanion(),
     );
-    dialogs.showNotifier(appLocalizations.addedToLocalProxies(name));
+    dialogs.showBanner(appLocalizations.addedToLocalProxies(name));
   }
 
-  Future<void> proxyDelayTest(Proxy proxy, [String? testUrl]) {
-    return _runDelayTests([
+  Future<Delay?> proxyDelayTest(Proxy proxy, [String? testUrl]) async {
+    final results = await _runDelayTests([
       (proxies: [proxy], testUrl: testUrl),
     ]);
+    return results.firstOrNull;
   }
 
   Future<void> delayTest(List<Proxy> proxies, [String? testUrl]) async {
@@ -395,10 +477,10 @@ class ProxiesAction extends _$ProxiesAction {
     return targets;
   }
 
-  Future<void> _runDelayTests(List<_DelayTestBatch> batches) async {
+  Future<List<Delay>> _runDelayTests(List<_DelayTestBatch> batches) async {
     final targets = _resolveDelayTestTargets(batches);
     if (targets.isEmpty) {
-      return;
+      return const [];
     }
     final pending = ref.read(pendingDelayTestsProvider.notifier);
     final job = _DelayTestJob(
@@ -429,6 +511,7 @@ class ProxiesAction extends _$ProxiesAction {
         ),
       );
     }
+    return job.results;
   }
 
   Future<void> _runDelayTest(_DelayTestJob job, _DelayTestTarget target) async {
@@ -440,12 +523,15 @@ class ProxiesAction extends _$ProxiesAction {
       _scheduleDelayFlush();
     }
     try {
-      final delay = await _core.getDelay(
-        target.testUrl,
-        target.proxyName,
-        job.timeout,
+      final delay = await _core.testDelay(
+        TestDelayParams(
+          proxyName: target.proxyName,
+          testUrl: target.testUrl,
+          timeout: job.timeout.inMilliseconds,
+        ),
       );
-      if (delay != null && !job.cancelled) {
+      if (!job.cancelled) {
+        job.results.add(delay);
         setDelay(delay);
       }
     } catch (error) {

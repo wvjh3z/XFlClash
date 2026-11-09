@@ -1,0 +1,24 @@
+{
+  "platform": "linux",
+  "runtime": {
+    "frameworkVersion": "3.47.6",
+    "engineRevision": "692136cb6582dbfc5af3fb33c2515a069f2f66d0",
+    "dartSdkVersion": "3.13.5"
+  },
+  "cjk": {
+    "defaultPath": "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+    "packageUrl": "https://archive.ubuntu.com/ubuntu/pool/main/f/fonts-noto-cjk/fonts-noto-cjk_20230817+repack1-3_all.deb",
+    "packageMember": "usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+    "sha256": "b76b0433203017ca80401b2ee0dd69350349871c4b19d504c34dbdd80541690a"
+  },
+  "fontAssets": {
+    "MaterialIcons": "fonts/MaterialIcons-Regular.otf",
+    "JetBrainsMono": "assets/fonts/JetBrainsMono-Regular.ttf",
+    "Twemoji": "assets/fonts/Twemoji.Mozilla.ttf"
+  },
+  "assetSha256": {
+    "fonts/MaterialIcons-Regular.otf": "d9865b671a09d683d13a863089d8825e0f61a37696ce5d7d448bc8023aa62453",
+    "assets/fonts/JetBrainsMono-Regular.ttf": "a0bf60ef0f83c5ed4d7a75d45838548b1f6873372dfac88f71804491898d138f",
+    "assets/fonts/Twemoji.Mozilla.ttf": "61db6397b8b32b72c585d538ef698a84cf78cf2558a14046b3fa0ec4cc362540"
+  }
+}

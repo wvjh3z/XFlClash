@@ -116,12 +116,12 @@ PY
 
 ## 上游AI配置与工具加载边界
 
-2026-10-30静态核对：客户端`.agents/`含14个文件，与固定FlClash v0.9.2参考逐字节相同。它们描述上游，不是本品牌项目的第二套业务要求。
+2026-10-30的14文件/4技能核对属于v0.9.2历史记录。当前v0.9.3候选新增ui-performance，实际有5个SKILL.md入口及5个对应链接；文件数量随上游变化，接手时读取当前目录核对。它们描述上游，不是本品牌项目的第二套业务要求。
 
 | 仓内位置 | 已确认配置 | 使用边界 |
 | --- | --- | --- |
-| `.agents/` | 上游架构、命令、规则及4份skills | 按上游参考阅读；品牌需求、当前行为和授权从本项目AGENTS及Docs核对 |
-| `.claude/skills/` | 4个链接指向`.agents/skills` | 能被某工具发现不代表已被授权执行全部步骤 |
+| `.agents/` | 上游架构、命令、规则及技能入口 | 按上游参考阅读；品牌需求、当前行为和授权从本项目AGENTS及Docs核对 |
+| `.claude/skills/` | 指向`.agents/skills`的对应链接 | 能被某工具发现不代表已被授权执行全部步骤 |
 | `.claude/settings.json` | PostToolUse匹配Edit/Write等，调用comment_density.sh | 是可执行hook配置，不能仅当文字参考；是否实际启用需核对所用工具 |
 | `.codex/config.toml` | PostToolUse匹配apply_patch/Bash，调用同一脚本 | 配置存在已确认，当前工具是否支持/加载未验证 |
 | `.mcp.json`、`opencode.jsonc` | codegraph本地服务配置，后者enabled=true | 服务可用性、运行状态及工具权限需独立核对，不自动安装或启动 |

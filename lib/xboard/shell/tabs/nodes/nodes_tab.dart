@@ -7,6 +7,8 @@
 /// 内核数据（延迟/选中/选择/测速）经 [XbNodesAdapter] 收口（适配层铁律），不直接碰 `lib/views/**`。
 library;
 
+import '../../../providers/subscription_sync_status.dart';
+
 import 'package:fl_clash/xboard/widgets/xb_emoji_text.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -67,11 +69,6 @@ class _NodesTabState extends ConsumerState<NodesTab>
   /// 旧节点保留显示（不清空），写入成功后 profile 重载自动覆盖。
   bool _refreshing = false;
 
-  /// 最近一次刷新/同步返回的订阅状态（加密订阅端点的服务端真相，token-in-URL 不依赖登录态）。
-  /// build() 据此渲染空态（过期/无套餐/流量用尽），无需回查用户信息。null = 尚未刷新（冷启动）。
-  /// 仅记录有意义的终态（不记 failed/skipped，以保留上一次有效状态 + 旧节点）。
-  XbSyncOutcome? _lastRefreshOutcome;
-
   /// 当前选中的分组名（顶部 tab）。null = 用首个可见分组。
   String? _selectedGroup;
   bool? _lastGlobalMode;
@@ -107,7 +104,7 @@ class _NodesTabState extends ConsumerState<NodesTab>
 
   /// 刷新 = 重拉订阅并解密写入新节点（2-A）。await sync(force) 拿状态码：
   /// ok=写入新 profile；subscriptionExpired/noSubscription/trafficExhausted/authExpired=
-  /// 加密订阅端点的服务端真相（插件 40304/40305/40307/4030x）。据此出文案 + 记 [_lastRefreshOutcome]
+  /// 加密订阅端点的服务端真相（插件 40304/40305/40307/4030x）。据此出文案并发布共享结果，
   /// 让 build() 渲染对应空态。**不再回查用户信息**——状态完全由订阅接口决定。
   Future<void> _refreshNodes() async {
     if (ref.read(authStateProvider) != AuthState.authenticated) return;
@@ -133,9 +130,7 @@ class _NodesTabState extends ConsumerState<NodesTab>
     setState(() {
       _refreshing = false;
       // 记录服务端订阅状态供 build() 渲染空态；failed/skipped 不覆盖（保留上次有效状态 + 旧节点）。
-      if (outcome != XbSyncOutcome.failed && outcome != XbSyncOutcome.skipped) {
-        _lastRefreshOutcome = outcome;
-      }
+      ref.read(subscriptionSyncStatusProvider.notifier).publish(outcome, revision);
     });
     if (outcome != XbSyncOutcome.ok) {
       final msg = switch (outcome) {
@@ -154,11 +149,13 @@ class _NodesTabState extends ConsumerState<NodesTab>
       sub.expiredAt != null && !sub.expiredAt!.isAfter(DateTime.now());
 
   /// 决定是否渲染空态及哪一种（清空节点）。综合两路信号，取「更差」者，优先级 过期 > 无套餐 > 用尽：
-  /// ① [_lastRefreshOutcome]：加密订阅端点的服务端真相（最近一次刷新/同步）；
+  /// ① 当前会话共享同步结果：加密订阅端点的服务端真相（手动或后台）；
   /// ② 本地 [sub]（userProfile）：冷启动尚无刷新结果、或「我的」页刚刷新过账号信息时的兜底。
   /// 返回 null = 不强制空态（交给 nodesView：有节点则展示，无则走通用空态）。
   Widget? _resolveEmptyBody(XbDomainSubscription? sub) {
-    final o = _lastRefreshOutcome;
+    final status = ref.watch(subscriptionSyncStatusProvider);
+    final o = status?.revision == ref.read(authStateProvider.notifier).sessionRevision
+        ? status?.outcome : null;
     final localExpired = sub != null && _isExpired(sub);
     // 用尽判定带 totalBytes>0 守卫：避免「不限量套餐 totalBytes==0」被误判为用尽。
     final localExhausted =
@@ -239,7 +236,7 @@ class _NodesTabState extends ConsumerState<NodesTab>
       if (previous != next) {
         setState(() {
           _refreshing = false;
-          _lastRefreshOutcome = null;
+          ref.read(subscriptionSyncStatusProvider.notifier).clear();
         });
         resetThrottle();
       }
@@ -249,7 +246,7 @@ class _NodesTabState extends ConsumerState<NodesTab>
       return _GuestNodes(onTapLogin: widget.onTapLogin);
     }
 
-    // 节点可用性以加密订阅端点的服务端真相为准（_lastRefreshOutcome），辅以本地 userProfile
+    // 节点可用性以当前会话的共享同步结果为准，辅以本地 userProfile。
     // 兜底（冷启动尚无刷新结果时）。取两者「更差」的信号 → 任一指示过期/无套餐/用尽即清空节点。
     final sub = ref.watch(userProfileProvider).asData?.value;
     final emptyBody = _resolveEmptyBody(sub);

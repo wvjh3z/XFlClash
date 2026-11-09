@@ -40,11 +40,11 @@ class _Nodes extends XbNodesAdapter {
 
 // Keep the real setRunning/_run/_stop/rollback. Only the native boundary is fake.
 class _NativeSetup extends SetupAction {
-  final stop = Completer<bool>();
+  final stop = Completer<void>();
   final entered = Completer<void>();
   @override
-  Future<bool> setCoreRunning(bool running) {
-    if (running) return Future.value(true);
+  Future<void> setCoreRunning(bool running) {
+    if (running) return Future.value();
     if (!entered.isCompleted) entered.complete();
     return stop.future;
   }
@@ -200,7 +200,8 @@ void main() {
             if (failsWithException) {
               setup.stop.completeError(StateError('native stop failure'));
             } else {
-              setup.stop.complete(false);
+              // v0.9.3 reports the old no-answer/false outcome as a timeout.
+              setup.stop.completeError(TimeoutException('native stop unanswered'));
             }
             await tester.pump();
             // The async native result schedules provider/UI and toast frames.

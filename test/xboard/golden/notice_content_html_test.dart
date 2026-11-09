@@ -10,35 +10,15 @@
 ///   flutter test --update-goldens test/xboard/golden/notice_content_html_test.dart
 library;
 
-import 'dart:io';
+import 'golden_environment.dart';
 
 import 'package:material_ui/material_ui.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:fl_clash/xboard/models/xb_notice.dart';
 import 'package:fl_clash/xboard/providers/notice_provider.dart';
 import 'package:fl_clash/xboard/widgets/xb_announcement.dart';
-
-const _cjkFontPaths = [
-  '/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc',
-  '/System/Library/Fonts/PingFang.ttc',
-];
-
-Future<void> _loadCjkFont() async {
-  for (final path in _cjkFontPaths) {
-    final f = File(path);
-    if (!f.existsSync()) continue;
-    try {
-      final bytes = await f.readAsBytes();
-      final loader = FontLoader('Roboto')
-        ..addFont(Future.value(ByteData.view(bytes.buffer)));
-      await loader.load();
-      return;
-    } catch (_) {}
-  }
-}
 
 /// 假公告（富文本，含标题段/加粗/列表/链接/emoji，覆盖 flutter_html 各路径）。
 final _fakeNotices = <XbNotice>[
@@ -70,7 +50,7 @@ XbNoticeState _state({required bool hasUnread}) => XbNoticeState(
     );
 
 void main() {
-  setUpAll(_loadCjkFont);
+  setUpAll(loadGoldenFonts);
 
   void sizePhone(WidgetTester t) {
     t.view.physicalSize = const Size(390 * 3, 844 * 3);
@@ -105,8 +85,7 @@ void main() {
       ));
       await t.pumpAndSettle();
       expect(find.text('有新公告'), findsOneWidget);
-      await expectLater(find.byType(XbNoticePill),
-          matchesGoldenFile('goldens/notice_pill_light.png'));
+      await expectXbGolden(t, find.byType(XbNoticePill), 'goldens/notice_pill_light.png');
     });
 
     testWidgets('无未读 → 胶囊不占位', (t) async {
@@ -152,8 +131,7 @@ void main() {
       // HTML 源码标签不应作为可见文字泄漏。
       expect(find.textContaining('font-weight'), findsNothing);
       expect(find.textContaining('<div'), findsNothing);
-      await expectLater(find.byType(MaterialApp),
-          matchesGoldenFile('goldens/notice_sheet_light.png'));
+      await expectXbGolden(t, find.byType(MaterialApp), 'goldens/notice_sheet_light.png');
     });
 
     testWidgets('dark — 不崩 + golden', (t) async {
@@ -161,8 +139,7 @@ void main() {
       expect(t.takeException(), isNull);
       expect(find.text('公告'), findsOneWidget);
       expect(find.textContaining('font-weight'), findsNothing);
-      await expectLater(find.byType(MaterialApp),
-          matchesGoldenFile('goldens/notice_sheet_dark.png'));
+      await expectXbGolden(t, find.byType(MaterialApp), 'goldens/notice_sheet_dark.png');
     });
   });
 }

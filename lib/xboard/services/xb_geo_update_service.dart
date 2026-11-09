@@ -18,11 +18,11 @@ import 'package:fl_clash/core/event.dart';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-/// v0.9.1 acknowledges the request before the update finishes. Only the matching
+/// The Core acknowledges the request before the update finishes. Only the matching
 /// completion event may count as a successful update for the seven-day policy.
 Future<String> updateXbGeoResource(
   String type, {
-  Future<String> Function(String type)? request,
+  Future<void> Function(String type)? request,
   Duration timeout = const Duration(minutes: 3),
 }) async {
   final completion = Completer<String>();
@@ -31,8 +31,7 @@ Future<String> updateXbGeoResource(
   events.addListener(listener);
   try {
     final operation = () async {
-      final message = await (request ?? coreController.updateGeoData)(type);
-      if (message.isNotEmpty) return message;
+      await (request ?? coreController.updateGeoData)(type);
       return completion.future;
     }();
     return await operation.timeout(

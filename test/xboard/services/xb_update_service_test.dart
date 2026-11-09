@@ -108,6 +108,23 @@ void main() {
   }
 
   group('API readiness and failover', () {
+    for (final failed in [false, true]) {
+      test('G15 existing update survives ${failed ? "request failure" : "explicit no-update"}', () async {
+        final container = makeContainer();
+        respond = () async => update;
+        await XbUpdateService.autoCheck(container);
+        expect(container.read(availableUpdateProvider), same(update));
+        final before = requests;
+        respond = failed
+            ? () async => throw StateError('synthetic offline')
+            : () async => null;
+        await XbUpdateService.autoCheck(container);
+        expect(requests, greaterThan(before));
+        // Characterization, not approval of identical withdrawal/offline policy.
+        expect(container.read(availableUpdateProvider), same(update));
+      });
+    }
+
     test(
       'API round trip invalidates completed automatic startup success',
       () async {

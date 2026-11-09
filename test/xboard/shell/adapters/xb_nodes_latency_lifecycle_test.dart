@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:fl_clash/core/controller.dart';
 import 'package:fl_clash/core/interface.dart';
+import 'package:fl_clash/core/method.dart';
 import 'package:fl_clash/models/models.dart';
 import 'package:fl_clash/providers/providers.dart';
 import 'package:fl_clash/xboard/providers/auth_state_provider.dart';
@@ -45,7 +46,13 @@ class _Adapter extends XbNodesAdapter {
 
 const url = 'https://example.invalid';
 void main() {
-  setUpAll(() => registerFallbackValue(Duration.zero));
+  setUpAll(() => registerFallbackValue(
+    const TestDelayParams(proxyName: '', testUrl: '', timeout: 1),
+  ));
+  Matcher paramsFor(String name) => isA<TestDelayParams>()
+      .having((value) => value.proxyName, 'proxy', name)
+      .having((value) => value.testUrl, 'url', url)
+      .having((value) => value.timeout, 'milliseconds', greaterThan(0));
   for (final brand in ['brand_a', 'brand_b']) {
     for (final scenario in [
       'newer',
@@ -61,6 +68,8 @@ void main() {
       'core_failure',
       'same_node',
       'success',
+      'unanswered_then_success',
+      'empty_then_success',
     ]) {
       testWidgets('$brand latency $scenario', (tester) async {
         var running = true;
@@ -69,12 +78,13 @@ void main() {
         final core = _Core();
         final auth = _Auth();
         final actions = _Actions();
-        final a = Completer<Delay?>();
-        final b = Completer<Delay?>();
+        final a = Completer<Delay>();
+        final b = Completer<Delay>();
         var callsA = 0;
-        when(() => core.asyncTestDelay(any(), 'A', any())).thenAnswer((_) {
+        when(() => core.testDelay(any(that: paramsFor('A')))).thenAnswer((_) {
           callsA++;
-          if (scenario == 'success' && callsA > 1) {
+          if (['success', 'unanswered_then_success', 'empty_then_success']
+                  .contains(scenario) && callsA > 1) {
             return Future.value(
               Delay(url: url, name: 'A', value: callsA == 2 ? 50 : 80),
             );
@@ -82,7 +92,7 @@ void main() {
           return a.future;
         });
         when(
-          () => core.asyncTestDelay(any(), 'B', any()),
+          () => core.testDelay(any(that: paramsFor('B'))),
         ).thenAnswer((_) => b.future);
         final c = ProviderContainer(
           overrides: [
@@ -134,7 +144,7 @@ void main() {
           final target = scenario == 'same_node' ? 'A' : 'B';
           if (target == 'A') {
             when(
-              () => core.asyncTestDelay(any(), 'A', any()),
+              () => core.testDelay(any(that: paramsFor('A'))),
             ).thenAnswer((_) => b.future);
           }
           final second = adapter.measureCurrentNodeBest(
@@ -175,7 +185,11 @@ void main() {
         } else if (scenario == 'write_failure') {
           actions.fail = true;
         }
-        if (scenario == 'old_failure' || scenario == 'core_failure') {
+        if (scenario == 'unanswered_then_success') {
+          a.completeError(TimeoutException('fixture no answer'));
+        } else if (scenario == 'empty_then_success') {
+          a.completeError(const CoreMethodException(code: 'empty_result', message: 'fixture empty'));
+        } else if (scenario == 'old_failure' || scenario == 'core_failure') {
           a.completeError(StateError('late failure'));
         } else {
           a.complete(const Delay(url: url, name: 'A', value: 200));
@@ -188,17 +202,17 @@ void main() {
           final expected =
               ['newer', 'old_failure', 'same_node'].contains(scenario)
               ? 30
-              : scenario == 'success'
+              : ['success', 'unanswered_then_success', 'empty_then_success'].contains(scenario)
               ? 50
               : null;
           expect(c.read(homeLatencyProvider).ms, expected);
           expect(c.read(homeLatencyProvider).measuring, isFalse);
-          if (scenario == 'success') {
+          if (['success', 'unanswered_then_success', 'empty_then_success'].contains(scenario)) {
             expect(actions.writes.single.value, 50);
-            verify(() => core.asyncTestDelay(url, 'A', any())).called(3);
+            verify(() => core.testDelay(any(that: paramsFor('A')))).called(3);
           } else if (!['write_failure'].contains(scenario)) {
             verify(
-              () => core.asyncTestDelay(url, 'A', any()),
+              () => core.testDelay(any(that: paramsFor('A'))),
             ).called(scenario == 'same_node' ? 2 : 1);
           }
         }

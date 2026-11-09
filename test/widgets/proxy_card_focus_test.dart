@@ -5,12 +5,13 @@ import 'package:fl_clash/state.dart';
 import 'package:fl_clash/views/proxies/card.dart';
 import 'package:fl_clash/widgets/widgets.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:material_ui/material_ui.dart';
 
 import '../helpers/test_app.dart';
 import '../helpers/test_profiles.dart';
+import '../helpers/host_scaffold.dart';
 
 const _testUrl = 'https://example.com/generate_204';
 
@@ -18,8 +19,9 @@ class _RecordingProxiesAction extends ProxiesAction {
   static final List<String> tested = [];
 
   @override
-  Future<void> proxyDelayTest(Proxy proxy, [String? testUrl]) async {
+  Future<Delay?> proxyDelayTest(Proxy proxy, [String? testUrl]) async {
     tested.add(proxy.name);
+    return null;
   }
 }
 
@@ -57,7 +59,7 @@ void main() {
       UncontrolledProviderScope(
         container: container,
         child: TestApp(
-          homeBuilder: (child) => Scaffold(body: child),
+          homeBuilder: (child) => HostScaffold(body: child),
           child: Column(
             children: [
               for (var index = 0; index < 2; index++)

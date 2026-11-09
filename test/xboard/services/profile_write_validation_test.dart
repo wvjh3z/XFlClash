@@ -36,6 +36,7 @@ void main() {
       'unavailable',
       'disconnected',
       'transport_error',
+      'timeout',
       'other_error',
       'invalid',
       'cancel',
@@ -68,6 +69,7 @@ void main() {
           final file = File(call.positionalArguments.first as String);
           expect(await file.readAsString(), 'proxies: []');
           expect(await target.readAsString(), 'old-config');
+          if (scenario == 'timeout') throw TimeoutException('fixture deadline');
           if ([
             'unavailable',
             'disconnected',
@@ -88,7 +90,7 @@ void main() {
             entered.complete();
             await release.future;
           }
-          return scenario == 'invalid' ? 'invalid fixture' : '';
+          return scenario == 'invalid' ? 'invalid fixture' : null;
         });
         when(() => core.convertProxies(any())).thenAnswer((_) async => []);
         if (scenario == 'cleanup_failure') {
@@ -200,6 +202,7 @@ void main() {
                     'unavailable',
                     'disconnected',
                     'transport_error',
+                    'timeout',
                   ].contains(scenario)
                   ? throwsA(isA<ProfileValidationUnavailable>())
                   : scenario == 'other_error'

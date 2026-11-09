@@ -18,8 +18,7 @@ import 'package:fl_clash/views/access.dart' show AccessView;
 import 'package:fl_clash/views/config/general.dart' show GeneralView;
 import 'package:fl_clash/views/backup_and_restore.dart' show BackupAndRestore;
 import 'package:fl_clash/views/config/advanced.dart' show AdvancedConfigView;
-import 'package:fl_clash/views/connection/connections.dart'
-    show ConnectionsView;
+import 'package:fl_clash/enum/enum.dart' show RequestFeed;
 import 'package:fl_clash/views/connection/requests.dart' show RequestsView;
 import 'package:fl_clash/views/resources.dart' show ResourcesView;
 import 'package:fl_clash/views/theme.dart' show ThemeView;
@@ -59,11 +58,11 @@ class XbNativePageAdapter {
 
   /// FlClash 原生「请求」页（流量请求列表）。
   Future<void> openRequests(BuildContext context) =>
-      _push(context, const RequestsView());
+      _push(context, const RequestsView(initialFeed: RequestFeed.recent));
 
   /// FlClash 原生「连接」页（活动连接列表）。
   Future<void> openConnections(BuildContext context) =>
-      _push(context, const ConnectionsView());
+      _push(context, const RequestsView(initialFeed: RequestFeed.live));
 
   /// FlClash 原生「资源」页（GEOIP / GEOSITE / MMDB / ASN 等数据文件）。
   Future<void> openResources(BuildContext context) =>

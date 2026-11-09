@@ -11,7 +11,10 @@ library;
 
 import 'package:fl_clash/common/compute.dart'
     show computeRealSelectedProxyState;
-import 'package:fl_clash/models/models.dart' show Delay, Group, GroupExt, Proxy;
+import 'package:fl_clash/models/models.dart'
+    show Delay, Group, GroupExt, Proxy, TestDelayParams;
+import 'package:fl_clash/core/method.dart'
+    show CoreMethodException, isUnansweredCoreError;
 import 'package:fl_clash/providers/providers.dart';
 import 'package:fl_clash/enum/enum.dart' show GroupType, GroupName, Mode;
 import 'package:material_ui/material_ui.dart';
@@ -24,6 +27,8 @@ import '../../util/pooled_concurrent.dart';
 
 /// 内置代理名（非真实节点）：选中解析 / 测速目标判定时跳过（单一来源，原在 3 个方法内各写一份）。
 const _kBuiltinProxies = {'DIRECT', 'REJECT', 'GLOBAL', 'PASS', 'COMPATIBLE'};
+
+final _nodesOwnerAliveProvider = Provider<bool Function()>((ref) => () => ref.mounted);
 
 /// 形态 A 节点分组类型（primitive，对应 FlClash GroupType；UI 据此分别渲染/说明）。
 enum XbGroupKind {
@@ -253,6 +258,11 @@ class XbNodesAdapter {
   int? nodeDelay(WidgetRef ref, {required String proxyName, String? testUrl}) =>
       ref.watch(delayProvider(proxyName: proxyName, testUrl: testUrl));
 
+  bool nodeTesting(WidgetRef ref, {required String proxyName, String? testUrl}) {
+    if (ref.watch(pendingDelayTestsProvider).isEmpty) return false;
+    return ref.watch(delayTestPhaseProvider(proxyName: proxyName, testUrl: testUrl)) != null;
+  }
+
   /// 测当前生效节点延迟 **3 次取最低**（连接 / 切换节点后触发），结果写入 [homeLatencyProvider]
   /// 供首页速度卡显示，并将最低原始值写回全局延迟表。
   ///
@@ -308,7 +318,20 @@ class XbNodesAdapter {
     measuring.start(proxyName);
     try {
       for (var i = 0; i < rounds && current(); i++) {
-        final delay = await core.getDelay(testUrl, proxyName, timeout);
+        Delay? delay;
+        try {
+          delay = await core.testDelay(TestDelayParams(
+            proxyName: proxyName,
+            testUrl: testUrl,
+            timeout: timeout.inMilliseconds,
+          ));
+        } catch (error) {
+          // v0.9.2 returned null for unanswered calls; keep the bounded rounds.
+          if (!isUnansweredCoreError(error) &&
+              !(error is CoreMethodException && error.code == 'empty_result')) {
+            rethrow;
+          }
+        }
         if (!current()) return;
         final value = delay?.value;
         if (value != null && value > 0 && (best == null || value < best)) {
@@ -404,8 +427,8 @@ class XbNodesAdapter {
   /// 比上游 `delayTest` 的 100 并发更克制（避免瞬时打满连接）；慢节点只占 1 个槽不阻塞其余。
   static const int _kDelayConcurrency = 10;
 
-  /// 分组测延迟时单节点的最大尝试次数：不超时只测 1 次（首次即停，与原行为一致）；
-  /// 超时（<0）才重测，累计最多 [_kDelayGroupMaxAttempts] 次（含首次），直到不超时为止。
+  /// 分组测延迟时只依据本次结果：成功即停，负数或无结果有限重试，
+  /// 累计最多 [_kDelayGroupMaxAttempts] 次（含首次），不沿用旧延迟判定成功。
   /// 仅用于**分组测速**（`_delayTestPooled`），单节点 `testNode` 不受此约束（仍测 1 次）。
   static const int _kDelayGroupMaxAttempts = 3;
 
@@ -421,43 +444,62 @@ class XbNodesAdapter {
   /// 用于「测速中 N/M」进度——**基于完成计数而非读延迟表**：重测时节点已有上次延迟值，
   /// core 把测速中节点逐个重置为 0 占位再回填，按「非0节点数」估算会在 M↔M-1 横跳（用户反馈）。
   Future<void> _delayTestPooled(
-    WidgetRef ref,
     ProviderContainer container,
     List<Proxy> proxies,
     String? testUrl, {
     void Function(int done, int total)? onProgress,
   }) async {
     // 容器由公共入口在 await 前捕获，跨组刷新和关闭页面后不再读取 WidgetRef。
+    final profileId = container.read(currentProfileIdProvider);
+    final ownerAlive = container.read(_nodesOwnerAliveProvider);
+    final auth = container.read(authStateProvider.notifier);
+    final revision = auth.sessionRevision;
+    bool current() => ownerAlive() &&
+        container.read(currentProfileIdProvider) == profileId &&
+        identical(container.read(authStateProvider.notifier), auth) &&
+        auth.sessionRevision == revision;
     final measuring = container.read(xbMeasuringNodesProvider.notifier);
     final total = proxies.length;
     var done = 0;
     await runPooledConcurrent<Proxy>(proxies, _kDelayConcurrency, (p) async {
+      if (!current()) return;
+      final target = computeRealSelectedProxyState(p.name,
+        groups: container.read(groupsProvider), selectedMap: container.read(selectedMapProvider));
+      final targetUrl = target.testUrl?.isNotEmpty == true
+          ? target.testUrl! : container.read(realTestUrlProvider(testUrl));
       // 整轮（含失败重试）保持测速态，避免 -1 → 转圈 → 延迟的中间跳变。
       measuring.start(p.name);
       try {
+        Delay? result;
         for (var attempt = 1; attempt <= _kDelayGroupMaxAttempts; attempt++) {
-          await testNode(
-            ref,
-            proxyName: p.name,
-            type: p.type,
-            testUrl: testUrl,
-          );
-          final v = container.read(
-            delayProvider(proxyName: p.name, testUrl: testUrl),
-          );
-          if (v == null || v >= 0) break; // 非超时（成功/无值）→ 停
+          if (!current()) return;
+          try {
+            result = await testNodeInContainer(
+              container, proxyName: p.name, type: p.type, testUrl: testUrl);
+          } catch (_) {
+            if (!current()) return;
+            rethrow;
+          }
+          if (!current()) return;
+          if ((result?.value ?? -1) >= 0) break;
+        }
+        if (result?.value == null && current() && target.proxyName.isNotEmpty) {
+          // All attempts had no answer: never display an old successful sample
+          // as this round's result. The transport/action still owns real replies.
+          container.read(delayDataSourceProvider.notifier).setDelay(
+            Delay(name: target.proxyName, url: targetUrl, value: -1));
         }
       } finally {
         measuring.finish(p.name);
       }
       done++;
-      onProgress?.call(done, total);
+      if (current()) onProgress?.call(done, total);
     });
   }
 
   /// 测速本分组所有节点（点分组头「测延迟」触发，只测该组，不波及其它组）。
   /// **从上到下顺序 + 并发 10**；各节点延迟着色经 delayProvider 自动更新。
-  /// 单节点不超时只测 1 次；**超时（<0）的节点自动重测，最多 [_kDelayGroupMaxAttempts] 次**直到不超时。
+  /// 单节点本次成功只测1次；负数或无结果最多尝试[_kDelayGroupMaxAttempts]次。
   ///
   /// [onProgress]：进度回调 `(done, total)`，UI 据此显示「测速中 N/M」（可靠完成计数，不横跳）。
   Future<void> testGroupDelay(
@@ -472,7 +514,6 @@ class XbNodesAdapter {
     );
     final container = ProviderScope.containerOf(ref.context, listen: false);
     await _delayTestPooled(
-      ref,
       container,
       group.all,
       group.testUrl,
@@ -481,13 +522,24 @@ class XbNodesAdapter {
   }
 
   /// 单节点测速（点击节点行延迟数字触发）。复用 `proxyDelayTest`。
-  Future<void> testNode(
+  Future<Delay?> testNode(
     WidgetRef ref, {
     required String proxyName,
     required String type,
     String? testUrl,
   }) async {
-    await ref
+    return testNodeInContainer(ProviderScope.containerOf(ref.context, listen: false),
+      proxyName: proxyName, type: type, testUrl: testUrl);
+  }
+
+  /// A group retains the owner container, never a WidgetRef across awaits.
+  Future<Delay?> testNodeInContainer(
+    ProviderContainer container, {
+    required String proxyName,
+    required String type,
+    String? testUrl,
+  }) {
+    return container
         .read(proxiesActionProvider.notifier)
         .proxyDelayTest(Proxy(name: proxyName, type: type), testUrl);
   }
@@ -524,11 +576,21 @@ class XbNodesAdapter {
   Future<void> refresh(WidgetRef ref, {String? groupName}) async {
     final tabState = ref.read(proxiesTabStateProvider);
     final container = ProviderScope.containerOf(ref.context, listen: false);
+    final profileId = container.read(currentProfileIdProvider);
+    final ownerAlive = container.read(_nodesOwnerAliveProvider);
+    final auth = container.read(authStateProvider.notifier);
+    final revision = auth.sessionRevision;
     final groups = groupName == null
         ? tabState.groups
         : tabState.groups.where((g) => g.name == groupName);
     for (final group in groups) {
-      await _delayTestPooled(ref, container, group.all, group.testUrl);
+      if (!ownerAlive() ||
+          container.read(currentProfileIdProvider) != profileId ||
+          !identical(container.read(authStateProvider.notifier), auth) ||
+          auth.sessionRevision != revision) {
+        break;
+      }
+      await _delayTestPooled(container, group.all, group.testUrl);
     }
   }
 }

@@ -5,12 +5,9 @@
 /// 不依赖真机 / 原生内核：所有内核/账户数据经 provider override 注入。
 library;
 
-import 'dart:convert';
-import 'dart:io';
+import 'golden_environment.dart';
 
 import 'package:material_ui/material_ui.dart';
-import 'package:flutter/rendering.dart' show RenderParagraph;
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -38,79 +35,11 @@ class _FakeAuth extends AuthStateNotifier {
   AuthState build() => _initial;
 }
 
-const _cjkFontPath = '/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc';
-
-Future<void> _loadCjkFont() async {
-  final file = File(_cjkFontPath);
-  if (!file.existsSync()) {
-    throw StateError('Desktop goldens require Noto CJK; see golden/README.md');
-  }
-  final bytes = await file.readAsBytes();
-  await (FontLoader(
-    'Roboto',
-  )..addFont(Future.value(ByteData.sublistView(bytes)))).load();
-  // Widget tests don't automatically load application/icon fonts.
-  final manifest =
-      jsonDecode(await rootBundle.loadString('FontManifest.json'))
-          as List<dynamic>;
-  for (final entry in manifest.cast<Map<String, dynamic>>()) {
-    final appLoader = FontLoader(entry['family'] as String);
-    for (final font
-        in (entry['fonts'] as List<dynamic>).cast<Map<String, dynamic>>()) {
-      appLoader.addFont(rootBundle.load(font['asset'] as String));
-    }
-    await appLoader.load();
-  }
-  double width(String text) {
-    final painter = TextPainter(
-      text: TextSpan(
-        text: text,
-        style: const TextStyle(fontFamily: 'Roboto'),
-      ),
-      textDirection: TextDirection.ltr,
-    )..layout();
-    final result = painter.width;
-    painter.dispose();
-    return result;
-  }
-
-  // Ahem/FlutterTest use equal-width boxes. Fail instead of accepting box fonts.
-  expect(width('MMMM'), greaterThan(width('iiii') * 2));
-}
-
-InlineSpan _goldenFont(InlineSpan span) {
-  if (span is! TextSpan) return span;
-  return TextSpan(
-    text: span.text,
-    style: (span.style ?? const TextStyle()).copyWith(
-      fontFamily: span.style?.fontFamily ?? 'Roboto',
-    ),
-    children: span.children?.map(_goldenFont).toList(),
-    recognizer: span.recognizer,
-    mouseCursor: span.mouseCursor,
-    onEnter: span.onEnter,
-    onExit: span.onExit,
-    semanticsLabel: span.semanticsLabel,
-    semanticsIdentifier: span.semanticsIdentifier,
-    locale: span.locale,
-    spellOut: span.spellOut,
-  );
-}
-
 Future<void> expectDesktopGolden(WidgetTester tester, String filename) async {
-  // The test engine maps an unspecified family to its box font even when
-  // Roboto is loaded. Brand ThemeData and EmojiText contain such spans.
-  // Resolve only their missing family in this screenshot harness, then relayout
-  // with real CJK glyphs. Explicit icon/emoji families remain intact.
-  for (final element in find.byType(RichText).evaluate()) {
-    final paragraph = element.renderObject as RenderParagraph;
-    paragraph.text = _goldenFont(paragraph.text);
-  }
-  await tester.pump();
-  expect(tester.takeException(), isNull);
-  await expectLater(
+  await expectXbGolden(
+    tester,
     find.byType(XboardAppShell),
-    matchesGoldenFile('goldens/$filename'),
+    'goldens/$filename',
   );
 }
 
@@ -240,7 +169,7 @@ Future<void> pumpShell(
 }
 
 void main() {
-  setUpAll(_loadCjkFont);
+  setUpAll(loadGoldenFonts);
 
   testWidgets('桌面外壳 · 首页（NavRail + 双栏）', (t) async {
     final eb = ErrorWidget.builder;

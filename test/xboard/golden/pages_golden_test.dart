@@ -4,10 +4,9 @@
 /// 与 a11y_golden_test（plan detail / payment）互补，覆盖剩余购买链路屏。
 library;
 
-import 'dart:io';
+import 'golden_environment.dart';
 
 import 'package:material_ui/material_ui.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
@@ -29,28 +28,9 @@ import 'package:fl_clash/xboard/widgets/xb_ui_kit.dart' show XbBrandTheme;
 
 class _MockService extends Mock implements XboardService {}
 
-const _cjkFontPaths = [
-  '/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc',
-  '/System/Library/Fonts/PingFang.ttc',
-];
-
-Future<void> _loadCjkFont() async {
-  for (final path in _cjkFontPaths) {
-    final f = File(path);
-    if (!f.existsSync()) continue;
-    try {
-      final bytes = await f.readAsBytes();
-      final loader = FontLoader('Roboto')
-        ..addFont(Future.value(ByteData.view(bytes.buffer)));
-      await loader.load();
-      return;
-    } catch (_) {}
-  }
-}
-
 final _fixedCreated = DateTime(2026, 6, 5, 12, 30);
 
-// 真实账号那份数据（98% 用量，触发流量重置告警卡）。
+// 确定性账号夹具：98%用量；告警入口已移到首页，不应在“我的”重现旧卡片。
 // 到期/重置时间用「相对当前日期的固定偏移」→ 「剩 N 天」恒定，golden 不随运行日期飘移
 // （xbResetText / _expireText 内部用 DateTime.now() 算剩余天数，固定日期会导致每天像素漂移）。
 /// golden 固定基准时刻（绝对,不随真实日期漂移）。账号卡到期/重置「剩余N天」按它计算。
@@ -154,7 +134,7 @@ class _GuestAuth extends AuthStateNotifier {
 }
 
 void main() {
-  setUpAll(_loadCjkFont);
+  setUpAll(loadGoldenFonts);
 
   Future<void> pump(WidgetTester tester, Widget scope) async {
     tester.view.physicalSize = const Size(390 * 3, 844 * 3);
@@ -182,8 +162,7 @@ void main() {
       ),
     );
     expect(t.takeException(), isNull);
-    await expectLater(find.byType(PlanListPage),
-        matchesGoldenFile('goldens/page_plan_list.png'));
+    await expectXbGolden(t, find.byType(PlanListPage), 'goldens/page_plan_list.png');
   });
 
   testWidgets('订单列表页 golden（状态色：完成=绿/取消=红/待付=琥珀）', (t) async {
@@ -207,11 +186,10 @@ void main() {
       ),
     );
     expect(t.takeException(), isNull);
-    await expectLater(find.byType(OrderListPage),
-        matchesGoldenFile('goldens/page_order_list.png'));
+    await expectXbGolden(t, find.byType(OrderListPage), 'goldens/page_order_list.png');
   });
 
-  testWidgets('我的（已登录 98% → 触发流量重置卡）golden', (t) async {
+  testWidgets('我的（已登录 98%，旧告警卡已移至首页）golden', (t) async {
     await pump(
       t,
       ProviderScope(
@@ -228,8 +206,9 @@ void main() {
       ),
     );
     expect(t.takeException(), isNull);
-    await expectLater(find.byType(MineTab),
-        matchesGoldenFile('goldens/page_mine_auth.png'));
+    expect(find.text('购买重置包立即恢复本月流量', findRichText: true), findsNothing);
+    expect(find.text('续费当前套餐', findRichText: true), findsOneWidget);
+    await expectXbGolden(t, find.byType(MineTab), 'goldens/page_mine_auth.png');
   });
 
   testWidgets('我的（账号信息加载失败）golden', (t) async {
@@ -249,8 +228,7 @@ void main() {
       ),
     );
     expect(t.takeException(), isNull);
-    await expectLater(find.byType(MineTab),
-        matchesGoldenFile('goldens/page_mine_error.png'));
+    await expectXbGolden(t, find.byType(MineTab), 'goldens/page_mine_error.png');
   });
 
   testWidgets('流量重置包页 golden', (t) async {
@@ -264,8 +242,7 @@ void main() {
       ),
     );
     expect(t.takeException(), isNull);
-    await expectLater(find.byType(ResetTrafficPage),
-        matchesGoldenFile('goldens/page_reset_traffic.png'));
+    await expectXbGolden(t, find.byType(ResetTrafficPage), 'goldens/page_reset_traffic.png');
   });
 
   testWidgets('我的（游客态）golden', (t) async {
@@ -282,7 +259,6 @@ void main() {
       ),
     );
     expect(t.takeException(), isNull);
-    await expectLater(find.byType(MineTab),
-        matchesGoldenFile('goldens/page_mine_guest.png'));
+    await expectXbGolden(t, find.byType(MineTab), 'goldens/page_mine_guest.png');
   });
 }

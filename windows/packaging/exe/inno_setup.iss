@@ -46,7 +46,7 @@ chineseSimplified.XbDataIncomplete=部分数据未清理，可能存在占用、
 english.XbDataIncomplete=Some data was retained because of active files, permissions or unsafe directory links. Check these brand directories; do not delete their parent:
 
 [Code]
-// FlClash v0.9.2 lifecycle, with brand-specific executable/service names.
+// Brand updater retains interactive hand-off and brand-specific process names.
 procedure KillProcesses;
 var
   Processes: TArrayOfString;

@@ -26,6 +26,8 @@ import 'package:flutter/foundation.dart'
         visibleForTesting;
 import 'package:sentry_flutter/sentry_flutter.dart';
 
+import 'sentry_native_storage.dart';
+
 /// Sentry tag key（DD-23 8 类）。
 class SentryTagKeys {
   static const bootstrapStage = 'bootstrap.stage';
@@ -81,10 +83,14 @@ class _SdkRuntime
 
   @override
   Future<void> initialize(void Function(SentryFlutterOptions) configure) async {
+    final nativeDatabasePath = await prepareXbSentryNativeDatabase();
     SentryFlutterOptions? configured;
     await SentryFlutter.init((options) {
       configured = options;
       configure(options);
+      if (nativeDatabasePath != null) {
+        options.nativeDatabasePath = nativeDatabasePath;
+      }
     });
     if (!Sentry.isEnabled) {
       throw StateError('Sentry Dart initialization did not complete.');

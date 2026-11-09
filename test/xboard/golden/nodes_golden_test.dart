@@ -4,10 +4,9 @@
 /// 用 ProxiesTabState + adapter provider override 注入假数据，不触真实内核 DB。
 library;
 
-import 'dart:io';
+import 'golden_environment.dart';
 
 import 'package:material_ui/material_ui.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -25,25 +24,6 @@ class _FakeAuth extends AuthStateNotifier {
   final AuthState _initial;
   @override
   AuthState build() => _initial;
-}
-
-const _cjkFontPaths = [
-  '/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc',
-  '/System/Library/Fonts/PingFang.ttc',
-];
-
-Future<void> _loadCjkFont() async {
-  for (final path in _cjkFontPaths) {
-    final f = File(path);
-    if (!f.existsSync()) continue;
-    try {
-      final bytes = await f.readAsBytes();
-      final loader = FontLoader('Roboto')
-        ..addFont(Future.value(ByteData.view(bytes.buffer)));
-      await loader.load();
-      return;
-    } catch (_) {}
-  }
 }
 
 /// 优选(url-test) + 香港(selector) 两组，各带固定延迟（对照原型 nodes('recommend')/('hk')）。
@@ -125,7 +105,7 @@ Future<void> pumpNodes(
 }
 
 void main() {
-  setUpAll(_loadCjkFont);
+  setUpAll(loadGoldenFonts);
 
   testWidgets('节点 · 优选分组(url-test) golden + 结构对照原型', (t) async {
     await pumpNodes(t, auth: AuthState.authenticated);
@@ -143,15 +123,13 @@ void main() {
     expect(find.textContaining('url-test', findRichText: true),
         findsOneWidget); // 类型标签
     expect(find.text('🇯🇵 东京 IEPL 02', findRichText: true), findsOneWidget);
-    await expectLater(
-        find.byType(NodesTab), matchesGoldenFile('goldens/nodes_recommend.png'));
+    await expectXbGolden(t, find.byType(NodesTab), 'goldens/nodes_recommend.png');
   });
 
   testWidgets('节点 · 游客态 golden', (t) async {
     await pumpNodes(t, auth: AuthState.unauthenticated);
     expect(t.takeException(), isNull);
-    await expectLater(
-        find.byType(NodesTab), matchesGoldenFile('goldens/nodes_guest.png'));
+    await expectXbGolden(t, find.byType(NodesTab), 'goldens/nodes_guest.png');
   });
 
   testWidgets('节点 · 空态(无线路) golden', (t) async {
@@ -166,8 +144,7 @@ void main() {
       ),
     );
     expect(t.takeException(), isNull);
-    await expectLater(
-        find.byType(NodesTab), matchesGoldenFile('goldens/nodes_empty.png'));
+    await expectXbGolden(t, find.byType(NodesTab), 'goldens/nodes_empty.png');
   });
 
   testWidgets('节点 · 套餐已过期 → 清空节点 + 引导续费/购买 golden', (t) async {
@@ -186,8 +163,7 @@ void main() {
     expect(find.text('当前无可用线路'), findsOneWidget);
     expect(find.text('前往续费 / 购买'), findsOneWidget);
     expect(find.text('🇯🇵 东京 IEPL 02'), findsNothing);
-    await expectLater(find.byType(NodesTab),
-        matchesGoldenFile('goldens/nodes_expired.png'));
+    await expectXbGolden(t, find.byType(NodesTab), 'goldens/nodes_expired.png');
   });
 
   testWidgets('节点 · 流量已用尽 → 清空节点 + 购买流量包/套餐 golden', (t) async {
@@ -205,8 +181,7 @@ void main() {
     expect(find.text('购买流量包'), findsOneWidget);
     expect(find.text('购买 / 更改套餐'), findsOneWidget);
     expect(find.text('🇯🇵 东京 IEPL 02'), findsNothing);
-    await expectLater(find.byType(NodesTab),
-        matchesGoldenFile('goldens/nodes_exhausted.png'));
+    await expectXbGolden(t, find.byType(NodesTab), 'goldens/nodes_exhausted.png');
   });
 }
 

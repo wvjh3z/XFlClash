@@ -11,6 +11,8 @@
 library;
 
 import 'dart:async';
+import 'dart:ffi' show Abi;
+import '../util/android_update_abi.dart';
 import 'dart:io' show Platform, Process;
 
 import 'package:flutter/foundation.dart';
@@ -332,16 +334,13 @@ class XbUpdateService {
 
   /// 当前设备 ABI（后端 API 接受的 abi 参数）。
   ///
-  /// Android：构建脚本注入（arm64-v8a / armeabi-v7a / x86_64）。
+  /// Android：按当前运行二进制的Abi识别，split-per-abi共用defines不影响请求。
   /// 桌面：真实检测 CPU 架构——Windows 读 env（WOW64 下 `PROCESSOR_ARCHITEW6432` 反映真实
   /// 架构，x64 进程跑在 ARM64 上时）；Linux/macOS 跑 `uname -m`（aarch64/arm64 → arm64，
   /// 否则 x64）。检测失败兜底 x64。
   static Future<String> _resolveAbi() async {
     if (Platform.isAndroid) {
-      return const String.fromEnvironment(
-        'XB_ANDROID_ABI',
-        defaultValue: 'arm64-v8a',
-      );
+      return androidUpdateAbi(Abi.current());
     }
     if (Platform.isWindows) {
       final env = Platform.environment;

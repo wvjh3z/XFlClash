@@ -11,12 +11,12 @@ on:
         description: 'SDK commit or immutable tag'
         type: string
         required: true
-        default: '4837b823bc738b2d9c69add4d0b57431cfe9d1e9'
+        default: '211c6be19ccee55fb9d3458fd79f2a7c6acc13a9'
       docs_ref:
         description: 'Current documentation commit'
         type: string
         required: true
-        default: 'fd43cf5b7477dccbc122c891d82bad794c39a845'
+        default: 'c1695697b5bfd992b2575923e445b7fe376ef85f'
 
 permissions:
   contents: read
@@ -66,12 +66,17 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
-          flutter-version: 3.47.6 # 升级分支固定工具链；旧 golden 像素基线仍需复核
+          flutter-version: 3.47.6 # 与 golden/environment.json 固定环境一致
 
-      # golden 确定化：装与本地基线同款 CJK 字体（_loadCjkFont 读系统 Noto CJK；
-      # 不装则 CI 渲染中文为 tofu → golden 全失配）。详见 test/xboard/golden/README.md。
-      - name: Install CJK font (golden determinism)
-        run: sudo apt-get update && sudo apt-get install -y fonts-noto-cjk
+      # Golden-only font in the runner's temporary directory; exact source and
+      # digest are shared with the Dart harness in golden/environment.json.
+      - name: Prepare pinned golden font
+        run: |
+          set -euo pipefail
+          python3 tool/test/prepare_golden_font_test.py
+          font="$RUNNER_TEMP/xboard-golden-font/NotoSansCJK-Regular.ttc"
+          python3 tool/prepare_golden_font.py --output "$font"
+          echo "XB_GOLDEN_CJK_FONT=$font" >> "$GITHUB_ENV"
 
       - name: Check bounded dependency download retries
         run: |
@@ -98,7 +103,7 @@ jobs:
 
       # 接缝点白名单完整性（改 FlClash 既有文件必登记 PATCHES.md）。
       - name: Check seam whitelist
-        run: dart --packages=.dart_tool/package_config.json tool/check-seam-whitelist.dart --baseline 7fd417fb9a9a277c6a9339a8ac87f907df7c25f7
+        run: dart --packages=.dart_tool/package_config.json tool/check-seam-whitelist.dart --baseline be84736605527034689c95bf27828ff27d912c5e
 
       # 形态 A 复用和主题约束；全量上游差异已由上面的统一白名单检查覆盖。
       - name: Seam import guard (adapter rule)

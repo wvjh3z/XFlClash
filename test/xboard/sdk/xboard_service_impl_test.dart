@@ -17,6 +17,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:fl_clash/xboard/models/xb_domain_error.dart';
 import 'package:fl_clash/xboard/models/xb_result.dart';
+import 'package:fl_clash/xboard/models/order_summary.dart';
+import 'package:fl_clash/xboard/models/xb_domain_types.dart';
 import 'package:fl_clash/xboard/sdk/xboard_service_impl.dart';
 
 import '../../_fixtures/fake_xboard_sdk.dart';
@@ -31,6 +33,20 @@ void main() {
     sdk = FakeXBoardSDK();
     apis = sdk.setupFor(XbScenario.loggedIn);
     service = XboardServiceImpl(sdk: sdk);
+  });
+
+  test('G11 unknown SDK order values become pending and monthly', () async {
+    final model = OrderModel.fromJson({
+      'trade_no': 'synthetic-unknown', 'plan_id': 1,
+      'period': 'future_unknown_period', 'status': 987,
+      'total_amount': 100,
+    });
+    when(() => apis.orderApi.getOrder('synthetic-unknown')).thenAnswer((_) async => model);
+    final result = await service.getOrder('synthetic-unknown');
+    expect(result, isA<XbSuccess<OrderDetail?>>());
+    final summary = (result as XbSuccess<OrderDetail?>).data!.summary;
+    expect(summary.status, XbOrderStatus.pending);
+    expect(summary.period.name, 'monthly');
   });
 
   group('login（SdkResult 形态归一）', () {

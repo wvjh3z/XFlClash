@@ -37,6 +37,7 @@ Map<String, String> brandDefines(Map<String, dynamic> identity) => {
   'XB_BRAND_SLUG': identity['slug'] as String,
   'XB_HELPER_WINDOWS_SERVICE': identity['windowsService'] as String,
   'XB_HELPER_SOCKET': '/run/${identity['runtimeDirectory']}/helper.sock',
+  'XB_HELPER_LINUX_UNIT': '/etc/systemd/system/${identity['linuxService']}.service',
   'XB_URL_SCHEME': identity['scheme'] as String,
   'XB_DEFAULT_MIXED_PORT': '${identity['mixedPort']}',
   'XB_WINDOWS_CORE_NAME': '${identity['name']}Core',

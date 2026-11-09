@@ -151,6 +151,37 @@ void main() {
     await settle(c);
     expect(getSubCalls, afterFirst); // 未再 invalidate（settle 的 read 命中缓存不增计数）
   });
+  test('D07 failed foreground account refresh consumes the 24h window', () async {
+    var now = Duration.zero;
+    var fail = false;
+    SubscriptionTriggers.debugSetResumeStopwatchFactory(() {
+      final began = now;
+      final clock = _MockStopwatch();
+      when(() => clock.elapsed).thenAnswer((_) => now - began);
+      return clock;
+    });
+    when(service.getSubscription).thenAnswer((_) async {
+      getSubCalls++;
+      if (fail) throw StateError('synthetic account request failure');
+      return XbResult.success(const XbDomainSubscription(
+        email: 'fixture@example.invalid', uuid: 'fixture', totalBytes: 1, usedBytes: 0));
+    });
+    final c = makeContainer(ready: true, auth: AuthState.authenticated);
+    await c.read(userProfileProvider.future);
+    fail = true;
+    SubscriptionTriggers.onResume(c);
+    await expectLater(c.read(userProfileProvider.future), throwsA(isA<StateError>()));
+    final failedCalls = getSubCalls;
+    fail = false;
+    now = const Duration(hours: 23);
+    SubscriptionTriggers.onResume(c);
+    await settle(c);
+    expect(getSubCalls, failedCalls);
+    now = const Duration(hours: 24);
+    SubscriptionTriggers.onResume(c);
+    await c.read(userProfileProvider.future);
+    expect(getSubCalls, failedCalls + 1);
+  });
   test(
     'Windows foreground: 24h boundary, two-day return and logout reset refresh account without Mine tab',
     () async {

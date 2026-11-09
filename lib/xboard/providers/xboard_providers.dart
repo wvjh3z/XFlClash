@@ -16,6 +16,8 @@
 /// - bootstrapReady / firstLaunch：✅ UI 可 watch
 library;
 
+import 'subscription_sync_status.dart';
+
 import 'package:flutter_xboard_sdk/flutter_xboard_sdk.dart'
     show AppUpdateModel, TokenStorage, XBoardSDK;
 import 'package:riverpod_annotation/riverpod_annotation.dart';
@@ -189,6 +191,12 @@ XboardSubscriptionService subscriptionService(Ref ref) {
     tokenStorage: tokenStorage,
     flavorId: XboardConfig.current.flavorId,
     sessionRevision: () => ref.read(authStateProvider.notifier).sessionRevision,
+    onOutcome: (outcome, revision) {
+      if (ref.mounted &&
+          ref.read(authStateProvider.notifier).sessionRevision == revision) {
+        ref.read(subscriptionSyncStatusProvider.notifier).publish(outcome, revision);
+      }
+    },
     subscriptionEndpoints: () =>
         ref.read(injectedRaceControllerProvider)?.subscriptionEndpoints() ??
         const [],

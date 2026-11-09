@@ -199,6 +199,7 @@ void main() {
     bool Function()? vpnActive,
     FakeTokenStorage? tokenStorage,
     int Function()? sessionRevision,
+    void Function(XbSyncOutcome, int)? onOutcome,
     List<Duration> retryDelays = const [],
     String flavorId = 'brandA',
   }) {
@@ -209,6 +210,7 @@ void main() {
       db: db,
       tokenStorage: tokenStorage ?? FakeTokenStorage(initialToken: 'tokA'),
       sessionRevision: sessionRevision,
+      onOutcome: onOutcome,
       retryDelays: retryDelays,
       subscriptionCandidates: () => candidates,
       onWinnerHost: onWinnerHost,
@@ -219,6 +221,34 @@ void main() {
     addTearDown(instance.dispose);
     return instance;
   }
+
+  for (final stale in [false, true]) {
+    test('completion observer ${stale ? "suppresses old session" : "publishes current success"}', () async {
+      var revision = 1;
+      final entered = Completer<void>();
+      final release = Completer<void>();
+      final events = <(XbSyncOutcome, int)>[];
+      final service = sut(encWith(_StubAdapter((_) async {
+        entered.complete();
+        await release.future;
+        return _plain(cipher);
+      })), sessionRevision: () => revision,
+        onOutcome: (outcome, generation) => events.add((outcome, generation)));
+      final flight = service.sync();
+      await entered.future;
+      if (stale) revision++;
+      release.complete();
+      expect(await flight, stale ? XbSyncOutcome.skipped : XbSyncOutcome.ok);
+      expect(events, stale ? isEmpty : [(XbSyncOutcome.ok, 1)]);
+    });
+  }
+
+  test('throwing completion observer cannot break the shared sync future', () async {
+    final service = sut(encWith(_StubAdapter((_) async => _plain(cipher))),
+      onOutcome: (_, _) => throw StateError('synthetic observer failure'));
+    expect(await service.sync(), XbSyncOutcome.ok);
+    expect(await service.sync(), XbSyncOutcome.ok);
+  });
 
   for (final brand in ['brand_a', 'brand_b']) {
     for (final scenario in [

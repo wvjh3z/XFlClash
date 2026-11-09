@@ -402,7 +402,7 @@ class _XbBrandThemeHost extends StatelessWidget {
         brandColor: brandColor,
         brightness: Theme.of(context).brightness,
       ),
-      child: child,
+      child: MaterialUiCompatibilityBridge(child: child),
     );
   }
 }

@@ -22,13 +22,28 @@ class _Preferences extends InMemorySharedPreferencesStore {
   bool reject = false;
   bool throwWrite = false;
   bool loseWrite = false;
+  int failReadsAfterWrite = 0;
+  int failedReadsRemaining = 0;
+  bool throwAfterWrite = false;
+
+  @override
+  Future<Map<String, Object>> getAll() async {
+    if (failedReadsRemaining > 0) {
+      failedReadsRemaining--;
+      throw StateError('synthetic post-commit read failure');
+    }
+    return super.getAll();
+  }
 
   @override
   Future<bool> setValue(String valueType, String key, Object value) async {
     if (throwWrite) throw StateError('fixture preferences unavailable');
     if (reject) return false;
     if (loseWrite) return true;
-    return super.setValue(valueType, key, value);
+    final saved = await super.setValue(valueType, key, value);
+    failedReadsRemaining = failReadsAfterWrite;
+    if (throwAfterWrite) throw StateError('synthetic error after commit');
+    return saved;
   }
 }
 
@@ -122,6 +137,29 @@ void main() {
         .setMockMethodCallHandler(_channel, null);
     SharedPreferences.setMockInitialValues({});
   });
+
+  for (final brand in ['brand_a', 'brand_b']) {
+    for (final fault in ['read-once', 'read-persistent', 'write-after-commit']) {
+      test('$brand $fault must retain a possibly committed secure key', () async {
+        final storage = await open(brand: brand);
+        await storage.writeToken('synthetic-before');
+        preferences.failReadsAfterWrite = fault == 'read-once' ? 1 : fault == 'read-persistent' ? 20 : 0;
+        preferences.throwAfterWrite = fault == 'write-after-commit';
+        await expectLater(storage.writeToken('synthetic-after'), throwsA(isA<StateError>()));
+        await Future<void>.delayed(Duration.zero);
+        preferences.failedReadsRemaining = 0;
+        preferences.failReadsAfterWrite = 0;
+        preferences.throwAfterWrite = false;
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.reload();
+        final record = jsonDecode(prefs.getString('${kXbAccessTokenKey}_${brand}_record_v2')!) as Map;
+        expect(record['backend'], 'secure');
+        expect(secure.values[record['key']], 'synthetic-after',
+          reason: 'failed verification is not proof that the reference was never committed');
+        expect(await (await open(brand: brand)).readToken(), 'synthetic-after');
+      });
+    }
+  }
 
   test('isolated desktop storage never adopts or clears unowned legacy credentials', () async {
     debugDefaultTargetPlatformOverride = TargetPlatform.windows;

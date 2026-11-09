@@ -514,7 +514,8 @@ class _DelayText extends ConsumerWidget {
     final scheme = Theme.of(context).colorScheme;
     final delay = adapter.nodeDelay(ref, proxyName: proxyName, testUrl: testUrl);
     // 首页多次取最低 / 分组失败重试期间隐藏中间结果，整轮结束后才解除转圈。
-    final measuring = ref.watch(xbMeasuringNodesProvider).contains(proxyName);
+    final measuring = ref.watch(xbMeasuringNodesProvider).contains(proxyName) ||
+        adapter.nodeTesting(ref, proxyName: proxyName, testUrl: testUrl);
 
     void test() {
       // ignore: discarded_futures

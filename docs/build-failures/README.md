@@ -14,6 +14,7 @@
 | v0.8.93 | [完整历史复盘](v0.8.93.md) | 历史事件及跨平台教训；不是当前工具链指南 |
 | v0.9.1 | [Jenkins与Actions复盘](v0.9.1.md) | 原生资产、平台打包、符号和远端构建经验 |
 | v0.9.2 | [#140及后续修复](#actions-140v092首次全平台构建) | 已合入main；已实施与待复验分别记录 |
+| v0.9.3 | [升级候选验证](#v093升级候选验证2026-11-08) | 未提交候选；受控/原生夹具与设备验收分开 |
 
 跨版本排障先按错误阶段搜索三个文件，再核对该事件源码、版本、架构和验证边界；不要把旧配置直接应用到新底座。新版本增加版本项，每个事故在对应记录维护，不丢弃旧经验、不复制同一事实到两处。
 
@@ -21,6 +22,7 @@
 
 | 事件 | 品牌 / 目标 | 首个失败阶段 | 当前状态 |
 | --- | --- | --- | --- |
+| [v0.9.3候选验证](#v093升级候选验证2026-11-08) | A/B共用源码；Linux与Windows夹具 | 接口/测试宿主、golden环境及测试传输准备 | golden经论证、原型/配色修复和分批批准后最终55/55；原生缺口另记 |
 | [偏好提交失败候选夹带](#偏好提交失败候选夹带2026-11-08) | A/B Windows/Linux共用适配器；本轮Linux | 失败写入修改适配器缓存，后续无关写入带入 | 旧实现25例20失败，最小提交补丁后188例通过；Windows原生/全局门面边界仍待 |
 | [Jenkins本地工作区快照准备](#jenkins本地工作区快照准备2026-11-08) | Linux / 最新未提交工作区回归 | 源码一致性守卫发现准备步骤改写build_config | 核实为名称补引号后恢复快照原字节；89例通过，3503项前后一致 |
 | [Jenkins测试采集器时区缺失](#jenkins测试采集器时区缺失2026-11-08) | Linux / 偏好存储实文件验收 | 测试前ZoneInfoNotFoundError | 采集器使用明确北京时间UTC+8；测试随后14/14通过，非业务修复 |
@@ -31,6 +33,49 @@
 | [Actions #141](#141windows夹具文件占用与macos符号传输失败) | A / Windows、macOS AMD64 | 夹具占用、符号传输及证据上传网络失败 | 9c136383修复，#143源码a3152f5b正式复验通过；非设备业务验收 |
 
 **当前结论**：以下“未提交/待修/待复验”是各历史阶段当时状态，不是当前main状态。首轮修复提交3b6a5fbb，#141暴露剩余问题，9c136383补修，#143（a3152f5b）全六目标成功；已合入main。正式证据见[run143](https://github.com/wvjh3z/proxy-suite-docs/blob/main/evidence/run143/README.md)。不能由新批次成功反推#140具体文件变化原因已经找到。后续按新失败证据另评估，不覆盖历史。
+
+## v0.9.3升级候选验证（2026-11-08）
+
+剩余P1验证的准备失败：Core事件测试的受控Completer须在真实派发Zone创建，并同时排空真实微任务与FakeAsync帧；否则成功对照失败，不能算业务错误。Editor必须等待真实controller和保存按钮可用；真实SQLite单次写入后，若Provider在FakeAsync内销毁、数据库关闭在runAsync内等待，可卡在清理阶段。将销毁/关闭置于同一runAsync并加5秒超时后有效轮次完成。外层600秒超时曾杀掉flutter_check包装器，使pubspec两个build_assets=false未恢复；核对无遗留进程且恢复候选与来源副本逐字节相同后才重跑，不盲覆盖其他变更。再次误传字符串给testWidgets.skip导致三文件加载失败；修正为bool后默认3通过/5跳过，显式XB_VERIFY_UPSTREAM_P1为3通过/5失败，分析无问题。包装采集器把skip计入passed，正式摘要必须按testDone.skipped排除。用户决定上游问题等待上游修复，以上五个红色断言保留；[本批证据](https://github.com/wvjh3z/proxy-suite-docs/blob/main/evidence/upgrade-v0.9.3/remaining-p1-result.json)不代表成品或设备验收。
+
+Prism语义补丁后经用户决定撤回：原版0.9.3同有该缺口，本轮保留固定上游，不为其fork。历史287绿测/84锚点不再描述当前全部状态，当前82锚点；三个语义期望用例默认明确skip、可用`XB_VERIFY_UPSTREAM_PRISM_SEMANTICS=true`显式复现。断言保留，不改成“缺动作也通过”，skip不计通过。回退准备中发现testWidgets.skip仅接受bool，原因改记测试名/注释，不把参数类型错误算成缺陷复现。当前结果见[处置记录](https://github.com/wvjh3z/proxy-suite-docs/blob/main/evidence/upgrade-v0.9.3/prism-upstream-decision.md)。
+
+用户随后批准三项审计风险修复：回滚归属、旧setup载荷兼容和Prism语义动作。原6个红色断言已转绿，最终Dart287/287、Go协议22/22与相关6/6、4个JVM转交通过，84锚点/白名单/import/theme守卫通过；边界和来源见[修复验收](https://github.com/wvjh3z/proxy-suite-docs/blob/main/evidence/upgrade-v0.9.3/audit-risk-fixes.md)。新增测试首轮缺FunctionTag导入和错误const构造只是加载失败，修正后才计业务结果。Prism的源码dirty需保存固定基底可重放patch，不能把根gitlink未变当正式checkout已包含修复；当前尚未提交或出包。
+
+最终覆盖审计后的风险验证只新增测试/探针。Profile真实notifier测试需订阅Profiles后再await自动释放的profilesStream.future；缺导入或provider提前dispose是准备失败，不能当作归属缺陷复现。语义handle要在测试体finally释放，不能等addTearDown越过框架不变量检查。Go缓存缺锁定依赖时尚未进入测试；同一授权节点补齐后核go.mod/go.sum未变。最终旧Android载荷、Profile迟到回滚、两处Prism语义tap共6个安全断言失败，6个对照通过，详见[风险验证](https://github.com/wvjh3z/proxy-suite-docs/blob/main/evidence/upgrade-v0.9.3/audit-risk-validation.md)。这些是已复现未修复，不是构建/设备通过；采集器退出0不覆盖底层测试退出1。
+
+golden后续处理：先完成37张三方像素论证，再统一固定字体/环境夹具，先批准35张，套餐HTML两张经原型确认和公共配色修复后另行获批。Flutter内建对比度检查不覆盖任意RichText，须另验实际span；移除扩展的四项负控全部在颜色门槛失败，源码恢复后最终golden目录加配色测试55/55、分析零问题。新增链接点击测试需命中文字字形，不能点击占满宽度的RichText中心后误报回调丢失。临时审阅脚本循环变量曾覆盖批次标签为`font-prepare-*`，已按内容/摘要核实并修正变量；不得仅据预期文件名推断证据缺失。批准、复跑及归档统一见[golden论证](https://github.com/wvjh3z/proxy-suite-docs/blob/main/evidence/upgrade-v0.9.3/golden-adjudication.md)，没有触发正式CI或出包。
+
+2026-11-09已复现缺口修复的最终回归：品牌3140例3103通过/37既有golden名称失败；存储184、SDK生命周期66、测速组合18项专项通过。SharedPreferences先以整表revision阻旧回包，新增权威键/无关键交错负控发现会丢整表刷新，改为逐键合并后通过；Token清理必须先确认新key未被权威记录引用，读取失败时保留而非盲删。取消保护后13项断言再次失败，已恢复源码并核验摘要。SDK不能把旧初始化失败的completer清理作用于新一轮；Riverpod容器存活使用捕获Ref.mounted，不使用内部disposed扩展。完整首轮的两个锚点失败是隔离副本缺sibling Docs输入，补齐并重跑后消除；Groovy驱动过长和Dart/Flutter分析参数差异另记准备问题。详见[修复证据](https://github.com/wvjh3z/proxy-suite-docs/blob/main/evidence/upgrade-v0.9.3/gap-fixes.md)，不宣称设备或发布通过。
+
+2026-11-09后续缺口验证保留真实页面/provider/SDK调用，用受控I/O复现D04、G18、UB-GAP-22/27；没有修改生产实现，目标失败断言不是打包失败。五批86个用例中78通过、8个目标失败，另有ABI方法探针；逐项含义见[受控验证](https://github.com/wvjh3z/proxy-suite-docs/blob/main/evidence/upgrade-v0.9.3/gap-validation.md)。夹具首次失败须分开：RichText未匹配导致前置断言失败、WidgetTester虚拟时间不能推进真实Stopwatch、测试遗漏ProfileRecoveryOwner导入导致0业务执行。修正测试夹具后才计业务证据；手动恢复对照只清节流计时，不清业务结果。不得覆写testNode后用离页测试代替生产链，也不得用“特征断言通过”宣称缺陷修复。
+
+剩余52项验证的初轮准备错误另记：选择线路spinner仍在运行时pumpAndSettle不会稳定，改为有限帧检查返回门禁，再解除受控等待；新增D07/G01夹具的const工厂/构造参数错误属于加载失败，修正后只重跑相关文件。最终去重784例中778通过、4个既知离页失败及2个门面reload交错失败，47项Python检查通过；[逐项证据](https://github.com/wvjh3z/proxy-suite-docs/blob/main/evidence/upgrade-v0.9.3/remaining-validation.md)明确模拟平台、helper/协议夹具与原生设备的界限。不得因为Tools导航测试吞渲染异常而宣称全部原生页面已验。
+
+2026-11-09品牌A Windows候选build45首轮实际制包在CMake配置失败：WebView插件缺NuGet，jni0.14.2 FindJNI缺JDK头文件与JVM；已有Jenkins JRE不等于完整客户端构建工具链。CMP0175只是并行出现的警告。保持产品源码，补齐固定工具、官方摘要/签名和任务级JAVA_HOME/PATH后从package阶段续跑；结果与安装/运行边界见[候选原生验收](https://github.com/wvjh3z/proxy-suite-docs/blob/main/evidence/upgrade-v0.9.3/windows-candidate-acceptance.md)。首轮退出255、没有候选包，不能依据此前flutter doctor/工具版本检查声明制包通过。
+
+第二轮已通过NuGet签名、VC下载和FindJNI配置，进入编译后flutter_secure_storage_windows报C1083缺atlstr.h。VS C++桌面基础工作负载不保证已装ATL；应核对`Microsoft.VisualStudio.Component.VC.ATL`及对应MSVC的atlmfc/include，不通过删除include、替换插件或复制不匹配头文件绕过。补组件前后核实际VS版本，继续同批增量构建，保留前轮失败记录。
+
+ATL安装器退出8006时本次日志为VSProcessesRunning，不是组件下载失败。失败Flutter构建可能留下/nodeReuse:true的MSBuild及PDB服务；须核PID+启动时间+父进程退出+路径归属，再通过已核对的进程句柄清理，不按MSBuild名称全杀。本批仅清理7个复用节点和1个PDB服务，续跑进程关闭MSBuild节点复用。安装路径使用vswhere原生反斜杠字符串；本地化JSON需正确处理代码页，或仅读取安装路径/版本属性。
+
+第三轮编译/打包退出0仍被fallback门禁拒绝：ZIP只有exe和WebView2Loader两文件。首轮CMake在FindJNI失败前缓存了默认Program Files/FlClash安装前缀，未到设置bundle前缀的语句；续跑时INITIALIZED_TO_DEFAULT已为false，完整资源安装到了错误目录。依据CMakeCache和install_manifest确认后，仅对临时构建缓存使用`cmake -U CMAKE_INSTALL_PREFIX -S windows -B build/windows/x64`，核前缀回到目标exe目录，再重打包并保留资源/符号门禁。不能只验证打包器退出码或直接补拷文件掩盖错误；无效包与错误安装清单保留，不作为候选验收输入。
+
+build45最终制包/21项符号通过后，普通用户默认安装目录的原生崩溃验收仍失败：未设置nativeDatabasePath，Sentry Native的相对`.sentry-native`不可写。相同安装包/用户仅换可写cwd后出现Crashpad和原生dump，服务端事件`c149ea71668749a0aae9fb926ba1dae8`确认异常0xE0450045、release45、sdk=sentry.native.flutter；它与受控地址解析探针是两项证据。品牌自有初始化显式用用户cache路径，62项相关回归通过，修正包使用build46保持release可区分。标记存在、Dart SDK启用、符号上传及SYSTEM下成功均不能替代普通用户原生采集验收。
+
+输入为旧品牌5ad809b2与目标上游be847366的未提交合并工作树，保留SDK4837b823；不是正式发行包。实际摘要和逐功能结论见[升级核查](https://github.com/wvjh3z/proxy-suite-docs/blob/main/evidence/upgrade-v0.9.3/README.md)。
+
+- 依赖准备首轮遗漏pub_get_retry必需的`--report`，codegen首轮因新兼容桥漏闭合括号失败；修正后远端重生并校验导回48份生成/锁文件。两次均是实现/准备错误，不作业务负控。
+- 17处分析错误来自测试接口迁移：AppleOptions、CoreOptions与testDelay。修正接线后analyze-r2零错误零警告。UI矩阵64例最初在测试框架不变量检查前未还原平台override，改为测试体finally后65/65通过；断开无应答测试改void+TimeoutException，设置页用真实Prism宿主及品牌桥，保留业务断言。
+- 完整品牌第二轮3050例中3013通过、37项golden失败。补齐历史相同SHA256的Noto CJK字体后，以同Flutter3.47.6对照冻结旧品牌；720个旧源码/资源/测试/锁文件一致，旧新37张失败PNG逐字节相同。没有更新Flutter3.44.0历史golden基线来消红，真实生产宿主/设备视觉仍待验。
+- Linux权限夹具先因受限TMPDIR祖先/umask077使nobody读不到probe而失败。使用本次进程可遍历TMPDIR与umask022后，uid65534的两品牌22场景及14次恢复通过；不修改生产权限。Windows上传只包含首入口而遗漏race脚本、VC JSON时失败；补齐依赖后37基础+14竞争+8进程边界通过，没有安装VC或修改实际用户数据。
+- 身份CLI默认依赖未准备的distributor package_config导致解析失败；受控复验显式使用候选已解析的客户端package_config后通过，不能称正式打包环境已验。WebKit测试须用`python3 -m unittest tool.test.linux_webview_identity_test`保留仓库导入根；直接脚本启动的ModuleNotFoundError不是WebKit业务失败。
+- 远端源码传输并不等于Git索引同步。首次白名单把已存在但未索引的上游新增文件当成删除，报71项；核对后只在临时验证仓将102个已传输上游文件纳入索引，再对真实be847366运行，未登记0项；未通过扩大白名单掩盖差异。76锚点全命中，seam-imports/theme-entrypoints通过。Groovy大文件传输需分段拼接，不能放入单个超过65535的字符串常量。
+- Windows偏好专项首次已完成锁定pub解析和SDK codegen、2630文件前后摘要一致，但测试资源打包因缺`core/Clash.Meta/component/ca/ca-certificates.crt`退出1，实际0例执行。关闭native build hooks并不关闭Flutter测试资产打包；只排除Core源码仍需传输pubspec声明的CA资产。补入文件须与锁定Core024245dc原字节核对，不取active中历史CA脏副本；这次准备失败不是偏好业务失败，也不是负控。复验结果见升级证据。
+- 新Windows偏好故障夹具首轮40例中36例通过、4例失败。阶段观测证明真实占用已使生产rename返回拒绝，超时发生在PowerShell标准输入释放握手；改为就绪/释放文件信号并消费输出。文件级deny Delete未形成有效故障（写入成功），改为目录deny CreateFiles并独立预检实际创建失败，保留缓存与落盘断言。PowerShell中文诊断可能不是UTF-8，诊断流容忍不可解码字节，仍严格检查进程退出码；未通过忽略生产异常或放宽提交断言消红。锁定Core中的CA文件是空占位，满足单元测试资产声明不等于正式包CA准备已验收。
+
+Windows最终四文件40/40通过、0跳过；将临时验证工作区的偏好实现替换为未修复上游be847366原文件后，新增6例全部准确失败于缓存返回rejected值，负控退出1。finally恢复候选原文件，2630项初始快照摘要保持一致，新增测试有独立摘要，诊断输出已移除；本机未改生产偏好代码。真实故障与正负控摘要见[Windows偏好专项](https://github.com/wvjh3z/proxy-suite-docs/blob/main/evidence/upgrade-v0.9.3/windows-preferences-result.json)。安全存储/Sentry业务测试仍为替身，不宣称系统插件或完整应用重启通过。
+
+上述修复未触发正式出包；真实AppImage/setup/APK/DMG安装、原生VPN、Keychain和候选Sentry符号不由夹具通过替代。Windows SYSTEM测试不代表普通用户交互。
 
 ## 偏好提交失败候选夹带（2026-11-08）
 

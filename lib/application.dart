@@ -1,13 +1,15 @@
 import 'dart:async';
 import 'package:fl_clash/xboard/config/xboard_config.dart';
 import 'package:fl_clash/xboard/shell/xboard_app_shell.dart';
+import 'package:fl_clash/xboard/shell/adapters/xb_ui_compatibility.dart';
+import 'package:material_ui/material_ui.dart' as material;
 import 'dart:io';
 
 import 'package:connectivity_plus/connectivity_plus.dart';
-import 'package:fl_clash/common/common.dart';
-import 'package:fl_clash/common/window.dart';
 import 'package:fl_clash/bootstrap.dart';
+import 'package:fl_clash/common/common.dart';
 import 'package:fl_clash/common/system_dns.dart';
+import 'package:fl_clash/common/window.dart';
 import 'package:fl_clash/enum/enum.dart';
 import 'package:fl_clash/l10n/l10n.dart';
 import 'package:fl_clash/manager/hotkey_manager.dart';
@@ -16,7 +18,7 @@ import 'package:fl_clash/plugins/app.dart';
 import 'package:fl_clash/providers/providers.dart';
 import 'package:fl_clash/state.dart';
 import 'package:fl_clash/ui/ui.dart';
-import 'package:material_ui/material_ui.dart';
+import 'package:flutter/widgets.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -49,9 +51,7 @@ Widget buildManagerStack({
         )
       : AndroidManager(child: TileManager(child: state));
   return AppEnvManager(
-    child: LocaleManager(
-      child: StatusManager(child: ThemeManager(child: platformState)),
-    ),
+    child: LocaleManager(child: ThemeManager(child: platformState)),
   );
 }
 
@@ -121,6 +121,7 @@ class ApplicationState extends ConsumerState<Application> {
     _autoUpdateProfilesTaskTimer = Timer(const Duration(minutes: 20), () async {
       await ref.read(profilesActionProvider.notifier).autoUpdateProfiles();
       await ref.read(resourcesActionProvider.notifier).autoUpdate();
+      await ref.read(mitmModulesActionProvider.notifier).autoUpdate();
       if (!mounted) {
         return;
       }
@@ -140,8 +141,8 @@ class ApplicationState extends ConsumerState<Application> {
       // Android's NetworkObserver tells the Core about a new network itself.
       if (system.isDesktop) {
         debouncer.call(
-          FunctionTag.clearDnsCache,
-          ref.read(coreActionProvider.notifier).clearDnsCacheOnNetworkChange,
+          FunctionTag.networkChange,
+          ref.read(coreActionProvider.notifier).reportNetworkChange,
           duration: const Duration(milliseconds: 200),
         );
       }
@@ -157,44 +158,51 @@ class ApplicationState extends ConsumerState<Application> {
           appSettingProvider.select((state) => state.locale),
         );
         final themeProps = ref.watch(themeSettingProvider);
-        return MaterialApp(
+        final textScale = themeProps.textScale;
+        return PrismApp(
           debugShowCheckedModeBanner: false,
           navigatorKey: globalState.navigatorKey,
           onNavigationNotification: (_) => true,
           localizationsDelegates: const [
             AppLocalizations.delegate,
             AppUiLocalizations.delegate,
-            ...GlobalMaterialLocalizations.delegates,
+            ...material.GlobalMaterialLocalizations.delegates,
           ],
           builder: (context, child) {
-            final applicationBody = ThemeCrossFade(
-              child: buildManagerStack(
-                isDesktop: system.isDesktop,
-                onConnectivityChanged: _handleConnectivityChanged,
-                terminateSignals: _terminateSignals,
-                child: RemoteFocusAdapter(
-                  enabled: system.isTV,
-                  floatingKeyboard: app?.floatingKeyboard,
-                  child: child!,
-                ),
-              ),
+            final applicationBody = buildManagerStack(
+              isDesktop: system.isDesktop,
+              onConnectivityChanged: _handleConnectivityChanged,
+              terminateSignals: _terminateSignals,
+              child: child!,
             );
             if (!XboardConfig.current.formA) return applicationBody;
-            return MediaQuery.withClampedTextScaling(
-              minScaleFactor: minTextScale,
-              maxScaleFactor: maxTextScale,
-              child: applicationBody,
-            );
+            return XbUiCompatibilityHost(child: applicationBody);
           },
-          scrollBehavior: const BaseScrollBehavior(),
           title: XboardConfig.current.applicationTitle(fallback: appName),
           locale: getLocaleForString(locale),
           supportedLocales: AppLocalizations.delegate.supportedLocales,
           themeMode: themeProps.themeMode,
           theme: watchAppTheme(ref, Brightness.light),
           darkTheme: watchAppTheme(ref, Brightness.dark),
-          themeAnimationStyle: AnimationStyle.noAnimation,
-          home: KeyboardInsetHold(child: XboardConfig.current.formA ? const XboardAppShell() : child!),
+          textScale: textScale.enable ? textScale.scale : null,
+          minTextScale: minTextScale,
+          maxTextScale: maxTextScale,
+          liquidGlass: switch (themeProps.liquidGlass) {
+            LiquidGlassMode.none => null,
+            LiquidGlassMode.ultra => LiquidGlassQuality.ultra,
+            LiquidGlassMode.standard => LiquidGlassQuality.standard,
+          },
+          emojiFont: (family: FontFamily.twEmoji.value, pattern: emojiPattern),
+          stackedBanners: !ref.watch(isMobileViewProvider),
+          bannerTopInset: ref.watch(overlayTopOffsetProvider),
+          remoteFocus: system.isTV,
+          floatingKeyboard: app?.floatingKeyboard,
+          onGenerateRoute: (settings) => HomeRoute(
+            settings: settings,
+            builder: (_) => KeyboardInsetHold(
+              child: XboardConfig.current.formA ? const XboardAppShell() : child!,
+            ),
+          ),
         );
       },
       child: const HomePage(),

@@ -9,6 +9,10 @@ import 'package:fl_clash/xboard/shell/tabs/mine/xb_settings_page.dart';
 import 'package:fl_clash/xboard/config/xboard_config.dart';
 import 'package:fl_clash/views/config/general.dart';
 import 'package:fl_clash/l10n/l10n.dart';
+import 'package:fl_clash/common/app_localizations.dart';
+import 'package:fl_clash/state.dart';
+import 'package:fl_clash/xboard/shell/adapters/xb_ui_compatibility.dart';
+import 'package:prism_ui/prism_ui.dart' as prism;
 import '../../../helpers/test_app.dart';
 import 'package:fl_clash/providers/app.dart';
 
@@ -46,16 +50,27 @@ void main() {
         addTearDown(tester.view.resetPhysicalSize);
         addTearDown(tester.view.resetDevicePixelRatio);
         await tester.pumpWidget(
-          TestApp(
-            wrapInProviderScope: true,
-            locale: const Locale('zh', 'CN'),
+          ProviderScope(
             overrides: [
               isMobileViewProvider.overrideWith(
                 (ref) => platform == TargetPlatform.android,
               ),
               viewSizeProvider.overrideWith(_TestViewSize.new),
             ],
-            child: const XbSettingsPage(),
+            child: prism.PrismApp(
+              navigatorKey: globalState.navigatorKey,
+              locale: const Locale('zh', 'CN'),
+              localizationsDelegates: const [
+                AppLocalizations.delegate,
+                AppUiLocalizations.delegate,
+                ...GlobalMaterialLocalizations.delegates,
+              ],
+              supportedLocales: AppLocalizations.delegate.supportedLocales,
+              builder: (context, child) => XbUiCompatibilityHost(
+                child: wrapViewScopes(context, child!),
+              ),
+              home: const XbSettingsPage(),
+            ),
           ),
         );
         await tester.pumpAndSettle();

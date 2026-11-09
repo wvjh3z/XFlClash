@@ -6,42 +6,24 @@
 /// 真实 HTML，断言：
 /// - 不抛异常（flutter_html 不被这段 HTML 噎住）；
 /// - 关键文本可见（HTML 被解析渲染，而非当作源码原样显示）；
-/// - `meetsGuideline(textContrastGuideline)` —— 浅色 + 深色都满足 WCAG AA 对比度（即「看得清」）。
+/// - 执行Flutter内建textContrastGuideline；其不覆盖任意RichText/作者内联配色，
+///   富文本颜色的独立审阅结论须另记，不能把此检查通过当成全部正文满足AA。
 ///
 /// 生成/更新 golden：
 ///   flutter test --update-goldens test/xboard/golden/plan_content_html_test.dart
 library;
 
-import 'dart:io';
+import 'golden_environment.dart';
 
 import 'package:emoji_regex/emoji_regex.dart';
 import 'package:material_ui/material_ui.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter_html/flutter_html.dart';
 
 import 'package:fl_clash/xboard/models/plan_item.dart';
 import 'package:fl_clash/xboard/models/xb_domain_types.dart';
 import 'package:fl_clash/xboard/pages/plan_detail_page.dart';
-
-const _cjkFontPaths = [
-  '/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc',
-  '/System/Library/Fonts/PingFang.ttc',
-];
-
-Future<void> _loadCjkFont() async {
-  for (final path in _cjkFontPaths) {
-    final f = File(path);
-    if (!f.existsSync()) continue;
-    try {
-      final bytes = await f.readAsBytes();
-      final loader = FontLoader('Roboto')
-        ..addFont(Future.value(ByteData.view(bytes.buffer)));
-      await loader.load();
-      return;
-    } catch (_) {}
-  }
-}
 
 /// 用户给的真实套餐 content（修复后：去 var()/渐变，正文不写死 color，标题用具体 hex）。
 const _realHtml = '''
@@ -60,7 +42,7 @@ const _plan = PlanItem(
 );
 
 void main() {
-  setUpAll(_loadCjkFont);
+  setUpAll(loadGoldenFonts);
 
   Future<void> pumpPage(
     WidgetTester tester, {
@@ -85,6 +67,7 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
+    await prepareGoldenFrame(tester);
   }
 
   group('套餐 content HTML 渲染（真实后端数据注入）', () {
@@ -98,9 +81,9 @@ void main() {
       expect(find.textContaining('font-weight'), findsNothing);
       // 核心断言：数字 span 不用 Twemoji（否则数字渲染成不可见 COLR 基字）；emoji span 用 Twemoji。
       _checkSpanFonts(t);
-      await expectLater(find.byType(PlanDetailPage),
-          matchesGoldenFile('goldens/plan_content_html_light.png'));
-      await expectLater(t, meetsGuideline(textContrastGuideline));
+      _checkHtmlContrast(t, const Color(0xFFFFFFFF));
+      await expectXbGolden(t, find.byType(PlanDetailPage),
+          'goldens/plan_content_html_light.png', contrast: true);
     });
 
     testWidgets('dark 1.0 — 不崩 + 文本可见 + 对比度 + golden', (t) async {
@@ -110,16 +93,51 @@ void main() {
       expect(find.textContaining('新疆'), findsWidgets);
       expect(find.textContaining('font-weight'), findsNothing);
       _checkSpanFonts(t);
-      await expectLater(find.byType(PlanDetailPage),
-          matchesGoldenFile('goldens/plan_content_html_dark.png'));
-      await expectLater(t, meetsGuideline(textContrastGuideline));
+      _checkHtmlContrast(t, const Color(0xFF13161D));
+      await expectXbGolden(t, find.byType(PlanDetailPage),
+          'goldens/plan_content_html_dark.png', contrast: true);
     });
 
     testWidgets('2.0 放大无溢出', (t) async {
       await pumpPage(t, textScale: 2.0, brightness: Brightness.light);
       expect(t.takeException(), isNull);
+      _checkHtmlContrast(t, const Color(0xFFFFFFFF));
+    });
+    testWidgets('dark 2.0 放大无溢出且正文对比度合格', (t) async {
+      await pumpPage(t, textScale: 2.0, brightness: Brightness.dark);
+      expect(t.takeException(), isNull);
+      _checkHtmlContrast(t, const Color(0xFF13161D));
     });
   });
+}
+
+// This fixture has no inline backgrounds. Inspect the actual rendered HTML
+// spans against its card, independently of Flutter's Text-only guideline.
+void _checkHtmlContrast(WidgetTester tester, Color background) {
+  var textCount = 0;
+  void check(InlineSpan span, TextStyle inherited) {
+    if (span is! TextSpan) return;
+    final style = inherited.merge(span.style);
+    if ((span.text?.trim().isNotEmpty ?? false) &&
+        style.fontFamily != 'Twemoji') {
+      final color = style.color;
+      expect(color, isNotNull);
+      final a = Color.alphaBlend(color!, background).computeLuminance();
+      final b = background.computeLuminance();
+      final ratio = ((a > b ? a : b) + .05) / ((a < b ? a : b) + .05);
+      expect(ratio, greaterThanOrEqualTo(4.5), reason: span.text);
+      textCount++;
+    }
+    for (final child in span.children ?? <InlineSpan>[]) {
+      check(child, style);
+    }
+  }
+  for (final rt in tester.widgetList<RichText>(
+    find.descendant(of: find.byType(Html), matching: find.byType(RichText)),
+  )) {
+    check(rt.text, const TextStyle());
+  }
+  expect(textCount, greaterThan(10));
 }
 
 /// 遍历 PlanDetailPage 内所有 RichText 的 InlineSpan，断言：

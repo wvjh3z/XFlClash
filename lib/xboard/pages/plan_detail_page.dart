@@ -28,6 +28,7 @@ import '../util/error_text.dart';
 import '../util/format.dart';
 import '../util/html_link.dart';
 import '../util/html_text.dart' show wrapEmojiForHtml, kXbEmojiClass;
+import '../widgets/xb_html_contrast.dart';
 import '../util/period_label.dart';
 import '../widgets/xb_ui_kit.dart';
 import '../widgets/xb_emoji_text.dart';
@@ -457,9 +458,12 @@ class _PlanDetailPageState extends ConsumerState<PlanDetailPage> {
       // 不能用 body 的 fontFamilyFallback:[Twemoji]——Twemoji 含数字 0-9 字形，会把普通
       // 数字也吃成不可见的 COLR 基字（详见 wrapEmojiForHtml）。
       data: wrapEmojiForHtml(plan.description!),
+      extensions: [
+        XbHtmlContrastExtension(background: t.card, foreground: t.on),
+      ],
       style: {
         // color: t.on —— 正文随主题（浅色=深字 / 深色=浅字）。后端套餐 content 的正文行
-        // **不设** inline color（设了会覆盖此处），标题/警告/红字用具体 hex 自带颜色覆盖即可。
+        // 可保留作者内联配色；公共扩展在CSS/继承解析后修正对比度不足的颜色。
         'body': Style(
           margin: Margins.zero,
           padding: HtmlPaddings.zero,

@@ -73,7 +73,8 @@ void main() {
     final config = container.read(patchClashConfigProvider);
     expect(config.generalOverrideKeys, contains(GeneralOverrideKey.ipv6));
     expect(
-      config.toUpdateParams(authentication: [], skipCertVerify: false).ipv6,
+      config.toUpdateParams(authentication: [],
+          options: const CoreOptions(testUrl: 'https://example.invalid/test')).ipv6,
       isTrue,
     );
     return config.ipv6;

@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:fl_clash/core/event.dart';
+import 'package:fl_clash/core/method.dart';
 import 'package:fl_clash/enum/enum.dart';
 import 'package:fl_clash/models/models.dart';
 import 'package:fl_clash/xboard/services/xb_geo_update_service.dart';
@@ -20,7 +21,7 @@ void main() {
     'acknowledgement and another resource cannot complete the update',
     (tester) async {
       var done = false;
-      final operation = updateXbGeoResource('GEOIP', request: (_) async => '')
+      final operation = updateXbGeoResource('GEOIP', request: (_) async {})
           .then((value) {
             done = true;
             return value;
@@ -41,13 +42,14 @@ void main() {
   testWidgets('terminal errors and request failures remain failures', (
     tester,
   ) async {
-    final result = updateXbGeoResource('MMDB', request: (_) async => '');
+    final result = updateXbGeoResource('MMDB', request: (_) async {});
     emit('MMDB', error: 'download failed');
     await tester.pump();
     expect(await result, 'download failed');
-    expect(
-      await updateXbGeoResource('MMDB', request: (_) async => 'busy'),
-      'busy',
+    await expectLater(
+      updateXbGeoResource('MMDB', request: (_) async =>
+          throw const CoreMethodException(code: 'busy', message: 'busy')),
+      throwsA(isA<CoreMethodException>().having((e) => e.code, 'code', 'busy')),
     );
     await expectLater(
       updateXbGeoResource(
@@ -62,7 +64,7 @@ void main() {
   testWidgets('timeout bounds acknowledgement too and removes the listener', (
     tester,
   ) async {
-    final ack = Completer<String>();
+    final ack = Completer<void>();
     final result = updateXbGeoResource(
       'ASN',
       request: (_) => ack.future,
@@ -71,14 +73,14 @@ void main() {
     await tester.pump(const Duration(seconds: 2));
     expect(await result, 'GEO update timed out');
     expect(CoreEventManager.instance.hasListeners, isFalse);
-    ack.complete('');
+    ack.complete();
     emit('ASN');
     await tester.pump();
     expect(tester.takeException(), isNull);
   });
 
   testWidgets('a core crash releases the pending update', (tester) async {
-    final result = updateXbGeoResource('GEOIP', request: (_) async => '');
+    final result = updateXbGeoResource('GEOIP', request: (_) async {});
     CoreEventManager.instance.sendEvent(
       const CoreEvent(type: CoreEventType.crash, data: 'stopped'),
     );

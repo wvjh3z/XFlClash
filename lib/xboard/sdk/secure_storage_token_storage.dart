@@ -178,6 +178,20 @@ class _RecoveringTokenStorage implements TokenStorage {
     }
   }
 
+  Future<void> _cleanupUnreferenced(String key) async {
+    try {
+      // A write may have committed before verification (or the platform reply)
+      // failed. Never delete a key that the authority still references, and
+      // retain it when the authority cannot currently be read.
+      final current = await _record();
+      if (current?['key'] == key) return;
+      await _cleanup(key);
+    } catch (_) {
+      // The next normal read/write resolves the authority again. An uncertain
+      // orphan is safer than destroying a possibly committed credential.
+    }
+  }
+
   Future<void> _verifiedWrite(String key, String token) async {
     final operation = () async {
       await _secure.write(key: key, value: token);
@@ -318,7 +332,7 @@ class _RecoveringTokenStorage implements TokenStorage {
       _cachedKey = key;
       _cachedToken = token;
     } catch (_) {
-      unawaited(_cleanup(key));
+      await _cleanupUnreferenced(key);
       rethrow;
     }
     unawaited(_cleanup(previous?['key'] as String?));

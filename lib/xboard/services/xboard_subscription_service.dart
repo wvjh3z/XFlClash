@@ -70,6 +70,7 @@ class XboardSubscriptionService {
     void Function(String winnerHost)? onWinnerHost,
     void Function(String)? Function()? captureWinnerRecorder,
     int Function()? sessionRevision,
+    void Function(XbSyncOutcome outcome, int revision)? onOutcome,
     String flavorId = 'default',
   }) : _service = service,
        _encrypted = encrypted,
@@ -83,6 +84,7 @@ class XboardSubscriptionService {
        _onWinnerHost = onWinnerHost,
        _captureWinnerRecorder = captureWinnerRecorder,
        _sessionRevision = sessionRevision ?? (() => 0),
+       _onOutcome = onOutcome,
        _flavorId = flavorId;
 
   final XboardService _service;
@@ -97,6 +99,7 @@ class XboardSubscriptionService {
   final void Function(String)? Function()? _captureWinnerRecorder;
   final String _flavorId;
   final int Function() _sessionRevision;
+  final void Function(XbSyncOutcome outcome, int revision)? _onOutcome;
 
   final List<BootstrapEndpoint> Function()? _endpoints;
   final bool Function() _vpnActive;
@@ -225,6 +228,14 @@ class XboardSubscriptionService {
         where: 'subscription sync (unexpected)',
       );
     } finally {
+      if (_isCurrent(revision)) {
+        try {
+          _onOutcome?.call(outcome, revision);
+        } catch (_) {
+          // A display observer must not change the storage operation's result
+          // or prevent the shared in-flight future from completing.
+        }
+      }
       completer.complete(outcome);
       _inFlight = null;
       _pendingForce = false;

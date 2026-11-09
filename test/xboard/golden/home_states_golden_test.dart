@@ -3,10 +3,9 @@
 /// 用 CoreStatus + isStart 驱动连接球四态，渲染 golden 跟原型 home(state) 对比。不依赖模拟器。
 library;
 
-import 'dart:io';
+import 'golden_environment.dart';
 
 import 'package:material_ui/material_ui.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -31,25 +30,6 @@ class _FakeAuth extends AuthStateNotifier {
   final AuthState _initial;
   @override
   AuthState build() => _initial;
-}
-
-const _cjkFontPaths = [
-  '/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc',
-  '/System/Library/Fonts/PingFang.ttc',
-];
-
-Future<void> _loadCjkFont() async {
-  for (final path in _cjkFontPaths) {
-    final f = File(path);
-    if (!f.existsSync()) continue;
-    try {
-      final bytes = await f.readAsBytes();
-      final loader = FontLoader('Roboto')
-        ..addFont(Future.value(ByteData.view(bytes.buffer)));
-      await loader.load();
-      return;
-    } catch (_) {}
-  }
 }
 
 ProxiesTabState _tab() => const ProxiesTabState(
@@ -124,7 +104,7 @@ Future<void> pumpHome(
 }
 
 void main() {
-  setUpAll(_loadCjkFont);
+  setUpAll(loadGoldenFonts);
 
   testWidgets('首页 · 游客 golden', (t) async {
     await pumpHome(t,
@@ -132,8 +112,7 @@ void main() {
         core: CoreStatus.disconnected,
         isStart: false);
     expect(t.takeException(), isNull);
-    await expectLater(
-        find.byType(HomeTab), matchesGoldenFile('goldens/home_guest.png'));
+    await expectXbGolden(t, find.byType(HomeTab), 'goldens/home_guest.png');
   });
 
   testWidgets('首页 · 已登录未连接 golden', (t) async {
@@ -142,8 +121,7 @@ void main() {
         core: CoreStatus.disconnected,
         isStart: false);
     expect(t.takeException(), isNull);
-    await expectLater(
-        find.byType(HomeTab), matchesGoldenFile('goldens/home_ready.png'));
+    await expectXbGolden(t, find.byType(HomeTab), 'goldens/home_ready.png');
   });
 
   testWidgets('首页 · 已连接 golden', (t) async {
@@ -152,8 +130,7 @@ void main() {
         core: CoreStatus.connected,
         isStart: true);
     expect(t.takeException(), isNull);
-    await expectLater(
-        find.byType(HomeTab), matchesGoldenFile('goldens/home_connected.png'));
+    await expectXbGolden(t, find.byType(HomeTab), 'goldens/home_connected.png');
   });
 
   testWidgets('首页 · 套餐到期提醒（剩7天）golden', (t) async {
@@ -164,8 +141,7 @@ void main() {
         isStart: false,
         sub: _subExpiring(now.add(const Duration(days: 7, hours: 12))));
     expect(t.takeException(), isNull);
-    await expectLater(find.byType(HomeTab),
-        matchesGoldenFile('goldens/home_expiry_7d.png'));
+    await expectXbGolden(t, find.byType(HomeTab), 'goldens/home_expiry_7d.png');
   });
 
   testWidgets('首页 · 套餐已过期 golden', (t) async {
@@ -176,8 +152,7 @@ void main() {
         isStart: false,
         sub: _subExpiring(now.subtract(const Duration(days: 1))));
     expect(t.takeException(), isNull);
-    await expectLater(find.byType(HomeTab),
-        matchesGoldenFile('goldens/home_expiry_expired.png'));
+    await expectXbGolden(t, find.byType(HomeTab), 'goldens/home_expiry_expired.png');
   });
 }
 

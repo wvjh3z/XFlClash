@@ -32,8 +32,8 @@ class _ControlledAdapter extends XbNodesAdapter {
   }
 
   @override
-  Future<void> testNode(
-    WidgetRef ref, {
+  Future<Delay?> testNodeInContainer(
+    ProviderContainer owner, {
     required String proxyName,
     required String type,
     String? testUrl,
@@ -41,7 +41,9 @@ class _ControlledAdapter extends XbNodesAdapter {
     final result = Completer<int>();
     attempts.add((name: proxyName, result: result));
     emitDelay(proxyName, 0);
-    emitDelay(proxyName, await result.future);
+    final value = await result.future;
+    emitDelay(proxyName, value);
+    return Delay(url: _url, name: proxyName, value: value);
   }
 }
 

@@ -20,7 +20,8 @@ import 'package:fl_clash/common/path.dart' show appPath;
 import 'package:fl_clash/database/database.dart'
     show Database, database, TableInfoExt, ProfilesCompanionExt;
 import 'package:fl_clash/models/profile.dart';
-import 'package:fl_clash/core/method.dart' show CoreMethodException;
+import 'package:fl_clash/core/method.dart'
+    show CoreMethodException, isUnansweredCoreError;
 import 'package:fl_clash/common/common.dart' show MessageException;
 import 'package:fl_clash/providers/core.dart' show coreHandlerProvider;
 import 'package:fl_clash/providers/database.dart' show profilesProvider;
@@ -130,20 +131,21 @@ class RiverpodProfileSyncPort implements ProfileSyncPort {
           ensureCurrent: ensureCurrent,
           recoveryOwner: recoveryOwner,
         );
-        final String message;
+        final String? message;
         try {
           message = await _ref
               .read(coreHandlerProvider)
               .validateProfile(write.candidate.path, pending.ageSecretKey);
-        } on CoreMethodException catch (error) {
+        } catch (error) {
           ensureCurrent();
-          if (error.code == 'no_response' || error.isCoreUnavailable) {
+          if (isUnansweredCoreError(error) ||
+              (error is CoreMethodException && error.isCoreUnavailable)) {
             throw ProfileValidationUnavailable(error);
           }
           rethrow;
         }
         ensureCurrent();
-        if (message.isNotEmpty) throw MessageException(message);
+        if (message != null) throw MessageException(message);
         await write.publish();
         saved = pending.copyWith(lastUpdateDate: DateTime.now());
       }
