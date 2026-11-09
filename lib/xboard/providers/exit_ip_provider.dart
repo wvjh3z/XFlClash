@@ -25,6 +25,7 @@ class XbExitIpNotifier extends Notifier<XbExitIpState> {
   XbExitIpProbe? _probe;
   Timer? _debounce;
   int _generation = 0;
+  bool _needsRefresh = true;
 
   @override
   XbExitIpState build() {
@@ -78,10 +79,12 @@ class XbExitIpNotifier extends Notifier<XbExitIpState> {
     });
     ref.listen(appVisibleProvider, (_, visible) {
       if (visible) {
-        refresh();
+        if (_needsRefresh) {
+          refresh(preserveResult: true);
+        }
       } else {
         _cancel();
-        state = const XbExitIpState();
+        state = XbExitIpState(result: state.result, failed: state.failed);
       }
     });
     final initial = _generation;
@@ -105,10 +108,13 @@ class XbExitIpNotifier extends Notifier<XbExitIpState> {
   /// Automatic triggers coalesce as in 0.8.93. Manual retry is immediate.
   void refresh({bool immediate = false, bool preserveResult = false}) {
     final previousResult = preserveResult ? state.result : null;
+    // Route changes remain pending while hidden. Visibility alone does not
+    // invalidate a successful result; cancelled/failed rounds still need work.
+    _needsRefresh = true;
     _cancel();
     final generation = _generation;
     if (!ref.read(appVisibleProvider)) {
-      state = const XbExitIpState();
+      state = XbExitIpState(result: previousResult);
       return;
     }
     state = XbExitIpState(loading: true, result: previousResult);
@@ -129,6 +135,7 @@ class XbExitIpNotifier extends Notifier<XbExitIpState> {
       _probe = probe;
       final result = await probe.run();
       if (!ref.mounted || generation != _generation) return;
+      _needsRefresh = result == null;
       state = XbExitIpState(
         result: result ?? state.result,
         failed: result == null,

@@ -41,6 +41,100 @@ class _Probe extends XbExitIpProbe {
 }
 
 void main() {
+  testWidgets('unchanged foreground resumes reuse a successful IP', (tester) async {
+    final visible = StateProvider<bool>((ref) => true);
+    final probes = <_Probe>[];
+    final container = ProviderContainer(overrides: [
+      routeTrackerProvider.overrideWith(_Route.new),
+      isStartProvider.overrideWith((ref) => false),
+      suspendProvider.overrideWith((ref) => false),
+      appVisibleProvider.overrideWithBuild((ref, _) => ref.watch(visible)),
+      patchClashConfigProvider.overrideWithBuild((ref, _) => const PatchClashConfig()),
+      selectedMapProvider.overrideWith((ref) => {}),
+      xbExitIpProbeFactoryProvider.overrideWithValue(() {
+        final probe = _Probe();
+        probes.add(probe);
+        return probe;
+      }),
+    ]);
+    addTearDown(container.dispose);
+    await tester.pumpWidget(UncontrolledProviderScope(
+      container: container,
+      child: const MaterialApp(home: Scaffold(body: XbIpCard())),
+    ));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    probes.single.answer.complete(const XbExitIpResult('203.0.113.1', 'HK'));
+    await tester.pump();
+    for (var i = 0; i < 3; i++) {
+      container.read(visible.notifier).state = false;
+      await tester.pump();
+      expect(container.read(xbExitIpProvider).result?.ip, '203.0.113.1');
+      container.read(visible.notifier).state = true;
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 1));
+      expect(probes, hasLength(1), reason: 'visibility alone is not a route change');
+      expect(container.read(xbExitIpProvider).loading, isFalse);
+    }
+    container.read(xbExitIpProvider.notifier).refresh(immediate: true);
+    expect(probes, hasLength(2), reason: 'manual refresh must still run immediately');
+    probes.last.answer.complete(const XbExitIpResult('203.0.113.2', 'JP'));
+    await tester.pump();
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('background route changes coalesce and failed lookup retries on resume', (tester) async {
+    final visible = StateProvider<bool>((ref) => true);
+    final probes = <_Probe>[];
+    final container = ProviderContainer(overrides: [
+      routeTrackerProvider.overrideWith(_Route.new),
+      isStartProvider.overrideWith((ref) => false),
+      suspendProvider.overrideWith((ref) => false),
+      appVisibleProvider.overrideWithBuild((ref, _) => ref.watch(visible)),
+      patchClashConfigProvider.overrideWithBuild((ref, _) => const PatchClashConfig()),
+      selectedMapProvider.overrideWith((ref) => {}),
+      xbExitIpProbeFactoryProvider.overrideWithValue(() {
+        final probe = _Probe();
+        probes.add(probe);
+        return probe;
+      }),
+    ]);
+    addTearDown(container.dispose);
+    await tester.pumpWidget(UncontrolledProviderScope(
+      container: container,
+      child: const MaterialApp(home: Scaffold(body: XbIpCard())),
+    ));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    probes.single.answer.complete(const XbExitIpResult('203.0.113.1', 'HK'));
+    await tester.pump();
+    container.read(visible.notifier).state = false;
+    await tester.pump();
+    final route = container.read(routeTrackerProvider.notifier) as _Route;
+    route.hostChanged();
+    route.advanceRoute();
+    route.advanceRoute();
+    await tester.pump(const Duration(seconds: 2));
+    expect(probes, hasLength(1), reason: 'background must not send probes');
+    container.read(visible.notifier).state = true;
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(probes, hasLength(2), reason: 'background invalidations need one catch-up');
+    probes.last.answer.complete(null);
+    await tester.pump();
+    expect(container.read(xbExitIpProvider).failed, isTrue);
+    container.read(visible.notifier).state = false;
+    await tester.pump();
+    container.read(visible.notifier).state = true;
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(probes, hasLength(3), reason: 'a failed round must not be cached as valid');
+    probes.last.answer.complete(const XbExitIpResult('203.0.113.3', 'US'));
+    await tester.pump();
+    expect(container.read(xbExitIpProvider).result?.ip, '203.0.113.3');
+    await tester.pumpWidget(const SizedBox());
+  });
+
   for (final brand in ['brand_a', 'brand_b']) {
     for (final platform in [
       TargetPlatform.android,
