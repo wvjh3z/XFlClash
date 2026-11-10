@@ -9,6 +9,32 @@ $ErrorActionPreference = 'Stop'
 # Diagnostic writes must never alter readiness results or a child exit code.
 $script:XbRuntimeLog = $null
 $script:XbRuntimeStage = 'initialization'
+$script:XbRuntimeProtocol = $false
+$script:XbRuntimeResultKind = 'checker'
+$script:XbRuntimeRedistExit = $null
+
+# Use Console rather than Write-Output: diagnostics must not join a function's
+# return pipeline and turn an integer readiness/exit result into an array.
+function Write-XbRuntimeProtocol([string]$Name, [string]$Value) {
+    if (!$script:XbRuntimeProtocol) { return }
+    try { [Console]::Out.WriteLine("XBVC_$Name=" + ($Value -replace '[\r\n]+', ' ')) }
+    catch { } # A broken output pipe cannot change the prerequisite decision.
+}
+
+function Set-XbRuntimeStage([string]$Stage) {
+    $script:XbRuntimeStage = $Stage
+    Write-XbRuntimeProtocol 'STAGE' $Stage
+}
+
+function Write-XbRuntimeCompletion([int]$Code) {
+    Write-XbRuntimeLog "Result=$Code"
+    Write-XbRuntimeProtocol 'KIND' $script:XbRuntimeResultKind
+    if ($null -ne $script:XbRuntimeRedistExit) {
+        Write-XbRuntimeProtocol 'REDIST_EXIT' ([string]$script:XbRuntimeRedistExit)
+    }
+    Write-XbRuntimeProtocol 'RESULT' ([string]$Code)
+}
+
 function Write-XbRuntimeLog([string]$Message) {
     if ([string]::IsNullOrWhiteSpace($script:XbRuntimeLog)) { return }
     try {
@@ -19,12 +45,18 @@ function Write-XbRuntimeLog([string]$Message) {
 }
 
 function Write-XbRuntimeException($Exception) {
-    $e = $Exception
-    while ($null -ne $e.InnerException) { $e = $e.InnerException }
-    $native = 'n/a'
-    if ($e -is [ComponentModel.Win32Exception]) { $native = [string]$e.NativeErrorCode }
-    Write-XbRuntimeLog ("exception=$($e.GetType().FullName); nativeError=$native; message=" +
-        ($e.Message -replace '[\r\n]+', ' '))
+    try {
+        $e = $Exception
+        while ($null -ne $e.InnerException) { $e = $e.InnerException }
+        $native = 'n/a'
+        if ($e -is [ComponentModel.Win32Exception]) { $native = [string]$e.NativeErrorCode }
+        $detail = "exception=$($e.GetType().FullName); nativeError=$native; message=" +
+            ($e.Message -replace '[\r\n]+', ' ')
+        Write-XbRuntimeLog $detail
+        Write-XbRuntimeProtocol 'ERROR' $detail
+    } catch {
+        Write-XbRuntimeProtocol 'ERROR' 'Exception details unavailable'
+    }
 }
 
 function ConvertTo-XbVersion([string]$Value) {
@@ -107,7 +139,9 @@ function Test-XbRuntimeReady([version]$Minimum) {
 }
 
 function Invoke-XbRedist([string]$Path, [string]$Action, [string]$Log) {
-    $script:XbRuntimeStage = 'redist-launch'
+    Set-XbRuntimeStage 'redist-launch'
+    $script:XbRuntimeResultKind = 'redist-launch'
+    $script:XbRuntimeRedistExit = $null
     $start = New-Object Diagnostics.ProcessStartInfo
     # Never inherit Sysnative (32-bit-only alias) or a deleted parent directory.
     # Production payload has already passed the mandatory size/hash check.
@@ -122,28 +156,35 @@ function Invoke-XbRedist([string]$Path, [string]$Action, [string]$Log) {
         Write-XbRuntimeException $_.Exception
         return 4007
     }
-    $script:XbRuntimeStage = 'redist-wait'
+    Set-XbRuntimeStage 'redist-wait'
     try {
         if (!$process.WaitForExit(600000)) {
             # Do not kill Windows Installer halfway through a system update.
             # Stop this app installation and tell the user to wait/retry.
             Write-XbRuntimeLog 'result=timeout; child not terminated'
+            $script:XbRuntimeResultKind = 'redist-timeout'
             return 4004
         }
         Write-XbRuntimeLog "redistExitCode=$($process.ExitCode)"
+        $script:XbRuntimeRedistExit = $process.ExitCode
+        $script:XbRuntimeResultKind = 'redist-exit'
         return $process.ExitCode
     } finally { $process.Dispose() }
 }
 
 function Install-XbRuntime($Config, [string]$Payload, [string]$Log) {
+    $script:XbRuntimeRedistExit = $null
     $minimum = [version]$Config.minimumVersion
     $bundled = [version]$Config.bundledVersion
-    $script:XbRuntimeStage = 'readiness-before'
+    Set-XbRuntimeStage 'readiness-before'
+    $script:XbRuntimeResultKind = 'checker'
     if (Test-XbRuntimeReady $minimum) {
         Write-XbRuntimeLog 'decision=skip; existing runtime meets minimum'
+        $script:XbRuntimeResultKind = 'ready'
         return 0
     }
-    $script:XbRuntimeStage = 'payload-validation'
+    Set-XbRuntimeStage 'payload-validation'
+    $script:XbRuntimeResultKind = 'payload'
     if (!(Test-XbPayloadHash $Payload $Config)) {
         Write-XbRuntimeLog 'decision=stop; payload size/hash mismatch'
         return 4002
@@ -152,6 +193,7 @@ function Install-XbRuntime($Config, [string]$Payload, [string]$Log) {
     # A damaged newer system runtime cannot be repaired by our older payload.
     if (@($registered | Where-Object { $_ -gt $bundled }).Count -gt 0) {
         Write-XbRuntimeLog 'decision=stop; newer registered runtime needs repair; no downgrade'
+        $script:XbRuntimeResultKind = 'newer-runtime'
         return 4006
     }
     $action = '/install'
@@ -159,35 +201,48 @@ function Install-XbRuntime($Config, [string]$Payload, [string]$Log) {
     Write-XbRuntimeLog "decision=$action"
     $code = Invoke-XbRedist $Payload $action $Log
     # Never silently continue before reboot, even if the registry already changed.
-    if ($code -eq 3010 -or $code -eq 1641) { return 3010 }
+    if ($code -eq 3010 -or $code -eq 1641) {
+        $script:XbRuntimeResultKind = 'reboot'
+        return 3010
+    }
     # 1638 / HRESULT_FROM_WIN32(ERROR_PRODUCT_VERSION): another/newer installer
     # may have raced us. Only a fresh registry AND DLL check can accept it.
     if ($code -eq 0 -or $code -eq 1638 -or $code -eq -2147023258) {
-        $script:XbRuntimeStage = 'readiness-after'
-        if (Test-XbRuntimeReady $minimum) { return 0 }
+        Set-XbRuntimeStage 'readiness-after'
+        $script:XbRuntimeResultKind = 'verification'
+        if (Test-XbRuntimeReady $minimum) {
+            $script:XbRuntimeResultKind = 'ready'
+            return 0
+        }
         return 4003
     }
     return $code
 }
 
 if ($MyInvocation.InvocationName -ne '.') {
+    $script:XbRuntimeProtocol = $true
     $script:XbRuntimeLog = $LogPath + '.wrapper.txt'
     try {
+        Set-XbRuntimeStage 'initialization'
         Write-XbRuntimeLog "process64=$([Environment]::Is64BitProcess); os=$([Environment]::OSVersion.Version)"
+        Write-XbRuntimeProtocol 'HOST' "process64=$([Environment]::Is64BitProcess); os=$([Environment]::OSVersion.Version); powershell=$($PSVersionTable.PSVersion); languageMode=$($ExecutionContext.SessionState.LanguageMode)"
         if (![Environment]::Is64BitProcess -or [Environment]::OSVersion.Platform -ne 'Win32NT' -or
             [Environment]::OSVersion.Version.Major -lt 10) {
-            Write-XbRuntimeLog 'Result=4001'
+            $script:XbRuntimeResultKind = 'platform'
+            Write-XbRuntimeCompletion 4001
             exit 4001
         }
-        $script:XbRuntimeStage = 'policy-read'
+        Set-XbRuntimeStage 'policy-read'
+        $script:XbRuntimeResultKind = 'checker'
         $config = Read-XbRuntimeConfig $ConfigPath
         Write-XbRuntimeLog "VC prerequisite: minimum=$($config.minimumVersion); bundled=$($config.bundledVersion)"
         $code = Install-XbRuntime $config $PayloadPath $LogPath
-        Write-XbRuntimeLog "Result=$code"
+        Write-XbRuntimeCompletion $code
         exit $code
     } catch {
         Write-XbRuntimeException $_.Exception
-        Write-XbRuntimeLog 'Result=4008'
+        $script:XbRuntimeResultKind = 'checker'
+        Write-XbRuntimeCompletion 4008
         exit 4008
     }
 }

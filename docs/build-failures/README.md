@@ -36,6 +36,10 @@
 
 ## v0.9.3升级候选验证（2026-11-08）
 
+2026-11-11 Windows VC诊断增强：固定Inno6.7.1真实编译揭示16项静态检查漏掉两处问题。错误兜底字符串换行以`#13#10`开头，被ISPP当作未知预处理指令；移到上一行后，编译继续暴露`TNewMemo.CopyToClipboard`未知标识符。PascalScript源码里的该注册受`IFNDEF PS_MINIVCL`控制，不能仅搜索到注册语句就认为Inno实际暴露接口。已改用原生编辑框`WM_COPY`及`GetClipboardSequenceNumber`核对复制是否发生。原始红编译退出2；修正后完整生产诊断Code/中英CustomMessages的无害夹具经Inno6.7.1编译成功，并以普通用户实际执行中英两种语言，覆盖UTF-8、中文/空格/单引号路径、入口/解析失败、原始退出1、协议分类、日志不可写及复制回读。38项策略和9项真实子进程另行通过，未安装VC或构建客户端。此夹具不含正式maker/Files/ISPP准备入口，不能替代双品牌完整预检。可复用夹具为`tool/test/windows_vc_diagnostics_native_test.py`；证据见Docs/evidence/vc-diagnostics-20261111。MCP首次超长内联传输触发WinError206，改分块传输；首次夹具收尾外层退出1，修正空剪贴板恢复及子进程清理后复验退出0，两者均非安装器缺陷。
+
+同轮复核补修：先按数字分类再用协议覆盖，会在标记丢失时把VC退出1误判检查器错误，也会把VC退出4004误判内部超时。新增生产XbVcError调用回归，修复前四组均在missing protocol exit1 neutral红测；改为已确认本地来源优先、协议结果/kind/子进程码匹配才分类，否则中性提示后通过。原生Python入口原先只编译，现在连接版本化PowerShell驱动，英/中×复制正常/真实剪贴板占用四组最终均退出0，失败和清理异常非零，报告可重放。占用负控首轮确实显示错误但驱动误用IDOK导致超时，改为仅关闭已识别的Inno自定义错误窗WM_CLOSE后通过。清理不能靠进程名及启动前PID快照：现用私有Windows Job在恢复挂起loader前接管全部后代，kill-on-close防驱动异常遗留，核对ActiveCount=0；实测同名无关ping进程不受影响。保留完整maker、正式失败页布局/点击及真实redist安装恢复待验。最新证据为Docs/evidence/vc-diagnostics-20261111/review-fix.json；本轮静态检查另有一条旧case语法断言失败，按新的来源/kind约束更新后16项通过，并有上述原生红绿作为行为依据。
+
 更新GET/浏览器后续复核补修：67项中7条目标失败定位到固定118底栏在1.4/1.5/2.0字号溢出，以及async*采样在取消/SocketException交错时未捕获异常。底栏/按钮改最小高度并允许短窗口滚动；采样桥显式持有上游订阅、传播暂停/恢复、幂等取消，正常流错误仍作为未确认源，不靠吞所有业务错误转绿。先用无配合close替身暴露等待，再用故障流与直接Dio对照、真实IO关闭区分边界；补修还覆盖无配合close及正常流错误。分析器对别名cancel未识别，改为直接调用subscription.cancel使真实收尾可追踪，未屏蔽cancel_subscriptions。最终74/74（含4既有golden）和分析通过，未改golden基线；证据见Docs/evidence/update-get-probe-20261110/review-fix.json，新包/设备仍待验。
 
 更新GET轻量探测验证：仅在ResponseBody消费者累积样本后break不能保证有界，Dio5.11.1的响应处理器可能已提前订阅并缓冲原流。快速8MiB响应负控实测读完整流，改为在本轮HttpClientAdapter返回响应、交给Dio之前包采样上限，再由消费者读取并取消；原Dio/全局代理实现未改。用户随后指定每源100KiB（Range bytes=0-102399）。真实回环HTTP还验证重定向/忽略Range，服务端flush在客户端提前关闭后可能不完成，测试生产者独立限时收尾，不把服务端夹具等待当客户端探测超时。新增Widget夹具首轮遗漏XboardConfig.debug属加载失败，Dio异步派发的FakeAsync等待改为受控Completer握手；这些与业务断言分开。最终54项选源/浏览器/取消测试及4项既有更新弹窗golden通过，分析无问题，未更新golden基线；原生浏览器与新包仍待验。

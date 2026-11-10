@@ -31,7 +31,7 @@ public class XbChild {
         File.WriteAllLines(args[4], new string[] {
             Environment.CurrentDirectory, args[0], args[1], args[2], args[3], args[4]
         });
-        return args[0] == "/repair" ? 37 : 0;
+        return args[0] == "/repair" ? 37 : (args[0] == "/exit1" ? 1 : 0);
     }
 }
 '@
@@ -42,6 +42,7 @@ public class XbChild {
 [ "$#" = 5 ] || exit 91
 printf '%s\n' "$PWD" "$1" "$2" "$3" "$4" "$5" > "$5"
 [ "$1" = /repair ] && exit 37
+[ "$1" = /exit1 ] && exit 1
 exit 0
 '@ + "`n", (New-Object Text.UTF8Encoding($false)))
         & chmod 700 $helper
@@ -64,6 +65,27 @@ exit 0
     }
     Case 'real child nonzero code survives launch and disposal' {
         Assert-Equal (Invoke-XbRedist $helper '/repair' $record) 37
+    }
+    Case 'real child exit one is reported as redist rather than checker failure' {
+        $originalOutput = [Console]::Out
+        $capture = New-Object IO.StringWriter
+        try {
+            [Console]::SetOut($capture)
+            $script:XbRuntimeProtocol = $true
+            $value = Invoke-XbRedist $helper '/exit1' $record
+            Assert-Equal ($value -is [int]) $true
+            Assert-Equal $value 1
+            Write-XbRuntimeCompletion $value
+            $text = $capture.ToString()
+            foreach ($field in @('XBVC_STAGE=redist-launch', 'XBVC_STAGE=redist-wait',
+                    'XBVC_KIND=redist-exit', 'XBVC_REDIST_EXIT=1', 'XBVC_RESULT=1')) {
+                if (!$text.Contains($field)) { throw "Missing child-exit diagnostic $field" }
+            }
+        } finally {
+            $script:XbRuntimeProtocol = $false
+            [Console]::SetOut($originalOutput)
+            $capture.Dispose()
+        }
     }
     Case 'invalid working directory negative control actually prevents child creation' {
         Remove-Item -LiteralPath $record

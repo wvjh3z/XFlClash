@@ -83,7 +83,7 @@ class RuntimeContractTest(unittest.TestCase):
         template = self.read("windows/packaging/exe/inno_setup.iss")
         self.assertEqual(template.count("function PrepareToInstall("), 1)
         assert_prepare_order(template)
-        self.assertIn("Exec(PowerShellPath,", source)
+        self.assertIn("ExecAndCaptureOutput(PowerShellPath,", source)
         self.assertIn("{sysnative}\\WindowsPowerShell", source)
         self.assertIn("Params, ExpandConstant('{tmp}'), SW_HIDE", source)
         self.assertNotIn("ExecWithNativeSysDir", source)
@@ -126,10 +126,78 @@ class RuntimeContractTest(unittest.TestCase):
                       "registryReady=", "filesReady=", "dll=$name", "registry=$view"):
             self.assertIn(field, source)
         installer = self.read("windows/packaging/exe/vc_runtime.iss")
-        for code, key in ((4007, "Launch"), (4008, "Check"), (4009, "Prepare")):
-            self.assertIn(f"{code}: Hint := CustomMessage('XbVc{key}')", installer)
+        for kind, code, key in (("redist-launch", 4007, "Launch"), ("checker", 4008, "Check")):
+            self.assertIn(f"(XbVcKind = '{kind}') and (Code = {code}) then Hint := CustomMessage('XbVc{key}')", installer)
+        self.assertIn("if (XbVcLocalFailureCode <> 0) and (XbVcLocalFailureCode = Code)", installer)
+        self.assertIn("if Code = 4009 then Result := CustomMessage('XbVcPrepare')", installer)
         self.assertIn("tool/test/windows_vc_runtime_process_test.ps1",
                       self.read(".github/workflows/release-package.yml"))
+
+    def test_capture_keeps_stdout_stderr_and_raw_process_code(self):
+        source = self.read('windows/packaging/exe/vc_runtime.iss')
+        self.assertIn('Output: TExecOutput', source)
+        self.assertIn("XbVcRawCode := Code", source)
+        self.assertIn("XbVcHasRawCode := True", source)
+        self.assertIn("'.stdout.txt', Output.StdOut", source)
+        self.assertIn("'.stderr.txt', Output.StdErr", source)
+        self.assertIn('XbVcCaptureError := Output.Error', source)
+        self.assertNotIn('Exec(PowerShellPath,', source)
+        self.assertIn('exit $LASTEXITCODE', source)
+        self.assertIn('Write-Error -ErrorRecord $_ -ErrorAction Continue; exit 1', source)
+
+    def test_protocol_is_diagnostic_not_a_success_gate(self):
+        source = self.read('windows/packaging/exe/vc_runtime.iss')
+        prepare = source.split('function XbPrepareVCRuntime(', 1)[1]
+        self.assertIn('if Code <> 0 then begin', prepare)
+        self.assertNotIn('Code := XbVcReportedCode', prepare)
+        self.assertNotIn('Code := XbVcRedistCode', prepare)
+        self.assertIn('if not XbVcHasReport or (XbVcReportedCode <> Code) then exit;', source)
+        self.assertIn("Result := CustomMessage('XbVcUnclassified')", source)
+        self.assertIn("(XbVcKind = 'redist-exit')", source)
+        self.assertIn('(XbVcRedistCode = Code)', source)
+        self.assertIn("Hint := CustomMessage('XbVcRedist')", source)
+
+    def test_protocol_prefix_offsets_match_the_wire_format(self):
+        source = self.read('windows/packaging/exe/vc_runtime.iss')
+        expected = {'STAGE': 12, 'KIND': 11, 'RESULT': 13,
+                    'REDIST_EXIT': 18, 'ERROR': 12, 'HOST': 11}
+        for name, offset in expected.items():
+            marker = f'XBVC_{name}='
+            self.assertEqual(offset, len(marker) + 1)
+            block = source.split(f"Pos('{marker}', Line) = 1", 1)[1]
+            block = block.split('end else if', 1)[0].split('else if Pos', 1)[0]
+            self.assertRegex(block, rf'Copy\(Line, {offset}, Length\(Line\)\)')
+
+    def test_utf8_bootstrap_precedes_script_loading_and_quotes_paths(self):
+        source = self.read('windows/packaging/exe/vc_runtime.iss')
+        command = source.split('function XbVcCommand(', 1)[1].split('\nend;', 1)[0]
+        self.assertLess(command.index('[Console]::OutputEncoding'), command.index("'try { & '"))
+        for argument in ['ScriptPath', 'ConfigPath', 'PayloadPath', 'LogPath']:
+            self.assertIn('XbVcPsQuote(' + argument + ')', command)
+        self.assertIn("StringChangeEx(Value, '''', '''''', True);", source)
+        self.assertIn(' -Command "', source)
+
+    def test_copy_is_user_initiated_and_failures_cannot_replace_install_result(self):
+        source = self.read('windows/packaging/exe/vc_runtime.iss')
+        self.assertIn('if WizardSilent then exit;', source)
+        self.assertIn('XbVcCopyButton.OnClick := @XbVcCopyDiagnostics', source)
+        self.assertIn('XbVcCopyMemo.SelectAll', source)
+        self.assertNotIn('XbVcCopyMemo.CopyToClipboard', source)
+        self.assertIn('SendMessage(XbVcCopyMemo.Handle, $0301, 0, 0)', source)
+        self.assertIn('if XbVcClipboardSequence = BeforeCopy then', source)
+        self.assertIn("CustomMessage('XbVcCopyFailed')", source)
+        error = source.split('function XbVcError(', 1)[1].split('function XbPrepareVCRuntime', 1)[0]
+        self.assertRegex(error, r'try\s+XbVcBuildDiagnostic\(Code\);\s+except')
+        self.assertRegex(error, r'try\s+XbVcShowCopyButton;\s+except')
+
+    def test_script_protocol_cannot_pollute_return_pipeline(self):
+        source = self.read('tool/windows/vc_runtime.ps1')
+        protocol = source.split('function Write-XbRuntimeProtocol', 1)[1].split('\nfunction ', 1)[0]
+        self.assertIn('[Console]::Out.WriteLine', protocol)
+        self.assertNotRegex(protocol, r'(?m)^\s*Write-Output\b')
+        self.assertIn('Write-XbRuntimeCompletion $code', source)
+        self.assertIn('Write-XbRuntimeCompletion 4008', source)
+        self.assertIn('$script:XbRuntimeRedistExit = $process.ExitCode', source)
 
     def test_default_config_has_separate_supported_minimum(self):
         config = json.loads(self.read("tool/windows/vc_runtime.json"))

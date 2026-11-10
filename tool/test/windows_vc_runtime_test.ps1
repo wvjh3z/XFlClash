@@ -143,10 +143,38 @@ try {
             Assert-Equal (Install-XbRuntime $config 'payload' 'log') 3010
         }
     }
-    foreach ($code in @(1602,1603,1618,-2147023278,5,4004,777)) {
+    foreach ($code in @(1,1602,1603,1618,-2147023278,5,4004,777)) {
         Case "cancel/failure/busy/timeout $code is never swallowed" {
             Reset-Install; $script:installerCode = $code
             Assert-Equal (Install-XbRuntime $config 'payload' 'log') $code
+        }
+    }
+    Case 'protocol diagnostics preserve scalar policy results and unwritable logging' {
+        Reset-Install
+        $script:registry = @($minimum); $script:dlls = @($minimum, $minimum, $minimum)
+        $originalOutput = [Console]::Out
+        $capture = New-Object IO.StringWriter
+        $originalProtocol = $script:XbRuntimeProtocol
+        $originalLog = $script:XbRuntimeLog
+        try {
+            [Console]::SetOut($capture)
+            $script:XbRuntimeProtocol = $true
+            $script:XbRuntimeLog = $fixture # A directory, not a writable log file.
+            $script:XbRuntimeRedistExit = 1 # A prior attempt must not leak into skip.
+            $value = Install-XbRuntime $config 'unused' 'unused'
+            Assert-Equal ($value -is [int]) $true
+            Assert-Equal $value 0
+            Write-XbRuntimeCompletion $value
+            $text = $capture.ToString()
+            foreach ($field in @('XBVC_STAGE=readiness-before', 'XBVC_KIND=ready', 'XBVC_RESULT=0')) {
+                if (!$text.Contains($field)) { throw "Missing protocol field $field" }
+            }
+            Assert-Equal ($text.Contains('XBVC_REDIST_EXIT=')) $false
+        } finally {
+            $script:XbRuntimeProtocol = $originalProtocol
+            $script:XbRuntimeLog = $originalLog
+            [Console]::SetOut($originalOutput)
+            $capture.Dispose()
         }
     }
     Case 'process launch exception propagates to wrapper failure' {
