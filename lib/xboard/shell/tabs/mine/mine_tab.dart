@@ -112,6 +112,8 @@ class _MineTabState extends ConsumerState<MineTab> with XbRefreshThrottleGuard {
     if (!mounted) return;
     if (result is UpdateAvailable) {
       ref.read(availableUpdateProvider.notifier).set(result.info);
+    } else if (result is UpdateNotAvailable) {
+      ref.read(availableUpdateProvider.notifier).clear();
     }
   }
 

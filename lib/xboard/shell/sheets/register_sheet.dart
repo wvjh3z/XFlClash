@@ -7,6 +7,7 @@ library;
 
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:fl_clash/xboard/sdk/xboard_service.dart';
 
 import 'package:fl_clash/xboard/models/xb_result.dart';
 import 'package:fl_clash/xboard/models/xb_domain_error.dart';
@@ -105,35 +106,57 @@ class _RegisterSheetState extends ConsumerState<RegisterSheet>
       return;
     }
     setState(() => _banner = null);
+    final route = ModalRoute.of(context);
     await runSubmit(() async {
       final auth = ref.read(authStateProvider.notifier);
       final attempt = auth.startAuthenticating();
       await auth.waitForSessionCleanup();
-      if (!mounted || !auth.isAuthenticationCurrent(attempt)) return;
+      if (!mounted || route?.isCurrent != true || route?.isActive != true) {
+        auth.failAuthentication(attempt);
+        return;
+      }
+      if (!auth.isAuthenticationCurrent(attempt)) return;
       final result = await ref
           .read(xboardServiceProvider)
           .register(email, pw, emailCode: code);
-      if (!mounted || !auth.isAuthenticationCurrent(attempt)) return;
+      if (!mounted || route?.isCurrent != true || route?.isActive != true) {
+        auth.failAuthentication(attempt);
+        return;
+      }
+      if (!auth.isAuthenticationCurrent(attempt)) return;
       switch (result) {
         case XbSuccess(data: true):
           // 注册成功 → 二步登录（form B DD-9 同款：register 不返 token）。
-          final login = await ref.read(xboardServiceProvider).login(email, pw);
-          if (!mounted) return;
+          final service = ref.read(xboardServiceProvider);
+          final scoped = service is XboardAuthenticationRequestControl
+              ? service as XboardAuthenticationRequestControl : null;
+          final login = scoped != null
+              ? await scoped.loginForRequest(email, pw,
+                  isActive: () => auth.isAuthenticationCurrent(attempt),
+                  establish: (token) => auth.completeAuthentication(token: token, attempt: attempt))
+              : await service.login(email, pw);
+          // Once login has saved credentials, its session completion outlives
+          // this sheet. Only UI feedback/navigation requires mounted.
           if (login is XbSuccess<String>) {
-            final established = await auth.completeAuthentication(
+            final established = scoped != null ? true : await auth.completeAuthentication(
               token: login.data,
               attempt: attempt,
             );
-            if (!mounted) return;
             if (established) {
-              Navigator.of(context).pop();
-            } else if (auth.isAuthenticationCurrent(attempt)) {
-              auth.failAuthentication(attempt);
-              setState(() => _banner = '注册成功，请手动登录');
+              if (mounted && route?.isCurrent == true && route?.isActive == true) {
+                route?.navigator?.pop();
+              }
+            } else {
+              if (auth.isAuthenticationCurrent(attempt)) {
+                auth.failAuthentication(attempt);
+                if (mounted && route?.isCurrent == true) {
+                  setState(() => _banner = '注册成功，请手动登录');
+                }
+              }
             }
           } else if (auth.isAuthenticationCurrent(attempt)) {
             auth.failAuthentication(attempt);
-            setState(() => _banner = '注册成功，请手动登录');
+            if (mounted && route?.isCurrent == true) setState(() => _banner = '注册成功，请手动登录');
           }
         case XbSuccess():
           auth.failAuthentication(attempt);

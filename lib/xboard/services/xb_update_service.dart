@@ -231,7 +231,7 @@ class XbUpdateService {
     required bool throttled,
   }) async {
     if (throttled) {
-      if (container.read(availableUpdateProvider) != null || _checking) return;
+      if (_checking) return;
       final sw = _throttle;
       if (sw != null && sw.elapsed < kCheckThrottle) return;
     }
@@ -276,6 +276,8 @@ class XbUpdateService {
           : null;
       if (result is UpdateAvailable) {
         container.read(availableUpdateProvider.notifier).set(result.info);
+      } else if (result is UpdateNotAvailable) {
+        container.read(availableUpdateProvider.notifier).clear();
       }
       if (throttled) _throttle = _createStopwatch()..start();
     } finally {
@@ -310,7 +312,7 @@ class XbUpdateService {
 
   /// 节流自动检查（onResume / VPN 连上触发）：距上次成功检查 ≥24h 才真请求。
   ///
-  /// fire-and-forget，永不抛、永不阻塞。已有可用更新时跳过（已点亮徽章，无需重查）。
+  /// fire-and-forget，永不抛、永不阻塞。已有更新仍按24h窗口复查，以支持清单撤回。
   static Future<void> autoCheckThrottled(ProviderContainer container) =>
       _automaticCheck(container, throttled: true);
 

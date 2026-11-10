@@ -51,6 +51,17 @@ abstract interface class XboardInviteRequestControl {
   );
 }
 
+/// Interactive login validity extends through credential persistence, without
+/// requiring legacy service implementations to support request-scoped login.
+abstract interface class XboardAuthenticationRequestControl {
+  Future<XbResult<String>> loginForRequest(
+    String email,
+    String password, {
+    required bool Function() isActive,
+    Future<bool> Function(String token)? establish,
+  });
+}
+
 /// 反腐层抽象：UI / providers 与 SDK 之间的唯一桥梁。
 abstract interface class XboardService {
   // ───────── 认证（R1/R2/R3/R4，5 方法）─────────

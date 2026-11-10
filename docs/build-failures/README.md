@@ -14,7 +14,7 @@
 | v0.8.93 | [完整历史复盘](v0.8.93.md) | 历史事件及跨平台教训；不是当前工具链指南 |
 | v0.9.1 | [Jenkins与Actions复盘](v0.9.1.md) | 原生资产、平台打包、符号和远端构建经验 |
 | v0.9.2 | [#140及后续修复](#actions-140v092首次全平台构建) | 已合入main；已实施与待复验分别记录 |
-| v0.9.3 | [升级候选验证](#v093升级候选验证2026-11-08) | 未提交候选；受控/原生夹具与设备验收分开 |
+| v0.9.3 | [升级候选验证](#v093升级候选验证2026-11-08) | 源码交付状态见Docs/STATUS；各批受控/原生夹具与设备验收分开，旧“未提交”描述保留当时语境 |
 
 跨版本排障先按错误阶段搜索三个文件，再核对该事件源码、版本、架构和验证边界；不要把旧配置直接应用到新底座。新版本增加版本项，每个事故在对应记录维护，不丢弃旧经验、不复制同一事实到两处。
 
@@ -35,6 +35,10 @@
 **当前结论**：以下“未提交/待修/待复验”是各历史阶段当时状态，不是当前main状态。首轮修复提交3b6a5fbb，#141暴露剩余问题，9c136383补修，#143（a3152f5b）全六目标成功；已合入main。正式证据见[run143](https://github.com/wvjh3z/proxy-suite-docs/blob/main/evidence/run143/README.md)。不能由新批次成功反推#140具体文件变化原因已经找到。后续按新失败证据另评估，不覆盖历史。
 
 ## v0.9.3升级候选验证（2026-11-08）
+
+2026-11-10再次复核补修：此前319/25绿色没有覆盖传递重叠、真实HTTP归一化及双登录/退出动画；新增定向45项中5个目标失败对应四类业务缺陷，未弱化或跳过。SDK完整管线夹具首轮因import置于声明后而加载失败，与业务失败区分；修正位置后HTTP/panel366/366、客户端329/329通过，另窄/宽路由与旧接口15/15通过（部分重叠）。复核Token清理必须持有save返回的精确revision，不能在建立失败后凭Token文本重新寻找当前凭据，否则同值新登录会被误清。新增作用域API保持可选，旧login实现与测试替身仍能工作。规范/行为独立复核及最终校验见[补修证据](https://github.com/wvjh3z/proxy-suite-docs/blob/main/evidence/upgrade-v0.9.3/review-followup-fix-20261110.json)，不是正式构建或设备通过。
+
+2026-11-10复查修复测试准备：SdkResult.success是非const工厂，错误const导致新增登录用例加载失败，不能计为业务红测。弹窗pop后需先pump启动退出动画，再推进时间并pump完成销毁；仅推进一帧时页面仍在，不能据此前置失败声称迟到认证已复现。修正夹具后登录/注册二步登录均实测停在authenticating，修复后完成认证；Core选择与嵌套测速保留真实动作链，仅控制Core I/O。Jenkins通道曾中断；在同一授权节点恢复后读取已落盘SDK报告，区分测试exit1与传输异常，再运行未完成客户端测试，不重启节点或扩大主机范围。最终相关回归319/319、SDK版本响应25/25；修改测试文件的既有悬空library doc注释被fatal-infos拒绝，补library声明后另行分析。源码/测试身份、正负控与未出包边界见[本轮证据](https://github.com/wvjh3z/proxy-suite-docs/blob/main/evidence/upgrade-v0.9.3/review-fixes-20261110.json)。
 
 发行#151（run42730612787，cb6e1e02，品牌B/build37）已越过私有SDK检出，五个桌面目标成功；Android品牌通道测试仍引用已移除的CoreMethod.getIsInit而加载失败，未执行测试/生成APK。修为coreInitialized后，还需将mock的null答复改为新版Uint8List JSON响应，并断言实际wireName为core.initialized及结果可解码，不能只换枚举后吞no_response。A/B生产define各4项、相关平台/协议94项通过；最后去掉冗余typed_data导入，分析无问题。全仓149处CoreMethod引用没有其他无效成员。五桌面8产物的清单大小与GitHub自动digest一致，符号macOS各8/8、Linux各18/18、Windows21/21；这是流水线证据，不代替设备验收。草稿保留的两个APK早于本轮，不能随草稿标题误称build37；bump因Android失败跳过，37已有桌面成品占用，下一批重新核号。未自动删草稿或重跑，见[本批回执](https://github.com/wvjh3z/proxy-suite-docs/blob/main/evidence/ci151-platform-check/result.json)。
 

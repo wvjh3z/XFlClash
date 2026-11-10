@@ -14,6 +14,7 @@ import 'package:fl_clash/xboard/models/xb_result.dart';
 import 'package:fl_clash/xboard/models/xb_domain_error.dart';
 import 'package:fl_clash/xboard/providers/auth_state_provider.dart';
 import 'package:fl_clash/xboard/providers/xboard_providers.dart';
+import 'package:fl_clash/xboard/sdk/xboard_service.dart';
 import 'package:fl_clash/xboard/util/error_text.dart';
 import 'package:fl_clash/xboard/widgets/xb_submit_guard.dart';
 
@@ -136,29 +137,48 @@ class _LoginSheetState extends ConsumerState<LoginSheet>
       return;
     }
     setState(() => _banner = null);
+    final route = ModalRoute.of(context);
     await runSubmit(() async {
       final auth = ref.read(authStateProvider.notifier);
       final attempt = auth.startAuthenticating();
       await auth.waitForSessionCleanup();
-      if (!mounted || !auth.isAuthenticationCurrent(attempt)) return;
-      final result = await ref.read(xboardServiceProvider).login(email, pw);
-      if (!mounted) return;
+      if (!mounted || route?.isCurrent != true || route?.isActive != true) {
+        auth.failAuthentication(attempt);
+        return;
+      }
+      if (!auth.isAuthenticationCurrent(attempt)) return;
+      final service = ref.read(xboardServiceProvider);
+      final scoped = service is XboardAuthenticationRequestControl
+          ? service as XboardAuthenticationRequestControl : null;
+      final result = scoped != null
+          ? await scoped.loginForRequest(email, pw,
+              isActive: () => auth.isAuthenticationCurrent(attempt),
+              establish: (token) => auth.completeAuthentication(token: token, attempt: attempt))
+          : await service.login(email, pw);
+      // The service may already have saved a new SDK revision. Complete the
+      // owned attempt even if this sheet was closed while login was in flight.
       switch (result) {
         case XbSuccess(:final data):
-          final established = await auth.completeAuthentication(
+          final established = scoped != null ? true : await auth.completeAuthentication(
             token: data,
             attempt: attempt,
           );
-          if (!mounted) return;
           if (established) {
-            Navigator.of(context).pop();
-          } else if (auth.isAuthenticationCurrent(attempt)) {
-            auth.failAuthentication(attempt);
-            setState(() => _banner = '登录信息保存失败或已过期，请重试');
+            if (mounted && route?.isCurrent == true && route?.isActive == true) {
+              route?.navigator?.pop();
+            }
+          } else {
+            if (auth.isAuthenticationCurrent(attempt)) {
+              auth.failAuthentication(attempt);
+              if (mounted && route?.isCurrent == true) {
+                setState(() => _banner = '登录信息保存失败或已过期，请重试');
+              }
+            }
           }
         case XbFailure(:final error):
           if (!auth.isAuthenticationCurrent(attempt)) return;
           auth.failAuthentication(attempt);
+          if (!mounted || route?.isCurrent != true) return;
           setState(() {
             _canRecheck =
                 error is XbNetwork || error is XbServer || error is XbSecurity;

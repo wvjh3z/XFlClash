@@ -10,7 +10,7 @@ XFlclash 是 FlClash fork，形态 A 商业客户端在 `lib/xboard/` 中维护�
 
 先核对 [硬规则索引](https://github.com/wvjh3z/proxy-suite-docs/blob/main/CONVENTIONS.md#硬规则索引)，再按任务查 [当前架构](https://github.com/wvjh3z/proxy-suite-docs/blob/main/ARCHITECTURE.md) 与 [契约](https://github.com/wvjh3z/proxy-suite-docs/blob/main/CONTRACTS.md) 的相关章节；不要求通读。环境、生成、测试、构建和同步流程见 [DEVELOPMENT](https://github.com/wvjh3z/proxy-suite-docs/blob/main/DEVELOPMENT.md)，基线和未关闭问题见 [STATUS](https://github.com/wvjh3z/proxy-suite-docs/blob/main/STATUS.md)。
 
-当前 Docs 仓库 `wvjh3z/proxy-suite-docs` 和 SDK 仓库 `wvjh3z/Xboard_sdk` 为私有仓库，需要 GitHub 授权；未授权时可能显示 404。本地将 Docs checkout 为 `../Docs`、SDK checkout 为 `../Xboard_sdk`，保留工具和 path 依赖所需的平级布局。当前维护 main，已合入 FlClash v0.9.2 品牌适配；upgrade/flclash-v0.9.2 保留历史，实际完成/待迁移范围以 sibling Docs/STATUS 为准；不沿用旧版构建命令推断新发行链已就绪。
+当前 Docs 仓库 `wvjh3z/proxy-suite-docs` 和 SDK 仓库 `wvjh3z/Xboard_sdk` 为私有仓库，需要 GitHub 授权；未授权时可能显示 404。本地将 Docs checkout 为 `../Docs`、SDK checkout 为 `../Xboard_sdk`，保留工具和 path 依赖所需的平级布局。当前维护 main，底座为 FlClash v0.9.3；upgrade/flclash-v0.9.3 及更早升级分支保留历史，实际交付和未验范围以 sibling Docs/STATUS 为准；不沿用旧版构建命令推断新发行链已就绪。
 
 当前 DEVELOPMENT 已承接执行细节，不需要读取旧 AGENTS 快照或旧 spec；不要沿用旧 IPC、Manager 或 Flutter 固定值。
 

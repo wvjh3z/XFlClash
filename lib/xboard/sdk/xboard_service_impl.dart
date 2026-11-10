@@ -43,7 +43,8 @@ class XboardServiceImpl
         XboardService,
         XboardSessionLifecycle,
         XboardTutorialRequestControl,
-        XboardInviteRequestControl {
+        XboardInviteRequestControl,
+        XboardAuthenticationRequestControl {
   XboardServiceImpl({
     required XBoardSDK sdk,
     SubscriptionCache? subscriptionCache,
@@ -497,30 +498,58 @@ class XboardServiceImpl
   // ───────── 18 方法（逐 wave 填实；fireAllMirrors 是 void 例外）─────────
 
   @override
-  Future<XbResult<String>> login(String email, String password) async {
+  Future<XbResult<String>> login(String email, String password) =>
+      loginForRequest(email, password, isActive: () => true);
+
+  @override
+  Future<XbResult<String>> loginForRequest(
+    String email,
+    String password, {
+    required bool Function() isActive,
+    Future<bool> Function(String token)? establish,
+  }) async {
+    if (!isActive()) return _stale<String>();
     final epoch = _operationEpoch;
     final revision = _sdkRevision;
     // SdkResult 形态 + Property 1 异常防御（D69 email 预处理 trim+lowercase）。
     final result = await _guardSdkResult<String, String>(
       'login',
-      () => _sdk.auth.loginResult(email.toLowerCase().trim(), password),
+      () => _withValidity(isActive,
+          () => _sdk.auth.loginResult(email.toLowerCase().trim(), password)),
       (token) => token, // data 已是鉴权 token（F406）
     );
     // 🔴 W3.9（F406 致命语义）：SDK `auth.loginResult` **不自动存 token**（只有便捷方法
     // `loginWithCredentials` 才存）；反腐层必须显式 saveToken，否则后续 API 无 Authorization。
     if (result case XbSuccess(:final data)) {
       try {
+        if (!isActive()) return _stale<String>();
         if (revision == null) {
           return XbResult.failure(XbDomainError.unexpected('login', '认证服务未就绪'));
         }
         final saved = await _sdk.saveTokenIfSession(data, revision);
         if (saved == null) return _stale<String>();
-        if (_operationEpoch != epoch || _isLoggingOut) {
+        if (_operationEpoch != epoch || _isLoggingOut || !isActive()) {
           // 慢 save 已入队，退出未必能清其新 revision。只撤销本次保存，保留后来的 B。
           await _sdk.clearTokenIfSession(saved.revision);
           return _stale<String>();
         }
         if (_sdkRevision != saved.revision) return _stale<String>();
+        if (establish != null) {
+          // Retain the exact saved revision across client establishment. Token
+          // text alone cannot identify ownership when a later login saves the
+          // same credentials again.
+          final bool established;
+          try {
+            established = await establish(data);
+          } catch (_) {
+            await _sdk.clearTokenIfSession(saved.revision);
+            rethrow;
+          }
+          if (!established) {
+            await _sdk.clearTokenIfSession(saved.revision);
+            return _stale<String>();
+          }
+        }
       } catch (e, s) {
         SentryBootstrap.captureException(
           e,

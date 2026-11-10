@@ -221,7 +221,14 @@ class _XboardAppShellState extends ConsumerState<XboardAppShell> {
         _updateDialogShown = false; // 复位，等下次回到 Tab 再弹
         return;
       }
-      showXbUpdateDialog(context, info);
+      // The manifest may be withdrawn/replaced between scheduling and display.
+      // Do not consume this shell's prompt allowance for a cancelled notice.
+      final current = ref.read(availableUpdateProvider);
+      if (current == null) {
+        _updateDialogShown = false;
+        return;
+      }
+      showXbUpdateDialog(context, current);
     });
   }
 

@@ -5,9 +5,13 @@ import 'package:fl_clash/xboard/services/xb_update_service.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter/widgets.dart';
+import 'package:material_ui/material_ui.dart' as material;
+import 'package:fl_clash/xboard/pages/xb_about_page.dart';
 import 'package:fl_clash/xboard/services/xboard_lifecycle_observer.dart';
 import 'package:flutter_xboard_sdk/flutter_xboard_sdk.dart';
 import 'package:flutter_xboard_sdk/src/core/http/http_service.dart';
+import 'package:flutter_xboard_sdk/src/adapters/xboard/xboard_app_version_adapter.dart';
+import 'package:flutter_xboard_sdk/src/panels/xboard/apis/xboard_app_version_api.dart';
 import 'package:mocktail/mocktail.dart';
 
 import '../../_fixtures/fake_xboard_sdk.dart';
@@ -107,9 +111,54 @@ void main() {
     return done.future.timeout(const Duration(seconds: 5));
   }
 
+  for (final failed in [false, true]) {
+    testWidgets('G15 manual about check ${failed ? "retains cached update offline" : "clears withdrawn update badge"}', (tester) async {
+      final container = makeContainer();
+      container.read(availableUpdateProvider.notifier).set(update);
+      respond = failed
+          ? () async => throw StateError('synthetic offline')
+          : () async => null;
+      await tester.pumpWidget(UncontrolledProviderScope(
+        container: container,
+        child: const material.MaterialApp(home: XbAboutPage()),
+      ));
+      await tester.pumpAndSettle();
+      expect(find.text('🎉 有新版本啦', findRichText: true), findsOneWidget);
+      await tester.runAsync(() async {
+        await tester.tap(find.text('检查更新'));
+        // Join the real button's in-flight check; desktop ABI resolves via uname.
+        await XbUpdateService.check(sdk, endpoints: race);
+      });
+      await tester.pumpAndSettle();
+      expect(requests, greaterThan(0));
+      expect(container.read(availableUpdateProvider), failed ? same(update) : isNull);
+      expect(find.text('🎉 有新版本啦', findRichText: true),
+          failed ? findsOneWidget : findsNothing);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pumpAndSettle();
+    });
+  }
+
   group('API readiness and failover', () {
+    for (final malformed in <Object>[[], <String, dynamic>{}]) {
+      test('malformed $malformed keeps the cached update and permits immediate recovery', () async {
+        final container = makeContainer();
+        container.read(availableUpdateProvider.notifier).set(update);
+        when(() => sdk.appUpdate).thenReturn(XBoardAppVersionAdapter(XBoardAppVersionApi(http)));
+        when(() => http.getRequest(any())).thenAnswer((_) async => {'data': malformed});
+        await XbUpdateService.autoCheckThrottled(container);
+        expect(container.read(availableUpdateProvider), same(update));
+        expect(clocks, 0);
+        expect(await XbUpdateService.check(sdk, endpoints: race), isA<UpdateCheckFailed>());
+        when(() => http.getRequest(any())).thenAnswer((_) async => {'data': null});
+        await XbUpdateService.autoCheckThrottled(container);
+        expect(container.read(availableUpdateProvider), isNull);
+        expect(clocks, 1);
+      });
+    }
     for (final failed in [false, true]) {
-      test('G15 existing update survives ${failed ? "request failure" : "explicit no-update"}', () async {
+      test('G15 existing update ${failed ? "survives request failure" : "clears on explicit no-update"}', () async {
         final container = makeContainer();
         respond = () async => update;
         await XbUpdateService.autoCheck(container);
@@ -120,8 +169,7 @@ void main() {
             : () async => null;
         await XbUpdateService.autoCheck(container);
         expect(requests, greaterThan(before));
-        // Characterization, not approval of identical withdrawal/offline policy.
-        expect(container.read(availableUpdateProvider), same(update));
+        expect(container.read(availableUpdateProvider), failed ? same(update) : isNull);
       });
     }
 
@@ -478,7 +526,7 @@ void main() {
       expect(clocks, 3);
     });
 
-    test('成功有更新写清单并开始窗口，清单存在时即使到期也跳过', () async {
+    test('已有更新在24h前跳过，到期复查并清除撤回的清单', () async {
       final container = makeContainer();
       respond = () async => update;
 
@@ -487,17 +535,11 @@ void main() {
       expect(requests, 1);
       expect(clocks, 1);
 
-      container.read(availableUpdateProvider.notifier).clear();
+      now = const Duration(hours: 24) - const Duration(milliseconds: 1);
       await XbUpdateService.autoCheckThrottled(container);
       expect(requests, 1);
-      container.read(availableUpdateProvider.notifier).set(update);
-
-      now = const Duration(days: 2);
-      await XbUpdateService.autoCheckThrottled(container);
-      expect(requests, 1);
-      expect(clocks, 1);
-
-      container.read(availableUpdateProvider.notifier).clear();
+      expect(container.read(availableUpdateProvider), same(update));
+      now = const Duration(hours: 24);
       respond = () async => null;
       await XbUpdateService.autoCheckThrottled(container);
       expect(requests, 2);
@@ -505,19 +547,14 @@ void main() {
       expect(container.read(availableUpdateProvider), isNull);
     });
 
-    test('其他入口已有清单时跳过，清除后仍可首次检查', () async {
+    test('其他入口已有清单但没有自动窗口时仍可首次检查', () async {
       final container = makeContainer();
       container.read(availableUpdateProvider.notifier).set(update);
 
       await XbUpdateService.autoCheckThrottled(container);
-      expect(requests, 0);
-      expect(clocks, 0);
-      expect(container.read(availableUpdateProvider), same(update));
-
-      container.read(availableUpdateProvider.notifier).clear();
-      await XbUpdateService.autoCheckThrottled(container);
       expect(requests, 1);
       expect(clocks, 1);
+      expect(container.read(availableUpdateProvider), isNull);
     });
 
     test('首次检查失败不占窗口，下一次立即重试', () async {
@@ -537,6 +574,7 @@ void main() {
 
     test('窗口到期后失败不重新计时，立即重试成功才开始新窗口', () async {
       final container = makeContainer();
+      respond = () async => update;
       await XbUpdateService.autoCheckThrottled(container);
 
       now = const Duration(hours: 24);
@@ -544,11 +582,13 @@ void main() {
       await XbUpdateService.autoCheckThrottled(container);
       expect(requests, 2);
       expect(clocks, 1);
+      expect(container.read(availableUpdateProvider), same(update));
 
       respond = () async => null;
       await XbUpdateService.autoCheckThrottled(container);
       expect(requests, 3);
       expect(clocks, 2);
+      expect(container.read(availableUpdateProvider), isNull);
 
       await XbUpdateService.autoCheckThrottled(container);
       expect(requests, 3);

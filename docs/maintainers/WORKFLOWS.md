@@ -142,7 +142,7 @@ POST `https://api.github.com/repos/wvjh3z/XFlClash/actions/workflows/release-pac
 
 正式消费者核对使用Docs的`tools/report_brand_dependencies.py`报告包/相对导入及export/part闭包，再与PATCHES、FLCLASH_ANCHORS和平台入口并集复核。底座文件反向引用品牌、原生通道、资源及构建依赖不由Dart报告穷尽；报告仍是候选，不是使用或验收证明。
 
-当前v0.9.2输入的只读复算，在平级Docs根目录执行：
+下例复算冻结v0.9.2输入，仅在核对该历史基线时使用，在平级Docs根目录执行：
 
 ```bash
 python3 tools/report_brand_dependencies.py --client ../XFlclash --changes evidence/upgrade-v0.9.2/upstream-paths.json --output evidence/upgrade-v0.9.2/brand-dependencies.json --check

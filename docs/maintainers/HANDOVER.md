@@ -4,7 +4,7 @@
 
 ## 产品和当前目标
 
-这是基于FlClash v0.9.2的Xboard商业客户端：品牌A为OmoFly，品牌B为袋鼠加速。两品牌共用业务实现，面向Android、Windows、macOS、Linux；“形态A”是当前产品界面，和“品牌A/B”是不同概念。没有应用级iOS发行目标。
+这是基于FlClash v0.9.3的Xboard商业客户端：品牌A为OmoFly，品牌B为袋鼠加速。两品牌共用业务实现，面向Android、Windows、macOS、Linux；“形态A”是当前产品界面，和“品牌A/B”是不同概念。没有应用级iOS发行目标。
 
 当前客户端、SDK、Docs维护分支均为main。按[工作区](WORKSPACE.md)取得三个平级仓库；本机入口为`/root/dev/workspace/proxy-suite/active/`下的`XFlclash`、`Xboard_sdk`、`Docs`。实际HEAD和CI固定引用从Git及workflow读取，不在本页复制滚动提交号。
 

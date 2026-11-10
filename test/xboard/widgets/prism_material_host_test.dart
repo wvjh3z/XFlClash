@@ -63,6 +63,10 @@ void main() {
             final brandTheme = material.Theme.of(context);
             expect(brandTheme.brightness, brightness);
             expect(brandTheme.colorScheme.primary, brand.value);
+            expect(brandTheme.scaffoldBackgroundColor,
+                brightness == Brightness.dark ? const Color(0xff0a0c11) : const Color(0xfff5f6f8));
+            expect(brandTheme.textTheme.bodyMedium?.color,
+                brightness == Brightness.dark ? const Color(0xfff1f3f8) : const Color(0xff11141b));
             expect(brandTheme.textTheme.bodyMedium?.fontSize, 14);
             expect(legacy.Theme.of(context).colorScheme.primary, brand.value);
             expect(legacy.Theme.of(context).textTheme.bodyMedium,
@@ -108,6 +112,10 @@ void main() {
           await tester.tap(find.text('open'));
           await tester.pumpAndSettle();
           expect(pushed, isTrue);
+          final expectedBackground = brightness == Brightness.dark
+              ? const Color(0xff0a0c11) : const Color(0xfff5f6f8);
+          expect(tester.widgetList<material.Material>(find.byType(material.Material))
+              .any((surface) => surface.color == expectedBackground), isTrue);
           expect(find.text('brand-content', findRichText: true), findsWidgets);
           await tester.tap(find.text('copy'));
           await tester.pump();
@@ -121,6 +129,60 @@ void main() {
       }
     }
   }
+  }
+
+  for (final platform in [TargetPlatform.windows, TargetPlatform.linux, TargetPlatform.macOS]) {
+    testWidgets('$platform open brand route follows light-dark-light changes', (tester) async {
+      debugDefaultTargetPlatformOverride = platform;
+      final brightness = ValueNotifier(Brightness.light);
+      final navigator = GlobalKey<NavigatorState>();
+      final observed = <List<Brightness>>[];
+      const brandColor = Color(0xffd92e1a);
+      try {
+        final destination = Builder(builder: (context) {
+          final current = material.Theme.of(context).brightness;
+          observed.add([current, legacy.Theme.of(context).brightness,
+            prism.Theme.of(context).brightness]);
+          return const material.Scaffold(body: Text('theme-change-destination'));
+        });
+        await tester.pumpWidget(ValueListenableBuilder<Brightness>(
+          valueListenable: brightness,
+          builder: (_, value, _) => host(
+            brightness: value,
+            locale: const Locale('en'),
+            navigator: navigator,
+            child: XbBrandTheme(
+              brandColor: brandColor,
+              child: Builder(builder: (context) => material.Scaffold(
+                body: material.TextButton(
+                  onPressed: () => unawaited(xbPush<void>(context, destination,
+                      brandColor: brandColor, replace: true)),
+                  child: const Text('open-dynamic-theme'),
+                ),
+              )),
+            ),
+          ),
+        ));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('open-dynamic-theme'));
+        await tester.pumpAndSettle();
+        for (final value in [Brightness.light, Brightness.dark, Brightness.light]) {
+          brightness.value = value;
+          await tester.pumpAndSettle();
+          expect(observed.last, [value, value, value]);
+          final expected = value == Brightness.dark
+              ? const Color(0xff0a0c11) : const Color(0xfff5f6f8);
+          expect(tester.widgetList<material.Material>(find.byType(material.Material))
+              .any((surface) => surface.color == expected), isTrue);
+          expect(find.text('theme-change-destination'), findsOneWidget);
+          expect(tester.takeException(), isNull);
+        }
+      } finally {
+        await tester.pumpWidget(const SizedBox.shrink());
+        brightness.dispose();
+        debugDefaultTargetPlatformOverride = null;
+      }
+    });
   }
 
   testWidgets('without the host, Prism does not provide Material messenger',

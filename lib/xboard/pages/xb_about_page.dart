@@ -58,6 +58,7 @@ class _AboutBodyState extends ConsumerState<_AboutBody> {
           ref.read(availableUpdateProvider.notifier).set(info);
           showXbUpdateDialog(context, info);
         case UpdateNotAvailable():
+          ref.read(availableUpdateProvider.notifier).clear();
           XbCenterToast.show(
             context,
             '已是最新版本 ✓',

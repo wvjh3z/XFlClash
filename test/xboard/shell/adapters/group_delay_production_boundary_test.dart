@@ -1,4 +1,6 @@
 /// UB-GAP-22/27: keep testNode and ProxiesAction real; replace only Core I/O.
+library;
+
 import 'dart:async';
 import 'package:fl_clash/core/controller.dart';
 import 'package:fl_clash/core/interface.dart';
@@ -25,6 +27,53 @@ const _url = 'https://fixture.invalid/delay';
 void main() {
   setUpAll(() => registerFallbackValue(
     const TestDelayParams(proxyName: 'fixture', testUrl: _url, timeout: 100)));
+  testWidgets('nested selector retries keep the initial leaf and URL', (tester) async {
+    final core = _Core();
+    final first = Completer<Delay>();
+    final seen = <TestDelayParams>[];
+    when(() => core.testDelay(any())).thenAnswer((call) {
+      seen.add(call.positionalArguments.single as TestDelayParams);
+      if (seen.length == 1) return first.future;
+      throw TimeoutException('no response');
+    });
+    const child = Group(type: GroupType.Selector, name: 'nested', now: 'A',
+        testUrl: _url, all: [Proxy(name: 'A', type: 'ss'), Proxy(name: 'B', type: 'ss')]);
+    const parent = Group(type: GroupType.Selector, name: 'parent',
+        testUrl: _url, all: [Proxy(name: 'nested', type: 'Selector')]);
+    const profile = Profile(id: 1, label: 'fixture',
+        autoUpdateDuration: Duration.zero, selectedMap: {'nested': 'A'});
+    final container = ProviderContainer(overrides: [
+      coreHandlerProvider.overrideWithValue(CoreController.scoped(core)),
+      profilesProvider.overrideWith(() => TestProfiles([profile])),
+      currentProfileIdProvider.overrideWithBuild((_, _) => 1),
+      groupsProvider.overrideWithBuild((_, _) => [parent, child]),
+      proxiesTabStateProvider.overrideWith((_) => const ProxiesTabState(
+          groups: [parent, child], currentGroupName: 'parent', proxyCardType: ProxyCardType.standard)),
+      realTestUrlProvider(_url).overrideWithValue(_url),
+    ]);
+    late WidgetRef widgetRef;
+    await tester.pumpWidget(UncontrolledProviderScope(container: container,
+        child: Consumer(builder: (_, ref, _) { widgetRef = ref; return const SizedBox(); })));
+    addTearDown(() async {
+      await tester.pumpWidget(const SizedBox());
+      container.dispose();
+    });
+    container.read(delayDataSourceProvider.notifier).setDelay(
+        const Delay(name: 'B', url: _url, value: 123));
+    final flight = const XbNodesAdapter().testGroupDelay(widgetRef, 'parent');
+    await tester.pump();
+    expect(seen.single.proxyName, 'A');
+    container.read(profilesProvider.notifier).put(profile.copyWith(selectedMap: {'nested': 'B'}));
+    first.completeError(TimeoutException('first no response'));
+    await flight;
+    await tester.pump(const Duration(milliseconds: 1));
+    expect(seen.map((p) => p.proxyName), ['A', 'A', 'A']);
+    expect(seen.map((p) => p.testUrl), everyElement(_url));
+    expect(container.read(delayProvider(proxyName: 'A', testUrl: _url)), -1);
+    expect(container.read(delayProvider(proxyName: 'B', testUrl: _url)), 123,
+        reason: 'B was not part of this frozen measurement; do not overwrite its sample');
+    expect(container.read(xbMeasuringNodesProvider), isEmpty);
+  });
   for (final brand in ['brand_a', 'brand_b']) {
     for (final scenario in ['old-null', 'old-positive', 'old-negative', 'fresh-control', 'leave-retry', 'leave-pool', 'single-null', 'single-positive', 'dispose-owner']) {
       testWidgets('$brand production group $scenario', (tester) async {

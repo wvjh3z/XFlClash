@@ -475,7 +475,7 @@ class XbNodesAdapter {
           if (!current()) return;
           try {
             result = await testNodeInContainer(
-              container, proxyName: p.name, type: p.type, testUrl: testUrl);
+              container, proxyName: target.proxyName, type: p.type, testUrl: targetUrl);
           } catch (_) {
             if (!current()) return;
             rethrow;

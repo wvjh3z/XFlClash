@@ -77,7 +77,11 @@ class AuthStateNotifier extends _$AuthStateNotifier {
   Future<void> waitForSessionCleanup() => _ending ?? Future<void>.value();
 
   int startAuthenticating() {
+    final superseding = state == AuthState.authenticating;
     _authAttempt++;
+    // A newly opened sheet must not inherit a service bound before an older
+    // attempt's credential commit. Older request scopes observe the new attempt.
+    if (superseding) ref.invalidate(xboardServiceProvider);
     _set(AuthState.authenticating);
     return _authAttempt;
   }
@@ -96,6 +100,12 @@ class AuthStateNotifier extends _$AuthStateNotifier {
       _set(AuthState.authenticated);
     } else {
       markUnauthenticated();
+      // A superseded save/conditional cleanup can advance the SDK revision
+      // while this attempt is in flight. A subsequent explicit retry must bind
+      // the current revision rather than reusing that stale service forever.
+      if ((_sdk ?? ref.read(xboardSdkProvider)) != null) {
+        ref.invalidate(xboardServiceProvider);
+      }
     }
   }
 

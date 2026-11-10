@@ -4,6 +4,8 @@
 
 ## 基线身份
 
+当前main底座为v0.9.3（固定上游`be84736605527034689c95bf27828ff27d912c5e`）。下表及下文原版v0.9.2链接保留为冻结对照，不能将其当作当前底座；v0.9.3逐功能变化、已接受差异和实际证据见[本轮核查表](https://github.com/wvjh3z/proxy-suite-docs/blob/main/evidence/upgrade-v0.9.3/behavior-differences.md)，当前缺口见STATUS。当前行为应结合该表后续变化及真实源码读取。
+
 下表保留2026-10-30首次审计输入；当前行为结合后续提交及对应功能段核对，实际HEAD和未提交差异读取Git。Core CA临时差异不作为底座行为依据。
 
 | 对象 | 冻结对照／真源 | 边界 |
@@ -13,7 +15,7 @@
 | 原版FlClash | v0.9.2，`7fd417fb9a9a277c6a9339a8ac87f907df7c25f7` | 下文原版链接固定该commit；不能用品牌HEAD或移动的upstream/main替代 |
 | 审计时SDK | `aef9d33525054e09fccaa71ad9cdb480f1f88f39` | 冻结审计输入；当前发行引用读取[release-config.json](../../tool/release-config.json)，不能凭Docs版本猜SDK版本 |
 | 审计起点Docs | `2653d9853a1dbab3ffa88cb057b58ec58a6e360d` | 细化前的冻结文档起点；本文随后随main交付，当前CI引用以[xboard-ci.yml](../../.github/workflows/xboard-ci.yml)为准 |
-| 原版内核gitlink | `c5062921054902b25215a6a933e72ccd714c9bfa` | `core/Clash.Meta`现有CA脏修改保留；不提交、不用它反推官方源码 |
+| 冻结原版内核gitlink | `c5062921054902b25215a6a933e72ccd714c9bfa` | 旧v0.9.2对照；当前gitlink读取Git。active的CA脏修改独立保留，不提交、不用它反推官方源码 |
 | 追溯基线 | 原版v0.9.1 `8d4f9744948751f1273fe871e1d05276fac09b0e`；旧品牌v0.8.93 `ae148e64694ab276c35796f95d77f6bbbe25f0d2` | 只追溯历史，不恢复旧工具链，不把旧品牌代码称为原版 |
 | 工具和物理路径 | [native_toolchain.json](../../tool/native_toolchain.json)、锁文件、[WORKSPACE](WORKSPACE.md) | active为唯一开发入口；本机upstream/FlClash-v0.9.2是只读便利副本，Git对象是依据，CI不依赖该副本 |
 
@@ -25,7 +27,7 @@
 - 关系字段区分**输入/直接调用**与**下游/联查**：后者表示升级影响范围，不宣称页面直接调用彼此；同一个宿主事件的并列消费者也不是串行处理链。
 - 下文F项默认适用于**品牌A和品牌B × Android/Windows/macOS/Linux**；平台专属差异必须叠加P表，不以共用代码代替各品牌成品或原生验收。iOS/Windows ARM64只做共享影响分析，不承诺发布。
 
-当前源码的包/相对导入、导出候选及配置/入口清单见[只读依赖报告](https://github.com/wvjh3z/proxy-suite-docs/blob/main/evidence/upgrade-v0.9.2/DEPENDENCY_CONFIG_REACHABILITY.md)。这是报告模式，不能替代符号解析、运行证明或现有禁止规则。
+旧v0.9.2基线的包/相对导入、导出候选及配置/入口清单见[只读依赖报告](https://github.com/wvjh3z/proxy-suite-docs/blob/main/evidence/upgrade-v0.9.2/DEPENDENCY_CONFIG_REACHABILITY.md)；v0.9.3后续依赖审查见[升级入口](https://github.com/wvjh3z/proxy-suite-docs/blob/main/evidence/upgrade-v0.9.3/README.md)。这是报告模式，不能替代符号解析、运行证明或现有禁止规则。
 
 ## 主链路逐项对照
 

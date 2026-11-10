@@ -201,4 +201,77 @@ void main() {
     verifyNever(core.resetConnections);
     expect((await persisted())[202], 'B-own');
   });
+
+  for (final successFirst in [true, false]) {
+    test('overlap: accepted A survives rejected B, successFirst=$successFirst', () async {
+      final a = Completer<ChangeProxyResult>();
+      final b = Completer<ChangeProxyResult>();
+      when(() => core.changeProxy(any())).thenAnswer((call) =>
+          (call.positionalArguments.single as ChangeProxyParams).proxyName == 'A-first'
+              ? a.future : b.future);
+      final first = action().changeProxy(groupName: 'G', proxyName: 'A-first');
+      final second = action().changeProxy(groupName: 'G', proxyName: 'A-second');
+      if (successFirst) {
+        a.complete(const ChangeProxyResult(changed: true));
+        await first;
+        expect(container.read(currentProfileProvider)?.selectedMap['G'], 'A-second');
+      }
+      b.complete(const ChangeProxyResult(message: 'B rejected without changing Core'));
+      await second;
+      if (!successFirst) {
+        a.complete(const ChangeProxyResult(changed: true));
+        await first;
+      }
+      expect((await persisted())[101], 'A-first');
+      verifyNever(core.closeConnections);
+      verifyNever(core.resetConnections);
+    });
+  }
+
+  test('older success cannot replace a newer confirmed rollback baseline', () async {
+    final firstReply = Completer<ChangeProxyResult>();
+    when(() => core.changeProxy(any())).thenAnswer((call) {
+      final name = (call.positionalArguments.single as ChangeProxyParams).proxyName;
+      if (name == 'A-first') return firstReply.future;
+      return Future.value(ChangeProxyResult(message: name == 'A-third' ? 'rejected' : ''));
+    });
+    final first = action().changeProxy(groupName: 'G', proxyName: 'A-first');
+    await action().changeProxy(groupName: 'G', proxyName: 'A-second');
+    firstReply.complete(const ChangeProxyResult(changed: true));
+    await first;
+    expect((await persisted())[101], 'A-second');
+    await action().changeProxy(groupName: 'G', proxyName: 'A-third');
+    expect((await persisted())[101], 'A-second');
+  });
+
+  for (final successFirst in [true, false]) {
+  test('transitive overlap retains A after B/C rejection, successFirst=$successFirst', () async {
+    final a = Completer<ChangeProxyResult>();
+    final c = Completer<ChangeProxyResult>();
+    when(() => core.changeProxy(any())).thenAnswer((call) {
+      final name = (call.positionalArguments.single as ChangeProxyParams).proxyName;
+      if (name == 'A-first') return a.future;
+      if (name == 'A-third') return c.future;
+      return Future.value(const ChangeProxyResult(message: 'B rejected'));
+    });
+    final first = action().changeProxy(groupName: 'G', proxyName: 'A-first');
+    await action().changeProxy(groupName: 'G', proxyName: 'A-second');
+    final third = action().changeProxy(groupName: 'G', proxyName: 'A-third');
+    if (successFirst) {
+      a.complete(const ChangeProxyResult(changed: true));
+      await first;
+    }
+    c.complete(const ChangeProxyResult(message: 'C rejected'));
+    await third;
+    if (!successFirst) {
+      a.complete(const ChangeProxyResult(changed: true));
+      await first;
+    }
+    expect((await persisted())[101], 'A-first');
+    container.read(profilesActionProvider.notifier).updateCurrentSelectedMap('G', 'external-choice');
+    await action().changeProxy(groupName: 'G', proxyName: 'A-fourth');
+    expect((await persisted())[101], 'external-choice',
+        reason: 'a fully drained chain must not keep its old rollback baseline');
+  });
+  }
 }

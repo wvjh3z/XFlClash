@@ -14,13 +14,22 @@ class _DelayTestTarget {
 
 typedef _DelayTestBatch = ({List<Proxy> proxies, String? testUrl});
 
+class _SelectionRollback {
+  _SelectionRollback(this.name);
+
+  String name;
+  int confirmedOrder = -1;
+  int inFlight = 0;
+}
+
 class _ProxySelectionRequest {
   _ProxySelectionRequest({
     required this.profileId,
     required this.epoch,
     required this.groupName,
     required this.proxyName,
-    required this.rollbackName,
+    required this.rollback,
+    required this.order,
     required this.core,
   });
 
@@ -28,9 +37,11 @@ class _ProxySelectionRequest {
   final int epoch;
   final String groupName;
   final String proxyName;
-  final String rollbackName;
+  final _SelectionRollback rollback;
+  final int order;
   final CoreController core;
   bool completed = false;
+  bool rejected = false;
 }
 
 class _DelayTestJob {
@@ -62,6 +73,7 @@ class ProxiesAction extends _$ProxiesAction {
   final Map<String, _ProxySelectionRequest> _pendingSelections = {};
   final Map<String, _ProxySelectionRequest> _latestSelections = {};
   int _selectionEpoch = 0;
+  int _selectionOrder = 0;
 
   @override
   void build() {
@@ -156,13 +168,15 @@ class ProxiesAction extends _$ProxiesAction {
       epoch: _selectionEpoch,
       groupName: groupName,
       proxyName: proxyName,
-      // A superseded optimistic choice is not a confirmed rollback target.
-      rollbackName: previous != null &&
-              !previous.completed &&
+      // Overlapping requests share the latest confirmed choice, not an
+      // optimistic value or an immutable snapshot taken before earlier replies.
+      rollback: previous != null &&
+              (!previous.completed || previous.rollback.inFlight > 0) &&
               previous.epoch == _selectionEpoch &&
               previous.profileId == profileId
-          ? previous.rollbackName
-          : _currentSelectedName(groupName),
+          ? previous.rollback
+          : _SelectionRollback(_currentSelectedName(groupName)),
+      order: ++_selectionOrder,
       core: _core,
     );
     _latestSelections[groupName] = request;
@@ -257,9 +271,11 @@ class ProxiesAction extends _$ProxiesAction {
 
   Future<void> _applySelection(_ProxySelectionRequest request) async {
     if (!_isSelectionCurrent(request)) return;
+    request.rollback.inFlight++;
     try {
       await _dispatchSelection(request);
     } finally {
+      request.rollback.inFlight--;
       request.completed = true;
     }
   }
@@ -280,16 +296,34 @@ class ProxiesAction extends _$ProxiesAction {
         'changeProxy($groupName -> $proxyName) failed: $error',
         logLevel: coreFailureLogLevel(error),
       );
+      request.rejected = true;
       if (!_isSelectionCurrent(request)) return;
       if (_currentSelectedName(groupName) == proxyName) {
         ref.read(profilesActionProvider.notifier)
-            .updateCurrentSelectedMap(groupName, request.rollbackName);
+            .updateCurrentSelectedMap(groupName, request.rollback.name);
       }
       dialogs.showBanner(
         currentAppLocalizations.changeProxyFailedTip,
         level: BannerLevel.error,
       );
       return;
+    }
+    final latest = _latestSelections[groupName];
+    if (latest != null &&
+        _isSelectionCurrent(latest) &&
+        identical(latest.rollback, request.rollback) &&
+        request.order > request.rollback.confirmedOrder) {
+      final previousName = request.rollback.name;
+      request.rollback
+        ..name = proxyName
+        ..confirmedOrder = request.order;
+      // A newer rejection may have already restored the old baseline while
+      // this success was in flight. Reconcile it without overwriting a newer
+      // optimistic/accepted choice or resetting that choice's connections.
+      if (latest.rejected && _currentSelectedName(groupName) == previousName) {
+        ref.read(profilesActionProvider.notifier)
+            .updateCurrentSelectedMap(groupName, proxyName);
+      }
     }
     if (!_isSelectionCurrent(request) || !result.changed) {
       return;

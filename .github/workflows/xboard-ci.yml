@@ -16,12 +16,12 @@ on:
         description: 'SDK commit or immutable tag; diagnostic mode requires full SHA'
         type: string
         required: true
-        default: '211c6be19ccee55fb9d3458fd79f2a7c6acc13a9'
+        default: 'a25c33b2696d1a47f147919206e427de7f19b610'
       docs_ref:
         description: 'Current documentation commit'
         type: string
         required: true
-        default: '968d0a1f4a9c60f6efb70c64ba132f2dedd641ec'
+        default: '4e63132b945775a0419c02a3b502e4cf029c6d92'
 
 permissions:
   contents: read

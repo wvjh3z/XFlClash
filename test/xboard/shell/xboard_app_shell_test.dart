@@ -8,6 +8,7 @@ library;
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter_xboard_sdk/flutter_xboard_sdk.dart' show AppUpdateModel;
 
 import 'package:fl_clash/enum/enum.dart' show CoreStatus, ProxyCardType;
 import 'package:fl_clash/models/models.dart' show PatchClashConfig, ProxiesTabState;
@@ -51,6 +52,29 @@ ProviderContainer _container() {
 }
 
 void main() {
+  testWidgets('withdrawn queued update does not open or consume future prompt', (tester) async {
+    final original = ErrorWidget.builder;
+    final container = _container();
+    const update = AppUpdateModel(versionCode: 999, versionName: 'fixture',
+        region: 'unknown', downloads: [], sha256: '', changelog: '', force: false);
+    try {
+      await tester.pumpWidget(UncontrolledProviderScope(container: container,
+          child: const MaterialApp(home: XboardAppShell())));
+      await tester.pump();
+      container.read(availableUpdateProvider.notifier).set(update);
+      // The real shell listener has queued its post-frame presentation.
+      container.read(availableUpdateProvider.notifier).clear();
+      await tester.pumpAndSettle();
+      expect(find.text('立即更新'), findsNothing);
+      container.read(availableUpdateProvider.notifier).set(update);
+      await tester.pumpAndSettle();
+      expect(find.text('立即更新'), findsOneWidget);
+    } finally {
+      await tester.pumpWidget(const SizedBox());
+      container.dispose();
+      ErrorWidget.builder = original;
+    }
+  });
   // XboardAppShell.initState 安装形态 A 友好 ErrorWidget.builder；
   // Flutter test 框架要求 body 结束前还原（tearDown 太晚），故每个 test body 末尾还原。
   Future<void> pump(WidgetTester tester, ProviderContainer container) async {

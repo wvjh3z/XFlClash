@@ -22,6 +22,40 @@ const _tokenA = 'account-a-fixture';
 const _tokenB = 'account-b-fixture';
 
 void main() {
+  test('superseded login response is rejected before token save', () async {
+    final harness = _SessionHarness();
+    final reply = Completer<SdkResult<String>>();
+    var active = true;
+    when(() => harness.auth.loginResult(any(), any())).thenAnswer((_) => reply.future);
+    final pending = harness.service.loginForRequest('a@example.invalid', 'fixture', isActive: () => active);
+    active = false;
+    reply.complete(const Success('late-token'));
+    _expectCancelled(await pending);
+    verifyNever(() => harness.sdk.saveTokenIfSession(any(), any()));
+    expect(harness.token, _tokenA);
+  });
+
+  for (final laterSave in [false, true]) {
+    test('failed client establishment only clears its saved revision, laterSave=$laterSave', () async {
+      final harness = _SessionHarness();
+      when(() => harness.auth.loginResult(any(), any())).thenAnswer((_) async => const Success('same-token'));
+      when(() => harness.sdk.saveTokenIfSession(any(), any())).thenAnswer((_) async {
+        harness.token = 'same-token';
+        harness.revision++;
+        return harness.sdk.authSession;
+      });
+      final savedRevision = harness.revision + 1;
+      _expectCancelled(await harness.service.loginForRequest('a@example.invalid', 'fixture',
+        isActive: () => true,
+        establish: (_) async {
+          if (laterSave) harness.revision++; // same token, different owner/revision
+          return false;
+        }));
+      verify(() => harness.sdk.clearTokenIfSession(savedRevision)).called(1);
+      expect(harness.token, laterSave ? 'same-token' : isNull);
+    });
+  }
+
   test(
     'a service retained from A cannot start a fresh request with B credentials',
     () async {
