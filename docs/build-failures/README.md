@@ -36,6 +36,8 @@
 
 ## v0.9.3升级候选验证（2026-11-08）
 
+发行#151（run42730612787，cb6e1e02，品牌B/build37）已越过私有SDK检出，五个桌面目标成功；Android品牌通道测试仍引用已移除的CoreMethod.getIsInit而加载失败，未执行测试/生成APK。修为coreInitialized后，还需将mock的null答复改为新版Uint8List JSON响应，并断言实际wireName为core.initialized及结果可解码，不能只换枚举后吞no_response。A/B生产define各4项、相关平台/协议94项通过；最后去掉冗余typed_data导入，分析无问题。全仓149处CoreMethod引用没有其他无效成员。五桌面8产物的清单大小与GitHub自动digest一致，符号macOS各8/8、Linux各18/18、Windows21/21；这是流水线证据，不代替设备验收。草稿保留的两个APK早于本轮，不能随草稿标题误称build37；bump因Android失败跳过，37已有桌面成品占用，下一批重新核号。未自动删草稿或重跑，见[本批回执](https://github.com/wvjh3z/proxy-suite-docs/blob/main/evidence/ci151-platform-check/result.json)。
+
 GitHub发行#150（run42686858157，53feef32，品牌B/build37）六个平台都在Checkout Xboard_sdk的clone阶段退出128，尚未进入应用编译。原助手按凭据隔离要求丢弃Git输出，不能仅凭128断言Token过期；同助手在维护机使用有效root凭据可检出211c6be，固定对象不存在不是当前证据支持的结论。新增手动xboard-ci SDK-only诊断使用CI实际Secret做仓库/commit API检查与真实检出，输出固定状态分类，不反射API正文或Git原始错误；默认模块CI行为保持。用户只授权一次轻量诊断，不能自动重跑发行矩阵；源代码修复需新构建输入，重跑#150仍使用旧53feef32。后续实际诊断与修复回执由Docs/STATUS维护。
 
 build47/48交付与设备阶段：增量Git对象包必须包含提交的根tree（`ls-tree -r -t`仅列其后代），遗漏会在checkout报Could not read tree；补齐根tree后检出真实原提交，不以重建临时提交冒充原源码。Windows Java ProcessBuilder的`python -c`内联引号曾破坏安装驱动，改为base64源码解码执行，避免多层命令行重解释。Linux干净组合使用固定Python3.12.15解包；主机默认旧Python不支持extractall(filter=...)。这三项均为准备失败，不算产品缺陷。IP恢复测试需真实ProviderScope/XbIpCard调度监听；独立容器夹具的失败重试计数误差排除后，最终红17通过/1目标失败、绿32/32。build48设备稳定恢复/手动正控、账号清理及Sentry有独立证据，初轮额外IP查询仍未归因，详见[候选边界](https://github.com/wvjh3z/proxy-suite-docs/blob/main/evidence/upgrade-v0.9.3/windows-candidate-acceptance.md#build48验收与边界)。启动性能专项已由用户停止，不因此修改产品或继续采样。

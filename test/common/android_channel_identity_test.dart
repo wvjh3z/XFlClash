@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 import 'package:fl_clash/core/method.dart';
 import 'package:fl_clash/plugins/app.dart';
@@ -41,15 +42,26 @@ void main() {
   test('core, app and battery calls use the native protocol names', () async {
     final messenger = TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
     final calls = <String>[];
+    final corePayloads = <Map<String, dynamic>>[];
     for (final suffix in ['core', 'app', 'battery']) {
       final channel = MethodChannel('com.follow.clash/$suffix');
       messenger.setMockMethodCallHandler(channel, (call) async {
         calls.add('$suffix/${call.method}');
+        if (suffix == 'core') {
+          corePayloads.add(jsonDecode(call.arguments as String) as Map<String, dynamic>);
+          return Uint8List.fromList(utf8.encode(jsonEncode({'result': true})));
+        }
         return suffix == 'app' ? true : null;
       });
       addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
     }
-    await Service().invokeMethod(const CoreMethodCall(method: CoreMethod.getIsInit));
+    final response = await Service().invokeMethod(
+      const CoreMethodCall(method: CoreMethod.coreInitialized),
+    );
+    expect(response.result, isTrue);
+    expect(corePayloads, [
+      {'method': 'core.initialized', 'arguments': null},
+    ]);
     expect(await App().moveTaskToBack(), true);
     await BatteryOptimization.instance.requestIgnore();
     expect(calls, ['core/invokeMethod', 'app/moveTaskToBack', 'battery/requestIgnoreOptimizations']);
