@@ -1,7 +1,7 @@
 /// 更新弹窗组件（档2 app 内下载安装，失败回退档1 浏览器打开）。
 ///
 /// 按钮即进度条：点击后品牌红从左往右填充 + 白色百分比数字。
-/// 点击后独立判断地区，组内随机；不做下载地址HEAD测活。
+/// 点击后独立判断地区，组内随机并做有界GET轻探测；不做HEAD或安装包hash校验。
 library;
 
 import 'dart:async';
@@ -20,6 +20,7 @@ import '../services/xb_apk_downloader.dart';
 import '../services/xb_update_service.dart';
 import '../services/xb_update_sources.dart';
 import '../services/xb_update_region.dart';
+import '../services/xb_update_probe.dart';
 import 'xb_feedback.dart' show xbBrandColor;
 import 'xb_theme.dart' show xbShowDialog, XbTokens;
 
@@ -33,7 +34,22 @@ void showXbUpdateDialog(BuildContext context, AppUpdateModel info) {
   );
 }
 
-enum _DialogState { initial, selecting, downloading, failed }
+final xbInAppUpdateSupportedProvider = Provider<bool>(
+  (_) => XbApkDownloader.isInAppInstallSupported,
+);
+
+typedef XbUpdateDownload = Future<DownloadResult> Function({
+  required List<String> urls,
+  required DownloadProgress onProgress,
+  CancelToken? cancelToken,
+  Future<void> Function()? requestLinuxExit,
+});
+
+final xbUpdateDownloadProvider = Provider<XbUpdateDownload>(
+  (_) => XbApkDownloader.downloadAndInstall,
+);
+
+enum _DialogState { initial, selecting, downloading, failed, browser }
 
 class _UpdateDialog extends ConsumerStatefulWidget {
   const _UpdateDialog({required this.info});
@@ -51,8 +67,13 @@ class _UpdateDialogState extends ConsumerState<_UpdateDialog> {
   String? _errorMsg;
   CancelToken? _cancelToken;
   XbUpdateRegionLookup? _regionLookup;
+  XbUpdateSourceProbe? _sourceProbe;
+  List<String> _browserUrls = const [];
+  int _browserIndex = 0;
+  bool _browserOpening = false;
+  String? _browserMessage;
   bool get _busy =>
-      _state == _DialogState.selecting || _state == _DialogState.downloading;
+      _state == _DialogState.selecting || _state == _DialogState.downloading || _browserOpening;
 
   /// 当前生效的更新信息（初始为传入值；下载前会重拉刷新，取得最新下载地址和版本信息）。
   late AppUpdateModel _info = widget.info;
@@ -64,6 +85,7 @@ class _UpdateDialogState extends ConsumerState<_UpdateDialog> {
   void dispose() {
     _cancelToken?.cancel('dialog dismissed');
     _regionLookup?.cancel();
+    _sourceProbe?.cancel();
     super.dispose();
   }
 
@@ -95,12 +117,19 @@ class _UpdateDialogState extends ConsumerState<_UpdateDialog> {
     _regionLookup = lookup;
     final country = await lookup.run();
     if (identical(_regionLookup, lookup)) _regionLookup = null;
-    return xbRandomizedUpdateUrls(_info, countryCode: country);
+    if (!mounted) return const [];
+    final urls = xbRandomizedUpdateUrls(_info, countryCode: country);
+    if (urls.isEmpty) return urls;
+    final probe = ref.read(xbUpdateSourceProbeFactoryProvider)();
+    _sourceProbe = probe;
+    final ordered = await probe.run(urls);
+    if (identical(_sourceProbe, probe)) _sourceProbe = null;
+    return ordered;
   }
 
   Future<void> _performUpdate() async {
     // macOS / 不支持应用内安装的平台 → 直接走浏览器下载（不进 APK/installer 路径）。
-    if (!XbApkDownloader.isInAppInstallSupported) {
+    if (!ref.read(xbInAppUpdateSupportedProvider)) {
       final urls = await _selectUrls();
       if (mounted) await _openBrowser(urls);
       return;
@@ -119,7 +148,7 @@ class _UpdateDialogState extends ConsumerState<_UpdateDialog> {
       // UpdateNotAvailable / 失败 → 沿用缓存 _info（best effort）。
     }
 
-    // 新检测地区后按地区优先、组内随机并去重；冻结本轮顺序，不做下载源测活。
+    // 地区优先/组内随机后做有界GET；确认可访问的源优先，其他源保留为后备。
     final urls = await _selectUrls();
     if (!mounted) return;
     if (urls.isEmpty) {
@@ -135,7 +164,7 @@ class _UpdateDialogState extends ConsumerState<_UpdateDialog> {
     final exitAction = Platform.isLinux
         ? ref.read(systemActionProvider.notifier)
         : null;
-    final result = await XbApkDownloader.downloadAndInstall(
+    final result = await ref.read(xbUpdateDownloadProvider)(
       requestLinuxExit: exitAction == null
           ? null
           : () => exitAction.handleExit(),
@@ -195,23 +224,50 @@ class _UpdateDialogState extends ConsumerState<_UpdateDialog> {
   }
 
   Future<void> _openBrowser(List<String> urls) async {
+    if (urls.isEmpty) {
+      setState(() {
+        _state = _DialogState.failed;
+        _errorMsg = '无法打开下载链接，请重试';
+      });
+      return;
+    }
+    _browserUrls = List.unmodifiable(urls);
+    _browserIndex = 0;
+    await _launchBrowser(tryFollowing: true);
+  }
+
+  Future<void> _launchBrowser({bool tryFollowing = false}) async {
+    if (_browserOpening || _browserUrls.isEmpty) return;
+    setState(() {
+      _state = _DialogState.browser;
+      _browserOpening = true;
+      _browserMessage = '正在打开浏览器…';
+    });
+    var nextIndex = _browserIndex;
     final opened = await xbOpenUpdateDownload(
       _info,
-      orderedUrls: urls,
+      orderedUrls: tryFollowing
+          ? _browserUrls.sublist(_browserIndex)
+          : [_browserUrls[_browserIndex]],
       open: (uri) async {
         if (!mounted) return false;
+        setState(() => _browserIndex = nextIndex++);
         return launchUrl(uri, mode: LaunchMode.externalApplication);
       },
     );
     if (!mounted) return;
-    if (opened) {
-      Navigator.of(context).pop();
-      return;
-    }
     setState(() {
-      _state = _DialogState.failed;
-      _errorMsg = '无法打开下载链接，请重试';
+      _browserOpening = false;
+      _browserMessage = opened
+          ? '已交给浏览器；若下载失败，可换一条线路'
+          : '未能打开浏览器，可重试或换线路';
     });
+  }
+
+  Future<void> _nextBrowserSource() async {
+    if (_busy || _browserUrls.length < 2) return;
+    _browserIndex = (_browserIndex + 1) % _browserUrls.length;
+    await _launchBrowser();
   }
 
   @override
@@ -243,7 +299,9 @@ class _UpdateDialogState extends ConsumerState<_UpdateDialog> {
             ),
           ],
         ),
-        content: _buildContent(t, scheme),
+        content: _state == _DialogState.browser
+            ? SingleChildScrollView(child: _buildContent(t, scheme))
+            : _buildContent(t, scheme),
       ),
     );
   }
@@ -274,13 +332,17 @@ class _UpdateDialogState extends ConsumerState<_UpdateDialog> {
             ),
           ),
         const SizedBox(height: 14),
-        // 固定高度底部区：按钮/进度/spinner/错误都在此切换，弹窗总高不变。
-        SizedBox(height: 72, child: Center(child: _buildFooter(t, scheme))),
+        // Browser controls grow with text scaling; preserve existing states.
+        if (_state == _DialogState.browser)
+          ConstrainedBox(constraints: const BoxConstraints(minHeight: 118),
+              child: _buildFooter(t, scheme))
+        else
+          SizedBox(height: 72, child: Center(child: _buildFooter(t, scheme))),
       ],
     );
   }
 
-  /// 底部区内容（随状态变化，但容器高度固定 72）。
+  /// 原有状态底部高72；浏览器状态按文字与按钮内容自适应。
   Widget _buildFooter(XbTokens t, ColorScheme scheme) {
     switch (_state) {
       case _DialogState.initial:
@@ -305,6 +367,8 @@ class _UpdateDialogState extends ConsumerState<_UpdateDialog> {
       case _DialogState.selecting:
       case _DialogState.downloading:
         return _downloadingFooter(scheme);
+      case _DialogState.browser:
+        return _browserFooter(scheme);
       case _DialogState.failed:
         return Column(
           mainAxisSize: MainAxisSize.min,
@@ -321,6 +385,35 @@ class _UpdateDialogState extends ConsumerState<_UpdateDialog> {
           ],
         );
     }
+  }
+
+  Widget _browserFooter(ColorScheme scheme) {
+    final host = Uri.parse(_browserUrls[_browserIndex]).host;
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Text('线路 ${_browserIndex + 1}/${_browserUrls.length} · $host',
+            maxLines: 1, overflow: TextOverflow.ellipsis,
+            style: TextStyle(fontSize: 12, color: scheme.onSurface)),
+        const SizedBox(height: 4),
+        Text(_browserMessage ?? '',
+            textAlign: TextAlign.center,
+            style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant)),
+        const SizedBox(height: 8),
+        Row(children: [
+          Expanded(child: ConstrainedBox(constraints: const BoxConstraints(minHeight: 46), child: OutlinedButton(
+            onPressed: _busy ? null : _launchBrowser,
+            child: const Text('重新打开', textAlign: TextAlign.center),
+          ))),
+          const SizedBox(width: 11),
+          Expanded(child: ConstrainedBox(constraints: const BoxConstraints(minHeight: 46), child: FilledButton(
+            onPressed: _busy || _browserUrls.length < 2 ? null : _nextBrowserSource,
+            child: const Text('换下一条', textAlign: TextAlign.center),
+          ))),
+        ]),
+      ],
+    );
   }
 
   Widget _initialButtons(XbTokens t) {

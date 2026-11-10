@@ -36,6 +36,12 @@
 
 ## v0.9.3升级候选验证（2026-11-08）
 
+更新GET/浏览器后续复核补修：67项中7条目标失败定位到固定118底栏在1.4/1.5/2.0字号溢出，以及async*采样在取消/SocketException交错时未捕获异常。底栏/按钮改最小高度并允许短窗口滚动；采样桥显式持有上游订阅、传播暂停/恢复、幂等取消，正常流错误仍作为未确认源，不靠吞所有业务错误转绿。先用无配合close替身暴露等待，再用故障流与直接Dio对照、真实IO关闭区分边界；补修还覆盖无配合close及正常流错误。分析器对别名cancel未识别，改为直接调用subscription.cancel使真实收尾可追踪，未屏蔽cancel_subscriptions。最终74/74（含4既有golden）和分析通过，未改golden基线；证据见Docs/evidence/update-get-probe-20261110/review-fix.json，新包/设备仍待验。
+
+更新GET轻量探测验证：仅在ResponseBody消费者累积样本后break不能保证有界，Dio5.11.1的响应处理器可能已提前订阅并缓冲原流。快速8MiB响应负控实测读完整流，改为在本轮HttpClientAdapter返回响应、交给Dio之前包采样上限，再由消费者读取并取消；原Dio/全局代理实现未改。用户随后指定每源100KiB（Range bytes=0-102399）。真实回环HTTP还验证重定向/忽略Range，服务端flush在客户端提前关闭后可能不完成，测试生产者独立限时收尾，不把服务端夹具等待当客户端探测超时。新增Widget夹具首轮遗漏XboardConfig.debug属加载失败，Dio异步派发的FakeAsync等待改为受控Completer握手；这些与业务断言分开。最终54项选源/浏览器/取消测试及4项既有更新弹窗golden通过，分析无问题，未更新golden基线；原生浏览器与新包仍待验。
+
+品牌B build39派发准备：维护机执行共享预检因缺cmake在前置检查退出2，未安装工具链；授权Linux测试副本直接运行该入口时，固定flutter_distributor源码目录缺失，出现1个setUpClass及9个cold-start setUp错误（232项、0断言失败/10错误），不属于产品或GitHub Runner构建失败。必须按正式release setup既有顺序先checkout_distributor.py、prepare_linux_packager.py，再运行check_release_workflow.py；不能将此前Dart回归副本等同完整发行预检环境，也不能跳过准备夹具。原失败与完整准备后的结果由Docs/STATUS对应build39记录维护，本轮未修改发行脚本。
+
 2026-11-10再次复核补修：此前319/25绿色没有覆盖传递重叠、真实HTTP归一化及双登录/退出动画；新增定向45项中5个目标失败对应四类业务缺陷，未弱化或跳过。SDK完整管线夹具首轮因import置于声明后而加载失败，与业务失败区分；修正位置后HTTP/panel366/366、客户端329/329通过，另窄/宽路由与旧接口15/15通过（部分重叠）。复核Token清理必须持有save返回的精确revision，不能在建立失败后凭Token文本重新寻找当前凭据，否则同值新登录会被误清。新增作用域API保持可选，旧login实现与测试替身仍能工作。规范/行为独立复核及最终校验见[补修证据](https://github.com/wvjh3z/proxy-suite-docs/blob/main/evidence/upgrade-v0.9.3/review-followup-fix-20261110.json)，不是正式构建或设备通过。
 
 2026-11-10复查修复测试准备：SdkResult.success是非const工厂，错误const导致新增登录用例加载失败，不能计为业务红测。弹窗pop后需先pump启动退出动画，再推进时间并pump完成销毁；仅推进一帧时页面仍在，不能据此前置失败声称迟到认证已复现。修正夹具后登录/注册二步登录均实测停在authenticating，修复后完成认证；Core选择与嵌套测速保留真实动作链，仅控制Core I/O。Jenkins通道曾中断；在同一授权节点恢复后读取已落盘SDK报告，区分测试exit1与传输异常，再运行未完成客户端测试，不重启节点或扩大主机范围。最终相关回归319/319、SDK版本响应25/25；修改测试文件的既有悬空library doc注释被fatal-infos拒绝，补library声明后另行分析。源码/测试身份、正负控与未出包边界见[本轮证据](https://github.com/wvjh3z/proxy-suite-docs/blob/main/evidence/upgrade-v0.9.3/review-fixes-20261110.json)。
