@@ -401,7 +401,10 @@ jobs:
 
       - name: Verify native Windows target toolchain
         if: matrix.platform == 'windows'
-        run: python tool/windows_architecture.py --architecture "${{ matrix.arch }}"
+        timeout-minutes: 10
+        run: |
+          flutter --version
+          python tool/windows_architecture.py --architecture "${{ matrix.arch }}"
 
       - name: Use default Rust homes for Native Assets hooks
         shell: python

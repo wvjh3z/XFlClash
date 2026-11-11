@@ -39,6 +39,8 @@
 
 ### Windows ARM64 恢复准备（2026-11-11）
 
+#164已通过共享前置、原生WebView、安装器与VC检查，停在新增Dart宿主检查WinError2：flutter-action源码安装分支仅检出固定Flutter，未运行bootstrap，bin/cache/dart-sdk/bin/dart.exe尚不存在。增加有界`flutter --version`先走官方初始化，再检查真实Dart ABI；不把missing executable当成ARM组件404，也不取消拒绝x64回退的断言。没有改SDK版本、共享缓存或生成工具文件，正式入口继续复验。
+
 原生Runner #163通过共享前置后，WebView既有CMake夹具11项出现6处失败。Runner实际为windows-11-vs2026-arm64/20261101.203.1、CMake4.4.5、MSVC19.51。CMake4保留SOURCE_DIR的8.3短路径，get_filename_component(ABSOLUTE)却展开为长路径，RELATIVE_PATH因此将正常main.cpp误判越界。WIN11-BUILD隔离安装经官方SHA256验证的便携CMake4.4.5后准确复现；旧CMake对照正常。新增短路径/别名回归在旧helper下红1，源目录先REALPATH统一后完整12项通过，原工具链另2项通过；保留真实外部源拒绝、原版静态析构负控及源文件不变检查。该修改仅调整既有windows/xboard_webview_shutdown.cmake路径比较，不改COM所有权策略。
 
 ARM Runner已切VS2026，不能沿用x64的MSVC19.44/CRT14.44最低要求。在同一固定离线payload策略中增加ARM64的MSVC19.51/CRT14.51.36247目标要求，按实际runner选择；x64原要求保持。选择、错编译器及不降级40项策略通过，实际ARM构建仍须核对其CRT文件版本，不能仅据Runner标签放行。
