@@ -108,7 +108,7 @@ class NativeInputTests(unittest.TestCase):
     def test_arm_flutter_source_ref_and_macos_pods_follow_pinned_baseline(self):
         text=(ROOT/'.github/workflows/release-package.yml').read_text(encoding='utf-8')
         self.assertIn(native.PINS['flutter_revision'],text)
-        self.assertIn("matrix.platform == 'linux' && matrix.arch == 'arm64' && 'master' || 'stable'",text)
+        self.assertIn("(matrix.platform == 'linux' || matrix.platform == 'windows') && matrix.arch == 'arm64' && 'master' || 'stable'",text)
         self.assertIn("platform :osx, '12.0'",(ROOT/'macos/Podfile').read_text(encoding='utf-8'))
         for mode in ('Debug','Release'):
             self.assertIn(f'Pods-Runner.{mode.lower()}.xcconfig',(ROOT/f'macos/Flutter/Flutter-{mode}.xcconfig').read_text(encoding='utf-8'))

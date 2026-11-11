@@ -50,7 +50,7 @@ Map<String, Object> releaseContext({
   final valid = platform == 'android'
       ? arch.isEmpty
       : (platform == 'windows'
-            ? arch == 'amd64'
+             ? {'amd64', 'arm64'}.contains(arch)
             : {'linux', 'macos'}.contains(platform) &&
                   {'amd64', 'arm64'}.contains(arch));
   if (!valid || (includeZip && platform != 'windows')) {

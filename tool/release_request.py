@@ -11,7 +11,7 @@ import subprocess
 import sys
 
 REPOSITORY = "wvjh3z/XFlClash"
-TARGETS = ("android", "windows-amd64", "linux-amd64", "linux-arm64", "macos-amd64", "macos-arm64",
+TARGETS = ("android", "windows-amd64", "windows-arm64", "linux-amd64", "linux-arm64", "macos-amd64", "macos-arm64",
            "desktop", "desktop-except-linux-amd64", "all")
 FLAVORS = ("brand_a", "brand_b")
 MAX_BUILD_NUMBER = 65_535

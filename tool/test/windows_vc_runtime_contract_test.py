@@ -216,7 +216,7 @@ class RuntimeContractTest(unittest.TestCase):
         self.assertNotIn(".Kill(", source)
         self.assertIn("RegistryView]::Registry64", source)
         self.assertIn("RegistryView]::Registry32", source)
-        self.assertIn("VC\\Runtimes\\x64", source)
+        self.assertIn("VC\\Runtimes\\' + $script:XbRuntimeArchitecture", source)
 
     def test_ci_preflight_and_mandatory_packaging_validation(self):
         source = self.read(".github/workflows/release-package.yml")

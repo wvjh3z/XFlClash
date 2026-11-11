@@ -12,6 +12,7 @@ $script:XbRuntimeStage = 'initialization'
 $script:XbRuntimeProtocol = $false
 $script:XbRuntimeResultKind = 'checker'
 $script:XbRuntimeRedistExit = $null
+$script:XbRuntimeArchitecture = 'x64'
 
 # Use Console rather than Write-Output: diagnostics must not join a function's
 # return pipeline and turn an integer readiness/exit result into an array.
@@ -69,7 +70,7 @@ function Read-XbRuntimeConfig([string]$Path) {
     $minimum = ConvertTo-XbVersion $c.minimumVersion
     $bundled = ConvertTo-XbVersion $c.bundledVersion
     if ($null -eq $minimum -or $null -eq $bundled -or $minimum.Major -ne 14 -or
-        $bundled.Major -ne 14 -or $bundled -lt $minimum -or $c.architecture -ne 'x64' -or
+        $bundled.Major -ne 14 -or $bundled -lt $minimum -or $c.architecture -notin @('x64', 'arm64') -or
         $c.sha256 -cnotmatch '^[0-9a-f]{64}$' -or $c.size -le 0 -or
         $c.url -cnotmatch '^https://download\.visualstudio\.microsoft\.com/download/pr/[^?#]+/VC_redist\.x64\.exe$' -or
         $c.validatedCompilerFamily -notmatch '^19\.\d+$') {
@@ -97,13 +98,13 @@ function Get-XbRegisteredVersions {
         try {
             $base = [Microsoft.Win32.RegistryKey]::OpenBaseKey(
                 [Microsoft.Win32.RegistryHive]::LocalMachine, $view)
-            $key = $base.OpenSubKey('SOFTWARE\Microsoft\VisualStudio\14.0\VC\Runtimes\x64')
+            $key = $base.OpenSubKey('SOFTWARE\Microsoft\VisualStudio\14.0\VC\Runtimes\' + $script:XbRuntimeArchitecture)
             $installed = 0; $rawVersion = ''
             if ($null -ne $key) {
                 $installed = $key.GetValue('Installed', 0)
                 $rawVersion = [string]$key.GetValue('Version', '')
             }
-            Write-XbRuntimeLog "registry=$view; architecture=x64; installed=$installed; version=$rawVersion"
+            Write-XbRuntimeLog "registry=$view; architecture=$script:XbRuntimeArchitecture; installed=$installed; version=$rawVersion"
             if ($null -ne $key -and $installed -eq 1) {
                 $version = ConvertTo-XbVersion ([string]$key.GetValue('Version', ''))
                 if ($null -ne $version) { $version }
@@ -173,6 +174,7 @@ function Invoke-XbRedist([string]$Path, [string]$Action, [string]$Log) {
 }
 
 function Install-XbRuntime($Config, [string]$Payload, [string]$Log) {
+    $script:XbRuntimeArchitecture = $Config.architecture
     $script:XbRuntimeRedistExit = $null
     $minimum = [version]$Config.minimumVersion
     $bundled = [version]$Config.bundledVersion
@@ -235,6 +237,13 @@ if ($MyInvocation.InvocationName -ne '.') {
         Set-XbRuntimeStage 'policy-read'
         $script:XbRuntimeResultKind = 'checker'
         $config = Read-XbRuntimeConfig $ConfigPath
+        $nativeArchitecture = $env:PROCESSOR_ARCHITEW6432
+        if ([string]::IsNullOrEmpty($nativeArchitecture)) { $nativeArchitecture = $env:PROCESSOR_ARCHITECTURE }
+        if ($config.architecture -eq 'arm64' -and $nativeArchitecture -ne 'ARM64') {
+            $script:XbRuntimeResultKind = 'platform'
+            Write-XbRuntimeCompletion 4001
+            exit 4001
+        }
         Write-XbRuntimeLog "VC prerequisite: minimum=$($config.minimumVersion); bundled=$($config.bundledVersion)"
         $code = Install-XbRuntime $config $PayloadPath $LogPath
         Write-XbRuntimeCompletion $code

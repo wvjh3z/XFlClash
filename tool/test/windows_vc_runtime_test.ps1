@@ -54,6 +54,16 @@ try {
         Assert-Equal (Test-XbPayloadHash $path $copy) $false
         Assert-Equal (Test-XbPayloadHash ($path + '.missing') $copy) $false
     }
+    Case 'ARM64 policy uses the fixed dual-architecture Microsoft payload' {
+        $arm = $config | ConvertTo-Json | ConvertFrom-Json
+        $arm.architecture = 'arm64'
+        $path = Join-Path $fixture 'arm64.json'
+        $arm | ConvertTo-Json | Set-Content $path -Encoding UTF8
+        Assert-Equal (Read-XbRuntimeConfig $path).architecture 'arm64'
+        $arm.architecture = 'x86'
+        $arm | ConvertTo-Json | Set-Content $path -Encoding UTF8
+        Assert-Throws { Read-XbRuntimeConfig $path }
+    }
     # Exercise real readiness logic; never access host registry/System32.
     function Get-XbRegisteredVersions { $script:registry }
     function Get-XbSystemDllVersions { $script:dlls }
@@ -239,12 +249,36 @@ set(CMAKE_CXX_COMPILER "$($fixture.Replace('\','/'))/VS/VC/Tools/MSVC/14.44.3520
         [IO.File]::WriteAllText($inventory, $text.Replace('19.44.35222.0','19.50.10000.0'), $utf8)
         Assert-Throws { Test-XbCompilerPolicy $buildDir $config }
     }
-    Case 'PE architecture guard accepts x64 and rejects x86 ARM64 and corrupt files' {
+    Case 'ARM64 compiler policy selects ARM64 redist and rejects x64 compiler' {
+        $arm = $config | ConvertTo-Json | ConvertFrom-Json
+        $arm.architecture = 'arm64'
+        $root = Join-Path $fixture 'arm compiler/VC'
+        $build = Join-Path $fixture 'arm build'
+        $dir = Join-Path $build 'CMakeFiles/fixture'
+        [IO.Directory]::CreateDirectory($dir) | Out-Null
+        $crt = Join-Path $root 'Redist/MSVC/14.44.35211/arm64/Microsoft.VC143.CRT'
+        [IO.Directory]::CreateDirectory($crt) | Out-Null
+        $expectedArmDll = Join-Path $crt 'msvcp140.dll'
+        [IO.File]::WriteAllText($expectedArmDll, 'fixture')
+        function Get-XbFileVersion([string]$Path) {
+            Assert-Equal ([IO.Path]::GetFullPath($Path)) ([IO.Path]::GetFullPath($expectedArmDll))
+            return $minimum
+        }
+        $text = 'set(CMAKE_CXX_COMPILER_ID "MSVC")' + "`n" +
+            'set(CMAKE_CXX_COMPILER_VERSION "19.44.35222.0")' + "`n" +
+            'set(CMAKE_CXX_COMPILER "' + $root.Replace('\','/') + '/Tools/MSVC/14.44.35207/bin/Hostx64/arm64/cl.exe")'
+        $inventory = Join-Path $dir 'CMakeCXXCompiler.cmake'
+        [IO.File]::WriteAllText($inventory, $text)
+        Test-XbCompilerPolicy $build $arm
+        [IO.File]::WriteAllText($inventory, $text.Replace('/arm64/cl.exe','/x64/cl.exe'))
+        Assert-Throws { Test-XbCompilerPolicy $build $arm }
+    }
+    Case 'PE architecture identifies x64 and ARM64 but rejects x86 and corrupt files' {
         $data = New-Object byte[] 128
         $data[0] = 0x4d; $data[1] = 0x5a; $data[60] = 64
         $data[64] = 0x50; $data[65] = 0x45; $data[68] = 0x64; $data[69] = 0x86
         $path = Join-Path $fixture 'FlClash.exe'
-        [IO.File]::WriteAllBytes($path,$data); Test-XbBundleArchitecture $fixture
+        [IO.File]::WriteAllBytes($path,$data); Assert-Equal (Test-XbBundleArchitecture $fixture) 'x64'
         foreach ($name in @('OmoFly.exe','Daishu.exe')) {
             $brandPath=Join-Path $fixture $name
             Move-Item -LiteralPath $path -Destination $brandPath
@@ -257,7 +291,7 @@ set(CMAKE_CXX_COMPILER "$($fixture.Replace('\','/'))/VS/VC/Tools/MSVC/14.44.3520
         $data[68] = 0x4c; $data[69] = 0x01
         [IO.File]::WriteAllBytes($path,$data); Assert-Throws { Test-XbBundleArchitecture $fixture }
         $data[68] = 0x64; $data[69] = 0xaa
-        [IO.File]::WriteAllBytes($path,$data); Assert-Throws { Test-XbBundleArchitecture $fixture }
+        [IO.File]::WriteAllBytes($path,$data); Assert-Equal (Test-XbBundleArchitecture $fixture) 'arm64'
         [IO.File]::WriteAllBytes($path,[byte[]](1,2,3)); Assert-Throws { Test-XbBundleArchitecture $fixture }
     }
     Case 'toolchain patch upgrade cannot silently keep an older minimum' {

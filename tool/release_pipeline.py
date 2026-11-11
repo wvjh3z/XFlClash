@@ -51,6 +51,7 @@ def read_context(path):
     if not isinstance(c['platform'],str) or not isinstance(c['arch'],str) or not isinstance(c['targets'],list):
         raise PipelineError('invalid_target_types')
     allowed = {('android',''): (['apk'],), ('windows','amd64'): (['exe'],['exe','zip']),
+               ('windows','arm64'): (['exe'],['exe','zip']),
                ('macos','amd64'): (['dmg'],), ('macos','arm64'): (['dmg'],),
                ('linux','amd64'): (['deb','appimage'],['deb','appimage','rpm']),
                ('linux','arm64'): (['deb','appimage'],)}
@@ -91,6 +92,11 @@ def record_final_macos_inventory(root):
 
 def package_environment(c, environment=None):
     result = dict(os.environ if environment is None else environment)
+    if c['platform'] == 'windows' and c['arch'] == 'arm64':
+        # sentry_flutter 9.30.1's CMake uses numeric EQUAL on a string. Its
+        # supported override selects the intended ARM64 backend without editing
+        # the package cache or changing the existing AMD64 backend.
+        result['SENTRY_NATIVE_BACKEND'] = 'breakpad'
     if c['platform'] == 'macos':
         arch = {'amd64': 'x86_64', 'arm64': 'arm64'}[c['arch']]
         # Flutter forwards FLUTTER_XCODE_* as command-line build settings.

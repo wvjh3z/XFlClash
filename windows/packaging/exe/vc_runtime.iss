@@ -12,7 +12,7 @@
 ; only: shared runtime lifetime never belongs to this application's uninstaller.
 Source: "{#XbRuntimePayload}"; DestName: "xb_vc_redist.x64.exe"; Flags: dontcopy nocompression
 Source: "{#XbRuntimeTools}vc_runtime.ps1"; DestName: "xb_vc_runtime.ps1"; Flags: dontcopy
-Source: "{#XbRuntimeTools}vc_runtime.json"; DestName: "xb_vc_runtime.json"; Flags: dontcopy
+Source: "{#XbRoot}build\windows-prerequisites\vc_runtime.json"; DestName: "xb_vc_runtime.json"; Flags: dontcopy
 
 [CustomMessages]
 chineseSimplified.XbVcTitle=检查必要组件

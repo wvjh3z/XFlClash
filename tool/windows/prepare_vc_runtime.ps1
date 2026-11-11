@@ -20,15 +20,16 @@ function Test-XbCompilerPolicy([string]$BuildDirectory, $Config) {
     }
     if ($text -notmatch 'set\(CMAKE_CXX_COMPILER "([^"\r\n]+)"\)') { throw 'Missing actual compiler path' }
     $compiler = $Matches[1].Replace('\', '/')
-    if ($compiler -notmatch '^(.*)/Tools/MSVC/[^/]+/bin/Host[^/]+/x64/cl\.exe$') {
-        throw 'Unknown MSVC x64 installation layout'
+    $architecture = [regex]::Escape($Config.architecture)
+    if ($compiler -notmatch ('^(.*)/Tools/MSVC/[^/]+/bin/Host[^/]+/' + $architecture + '/cl\.exe$')) {
+        throw 'MSVC compiler target does not match the application architecture'
     }
     Assert-XbToolchainRuntime (Join-Path $Matches[1] 'Redist/MSVC') $Config
 }
 
 function Assert-XbToolchainRuntime([string]$Directory, $Config) {
     $family = '14.' + $Config.validatedCompilerFamily.Split('.')[1]
-    $dlls = @(Get-ChildItem -Path (Join-Path $Directory ($family + '.*/x64/Microsoft.VC*.CRT/msvcp140.dll')) -File)
+    $dlls = @(Get-ChildItem -Path (Join-Path $Directory ($family + '.*/' + $Config.architecture + '/Microsoft.VC*.CRT/msvcp140.dll')) -File)
     if ($dlls.Count -eq 0) { throw 'Missing MSVC redistributable inventory; cannot validate minimum runtime' }
     foreach ($dll in $dlls) {
         $version = Get-XbFileVersion $dll.FullName
@@ -49,8 +50,11 @@ function Test-XbBundleArchitecture([string]$Path) {
         $stream.Position = 0x3c; $offset = $reader.ReadInt32()
         if ($offset -lt 64 -or $offset -gt ($stream.Length - 6)) { throw 'Invalid PE offset' }
         $stream.Position = $offset
-        if ($reader.ReadUInt32() -ne 0x4550 -or $reader.ReadUInt16() -ne 0x8664) {
-            throw 'VC runtime policy currently covers only Windows x64'
+        if ($reader.ReadUInt32() -ne 0x4550) { throw 'Not a PE executable' }
+        switch ($reader.ReadUInt16()) {
+            0x8664 { return 'x64' }
+            0xaa64 { return 'arm64' }
+            default { throw 'Unsupported Windows runner architecture' }
         }
     } finally { $reader.Dispose(); $stream.Dispose() }
 }
@@ -98,13 +102,19 @@ if ($MyInvocation.InvocationName -ne '.') {
         $Root = [IO.Path]::GetFullPath($Root)
         $config = Read-XbRuntimeConfig (Join-Path $Root 'tool/windows/vc_runtime.json')
         if (!$DownloadOnly) {
-            Test-XbCompilerPolicy (Join-Path $Root 'build/windows/x64') $config
-            Test-XbBundleArchitecture $Bundle
+            $config.architecture = Test-XbBundleArchitecture $Bundle
+            Test-XbCompilerPolicy (Join-Path $Root ('build/windows/' + $config.architecture)) $config
         }
         $directory = Join-Path $Root 'build/windows-prerequisites'
         [IO.Directory]::CreateDirectory($directory) | Out-Null
         [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
         Save-XbRuntimePayload (Join-Path $directory 'vc_redist.x64.exe') $config
+        if (!$DownloadOnly) {
+            # This pinned Microsoft X64 redistributable contains both ARM64 and
+            # X64 runtimes. The installer policy targets the actual runner, not
+            # the build host or the redistributable bootstrapper's architecture.
+            $config | ConvertTo-Json | Set-Content (Join-Path $directory 'vc_runtime.json') -Encoding UTF8
+        }
         Write-Output "VC runtime verified: bundled $($config.bundledVersion), minimum $($config.minimumVersion)"
         exit 0
     } catch {

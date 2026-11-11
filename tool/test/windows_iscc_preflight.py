@@ -107,8 +107,9 @@ def run(args):
             if rendered.returncode:
                 raise RuntimeError('Installer fixture rendering failed:\n' + (rendered.stdout + rendered.stderr)[-6000:])
             rows = json.loads(manifest.read_text(encoding='utf-8'))
-            if [r['brand'] for r in rows] != ['brand_a', 'brand_b']:
-                raise RuntimeError('Both brands must be rendered')
+            if [(r['brand'], r['architecture']) for r in rows] != [
+                    (brand, arch) for arch in ('x64', 'arm64') for brand in ('brand_a', 'brand_b')]:
+                raise RuntimeError('Both brands and architectures must be rendered')
             for row in rows:
                 script = Path(row['script'])
                 root = Path(row['root']).resolve()
@@ -116,6 +117,8 @@ def run(args):
                     raise RuntimeError('Maker fixture paths escaped the isolated root')
                 original_script = script.read_text(encoding='utf-8-sig')
                 if ('{{' in original_script or '{%' in original_script or
+                    'ArchitecturesAllowed=' + row['architecture'] not in original_script or
+                    'ArchitecturesInstallIn64BitMode=' + row['architecture'] not in original_script or
                     'AppPublisher=' + row['publisher'] not in original_script or
                     'AppName=' + row['display_name'] not in original_script or
                     'AppVersion=' + row['version'] not in original_script or
@@ -138,13 +141,13 @@ def run(args):
                     version = re.search(r'Compiler engine version:\s+(?:Inno Setup\s+)?([0-9.]+)', output)
                     if version:
                         report['compiler_version'] = version.group(1)
-                    report['cases'].append({'brand': row['brand'], 'case': name, 'passed': passed, 'exit_code': code})
+                    report['cases'].append({'brand': row['brand'], 'architecture': row['architecture'], 'case': name, 'passed': passed, 'exit_code': code})
                     print(('PASS' if passed else 'FAIL') + ' ISCC ' + row['brand'] + ' ' + name, flush=True)
                     if not passed:
                         print(output[-8000:], flush=True)  # Only public fixture data, no real flavor input.
                 if any(script.parent.glob('*setup.exe')):
                     raise RuntimeError('Preflight unexpectedly created an installer; /O- must be honored')
-        report['passed'] = len(report['cases']) == 10 and all(row['passed'] for row in report['cases'])
+        report['passed'] = len(report['cases']) == 20 and all(row['passed'] for row in report['cases'])
         return 0 if report['passed'] else 1
     finally:
         args.report.parent.mkdir(parents=True, exist_ok=True)

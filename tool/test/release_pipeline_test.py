@@ -54,13 +54,13 @@ class PipelineTests(unittest.TestCase):
 
     def test_context_rejects_unknown_secret_fields_and_invalid_identity(self):
         path=self.root/'context.json'
-        for changes in ({'secret':'sensitive'}, {'build_number':0},{'build_number':True},{'platform':'windows','arch':'arm64'},
+        for changes in ({'secret':'sensitive'}, {'build_number':0},{'build_number':True},{'platform':'windows','arch':'x86'},
                         {'package_prefix':'../../x'}, {'product_version':'0.0.1\ninjection'}, {'targets':['exe','exe']}):
             path.write_text(json.dumps(context(**changes)))
             with self.subTest(changes=changes),self.assertRaises(pipeline.PipelineError):pipeline.read_context(path)
 
     def test_argv_all_platforms_and_local_optional_formats(self):
-        for target,arch in [('windows','amd64'),('android',''),('linux','amd64'),('linux','arm64'),('macos','amd64'),('macos','arm64')]:
+        for target,arch in [('windows','amd64'),('windows','arm64'),('android',''),('linux','amd64'),('linux','arm64'),('macos','amd64'),('macos','arm64')]:
             c=context(target,arch);args=pipeline.package_arguments(c)
             self.assertIn('build-number=30',next(a for a in args if a.startswith('--flutter-build-args=')))
             self.assertIn('split-debug-info=build/debug-info', ' '.join(args))
@@ -85,7 +85,7 @@ class PipelineTests(unittest.TestCase):
         with self.assertRaises(pipeline.PipelineError):pipeline.compose(context(),defines,self.root/'none',out)
 
     def test_all_platform_inventories_are_exact_and_idempotent(self):
-        for target,arch in [('windows','amd64'),('android',''),('linux','amd64'),('linux','arm64'),('macos','amd64'),('macos','arm64')]:
+        for target,arch in [('windows','amd64'),('windows','arm64'),('android',''),('linux','amd64'),('linux','arm64'),('macos','amd64'),('macos','arm64')]:
             c=context(target,arch)
             for p in self.dist.iterdir():p.unlink()
             names = (['OmoFly-0.8.93-android-armeabi-v7a-brand_a.apk',

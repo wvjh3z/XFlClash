@@ -37,6 +37,12 @@
 
 ## v0.9.3升级候选验证（2026-11-08）
 
+### Windows ARM64 恢复准备（2026-11-11）
+
+固定Flutter3.47.6的BuildWindowsCommand没有目标切换参数，按宿主选择x64/ARM64；因此不能用在x64主机安装ARM64 MSVC来证明正式Flutter整包可交叉构建。用户选择windows-11-arm原生Runner，WIN11-BUILD做既有x64/原生夹具检查。旧QuickJS x64 DLL与客服旧Loader阻塞已随依赖演进改变，不能照旧版失败禁用新目标，也不能由上游出包宣称品牌安装器/更新通过。
+
+前置检查首次缺固定distributor源码，按checkout_distributor准备后通过。新宿主检查用未解析的dart批处理名触发WinError2，改为FLUTTER_ROOT内真实dart.exe后正控0、错误目标负控1。Windows app.so由AotElfRelease生成，成品守卫必须区分PE原生模块与ELF AOT；已复用现有ELF解析器，并覆盖两品牌的错DLL/错AOT负控。VC配置必须按实际runner生成，ARM64策略查ARM64注册表/编译器/CRT，而不是仅允许发行名称。40策略、9子进程、两品牌×两架构20项真实Inno编译及Dart4项通过；正式ARM64整包与设备结果见[专项证据](https://github.com/wvjh3z/proxy-suite-docs/blob/feat/windows-arm64-v093/evidence/windows-arm64-v093-20261111/README.md)，本段不代替实际构建回执。
+
 ### 品牌分组菜单回归（2026-11-11）
 
 本轮未提交分组/刷新适配在授权WIN11-BUILD隔离副本验证，Flutter3.47.6/Dart3.13.5。双次语义激活负控实测菜单和下方pager均消失，回调丢失；单次激活正常。Navigator在调用didPop前已改变entry状态，因此isFirst不能可靠识别不可弹出的根内容页。改为`settings is _GroupRootPage`后12项菜单回归通过，后续17文件分两批138+48项全部通过。仅保护品牌本地菜单Navigator，不能据此关闭原版全局P1。

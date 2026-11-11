@@ -49,6 +49,7 @@ on:
         options:
           - android
           - windows-amd64
+          - windows-arm64
           - linux-amd64
           - linux-arm64
           - macos-amd64
@@ -141,6 +142,7 @@ jobs:
           set -euo pipefail
           A='{"platform":"android","os":"ubuntu-latest"}'
           WA='{"platform":"windows","os":"windows-2022","arch":"amd64"}'
+          WR='{"platform":"windows","os":"windows-11-arm","arch":"arm64"}'
           LA='{"platform":"linux","os":"ubuntu-22.04","arch":"amd64"}'
           LR='{"platform":"linux","os":"ubuntu-24.04-arm","arch":"arm64"}'
           MA='{"platform":"macos","os":"macos-15-intel","arch":"amd64"}'
@@ -148,6 +150,7 @@ jobs:
           case "$TARGET" in
             android)       INC="[$A]" ;;
             windows-amd64) INC="[$WA]" ;;
+            windows-arm64) INC="[$WR]" ;; # Opt-in until ARM device acceptance.
             linux-amd64)   INC="[$LA]" ;;   # ubuntu-22.04 固定（rpm 4.20 坑，见头部）
             linux-arm64)   INC="[$LR]" ;;
             macos-amd64)   INC="[$MA]" ;;
@@ -214,7 +217,9 @@ jobs:
         run: python tool/test/sentry_release_workflow_test.py ReleaseWorkflowStructureTests
 
       - name: Check shared package helper contracts
-        run: python tool/test/release_pipeline_test.py
+        run: |
+          python tool/test/release_pipeline_test.py
+          python tool/test/windows_architecture_test.py
 
       - name: Check Windows WebView build rules
         if: matrix.platform == 'windows'
@@ -345,7 +350,22 @@ jobs:
           add-to-path: true
           link-to-sdk: true
 
-      # Windows ARM64 仍沿本项目暂缓决定；升级上游不自动扩大现有发行矩阵。
+      - name: Setup native ARM64 Rust (Windows)
+        if: matrix.platform == 'windows' && matrix.arch == 'arm64'
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri https://win.rustup.rs/aarch64 -OutFile "$env:RUNNER_TEMP/rustup-init.exe"
+          & "$env:RUNNER_TEMP/rustup-init.exe" -y --default-toolchain 1.99.0 --profile minimal
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Add-Content $env:GITHUB_PATH "$env:USERPROFILE/.cargo/bin"
+
+      - name: Setup target JVM for JNI (Windows ARM64)
+        if: matrix.platform == 'windows' && matrix.arch == 'arm64'
+        uses: actions/setup-java@v4
+        with:
+          distribution: microsoft
+          java-version: '21'
+          architecture: aarch64
 
       - name: Bind pinned NDK environment (Android)
         if: matrix.platform == 'android'
@@ -367,8 +387,8 @@ jobs:
       - name: Setup Flutter (pinned)
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: ${{ matrix.platform == 'linux' && matrix.arch == 'arm64' && '5fc346839b5d0eef006ed8404392afb4dfae428d' || '3.47.6' }}
-          channel: ${{ matrix.platform == 'linux' && matrix.arch == 'arm64' && 'master' || 'stable' }}
+          flutter-version: ${{ (matrix.platform == 'linux' || matrix.platform == 'windows') && matrix.arch == 'arm64' && '5fc346839b5d0eef006ed8404392afb4dfae428d' || '3.47.6' }}
+          channel: ${{ (matrix.platform == 'linux' || matrix.platform == 'windows') && matrix.arch == 'arm64' && 'master' || 'stable' }}
           architecture: ${{ matrix.arch == 'arm64' && 'arm64' || 'x64' }}
           cache: true
 
@@ -378,6 +398,10 @@ jobs:
           set -euo pipefail
           sudo xcode-select -s /Applications/Xcode_26.3.app || sudo xcode-select -s /Applications/Xcode_26.2.app
           xcodebuild -version
+
+      - name: Verify native Windows target toolchain
+        if: matrix.platform == 'windows'
+        run: python tool/windows_architecture.py --architecture "${{ matrix.arch }}"
 
       - name: Use default Rust homes for Native Assets hooks
         shell: python
@@ -590,6 +614,13 @@ jobs:
         timeout-minutes: 10
         run: python tool/release_pipeline.py normalize
 
+      - name: Verify final Windows PE architectures
+        if: matrix.platform == 'windows'
+        run: |
+          ARCH="${{ matrix.arch }}"
+          [ "$ARCH" != amd64 ] || ARCH=x64
+          python tool/windows_architecture.py --architecture "$ARCH" --bundle "build/windows/$ARCH/runner/Release"
+
       - name: Verify Android installer version and native channels
         if: matrix.platform == 'android'
         run: python tool/check_android_release_contract.py
@@ -667,6 +698,7 @@ jobs:
             build/native-hook-diagnostics.json
             build/windows-iscc-preflight.json
             build/windows-title-preflight.json
+            build/windows-architecture.json
             build/distributor-preflight/
             build/release-context.json
             build/release-artifacts.json

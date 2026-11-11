@@ -58,12 +58,14 @@ void main() {
     expect(make(platform: 'linux', rpm: false)['targets'], ['deb', 'appimage']);
     expect(make(platform: 'macos', arch: 'arm64')['targets'], ['dmg']);
     expect(make(zip: true)['targets'], ['exe', 'zip']);
+    expect(make(arch: 'arm64')['targets'], ['exe']);
+    expect(make(arch: 'arm64', zip: true)['targets'], ['exe', 'zip']);
   });
   test('invalid identity and unsupported targets fail before use', () {
     for (final n in ['', '0', '01', '65536', '30\n']) {
       expect(() => make(number: n), throwsFormatException);
     }
-    expect(() => make(arch: 'arm64'), throwsFormatException);
+    expect(() => make(arch: 'x86'), throwsFormatException);
     expect(
       () => make(platform: 'android', arch: 'amd64'),
       throwsFormatException,
