@@ -21,12 +21,14 @@ class ReadinessTests(unittest.TestCase):
             wait_ready(Process(),lambda:'',phase='xvfb',timeout=.1,clock=lambda:ticks[0],sleep=sleep)
 
     def test_formal_linux_job_provisions_the_session_bus(self):
-        import shlex
+        import sys
         root=Path(__file__).resolve().parents[2]
+        sys.path.insert(0,str(root/'tool'))
+        from install_linux_package_deps import packages_for
         workflow=(root/'.github/workflows/release-package.yml').read_text(encoding='utf-8')
-        installs=[shlex.split(line.strip()) for line in workflow.splitlines()
-                  if line.strip().startswith('sudo apt-get install ')]
-        self.assertTrue(any('xvfb' in args and 'dbus-daemon' in args for args in installs))
+        self.assertIn('sudo python3 tool/install_linux_package_deps.py',workflow)
+        for arch in ('amd64','arm64'):
+            self.assertTrue({'xvfb','dbus-daemon'}.issubset(packages_for(arch)))
 
     def test_exit_is_not_mistaken_for_readiness(self):
         class Process:

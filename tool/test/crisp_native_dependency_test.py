@@ -1,6 +1,6 @@
 """0.4.0 native metadata contracts; no client compilation, network or upload."""
 from pathlib import Path
-import hashlib, shutil, subprocess, tempfile, unittest, zipfile
+import hashlib, shutil, subprocess, tempfile, unittest, zipfile, sys
 ROOT = Path(__file__).resolve().parents[2]
 FIXTURE = ROOT / 'tool/test/fixtures/desktop_webview_window_0_4_0'
 
@@ -24,8 +24,11 @@ class NativeMetadataTests(unittest.TestCase):
         self.assertIn('webkit2gtk-4.1',linux)
         self.assertIn('libsoup-3.0',linux)
         workflow = (ROOT/'.github/workflows/release-package.yml').read_text(encoding='utf-8')
-        self.assertIn('libwebkit2gtk-4.1-dev',workflow)
-        self.assertIn('libsoup-3.0-dev',workflow)
+        sys.path.insert(0,str(ROOT/'tool'))
+        from install_linux_package_deps import packages_for
+        self.assertIn('sudo python3 tool/install_linux_package_deps.py',workflow)
+        for arch in ('amd64','arm64'):
+            self.assertTrue({'libwebkit2gtk-4.1-dev','libsoup-3.0-dev'}.issubset(packages_for(arch)))
         self.assertIn("platform :osx, '12.0'",(ROOT/'macos/Podfile').read_text(encoding='utf-8'))
         self.assertIn('.macOS("10.15")',(FIXTURE/'macos/desktop_webview_window/Package.swift').read_text(encoding='utf-8'))
 

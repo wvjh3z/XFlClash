@@ -22,6 +22,7 @@
 
 | 事件 | 品牌 / 目标 | 首个失败阶段 | 当前状态 |
 | --- | --- | --- | --- |
+| [Actions #173/#174 Linux APT](#actions-173174-linux-apt依赖失败2026-11-12) | A/build54、B/build42；Linux AMD64/ARM64 | Ubuntu归档DNS失败，update软失败后继续install，15分钟超时 | 严格索引/有界下载备源/离线安装已接线；定向66项通过，完整共享门禁本机缺CMake，正式CI待验 |
 | [Linux build54节点断连](#linux-build54节点断连2026-11-11) | A Android ARM64 / Jenkins #6 | 首个远端sh前Remoting/WebSocket ClosedChannelException | 无工作区/无APK，节点现已恢复在线；底层原因未知，待授权重试 |
 | [Linux build53调度准备](#linux-build53调度准备2026-11-11) | A Android ARM64 / Linux节点 | 维护机缺Paramiko；SSH信任文件相对路径未解析 | 改用现有OpenSSH并按运维仓库根解析原信任文件，未绕过验证；正式构建结果另记 |
 | [套餐右上价格基线](#套餐右上价格基线回归2026-11-11) | 两品牌共享UI；Windows测试宿主 | 测试在布局/绘制阶段之外调用getDistanceToBaseline触发Flutter断言 | 改用dry baseline查询，保留几何断言；16项及两文件分析通过 |
@@ -47,6 +48,16 @@
 **当前结论**：以下“未提交/待修/待复验”是各历史阶段当时状态，不是当前main状态。首轮修复提交3b6a5fbb，#141暴露剩余问题，9c136383补修，#143（a3152f5b）全六目标成功；已合入main。正式证据见[run143](https://github.com/wvjh3z/proxy-suite-docs/blob/main/evidence/run143/README.md)。不能由新批次成功反推#140具体文件变化原因已经找到。后续按新失败证据另评估，不覆盖历史。
 
 ## v0.9.3升级候选验证（2026-11-08）
+
+### Actions #173/#174 Linux APT依赖失败（2026-11-12）
+
+两批均固定源码07fd0f45261aeb5d68f9de7e223463aee06835c9。A [#173](https://github.com/wvjh3z/XFlClash/actions/runs/43050035131)为build54，B [#174](https://github.com/wvjh3z/XFlClash/actions/runs/43050085572)为build42；两品牌均仅Linux AMD64/ARM64失败，Android、Windows双架构及macOS双架构五任务成功，bump跳过。四份失败日志均指向Install Linux package deps：AMD64的azure.archive.ubuntu.com、ARM64的ports.ubuntu.com暂时无法解析。apt-get update警告后返回并沿旧索引继续install，随后步骤15分钟超时。源码中该APT步骤与上次成功#172相同；底层Runner DNS故障原因未知，不认定为UI/SDK编译回归，也不把pub缓存miss当失败。
+
+复现：以冻结workflow的原Linux步骤运行实际Bash、仅替换sudo/apt-get为受控命令；update模拟日志中的“failed indexes + exit0”，旧步骤确实到达install。修复限定自有CI准备工具：amd64仍Ubuntu22.04/jammy、arm64仍Ubuntu24.04/noble，使用临时架构限定.sources和新索引目录，Canonical HTTPS主源/对应Azure备源；Signed-By保留Ubuntu原keyring，不改系统sources或resolver。update强制Error-Mode=any，并拒绝兼容情况下的exit0失败索引警告；下载完成后--no-download安装，安装阶段不重试。签名/证书/完整性/认证/包缺失/配置/锁错误优先失败，只有索引/下载网络错误或依赖阶段超时允许一次备源恢复。总预算840秒，update120/download240/install240秒单阶段上限，共享总预算，保留workflow15分钟外限。
+
+报告先写RUNNER_TEMP/linux-package-deps.json（root产生但0644供runner读取），always再复制到build/dependency-retries/linux-apt.json；首传/上传重试均沿既有目录归档，避免改artifact根布局或被flutter clean丢掉。保留xvfb/dbus、WebKit4.1/libsoup3、curl/secret/jsoncpp、AppImage等依赖，FUSE按发行版明确选libfuse2或libfuse2t64，rpm仅amd64，取消用任意安装失败触发换包名的旧`||`路径。
+
+经验复核：v0.8.93 E2及v0.9.2 #140/#141要求按工具/阶段分类、有界重试、永久错误优先、取消清理和证据首传/重试一致；本次分别落入APT下载层和always归档，没有整套编译重试、关闭签名、升级amd64 Runner或延长步骤超时。旧workflow接线负控1项预期失败；最新APT/依赖契约26项、发行workflow契约40项均通过，actionlint/ShellCheck通过；四组真实APT只读indextargets解析与16个公开InRelease HTTPS读取通过（读取不替代APT GPG验签）。完整tool/check_release_workflow.py本机退出2：缺cmake，未恢复退役工具链，未以替身冒充完整门禁成功；正式新CI安装/制包待用户另行运行。原始四job日志、复现、正负控及缺项见Docs/evidence/actions-173-174-20261112。
 
 ### Linux build55状态回收停滞（2026-11-11）
 

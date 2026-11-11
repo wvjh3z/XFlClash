@@ -562,18 +562,9 @@ jobs:
         if: matrix.platform == 'linux'
         run: |
           set -euo pipefail
-          sudo apt-get update -y
-          sudo apt-get install -y xvfb dbus-daemon ninja-build libgtk-3-dev libayatana-appindicator3-dev libkeybinder-3.0-dev locate file squashfs-tools
-          # 桌面 WebView（desktop_webview_window）需 webkit2gtk-4.1 + libsoup-3.0（插件 CMake REQUIRED）。
-          # sentry-native（原生崩溃上报）CMake find_package(CURL) 需 libcurl dev。
-          # flutter_secure_storage_linux 需 libsecret-1 + jsoncpp（arm64 runner 不自带）。
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libsoup-3.0-dev libcurl4-openssl-dev libsecret-1-dev libjsoncpp-dev
-          # AppImage 需要 patchelf + FUSE（libfuse2；ubuntu 24.04 改名 libfuse2t64，兜底）。
-          sudo apt-get install -y patchelf
-          sudo apt-get install -y libfuse2 || sudo apt-get install -y libfuse2t64
-          if [ "${{ matrix.arch }}" = "amd64" ]; then
-            sudo apt-get install -y rpm   # rpm 仅 amd64 出
-          fi
+          # Signed Ubuntu sources and per-architecture FUSE/RPM stay inside the helper.
+          # Keep the report outside build/ so later clean/package steps cannot erase it.
+          sudo python3 tool/install_linux_package_deps.py --arch "${{ matrix.arch }}" --report "$RUNNER_TEMP/linux-package-deps.json"
 
       - name: Prepare pinned AppImage tool
         if: matrix.platform == 'linux'
@@ -679,6 +670,10 @@ jobs:
       - name: Capture native hook input change diagnostics
         if: always()
         run: |
+          if [ -f "$RUNNER_TEMP/linux-package-deps.json" ]; then
+            mkdir -p build/dependency-retries
+            cp "$RUNNER_TEMP/linux-package-deps.json" build/dependency-retries/linux-apt.json
+          fi
           if [ -f tool/native_hook_diagnostics.py ]; then
             python tool/native_hook_diagnostics.py
           fi
