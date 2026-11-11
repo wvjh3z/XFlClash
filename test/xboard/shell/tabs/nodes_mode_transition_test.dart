@@ -6,6 +6,7 @@ import 'package:fl_clash/xboard/models/xb_domain_subscription.dart';
 import 'package:fl_clash/xboard/providers/user_profile_provider.dart';
 import 'package:fl_clash/xboard/shell/tabs/nodes/nodes_tab.dart';
 import 'package:fl_clash/xboard/shell/tabs/nodes/xb_node_group.dart';
+import 'package:fl_clash/xboard/shell/adapters/xb_group_tabs.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/legacy.dart' show StateProvider;
 import 'package:flutter_test/flutter_test.dart';
@@ -109,6 +110,7 @@ void main() {
             ),
           );
           await tester.pumpAndSettle();
+          expect(find.byType(XbGroupTabs), desktop ? findsNothing : findsOneWidget);
           String active() =>
               tester.widget<XbNodeGroup>(find.byType(XbNodeGroup)).group.name;
           expect(
@@ -159,6 +161,12 @@ void main() {
             find.text('GLOBAL', findRichText: true),
             findsWidgets,
           ); // Explicit visible GLOBAL follows upstream too.
+          if (desktop) {
+            tester.view.physicalSize = const Size(440, 900);
+            await tester.pumpAndSettle();
+            expect(find.byType(XbGroupTabs), findsNothing,
+              reason: 'Desktop narrow windows retain their existing group strip');
+          }
           container.read(mode.notifier).state = Mode.direct;
           await tester.pumpAndSettle();
           expect(find.byType(XbNodeGroup), findsNothing);

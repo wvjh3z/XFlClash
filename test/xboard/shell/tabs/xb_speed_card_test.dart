@@ -43,7 +43,7 @@ Future<void> pumpCard(
 
 void main() {
   // 新布局：每张卡 = 图标 + RichText(数值 + 内联单位)，无独立标签行。
-  // findRichText:true → 在 RichText 内匹配拼接文本（如「8.0 Mbps」「19 ms」）。
+  // findRichText:true → 在 RichText 内匹配拼接文本（如「8.0 Mbps」「9 ms」）。
   testWidgets('字节/秒 → Mbps（×8/1e6，1 位小数）', (tester) async {
     // 1,000,000 B/s = 8 Mbps；500,000 B/s = 4 Mbps。
     await pumpCard(tester, down: 1000000, up: 500000);
@@ -60,16 +60,16 @@ void main() {
     expect(find.textContaining('Kbps', findRichText: true), findsNWidgets(2));
   });
 
-  testWidgets('传原始延迟 → 显示一半数值 + ms 单位', (tester) async {
+  testWidgets('传原始延迟 → 显示四分之一向下取整 + ms 单位', (tester) async {
     await pumpCard(tester, down: 0, up: 0, latencyMs: 38);
-    expect(find.text('19 ms', findRichText: true), findsOneWidget);
+    expect(find.text('9 ms', findRichText: true), findsOneWidget);
     expect(find.text('38 ms', findRichText: true), findsNothing);
   });
 
   testWidgets('最小正数延迟 → 显示整数零，保持有效结果', (tester) async {
     await pumpCard(tester, down: 0, up: 0, latencyMs: 1);
     expect(find.text('0 ms', findRichText: true), findsOneWidget);
-    expect(find.text('0.5 ms', findRichText: true), findsNothing);
+    expect(find.text('0.25 ms', findRichText: true), findsNothing);
     expect(find.text('--', findRichText: true), findsNothing);
   });
 
@@ -90,7 +90,7 @@ void main() {
 
   testWidgets('speed and latency inherit text family and accessibility scale', (tester) async {
     await pumpCard(tester, down: 1000000, up: 500000, latencyMs: 38, scale: 1.4);
-    for (final value in ['8.0 Mbps', '4.0 Mbps', '19 ms']) {
+    for (final value in ['8.0 Mbps', '4.0 Mbps', '9 ms']) {
       final rich = tester.widget<RichText>(find.text(value, findRichText: true));
       expect(rich.text.style!.fontFamily, 'FixtureBody');
       expect(rich.textScaler.scale(10), 14);
@@ -104,7 +104,7 @@ void main() {
     await pumpCard(tester, down: 100000000, up: 50000000, latencyMs: 1998, scale: 1.4);
     expect(find.text('800 Mbps', findRichText: true), findsOneWidget);
     expect(find.text('400 Mbps', findRichText: true), findsOneWidget);
-    expect(find.text('999 ms', findRichText: true), findsOneWidget);
+    expect(find.text('499 ms', findRichText: true), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 }

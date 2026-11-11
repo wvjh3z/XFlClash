@@ -45,6 +45,7 @@ import 'package:fl_clash/xboard/widgets/xb_theme.dart'
 import 'package:fl_clash/xboard/pages/xb_about_page.dart';
 import '../../widgets/xb_content_header.dart';
 import '../../widgets/xb_responsive.dart';
+import '../../widgets/xb_tab_refresh_indicator.dart';
 import 'xb_settings_page.dart';
 
 /// 账号卡用量达到此比例时强调进度；提醒与重置入口位于首页。
@@ -136,12 +137,6 @@ class _MineTabState extends ConsumerState<MineTab> with XbRefreshThrottleGuard {
             cooldownSec: cooldownSeconds,
             onRefresh: _onRefresh,
           );
-          final banner = (_refreshing && !isGuest)
-              ? const Padding(
-                  padding: EdgeInsets.only(bottom: 12),
-                  child: XbSyncBanner(text: '正在刷新服务，请稍候…'),
-                )
-              : null;
           final isDesktop = xbIsDesktopWidth(constraints.maxWidth);
           final accountBlock = isGuest
               ? _GuestCard(onTapLogin: widget.onTapLogin)
@@ -179,7 +174,6 @@ class _MineTabState extends ConsumerState<MineTab> with XbRefreshThrottleGuard {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
-                            ?banner,
                             Row(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
@@ -226,7 +220,6 @@ class _MineTabState extends ConsumerState<MineTab> with XbRefreshThrottleGuard {
             children: [
               header,
               const SizedBox(height: 16),
-              ?banner,
               accountBlock,
               const SizedBox(height: 16),
               _SettingsSection(isGuest: isGuest),
@@ -237,7 +230,7 @@ class _MineTabState extends ConsumerState<MineTab> with XbRefreshThrottleGuard {
     );
     return isGuest
         ? content
-        : RefreshIndicator(onRefresh: _onRefresh, child: content);
+        : XbTabRefreshIndicator(onRefresh: _onRefresh, child: content);
   }
 }
 
@@ -335,12 +328,8 @@ class _AccountSection extends ConsumerStatefulWidget {
 }
 
 class _AccountSectionState extends ConsumerState<_AccountSection> {
-  /// 重试中（点失败卡「重新加载」后到本次重拉落定前）：显示黄色「正在刷新服务」横幅。
-  ///
-  /// **不靠 `await provider.future` 撤横幅**——keepAlive FutureProvider 在 body 抛错且
-  /// 当前无 widget watch 时 `.future` 不会完成（横幅永久卡住，已实测）。改为与套餐/订单页
-  /// 一致：直接 await 反腐层 `getSubscription()`（返 XbResult 永不抛，必落定），完成后
-  /// invalidate provider 刷新卡片 + 撤横幅。彻底绕开 `.future` 坑。
+  /// 重试期间保留骨架。直接等待service结果后失效provider，
+  /// 不等待无人监听时可能不落定的provider.future。
   bool _retrying = false;
 
   Future<void> _retry() async {
@@ -349,17 +338,16 @@ class _AccountSectionState extends ConsumerState<_AccountSection> {
     // 直接调反腐层（永不抛；含反腐层 failOver 切域名 + 5s 超时），无论成功失败都会落定。
     await ref.read(xboardServiceProvider).getSubscription();
     if (!mounted) return;
-    // 用最新结果刷新账号卡 provider（成功 → 渲染卡片；失败 → 失败卡）+ 撤横幅。
+    // 用最新结果刷新账号卡 provider（成功 → 渲染卡片；失败 → 失败卡）。
     ref.invalidate(userProfileProvider);
     setState(() => _retrying = false);
   }
 
   @override
   Widget build(BuildContext context) {
-    // 重试中：与首次加载（booting）同布局——顶部刷新横幅 + 骨架卡 + 禁用按钮（卡片不丢，
-    // 不突兀，原型 11d）。仅横幅文案不同（「正在刷新服务」vs「正在同步账号与套餐信息」）。
+    // 重试与首次加载都保留骨架卡及禁用按钮，不再显示刷新横幅。
     if (_retrying) {
-      return const _AccountSkeleton(bannerText: '正在刷新服务，请稍候…');
+      return const _AccountSkeleton();
     }
     // F14：已 gate authenticated（MineTab 已判 isGuest），可安全 watch。
     final async = ref.watch(userProfileProvider);
@@ -744,13 +732,9 @@ class _PlanActions extends ConsumerWidget {
   }
 }
 
-/// 加载骨架（已登录未就绪，R6.9）—— 原型：顶部琥珀同步条 + 白底骨架卡（shimmer）。
+/// 加载骨架（已登录未就绪，R6.9），不附加刷新横幅。
 class _AccountSkeleton extends StatelessWidget {
-  const _AccountSkeleton({this.bannerText});
-
-  /// 顶部同步横幅文案（null → XbSyncBanner 默认「正在同步账号与套餐信息…」；
-  /// 重试态传「正在刷新服务，请稍候…」，原型 11d）。
-  final String? bannerText;
+  const _AccountSkeleton();
 
   @override
   Widget build(BuildContext context) {
@@ -758,11 +742,6 @@ class _AccountSkeleton extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        // 顶部同步条（原型 .syncbar）。
-        bannerText != null
-            ? XbSyncBanner(text: bannerText!)
-            : const XbSyncBanner(),
-        const SizedBox(height: 12),
         // 白底骨架卡（原型 .plancmp.plan-skel，紧凑无头像）。
         Container(
           padding: const EdgeInsets.fromLTRB(18, 16, 18, 16),

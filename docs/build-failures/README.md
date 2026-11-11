@@ -22,6 +22,7 @@
 
 | 事件 | 品牌 / 目标 | 首个失败阶段 | 当前状态 |
 | --- | --- | --- | --- |
+| [品牌分组菜单回归](#品牌分组菜单回归2026-11-11) | A/B共享UI，Windows隔离宿主 | 重复激活错误pop内容页；测试准备/旧断言失败 | 稳定Page身份保护；17文件分两批186项通过，golden/设备待验 |
 | [v0.9.3候选验证](#v093升级候选验证2026-11-08) | A/B共用源码；Linux与Windows夹具 | 接口/测试宿主、golden环境及测试传输准备 | golden经论证、原型/配色修复和分批批准后最终55/55；原生缺口另记 |
 | [偏好提交失败候选夹带](#偏好提交失败候选夹带2026-11-08) | A/B Windows/Linux共用适配器；本轮Linux | 失败写入修改适配器缓存，后续无关写入带入 | 旧实现25例20失败，最小提交补丁后188例通过；Windows原生/全局门面边界仍待 |
 | [Jenkins本地工作区快照准备](#jenkins本地工作区快照准备2026-11-08) | Linux / 最新未提交工作区回归 | 源码一致性守卫发现准备步骤改写build_config | 核实为名称补引号后恢复快照原字节；89例通过，3503项前后一致 |
@@ -35,6 +36,12 @@
 **当前结论**：以下“未提交/待修/待复验”是各历史阶段当时状态，不是当前main状态。首轮修复提交3b6a5fbb，#141暴露剩余问题，9c136383补修，#143（a3152f5b）全六目标成功；已合入main。正式证据见[run143](https://github.com/wvjh3z/proxy-suite-docs/blob/main/evidence/run143/README.md)。不能由新批次成功反推#140具体文件变化原因已经找到。后续按新失败证据另评估，不覆盖历史。
 
 ## v0.9.3升级候选验证（2026-11-08）
+
+### 品牌分组菜单回归（2026-11-11）
+
+本轮未提交分组/刷新适配在授权WIN11-BUILD隔离副本验证，Flutter3.47.6/Dart3.13.5。双次语义激活负控实测菜单和下方pager均消失，回调丢失；单次激活正常。Navigator在调用didPop前已改变entry状态，因此isFirst不能可靠识别不可弹出的根内容页。改为`settings is _GroupRootPage`后12项菜单回归通过，后续17文件分两批138+48项全部通过。仅保护品牌本地菜单Navigator，不能据此关闭原版全局P1。
+
+测试准备失败分别处理：原版7.5行菜单末行半露且有弹性回弹，需真实滚动、ensureVisible并等待结束后再点，保留命中警告fatal；SemanticsHandle须在finally释放；新增内层PageView后旧全局Finder不唯一，改从页面标题真实拖动外层；漏import与桌面旧÷2断言属于编译/预期准备，不算产品负控。初始分析另纠正GlyphIcon导入、根路由父类调用及大括号；完整26文件分析通过，4个新文件格式化后再次分析/17项复验通过，最后一处仅大括号整理未重复行为回归。pubspec/lock已恢复、本机远端摘要一致；完整命令、红绿报告及归档索引见[本轮证据](https://github.com/wvjh3z/proxy-suite-docs/blob/main/evidence/node-group-client-20261111/README.md)。没有出包、安装或更新golden，设备视觉与正式交付仍待验。
 
 2026-11-11 Windows VC诊断增强：固定Inno6.7.1真实编译揭示16项静态检查漏掉两处问题。错误兜底字符串换行以`#13#10`开头，被ISPP当作未知预处理指令；移到上一行后，编译继续暴露`TNewMemo.CopyToClipboard`未知标识符。PascalScript源码里的该注册受`IFNDEF PS_MINIVCL`控制，不能仅搜索到注册语句就认为Inno实际暴露接口。已改用原生编辑框`WM_COPY`及`GetClipboardSequenceNumber`核对复制是否发生。原始红编译退出2；修正后完整生产诊断Code/中英CustomMessages的无害夹具经Inno6.7.1编译成功，并以普通用户实际执行中英两种语言，覆盖UTF-8、中文/空格/单引号路径、入口/解析失败、原始退出1、协议分类、日志不可写及复制回读。38项策略和9项真实子进程另行通过，未安装VC或构建客户端。此夹具不含正式maker/Files/ISPP准备入口，不能替代双品牌完整预检。可复用夹具为`tool/test/windows_vc_diagnostics_native_test.py`；证据见Docs/evidence/vc-diagnostics-20261111。MCP首次超长内联传输触发WinError206，改分块传输；首次夹具收尾外层退出1，修正空剪贴板恢复及子进程清理后复验退出0，两者均非安装器缺陷。
 

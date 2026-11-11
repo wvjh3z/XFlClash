@@ -159,13 +159,13 @@ void main() {
       }
       h.adapter.emitDelay('HK1', 121);
       await tester.pump();
-      expect(find.text('60 ms'), findsNothing);
+      expect(find.text('30 ms'), findsNothing);
       expect(find.byType(XbSpinner), findsOneWidget);
       h.adapter.attempts.last.result.complete(121);
       await tester.pump();
       await task;
       expect(h.adapter.attempts.length, failures + 1);
-      expect(find.text('60 ms'), findsOneWidget);
+      expect(find.text('30 ms'), findsOneWidget);
       expect(find.text('超时'), findsNothing);
       expect(find.byType(XbSpinner), findsNothing);
       expect(
@@ -217,11 +217,11 @@ void main() {
     h.adapter.attempts.last.result.complete(120);
     await tester.pump();
     await task;
-    expect(find.text('60 ms'), findsNothing);
+    expect(find.text('30 ms'), findsNothing);
     expect(find.byType(XbSpinner), findsOneWidget);
     measuring.finish('HK1');
     await tester.pump();
-    expect(find.text('60 ms'), findsOneWidget);
+    expect(find.text('30 ms'), findsOneWidget);
     expect(find.byType(XbSpinner), findsNothing);
   });
 

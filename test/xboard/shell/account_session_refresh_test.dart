@@ -171,7 +171,8 @@ void main() {
       );
       await tester.tap(find.text('刷新节点'));
       await tester.pump();
-      expect(find.text('正在刷新节点，请稍候…'), findsOneWidget);
+      expect(find.text('正在刷新节点，请稍候…'), findsNothing);
+      expect(find.text('刷新中…'), findsOneWidget);
       await _switchToB(tester, container, profile, nodes: true);
       responseA.complete(XbSyncOutcome.subscriptionExpired);
       await tester.pump();
@@ -251,7 +252,8 @@ void main() {
       );
       await tester.tap(find.text('刷新信息'));
       await tester.pump();
-      expect(find.text('正在刷新服务，请稍候…'), findsOneWidget);
+      expect(find.text('正在刷新服务，请稍候…'), findsNothing);
+      expect(find.text('刷新中…'), findsOneWidget);
       await _switchToB(tester, container, profile, nodes: false);
       final bLoads = profile.loads;
       responseA.complete(const XbFailure(XbUnauthorized('A 登录已过期')));

@@ -81,9 +81,9 @@ void main() {
       await t.pump();
     }
 
-    testWidgets('有延迟 → 显示一半数字 + ms 单位', (t) async {
+    testWidgets('有延迟 → 显示四分之一向下取整 + ms 单位', (t) async {
       await pump(t, 66);
-      expect(find.text('33 ms', findRichText: true), findsOneWidget);
+      expect(find.text('16 ms', findRichText: true), findsOneWidget);
       expect(find.text('66 ms', findRichText: true), findsNothing);
     });
 

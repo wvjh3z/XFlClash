@@ -4,7 +4,7 @@
 /// 全局模式（全走 VPN、国内 App 绕经海外体验差非必要不用，R3.5）。
 ///
 /// **共用组件**：标题居中 + modeexp 解释卡 + 品牌「知道了」全部由 [XbInfoSheet] 统一表达
-/// （与线路分组类型说明同源，改一处全改）。纯 UI，无 provider 依赖。
+/// （与网络接管方式说明共用）。纯 UI，无 provider 依赖。
 library;
 
 import 'package:material_ui/material_ui.dart';

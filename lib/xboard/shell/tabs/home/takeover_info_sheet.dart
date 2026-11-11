@@ -3,7 +3,7 @@
 /// 首页右栏「网络接管方式」卡标题右侧 ⓘ 点击 → 说明弹窗：系统代理 + 虚拟网卡(TUN)。
 /// 两者互不互斥、可同时开启、互补接管流量（与上游 FlClash 一致）。
 ///
-/// **共用组件**：复用 [XbInfoSheet]（与代理模式 / 分组类型说明同源，改一处全改）。纯 UI。
+/// **共用组件**：复用 [XbInfoSheet]（与代理模式说明同源）。纯 UI。
 library;
 
 import 'package:material_ui/material_ui.dart';

@@ -111,7 +111,7 @@ void main() {
     await pumpNodes(t, auth: AuthState.authenticated);
     expect(t.takeException(), isNull);
     // 结构对照原型 nodes('recommend')：标题「选择线路」+ 刷新节点 + 顶部分组 tab +
-    // 类型标签 url-test + 测延迟 + 首项「自动」+ 节点名。
+    // 测延迟 + 首项「自动」+ 节点名；不再显示分组类型说明。
     // 注：分组 tab / 节点名经 EmojiText（=RichText）渲染，find.text 默认不匹配 RichText，
     //     故全部加 findRichText: true（纯增量，仍匹配普通 Text）。
     expect(find.text('选择线路', findRichText: true), findsOneWidget);
@@ -121,7 +121,7 @@ void main() {
     expect(find.text('测延迟', findRichText: true), findsOneWidget);
     expect(find.text('自动', findRichText: true), findsOneWidget); // url-test 首项「自动」标
     expect(find.textContaining('url-test', findRichText: true),
-        findsOneWidget); // 类型标签
+        findsNothing); // 类型说明已按产品要求移除，PNG基线需另外论证与验收。
     expect(find.text('🇯🇵 东京 IEPL 02', findRichText: true), findsOneWidget);
     await expectXbGolden(t, find.byType(NodesTab), 'goldens/nodes_recommend.png');
   });

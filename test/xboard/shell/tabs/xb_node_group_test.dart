@@ -1,4 +1,4 @@
-/// 自绘节点分组 [XbNodeGroup] 单测：类型标签 + 「自动」标记 + 只读组 + 类型说明 sheet。
+/// 节点分组：保留自动/只读/测速行为，不显示类型标签或帮助入口。
 library;
 
 import 'package:material_ui/material_ui.dart';
@@ -51,11 +51,11 @@ Future<void> pump(WidgetTester tester, XbGroupSummary group) async {
 }
 
 void main() {
-  testWidgets('url-test：显示类型标签（含简短说明）+ 自动命中节点标「自动」+ 测延迟',
+  testWidgets('url-test：不显示类型说明，保留自动节点标记和测延迟',
       (tester) async {
     await pump(tester, _group(XbGroupKind.urlTest));
-    expect(find.textContaining('url-test'), findsOneWidget);
-    expect(find.textContaining('自动选择低延迟节点'), findsOneWidget);
+    expect(find.textContaining('url-test'), findsNothing);
+    expect(find.textContaining('自动选择低延迟节点'), findsNothing);
     // 计算选择组：core 命中节点（mock selected=首项）标「自动」。
     expect(find.text('自动'), findsOneWidget);
     // 可选组显示「测延迟」。
@@ -118,28 +118,26 @@ void main() {
     expect(find.text('自动'), findsNothing, reason: '手动锁定后不显示自动标签');
   });
 
-  testWidgets('selector：类型标签 + 无「自动」标记', (tester) async {
+  testWidgets('selector：无类型标签及自动标记', (tester) async {
     await pump(tester, _group(XbGroupKind.selector));
-    expect(find.textContaining('selector'), findsOneWidget);
-    expect(find.textContaining('手动选择节点'), findsOneWidget);
+    expect(find.textContaining('selector'), findsNothing);
+    expect(find.textContaining('手动选择节点'), findsNothing);
     expect(find.text('自动'), findsNothing);
   });
 
   testWidgets('load-balance：只读组仍可测延迟（与能否手选无关）', (tester) async {
     await pump(tester, _group(XbGroupKind.loadBalance));
-    expect(find.textContaining('load-balance'), findsOneWidget);
+    expect(find.textContaining('load-balance'), findsNothing);
     // 所有分组都可测延迟（看节点健康度），即便只读组。
     expect(find.text('测延迟'), findsOneWidget);
   });
 
-  testWidgets('点 url-test 标签 ? → 只弹该类型说明（不列其它类型）', (tester) async {
-    await pump(tester, _group(XbGroupKind.urlTest));
-    await tester.tap(find.byIcon(Icons.help_outline));
-    await tester.pumpAndSettle();
-    expect(find.text('线路分组类型说明'), findsOneWidget);
-    // 只显示被点的 url-test，不列其它类型。
-    expect(find.textContaining('自动测速'), findsOneWidget);
-    expect(find.text('load-balance'), findsNothing);
-    expect(find.text('relay'), findsNothing);
-  });
+  for (final kind in XbGroupKind.values) {
+    testWidgets('${kind.name}没有说明入口或弹框，仍可测延迟', (tester) async {
+      await pump(tester, _group(kind));
+      expect(find.byIcon(Icons.help_outline), findsNothing);
+      expect(find.text('线路分组类型说明'), findsNothing);
+      expect(find.text('测延迟'), findsOneWidget);
+    });
+  }
 }

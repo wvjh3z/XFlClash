@@ -16,7 +16,7 @@ import '../../widgets/xb_ui_kit.dart' show XbBrandTheme;
 ///
 /// **桌面惯例**：宽窗口（≥600，桌面）用**居中模态对话框**（与 PC 原型 `.dlg` 一致）；
 /// 底部 sheet 是移动端手势交互，不合桌面。窄窗口（移动 / 桌面小窗）仍用底部 sheet。
-/// 全部弹窗（登录 / 注册 / 忘记密码 / 模式说明 / 分组类型说明…）统一走此入口，自动适配。
+/// 登录 / 注册 / 忘记密码 / 模式说明等品牌弹窗共用此入口，自动适配。
 ///
 /// **关键**：builder 自动包 [XbBrandTheme] —— 弹窗挂根 Navigator（FlClash MaterialApp 下），
 /// 不在 shell 子树内，不包则拿不到品牌主题 → 徽标/按钮退回 FlClash 灰褐色。

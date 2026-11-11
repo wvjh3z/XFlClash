@@ -19,13 +19,12 @@ import 'package:flutter/rendering.dart' show RenderAbstractViewport;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:fl_clash/xboard/widgets/xb_components.dart'
-    show XbTag, XbInfoSheet, XbInfoItem, XbSpinner;
+    show XbTag, XbSpinner;
 import 'package:fl_clash/xboard/util/format.dart' show xbLatencyDisplay;
 import 'package:fl_clash/xboard/widgets/xb_feedback.dart' show xbToast;
 import 'package:fl_clash/xboard/widgets/xb_theme.dart' show XbTokens;
 
 import '../../adapters/xb_nodes_adapter.dart';
-import '../../sheets/sheet_scaffold.dart' show showXbInfoPopup;
 
 /// 测延迟全局冷却窗口（60s）：跨所有分组共享——测完任意分组延迟后，所有分组的「测延迟」
 /// 按钮一起进入冷却（防止用户反复整组测速打爆服务器）。单节点测速（闪电按钮）不受限。
@@ -43,7 +42,7 @@ int _delayTestRemaining() {
   return r > 0 ? r : 0;
 }
 
-/// 自绘分组区块：分组名 + 类型标签(含「?」说明) + 测延迟按钮 + 节点行列表。
+/// 自绘分组区块：测延迟按钮 + 节点行列表；分组名称由外层标签/侧栏展示。
 class XbNodeGroup extends ConsumerStatefulWidget {
   const XbNodeGroup({
     super.key,
@@ -228,7 +227,7 @@ class _XbNodeGroupState extends ConsumerState<XbNodeGroup> {
         )
         .toList();
 
-    // 选中分组的节点列表（可滚动）；头部为「类型标签 + 测延迟」行（分组名已由顶部 tab 显示）。
+    // 可滚动节点列表，头部仅保留测速动作，不展示组类型及说明入口。
     // 桌面 master-detail（columns>1）：去掉列表左右内边距 —— 否则它叠加在 rail↔列表的 20px
     // 间隔上（20+16≈36），看起来分组栏离节点列表过远（原型 .md gap 仅 20）。
     final desktop = widget.columns > 1;
@@ -241,15 +240,12 @@ class _XbNodeGroupState extends ConsumerState<XbNodeGroup> {
       cacheExtent: widget.scrollToNode != null ? 5000.0 : null,
       padding: EdgeInsets.fromLTRB(desktop ? 0 : 16, 2, desktop ? 0 : 16, 24),
       children: [
-        // 分组头：类型标签（带 ? 说明）左、测延迟右（所有分组都可测）。
+        // 所有分组保留右侧测速动作。
         Padding(
           padding: const EdgeInsets.fromLTRB(0, 0, 0, 8),
           child: Row(
             children: [
-              Expanded(child: Align(
-                alignment: Alignment.centerLeft,
-                child: _TypeChip(kind: group.kind),
-              )),
+              const Spacer(),
               _DelayTestButton(
                 testing: _testing,
                 tested: tested,
@@ -280,66 +276,6 @@ class _XbNodeGroupState extends ConsumerState<XbNodeGroup> {
       ],
     );
   }
-}
-
-/// 类型标签胶囊：`url-test(自动选择低延迟节点) ?`，点 ? 弹完整说明 sheet。
-class _TypeChip extends StatelessWidget {
-  const _TypeChip({required this.kind});
-
-  final XbGroupKind kind;
-
-  @override
-  Widget build(BuildContext context) {
-    final t = XbTokens.of(context);
-    return GestureDetector(
-      onTap: () => _showInfo(context),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
-        decoration: BoxDecoration(
-          color: t.sfc,
-          borderRadius: BorderRadius.circular(7),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              '${_kindLabel(kind)}(${_kindShort(kind)})',
-              style: TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.w600,
-                color: t.onv,
-              ),
-            ),
-            const SizedBox(width: 3),
-            Icon(Icons.help_outline, size: 15, color: t.onv),
-          ],
-        ),
-      ),
-    );
-  }
-
-  void _showInfo(BuildContext context) {
-    showXbInfoPopup<void>(
-      context: context,
-      builder: (_) => XbGroupTypeInfoSheet(kind: kind),
-    );
-  }
-
-  static String _kindLabel(XbGroupKind k) => switch (k) {
-        XbGroupKind.urlTest => 'url-test',
-        XbGroupKind.selector => 'selector',
-        XbGroupKind.fallback => 'fallback',
-        XbGroupKind.loadBalance => 'load-balance',
-        XbGroupKind.relay => 'relay',
-      };
-
-  static String _kindShort(XbGroupKind k) => switch (k) {
-        XbGroupKind.urlTest => '自动选择低延迟节点',
-        XbGroupKind.selector => '手动选择节点',
-        XbGroupKind.fallback => '故障转移',
-        XbGroupKind.loadBalance => '负载均衡',
-        XbGroupKind.relay => '链式中转',
-      };
 }
 
 /// 测延迟按钮（分组头右侧）。测速中显示「测速中 N/M」+ 转圈；
@@ -546,54 +482,6 @@ class _DelayText extends ConsumerWidget {
           fontFeatures: const [FontFeature.tabularFigures()],
         ),
       ),
-    );
-  }
-}
-
-/// 线路分组类型说明 sheet（节点页类型标签 ? 触发；复用代理模式说明 modeexp 风格）。
-/// 点哪个分组的 ? 就只显示该类型的说明（不一次列全 5 种）。
-class XbGroupTypeInfoSheet extends StatelessWidget {
-  const XbGroupTypeInfoSheet({super.key, required this.kind});
-
-  final XbGroupKind kind;
-
-  static (IconData, String, String) _entry(XbGroupKind k) => switch (k) {
-        XbGroupKind.urlTest => (
-            Icons.bolt,
-            'url-test',
-            '自动测速，始终用延迟最低的节点；也可手动点定某个节点锁定（再点一次「自动」恢复）。日常推荐。',
-          ),
-        XbGroupKind.selector => (
-            Icons.touch_app,
-            'selector',
-            '手动选择，点哪个用哪个，不会自动切换。',
-          ),
-        XbGroupKind.fallback => (
-            Icons.swap_horiz,
-            'fallback',
-            '故障转移：按顺序优先用靠前的节点，当前不可用时自动跳到下一个；也可手动锁定。',
-          ),
-        XbGroupKind.loadBalance => (
-            Icons.hub,
-            'load-balance',
-            '负载均衡：流量由系统在组内多个节点间自动分摊，无需也无法手动指定单个节点。',
-          ),
-        XbGroupKind.relay => (
-            Icons.link,
-            'relay',
-            '链式中转：多个节点串成固定链路（入口→中转→出口），链路固定，不能单独选某个节点。',
-          ),
-      };
-
-  @override
-  Widget build(BuildContext context) {
-    final (_, title, desc) = _entry(kind);
-    // 共用说明弹窗：顶部该类型图标圆徽 + 标题居中 + 纯文字说明卡（不重复图标）+ 品牌「知道了」。
-    // 文案与移动端原型一致（full.js groupTypeInfoSheet）。
-    return XbInfoSheet(
-      title: '线路分组类型说明',
-      subtitle: title, // 副标题 = 该类型名（如 url-test）
-      items: [XbInfoItem(title: title, desc: desc)],
     );
   }
 }

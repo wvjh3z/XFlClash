@@ -3,16 +3,19 @@ library;
 
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/legacy.dart' show StateProvider;
 import 'package:riverpod_annotation/riverpod_annotation.dart' show Override;
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:fl_clash/enum/enum.dart';
-import 'package:fl_clash/models/models.dart' show ProxiesTabState, Group, Proxy;
+import 'package:fl_clash/models/models.dart' show ProxiesTabState, Group, Proxy, PatchClashConfig;
 import 'package:fl_clash/providers/state.dart';
+import 'package:fl_clash/providers/config.dart' show patchClashConfigProvider;
 import 'package:fl_clash/xboard/providers/auth_state_provider.dart';
 import 'package:fl_clash/xboard/models/xb_domain_subscription.dart';
 import 'package:fl_clash/xboard/providers/user_profile_provider.dart';
 import 'package:fl_clash/xboard/shell/tabs/nodes/nodes_tab.dart';
+import 'package:fl_clash/xboard/shell/tabs/nodes/xb_node_group.dart';
 
 class _FakeAuth extends AuthStateNotifier {
   _FakeAuth(this._initial);
@@ -177,5 +180,50 @@ void main() {
     expect(find.text('🇯🇵 东京 IEPL 02', findRichText: true), findsNothing);
     // 顶部仍保留「刷新节点」。
     expect(find.text('刷新节点', findRichText: true), findsOneWidget);
+  });
+
+  testWidgets('新增分组关闭旧菜单所有者时，当前组节点滚动位置保留', (tester) async {
+    tester.view.physicalSize = const Size(390, 760);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final groups = [
+      Group(type: GroupType.Selector, name: '长列表',
+        all: List.generate(40, (i) => Proxy(name: '节点$i', type: 'ss'))),
+      const Group(type: GroupType.Selector, name: '其他组', all: [Proxy(name: '其他节点', type: 'ss')]),
+      const Group(type: GroupType.Selector, name: '新增组', all: [Proxy(name: '新增节点', type: 'ss')]),
+    ];
+    final source = StateProvider<List<Group>>((ref) => groups.take(2).toList());
+    final container = ProviderContainer(overrides: [
+      authStateProvider.overrideWith(() => _FakeAuth(AuthState.authenticated)),
+      userProfileProvider.overrideWith((ref) async => const XbDomainSubscription(
+        email: 'fixture@example.com', uuid: 'fixture', totalBytes: 1000,
+        usedBytes: 0, planId: 1)),
+      proxiesTabStateProvider.overrideWith((ref) => ProxiesTabState(
+        groups: ref.watch(source), currentGroupName: '长列表', proxyCardType: ProxyCardType.standard)),
+      patchClashConfigProvider.overrideWithBuild((ref, _) => const PatchClashConfig(mode: Mode.rule)),
+      for (final g in groups) ...[
+        selectedProxyNameProvider(g.name).overrideWithValue(null),
+        proxyNameProvider(g.name).overrideWithValue(null),
+        for (final node in g.all)
+          delayProvider(proxyName: node.name, testUrl: null).overrideWithValue(120),
+      ],
+    ]);
+    addTearDown(() async {
+      await tester.pumpWidget(const SizedBox.shrink());
+      container.dispose();
+    });
+    await tester.pumpWidget(UncontrolledProviderScope(container: container,
+      child: MaterialApp(theme: ThemeData(platform: TargetPlatform.android),
+        home: const Scaffold(body: NodesTab()))));
+    await tester.pumpAndSettle();
+    final scrollable = find.descendant(of: find.byType(XbNodeGroup), matching: find.byType(Scrollable));
+    await tester.drag(scrollable, const Offset(0, -600));
+    await tester.pumpAndSettle();
+    final before = tester.state<ScrollableState>(scrollable).position.pixels;
+    expect(before, greaterThan(0));
+    container.read(source.notifier).state = groups;
+    await tester.pumpAndSettle();
+    expect(tester.state<ScrollableState>(scrollable).position.pixels, closeTo(before, 0.1));
+    expect(tester.takeException(), isNull);
   });
 }

@@ -1150,8 +1150,8 @@ class _SkeletonCard extends StatelessWidget {
         border: Border.all(color: t.line),
         boxShadow: t.shadow1,
       ),
-      child: Row(
-        children: const [
+      child: const Row(
+        children: [
           XbSkeletonBox(width: 38, height: 38, radius: 8),
           SizedBox(width: 12),
           Expanded(
@@ -1323,10 +1323,10 @@ class XbInfoItem {
   final String desc;
 }
 
-/// 通用说明底部 sheet（原型 modeInfoSheet / groupTypeInfoSheet 统一抽象）。
+/// 通用说明底部 sheet（代理模式、网络接管方式等说明共用）。
 ///
 /// **统一**：标题**居中**（原型 `.sheet h3{text-align:center}`）+ 居中副标题 + 一组 `.modeexp`
-/// 解释卡（浅灰底 + 42 品牌淡底图标块）+ 品牌实心「知道了」。代理模式说明、线路分组类型说明
+/// 解释卡（浅灰底 + 42 品牌淡底图标块）+ 品牌实心「知道了」。代理模式、网络接管方式说明
 /// 都用它，改一处全改、风格一致（不再各写一份导致标题对齐/按钮样式飘）。
 ///
 /// 用法：`showXbInfoSheet(context, title: '代理模式说明', subtitle: '两种模式按需切换', items: [...])`

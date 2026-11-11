@@ -30,7 +30,7 @@ const _kBuiltinProxies = {'DIRECT', 'REJECT', 'GLOBAL', 'PASS', 'COMPATIBLE'};
 
 final _nodesOwnerAliveProvider = Provider<bool Function()>((ref) => () => ref.mounted);
 
-/// 形态 A 节点分组类型（primitive，对应 FlClash GroupType；UI 据此分别渲染/说明）。
+/// 形态 A 节点分组类型（primitive，对应 FlClash GroupType；用于选择行为）。
 enum XbGroupKind {
   /// url-test：自动测速选延迟最低；可手动锁定（isComputedSelected）。
   urlTest,
@@ -86,7 +86,7 @@ class XbGroupSummary {
   /// 是否 url-test 自动选优组（首项标「自动」用，R4.3）。
   final bool isUrlTest;
 
-  /// 分组类型（UI 据此渲染类型标签 + 决定是否可手选）。
+  /// 分组类型（决定是否可手选，不展示类型说明或帮助弹框）。
   final XbGroupKind kind;
 
   /// 分组内节点（自绘节点行用）。

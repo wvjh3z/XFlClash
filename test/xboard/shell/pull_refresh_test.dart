@@ -362,7 +362,12 @@ void main() {
     expect(f.syncCalls, 0);
     expect(f.accountCalls, 0);
 
-    await tester.drag(find.byType(PageView), const Offset(-450, 0));
+    // Group content now owns its native horizontal pager. Drag the page header
+    // to exercise the outer shell pager, rather than ambiguously selecting both.
+    await tester.dragFrom(
+      tester.getCenter(_inside(true, find.text('选择线路'))),
+      const Offset(-450, 0),
+    );
     await _finishAnimations(tester);
     expect(find.text('刷新信息'), findsOneWidget);
     expect(f.syncCalls, 0);

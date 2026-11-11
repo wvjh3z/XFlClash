@@ -272,7 +272,7 @@ XbFitText(xbYuan(p.amountYuan), alignment: Alignment.center, ...);          // �
 | `xbDate(DateTime)` | `2026-06-05` |
 | `xbDateTime(DateTime)` | `2026-06-05 12:30` |
 | `xbPercentInt(double 0~1)` | `98`（整数百分比） |
-| `xbLatencyDisplay(int rawMs)` | 正数原始 ms 除以 2 后向下取整；只供首页和节点文字显示，调用方先处理未知/测速中/超时，不回写原始结果或参与选优、排序、颜色判断 |
+| `xbLatencyDisplay(int rawMs)` | 正数原始 ms 除以 4 后向下取整；只供首页和节点文字显示，调用方先处理未知/测速中/超时，不回写原始结果或参与选优、排序、颜色判断 |
 
 ---
 

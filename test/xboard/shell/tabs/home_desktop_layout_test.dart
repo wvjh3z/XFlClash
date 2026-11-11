@@ -116,7 +116,7 @@ void main() {
       scale: 1.4,
     );
     final value = tester.widget<RichText>(
-      find.text('60 ms', findRichText: true),
+      find.text('30 ms', findRichText: true),
     );
     expect(value.text.style!.fontFamily, 'FixtureBody');
     expect(value.textScaler.scale(10), 14);
@@ -128,8 +128,8 @@ void main() {
       auth: AuthState.authenticated,
       rawLatency: 121,
     );
-    expect(find.text('60 ms', findRichText: true), findsOneWidget);
-    expect(find.text('60.5 ms', findRichText: true), findsNothing);
+    expect(find.text('30 ms', findRichText: true), findsOneWidget);
+    expect(find.text('30.25 ms', findRichText: true), findsNothing);
     expect(find.text('121 ms', findRichText: true), findsNothing);
     expect(container.read(homeLatencyProvider).ms, 121);
 

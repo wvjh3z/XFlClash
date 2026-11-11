@@ -27,8 +27,10 @@ import 'package:fl_clash/xboard/widgets/xb_refresh_throttle_guard.dart';
 import 'package:fl_clash/xboard/widgets/xb_theme.dart' show XbTokens, xbPush;
 
 import '../../adapters/xb_nodes_adapter.dart';
+import '../../adapters/xb_group_tabs.dart';
 import '../../widgets/xb_content_header.dart';
 import '../../widgets/xb_responsive.dart';
+import '../../widgets/xb_tab_refresh_indicator.dart';
 import 'xb_node_group.dart';
 
 /// 节点页 master-detail：可用宽 ≥ [XbBreakpoints.desktop] 才双栏（策略见 xb_responsive）。
@@ -65,13 +67,14 @@ class NodesTab extends ConsumerStatefulWidget {
 
 class _NodesTabState extends ConsumerState<NodesTab>
     with XbRefreshThrottleGuard {
-  /// 正在刷新节点（重拉订阅 + 解密 + 写入新 profile）。期间刷新按钮禁用 + 顶部横幅；
+  /// 正在刷新节点（重拉订阅 + 解密 + 写入新 profile）。期间刷新按钮禁用并显示忙态；
   /// 旧节点保留显示（不清空），写入成功后 profile 重载自动覆盖。
   bool _refreshing = false;
 
   /// 当前选中的分组名（顶部 tab）。null = 用首个可见分组。
   String? _selectedGroup;
   bool? _lastGlobalMode;
+  PageStorageBucket _groupScrollStorage = PageStorageBucket();
 
   /// 待定位到的节点名（传给 XbNodeGroup 滚动居中）；消费后清空（只定位一次）。
   String? _pendingScrollNode;
@@ -199,7 +202,7 @@ class _NodesTabState extends ConsumerState<NodesTab>
     );
   }
 
-  /// 空态外壳：顶部标题栏（含刷新节点）+ 刷新中横幅 + 居中空态体。
+  /// 空态外壳：顶部标题栏（含刷新节点）+ 居中空态体。
   /// 无可用线路 / 套餐过期 / 流量用尽三种空态共用（结构一致，仅 body 不同）。
   Widget _emptyShell(Widget body) {
     return Column(
@@ -209,13 +212,8 @@ class _NodesTabState extends ConsumerState<NodesTab>
           refreshing: _refreshing,
           cooldownSec: cooldownSeconds,
         ),
-        if (_refreshing)
-          const Padding(
-            padding: EdgeInsets.fromLTRB(16, 4, 16, 0),
-            child: XbSyncBanner(text: '正在刷新节点，请稍候…'),
-          ),
         Expanded(
-          child: RefreshIndicator(
+          child: XbTabRefreshIndicator(
             onRefresh: _refreshNodes,
             // 空态自身已有滚动容器：只调整其物理规则，不再嵌套另一层滚动。
             child: ScrollConfiguration(
@@ -236,6 +234,7 @@ class _NodesTabState extends ConsumerState<NodesTab>
       if (previous != next) {
         setState(() {
           _refreshing = false;
+          _groupScrollStorage = PageStorageBucket();
           ref.read(subscriptionSyncStatusProvider.notifier).clear();
         });
         resetThrottle();
@@ -264,7 +263,7 @@ class _NodesTabState extends ConsumerState<NodesTab>
       _lastGlobalMode = view.isGlobal;
     }
 
-    // 空态：一个节点都没有。刷新中仍显示空态 + 横幅（旧节点本就为空，无可保留）。
+    // 无节点时保留空态，刷新状态由顶部按钮表达。
     if (view.isEmpty) {
       return _emptyShell(_EmptyNodes(onTapRenew: widget.onTapRenew));
     }
@@ -291,13 +290,9 @@ class _NodesTabState extends ConsumerState<NodesTab>
       refreshing: _refreshing,
       cooldownSec: cooldownSeconds,
     );
-    final banner = _refreshing
-        ? const Padding(
-            padding: EdgeInsets.fromLTRB(16, 4, 16, 0),
-            child: XbSyncBanner(text: '正在刷新节点，请稍候…'),
-          )
-        : null;
+    final revision = ref.read(authStateProvider.notifier).sessionRevision;
 
+    final nativeMobileGroups = Theme.of(context).platform == TargetPlatform.android;
     return LayoutBuilder(
       builder: (context, constraints) {
         final masterDetail = xbIsDesktopWidth(constraints.maxWidth);
@@ -318,7 +313,6 @@ class _NodesTabState extends ConsumerState<NodesTab>
                   cooldownSec: cooldownSeconds,
                 ),
               ),
-              ?banner,
               Expanded(
                 // 原型 .md：max-width 1000 居中，rail 与节点网格之间 20px 留白（无分隔线）。
                 child: Center(
@@ -339,7 +333,7 @@ class _NodesTabState extends ConsumerState<NodesTab>
                           ),
                           const SizedBox(width: 20),
                           Expanded(
-                            child: RefreshIndicator(
+                            child: XbTabRefreshIndicator(
                               onRefresh: _refreshNodes,
                               child: XbNodeGroup(
                                 key: ValueKey(current.name),
@@ -359,19 +353,48 @@ class _NodesTabState extends ConsumerState<NodesTab>
             ],
           );
         }
-        // 移动端：顶部横向分组 tab + 单列节点列表。
+        // Android采用原版分组交互；桌面窄窗口仍保留现有横向品牌标签。
         return Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            header,
-            ?banner,
-            _GroupTabBar(
-              groups: groups,
-              selected: current.name,
-              onSelect: (name) => setState(() => _selectedGroup = name),
-            ),
+            if (!nativeMobileGroups) header,
+            if (!nativeMobileGroups)
+              _GroupTabBar(
+                groups: groups,
+                selected: current.name,
+                onSelect: (name) => setState(() => _selectedGroup = name),
+              ),
             Expanded(
-              child: RefreshIndicator(
+              child: nativeMobileGroups ? XbGroupTabs(
+                key: ValueKey((revision, view.isGlobal)),
+                groups: groups,
+                selected: current.name,
+                targetNonce: _handledNonce,
+                header: header,
+                onSelected: (name) {
+                  if (!mounted ||
+                      ref.read(authStateProvider) != AuthState.authenticated ||
+                      ref.read(authStateProvider.notifier).sessionRevision != revision) {
+                    return;
+                  }
+                  setState(() => _selectedGroup = name);
+                },
+                groupBuilder: (context, group) => PageStorage(
+                  bucket: _groupScrollStorage,
+                  child: KeyedSubtree(
+                    key: PageStorageKey((revision, group.name)),
+                    child: XbTabRefreshIndicator(
+                      onRefresh: _refreshNodes,
+                      child: XbNodeGroup(
+                        key: ValueKey(group.name),
+                        group: group,
+                        scrollToNode: group.name == current.name ? scrollNode : null,
+                        scrollNonce: _handledNonce,
+                      ),
+                    ),
+                  ),
+                ),
+              ) : XbTabRefreshIndicator(
                 onRefresh: _refreshNodes,
                 child: XbNodeGroup(
                   key: ValueKey(current.name),
@@ -435,7 +458,7 @@ class _GroupRail extends StatelessWidget {
   }
 }
 
-/// 顶部分组 tab（横向滚动 chips，原型 `.gtabs`）。选中高亮品牌色。
+/// 桌面原有分组样式：宽窗口竖排，窄窗口横向chips。Android另用原版交互适配器。
 class _GroupTabBar extends StatelessWidget {
   const _GroupTabBar({
     required this.groups,
@@ -448,8 +471,7 @@ class _GroupTabBar extends StatelessWidget {
   final String selected;
   final ValueChanged<String> onSelect;
 
-  /// 排布方向：移动端顶部横向 chips（默认）；桌面 master-detail 左栏竖向列表。
-  /// 竖版由后续桌面节点布局接入（C-分支）使用。
+  /// 桌面窄窗口横向chips（默认），master-detail左栏竖向列表。
   final Axis axis;
 
   @override
@@ -469,7 +491,7 @@ class _GroupTabBar extends StatelessWidget {
         ],
       );
     }
-    // 移动端：顶部横向滚动 chips。
+    // 桌面窄窗口保留原横向标签，不接入移动端的新菜单。
     return SizedBox(
       height: 42,
       child: ListView.separated(

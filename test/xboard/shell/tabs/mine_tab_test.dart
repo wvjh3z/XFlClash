@@ -21,7 +21,7 @@ import 'package:fl_clash/xboard/providers/user_profile_provider.dart';
 import 'package:fl_clash/xboard/providers/xboard_providers.dart';
 import 'package:fl_clash/xboard/sdk/xboard_service.dart';
 import 'package:fl_clash/xboard/shell/tabs/mine/mine_tab.dart';
-import 'package:fl_clash/xboard/widgets/xb_components.dart' show XbSkeletonBar;
+import 'package:fl_clash/xboard/widgets/xb_components.dart' show XbSkeletonBar, XbSyncBanner;
 
 class _MockService extends Mock implements XboardService {}
 
@@ -509,9 +509,9 @@ void main() {
     expect(find.text('购买 / 更改套餐'), findsOneWidget);
   });
 
-  testWidgets('账号加载失败 → 点重新加载 → 黄横幅出现，重试落定后横幅消失（不卡死）', (tester) async {
+  testWidgets('账号重试保留骨架但不显示黄横幅，失败后恢复重试入口', (tester) async {
     final svc = _MockService();
-    // 重试调反腐层 getSubscription：延迟后返失败（XbResult 永不抛、必落定）→ 横幅应能正常撤除。
+    // 重试调用service：延迟后返回失败，骨架应正常撤除。
     when(svc.getSubscription).thenAnswer((_) async {
       await Future<void>.delayed(const Duration(milliseconds: 100));
       return XbResult.failure(const XbNetwork(XbNetworkKind.unknown, 'down'));
@@ -537,11 +537,12 @@ void main() {
     } catch (_) {}
     expect(find.text('账号信息加载失败'), findsOneWidget);
 
-    // 点重新加载 → 同步 setState(_retrying=true) → 黄横幅出现。
+    // 点重新加载后显示骨架，不额外显示同步横幅。
     await tester.tap(find.text('重新加载'));
     await tester.pump();
-    expect(find.text('正在刷新服务，请稍候…'), findsOneWidget);
-    // 11d：重试态与首次加载同布局——卡片不丢（骨架卡占位 + 禁用按钮行），不只是一条横幅。
+    expect(find.text('正在刷新服务，请稍候…'), findsNothing);
+    expect(find.byType(XbSyncBanner), findsNothing);
+    // 重试态与首次加载同样保留骨架卡及禁用按钮。
     expect(
       find.byType(XbSkeletonBar),
       findsWidgets,
@@ -550,11 +551,11 @@ void main() {
     expect(find.text('续费当前套餐'), findsOneWidget, reason: '重试态显示禁用的续费/购买按钮行');
 
     // 等 getSubscription 落定 + invalidate + setState(_retrying=false)。
-    // _retry await 的是反腐层（必返回），故横幅一定撤除（验证不卡死）。
+    // _retry等待service结果，失败也必须退出骨架忙态。
     try {
       await tester.pumpAndSettle(const Duration(milliseconds: 100));
     } catch (_) {}
-    expect(find.text('正在刷新服务，请稍候…'), findsNothing, reason: '重试落定后横幅必须消失（不卡死）');
+    expect(find.byType(XbSyncBanner), findsNothing);
     expect(find.text('账号信息加载失败'), findsOneWidget, reason: '重试仍失败 → 回到失败卡');
   }, timeout: const Timeout(Duration(seconds: 30)));
 
