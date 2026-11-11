@@ -43,7 +43,7 @@
 
 固定Flutter3.47.6的BuildWindowsCommand没有目标切换参数，按宿主选择x64/ARM64；因此不能用在x64主机安装ARM64 MSVC来证明正式Flutter整包可交叉构建。用户选择windows-11-arm原生Runner，WIN11-BUILD做既有x64/原生夹具检查。旧QuickJS x64 DLL与客服旧Loader阻塞已随依赖演进改变，不能照旧版失败禁用新目标，也不能由上游出包宣称品牌安装器/更新通过。
 
-前置检查首次缺固定distributor源码，按checkout_distributor准备后通过。新宿主检查用未解析的dart批处理名触发WinError2，改为FLUTTER_ROOT内真实dart.exe后正控0、错误目标负控1。Windows app.so由AotElfRelease生成，成品守卫必须区分PE原生模块与ELF AOT；已复用现有ELF解析器，并覆盖两品牌的错DLL/错AOT负控。VC配置必须按实际runner生成，ARM64策略查ARM64注册表/编译器/CRT，而不是仅允许发行名称。40策略、9子进程、两品牌×两架构20项真实Inno编译及Dart4项通过；正式ARM64整包与设备结果见[专项证据](https://github.com/wvjh3z/proxy-suite-docs/blob/feat/windows-arm64-v093/evidence/windows-arm64-v093-20261111/README.md)，本段不代替实际构建回执。
+前置检查首次缺固定distributor源码，按checkout_distributor准备后通过。新宿主检查用未解析的dart批处理名触发WinError2，改为FLUTTER_ROOT内真实dart.exe后正控0、错误目标负控1。Windows app.so由AotElfRelease生成，成品守卫必须区分PE原生模块与ELF AOT；已复用现有ELF解析器，并覆盖两品牌的错DLL/错AOT负控。VC配置必须按实际runner生成，ARM64策略查ARM64注册表/编译器/CRT，而不是仅允许发行名称。40策略、9子进程、两品牌×两架构20项真实Inno编译及Dart4项通过；正式ARM64整包与设备结果见Docs的evidence/windows-arm64-v093-20261111（[初始证据提交](https://github.com/wvjh3z/proxy-suite-docs/commit/815464ee13d5f3bc5b3a4995720a1ccbd5ced7f4)，后续沿任务分支维护），本段不代替实际构建回执。
 
 ### 品牌分组菜单回归（2026-11-11）
 
