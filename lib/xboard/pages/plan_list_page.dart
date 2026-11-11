@@ -1,4 +1,4 @@
-/// R8 套餐列表页：瘦身卡片（名 + 摘要 + 最小周期价 + 箭头）→ 点进套餐详情页。
+/// R8 套餐列表页：名称 + 最多四行介绍 + 右侧居中周期价 → 套餐详情页。
 ///
 /// **数据源**：反腐层 `getPlans()`。卡片只显示概要；周期选择 / 优惠码 / 提交在 [PlanDetailPage]。
 library;
@@ -45,7 +45,8 @@ class _PlanListPageState extends ConsumerState<PlanListPage> {
     final result = await ref.read(xboardServiceProvider).getPlans();
     return switch (result) {
       XbSuccess(:final data) => data,
-      XbFailure(:final error) => throw error, // 抛领域错误，error 分支 resolveErrorText 还原文案
+      XbFailure(:final error) =>
+        throw error, // 抛领域错误，error 分支 resolveErrorText 还原文案
     };
   }
 
@@ -106,9 +107,11 @@ class _PlanListPageState extends ConsumerState<PlanListPage> {
                           padding: const EdgeInsets.only(bottom: 11),
                           child: _PlanOptCard(
                             plan: plan,
-                            onTap: () => xbPush(context,
-                                PlanDetailPage(plan: plan),
-                                brandColor: xbBrandColor()),
+                            onTap: () => xbPush(
+                              context,
+                              PlanDetailPage(plan: plan),
+                              brandColor: xbBrandColor(),
+                            ),
                           ),
                         );
                       },
@@ -133,9 +136,11 @@ class _PlanListPageState extends ConsumerState<PlanListPage> {
                                 width: w,
                                 child: _PlanOptCard(
                                   plan: plan,
-                                  onTap: () => xbPush(context,
-                                      PlanDetailPage(plan: plan),
-                                      brandColor: xbBrandColor()),
+                                  onTap: () => xbPush(
+                                    context,
+                                    PlanDetailPage(plan: plan),
+                                    brandColor: xbBrandColor(),
+                                  ),
                                 ),
                               ),
                           ],
@@ -153,7 +158,7 @@ class _PlanListPageState extends ConsumerState<PlanListPage> {
   }
 }
 
-/// 套餐选项卡（原型 `.planopt`）：名 + 流量/特性摘要 + 大号品牌价「¥X/周期 起」+ GB 角标。
+/// 套餐选项卡：不额外展示流量标记，介绍最多四个显示行，价格独立居中。
 class _PlanOptCard extends StatelessWidget {
   const _PlanOptCard({required this.plan, required this.onTap});
   final PlanItem plan;
@@ -174,19 +179,14 @@ class _PlanOptCard extends StatelessWidget {
     final t = XbTokens.of(context);
     final scheme = Theme.of(context).colorScheme;
     final min = _minPeriodPrice;
-    // 特性行（原型 .ft）：首行流量 GB，其后接 HTML content 转纯文本的非空行；各自独立成行
-    // （原型每条 <div> 单独一行，而非 · 拼接）。最多 4 行防卡过高。
-    final descLines = plan.description == null
-        ? const <String>[]
+    // One text layout caps wrapped lines as well as explicit HTML line breaks.
+    final description = plan.description == null
+        ? ''
         : htmlToPlainText(plan.description!)
-            .split('\n')
-            .map((l) => l.trim())
-            .where((l) => l.isNotEmpty)
-            .toList();
-    final features = <String>[
-      '${plan.transferEnableGb} GB',
-      ...descLines,
-    ].take(4).toList();
+              .split('\n')
+              .map((l) => l.trim())
+              .where((l) => l.isNotEmpty)
+              .join('\n');
 
     return GestureDetector(
       onTap: onTap,
@@ -199,32 +199,33 @@ class _PlanOptCard extends StatelessWidget {
           // 原型 .planopt 边框 1.8px。
           border: Border.all(color: t.line, width: 1.8),
         ),
-        // 原型 .planopt：左(名+特性) ←→ 右(价格)，底部对齐；无箭头、无名旁 GB 药丸。
         child: Row(
-          crossAxisAlignment: CrossAxisAlignment.end,
+          crossAxisAlignment: CrossAxisAlignment.center,
           children: [
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  XbEmojiText(plan.name,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                          fontSize: 15.5,
-                          fontWeight: FontWeight.w600,
-                          color: t.on)),
-                  if (features.isNotEmpty) const SizedBox(height: 7),
-                  for (final f in features)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 2),
-                      child: XbEmojiText(f,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                              fontSize: 12, height: 1.5, color: t.onv)),
+                  XbEmojiText(
+                    plan.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 15.5,
+                      fontWeight: FontWeight.w600,
+                      color: t.on,
                     ),
+                  ),
+                  if (description.isNotEmpty) ...[
+                    const SizedBox(height: 7),
+                    XbEmojiText(
+                      description,
+                      maxLines: 4,
+                      overflow: TextOverflow.clip,
+                      style: TextStyle(fontSize: 12, height: 1.5, color: t.onv),
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -240,17 +241,19 @@ class _PlanOptCard extends StatelessWidget {
                     TextSpan(
                       text: xbYuan(min.amountYuan),
                       style: TextStyle(
-                          fontSize: 22,
-                          fontWeight: FontWeight.w700,
-                          color: scheme.primary,
-                          fontFeatures: const [FontFeature.tabularFigures()]),
+                        fontSize: 22,
+                        fontWeight: FontWeight.w700,
+                        color: scheme.primary,
+                        fontFeatures: const [FontFeature.tabularFigures()],
+                      ),
                     ),
                     TextSpan(
                       text: ' /${planPeriodLabel(min.period)}',
                       style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w500,
-                          color: t.onv),
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                        color: t.onv,
+                      ),
                     ),
                   ],
                 ),
