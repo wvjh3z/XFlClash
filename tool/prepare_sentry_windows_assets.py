@@ -20,8 +20,8 @@ def prepare_windows_assets(build_root: Path, cli: str):
     if not bundle.is_relative_to(root):
         raise SymbolError('Windows runner escaped build root')
     rust = rust_inputs(root, 'windows')
-    if len(rust) != 1 or rust[0]['architecture'] != 'x64':
-        raise SymbolError('Expected one matching x64 Rust Native Assets record')
+    if len(rust) != 1 or rust[0]['architecture'] not in {'x64', 'arm64'}:
+        raise SymbolError('Expected one matching Windows Rust Native Assets record')
     record = rust[0]
     installed = bundle / 'rust_api.dll'
     if not installed.is_file() or fingerprint(installed)['sha256'] != fingerprint(record['binary'])['sha256']:
@@ -30,8 +30,9 @@ def prepare_windows_assets(build_root: Path, cli: str):
     if len(pdb) != 1:
         raise SymbolError('Rust Native Assets PDB missing')
     architecture = check_symbol(cli, Path(runner[0][1]), 'pe')['architectures']
-    if architecture != ['x86_64']:
-        raise SymbolError('Windows release runner must be x64')
+    expected_architecture = {'x64': ['x86_64'], 'arm64': ['arm64']}[record['architecture']]
+    if architecture != expected_architecture:
+        raise SymbolError('Rust Native Assets architecture differs from Windows runner')
     def paired(binary, debug):
         runtime_info, debug_info = check_symbol(cli, binary, 'pe'), check_symbol(cli, debug, 'pdb')
         if runtime_info['debug_ids'] != debug_info['debug_ids']:

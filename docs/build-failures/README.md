@@ -39,6 +39,8 @@
 
 ### Windows ARM64 恢复准备（2026-11-11）
 
+按用户提醒对照v0.9.1的Windows符号根目录/架构经验后，提前发现prepare_sentry_windows_assets仍只接受x64 hook及x86_64 runner。新增两品牌ARM64回归在旧生产准备器均失败于明确x64限制；改按实际hook架构映射runner并继续逐PE/PDB匹配ID及架构后通过，错架构PDB、错hook标签仍拒绝。WIN11-BUILD符号/架构16项通过，包含旧x64、路径别名及真实CMake清单夹具，未上传符号。同步发现指定主机脚本漏显式windows-arm64参数及Git Bash模拟架构误判，补目标解析、真实Dart ABI门禁和最终PE/ELF检查；14项本机定向通过。#165在发现这项必然阻断后主动取消于符号工具前置阶段，不记为ARM编译失败。
+
 #164已通过共享前置、原生WebView、安装器与VC检查，停在新增Dart宿主检查WinError2：flutter-action源码安装分支仅检出固定Flutter，未运行bootstrap，bin/cache/dart-sdk/bin/dart.exe尚不存在。增加有界`flutter --version`先走官方初始化，再检查真实Dart ABI；不把missing executable当成ARM组件404，也不取消拒绝x64回退的断言。没有改SDK版本、共享缓存或生成工具文件，正式入口继续复验。
 
 原生Runner #163通过共享前置后，WebView既有CMake夹具11项出现6处失败。Runner实际为windows-11-vs2026-arm64/20261101.203.1、CMake4.4.5、MSVC19.51。CMake4保留SOURCE_DIR的8.3短路径，get_filename_component(ABSOLUTE)却展开为长路径，RELATIVE_PATH因此将正常main.cpp误判越界。WIN11-BUILD隔离安装经官方SHA256验证的便携CMake4.4.5后准确复现；旧CMake对照正常。新增短路径/别名回归在旧helper下红1，源目录先REALPATH统一后完整12项通过，原工具链另2项通过；保留真实外部源拒绝、原版静态析构负控及源文件不变检查。该修改仅调整既有windows/xboard_webview_shutdown.cmake路径比较，不改COM所有权策略。

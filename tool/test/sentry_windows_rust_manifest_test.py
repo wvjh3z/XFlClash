@@ -22,16 +22,17 @@ HELPER = Path(__file__).resolve().parents[2] / 'windows/xboard_sentry_symbols.cm
 
 
 class RustManifestTests(unittest.TestCase):
-    def fixture(self, parent=None):
+    def fixture(self, parent=None, architecture='x64'):
         temp=tempfile.TemporaryDirectory(prefix='sentry-rust-中文-', dir=parent);self.addCleanup(temp.cleanup)
-        root=Path(temp.name);build=root/'build';bundle=build/'windows/x64/runner/Release';bundle.mkdir(parents=True)
+        root=Path(temp.name);build=root/'build';bundle=build/'windows'/architecture/'runner/Release';bundle.mkdir(parents=True)
         for name in ['FlClash.exe','rust_api.dll','FlClashHelperService.exe']:(bundle/name).write_bytes(b'matching')
-        manifest=build/'windows/x64/sentry-symbols/Release/targets.tsv';manifest.parent.mkdir(parents=True)
+        manifest=build/'windows'/architecture/'sentry-symbols/Release/targets.tsv';manifest.parent.mkdir(parents=True)
         manifest.write_text(f'FlClash\t{bundle/"FlClash.exe"}\t{bundle/"FlClash.pdb"}\n',encoding='utf-8')
-        hook=build/'sentry-hook-inputs/windows/x64';hook.mkdir(parents=True)
+        hook=build/'sentry-hook-inputs/windows'/architecture;hook.mkdir(parents=True)
         (hook/'rust_api.dll').write_bytes(b'matching');(hook/'rust_api.pdb').write_bytes(b'matching')
-        (hook/'manifest.json').write_text(json.dumps({'schema_version':1,'platform':'windows','architecture':'x64','binary':'rust_api.dll','companions':['rust_api.pdb']}))
-        helper=root/'services/helper/target/x86_64-pc-windows-msvc/release/helper.pdb';helper.parent.mkdir(parents=True);helper.write_bytes(b'matching')
+        (hook/'manifest.json').write_text(json.dumps({'schema_version':1,'platform':'windows','architecture':architecture,'binary':'rust_api.dll','companions':['rust_api.pdb']}))
+        triple={'x64':'x86_64-pc-windows-msvc','arm64':'aarch64-pc-windows-msvc'}[architecture]
+        helper=root/'services/helper/target'/triple/'release/helper.pdb';helper.parent.mkdir(parents=True);helper.write_bytes(b'matching')
         return build,bundle,hook,manifest
 
     def check(self, cli, path, kind):
@@ -53,6 +54,39 @@ class RustManifestTests(unittest.TestCase):
         self.assertEqual({r[0] for r in rows},{'FlClash','rust_api','FlClashHelperService'})
         self.assert_companions_inside(rows, build)
         self.assertEqual((build/'sentry-hook-inputs/windows/helper/helper.pdb').read_bytes(),b'matching')
+
+    def test_arm64_both_brands_prepare_matched_symbols_and_reject_wrong_architecture(self):
+        for brand in ('OmoFly','Daishu'):
+            with self.subTest(brand=brand):
+                build,bundle,hook,manifest=self.fixture(architecture='arm64')
+                (bundle/'FlClash.exe').rename(bundle/(brand+'.exe'))
+                (bundle/'FlClashHelperService.exe').rename(bundle/(brand+'HelperService.exe'))
+                manifest.write_text(f'{brand}\t{bundle/(brand+".exe")}\t{bundle/(brand+".pdb")}\n',encoding='utf-8')
+                def metadata(cli,path,kind):
+                    return {'debug_ids':[path.read_bytes().decode('ascii')], 'architectures':['arm64']}
+                with mock.patch('prepare_sentry_windows_assets.check_symbol',side_effect=metadata):
+                    prepare_windows_assets(build,'fixture-cli')
+                    first=manifest.read_bytes()
+                    prepare_windows_assets(build,'fixture-cli')
+                    self.assertEqual(first,manifest.read_bytes())
+                self.assertEqual({r.split('\t')[0] for r in first.decode().splitlines()},
+                                 {'FlClash','rust_api','FlClashHelperService'})
+                def wrong_pdb(cli,path,kind):
+                    info=metadata(cli,path,kind)
+                    if path.name=='rust_api.pdb':info['architectures']=['x86_64']
+                    return info
+                with mock.patch('prepare_sentry_windows_assets.check_symbol',side_effect=wrong_pdb), \
+                     self.assertRaisesRegex(SymbolError,'architecture'):
+                    prepare_windows_assets(build,'fixture-cli')
+                self.assertEqual(manifest.read_bytes(),first)
+                record=json.loads((hook/'manifest.json').read_text(encoding='utf-8'))
+                record['architecture']='x64'
+                (hook/'manifest.json').write_text(json.dumps(record),encoding='utf-8')
+                hook.rename(hook.with_name('x64'))
+                with mock.patch('prepare_sentry_windows_assets.check_symbol',side_effect=metadata), \
+                     self.assertRaisesRegex(SymbolError,'architecture'):
+                    prepare_windows_assets(build,'fixture-cli')
+                self.assertEqual(manifest.read_bytes(),first)
 
     def test_real_directory_alias_and_escape_negative_control(self):
         temp=tempfile.TemporaryDirectory(prefix='sentry-alias-');self.addCleanup(temp.cleanup)

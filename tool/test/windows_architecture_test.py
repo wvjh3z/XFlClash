@@ -1,6 +1,9 @@
 """Target identity negative controls; no Windows program is executed."""
 from pathlib import Path
+import os
+import shutil
 import struct
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -23,6 +26,38 @@ def pe(path, machine):
 
 
 class WindowsArchitectureTests(unittest.TestCase):
+    def test_local_entry_accepts_arm64_and_resolves_emulated_bash_before_abi_gate(self):
+        source = Path(__file__).resolve().parents[2] / 'scripts/package_desktop_local.sh'
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            script = root/'scripts/package_desktop_local.sh'
+            script.parent.mkdir()
+            script.write_bytes(source.read_bytes())
+            flavor = root/'flavors/brand_a/flavor.yaml'
+            flavor.parent.mkdir(parents=True)
+            flavor.write_text('fixture', encoding='utf-8')
+            tools = root/'bin'
+            tools.mkdir()
+            commands = {
+                'uname': 'if [ "$1" = -s ]; then echo MINGW64_NT; else echo x86_64; fi',
+                'flutter': 'echo BOOTSTRAP',
+                'dart': 'exit 0',
+                'python3': 'printf "CHECK %s\\n" "$*"; exit 47',
+            }
+            for name, body in commands.items():
+                path = tools/name
+                path.write_text('#!/usr/bin/env bash\n'+body+'\n', encoding='utf-8')
+                path.chmod(0o755)
+            env = {**os.environ, 'PATH': str(tools)+os.pathsep+os.environ['PATH'],
+                   'PROCESSOR_ARCHITEW6432': 'ARM64', 'PROCESSOR_ARCHITECTURE': 'AMD64'}
+            for target in ('windows-arm64', 'auto'):
+                result = subprocess.run([shutil.which('bash'), script.as_posix(), 'brand_a', target,
+                                         '--build-number=51'], env=env, capture_output=True,
+                                        text=True, encoding='utf-8', errors='replace', timeout=15)
+                self.assertEqual(result.returncode, 47, result.stdout+result.stderr)
+                self.assertIn('CHECK tool/windows_architecture.py --architecture arm64', result.stdout)
+                self.assertLess(result.stdout.index('BOOTSTRAP'), result.stdout.index('CHECK'))
+
     def test_mislabeled_x64_dart_cannot_build_arm64(self):
         for arch in ('x64', 'arm64'):
             verify_dart(arch, f'Dart SDK version: 3.13.5 (stable) on "windows_{arch}"')
