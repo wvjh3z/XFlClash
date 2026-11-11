@@ -48,6 +48,14 @@
 
 ## v0.9.3升级候选验证（2026-11-08）
 
+### Linux build55状态回收停滞（2026-11-11）
+
+Jenkins Android ARM64 #8在Starting flutter-apk后停止编译进度输出，反复“节点offline、等待5分钟”，超过30分钟仍building，但节点API已online。用户要求核验后通过原严格SSH检查发现release全部步骤退出0、verification completed、Sentry7/7及out APK已存在，durable-db81e208/jenkins-result.txt为0；flutter-apk实际472.9秒，不是持续编译半小时。
+
+处理限于只读取证和直接取回APK/符号，未重启服务、重发构建或篡改Jenkins终态。APK67552482字节/versionCode1000055/原签名/AOT/fallback/仅ARM64与12模块CRC核验通过，符号107887074字节已取回。根因仅定位到节点通信/编排收尾，不宣称底层已修复。记录见Docs/evidence/android-arm64-a55-20261111/direct-result.json；最终Jenkins状态需另补，不能用未来编排失败覆盖已核验的产物事实。
+
+用户后续主动停止等待器，Shell.NotFoundError为取消回执，不是新增构建失败；不据此重启等待或重发。已另获明确授权发布build55到HTTPS8081，页面与全包回读通过，发布与编排终态分开记录。
+
 ### 胶囊按压像素夹具帧时序（2026-11-11）
 
 build54后胶囊/列表简价候选10文件分析通过。`test-20261111-222210`前48项通过，新像素用例却在“左侧必须有反馈”断言得到0：单次pump到达手势确认时启动ink ticker，该帧仍是动画起点，尚未画出按压反馈。不是右侧隔离失效，也不能通过删除左侧正控来通过。补手势后的首帧和后续200ms绘制，保留左右两个真实像素差断言；`test-20261111-222433`两文件18项全通过，实际左侧变化>0、右侧=0，刷新倒计时/忙态/共享手势及测速冷却同时通过。最终夹具分析无问题。原失败报告及后续正控分别保留于Docs/evidence/capsule-price-refinement-20261111/results.json，未构建新包或声明设备通过。
