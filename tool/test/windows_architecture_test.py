@@ -1,16 +1,19 @@
 """Target identity negative controls; no Windows program is executed."""
 from pathlib import Path
 import os
+import hashlib
 import shutil
 import struct
 import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from windows_architecture import dart_target, verify_bundle, verify_dart
+import windows_architecture
 from release_pipeline import package_environment
 from sentry_symbols_test import elf_fixture
 
@@ -100,6 +103,35 @@ class WindowsArchitectureTests(unittest.TestCase):
         self.assertEqual(result, {'SENTRY_NATIVE_BACKEND': 'breakpad', 'KEEP': 'value'})
         self.assertEqual(package_environment({'platform': 'windows', 'arch': 'amd64'}, inherited), inherited)
         self.assertEqual(inherited['SENTRY_NATIVE_BACKEND'], 'crashpad')
+
+    def test_arm64x_crt_exception_requires_exact_name_and_bytes(self):
+        # Synthetic policy boundary; the real pinned signed DLL is independently
+        # checked against the upstream release, not replaced by this fixture.
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            for name in ('OmoFly.exe', 'flutter_windows.dll'):
+                pe(root/name, 0xaa64)
+            (root/'data').mkdir()
+            (root/'data/app.so').write_bytes(elf_fixture(architecture='aarch64', executable=True))
+            runtime = root/'vcruntime140_1.dll'
+            pe(runtime, 0x8664)
+            with self.assertRaisesRegex(ValueError, 'vcruntime140_1.dll'):
+                verify_bundle(root, 'arm64')
+            original = runtime.read_bytes()
+            digest = hashlib.sha256(original).hexdigest()
+            with mock.patch.dict(windows_architecture.PINNED_ARM64X_CRT,
+                                 {'vcruntime140_1.dll': digest}, clear=True):
+                report = verify_bundle(root, 'arm64')
+                row = next(row for row in report['files'] if row['file'] == runtime.name)
+                self.assertEqual(row['format'], 'pinned-microsoft-arm64x-crt')
+                self.assertEqual(row['sha256'], digest)
+                runtime.write_bytes(original+b'changed')
+                with self.assertRaisesRegex(ValueError, 'sha256='):
+                    verify_bundle(root, 'arm64')
+                runtime.write_bytes(original)
+                runtime.rename(root/'unexpected_plugin.dll')
+                with self.assertRaisesRegex(ValueError, 'unexpected_plugin.dll'):
+                    verify_bundle(root, 'arm64')
 
 
 if __name__ == '__main__':

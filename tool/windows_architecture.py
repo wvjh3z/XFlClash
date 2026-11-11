@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Verify Windows target identity without executing any packaged binary."""
 import argparse
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -8,6 +9,13 @@ import re
 import struct
 import subprocess
 from sentry_elf import inspect_elf
+
+# Microsoft-signed 14.51.36247.0 from the upstream v0.9.3 ARM64 release.
+# dumpbin identifies this exact AMD64-header CRT as ARM64X. Do not generalize
+# the exception to arbitrary x64 files, names, or unverified future runtimes.
+PINNED_ARM64X_CRT = {
+    'vcruntime140_1.dll': '60c70e34e2e156f8bd214b92c2125c252e17d86ac8a25799ea1a4ecabde1d97c',
+}
 
 
 def pe_machine(path):
@@ -60,7 +68,14 @@ def verify_bundle(bundle, architecture):
         # Existing standalone upstream utility, not a module loaded by the app.
         allowed = {0x14c} if relative == 'EnableLoopback.exe' else machines
         if machine not in allowed:
-            raise ValueError('Wrong PE architecture: ' + relative + ' machine=' + hex(machine))
+            digest = hashlib.sha256(path.read_bytes()).hexdigest()
+            if (target == 'arm64' and machine == 0x8664
+                    and PINNED_ARM64X_CRT.get(relative) == digest):
+                facts.append({'file': relative, 'machine': hex(machine),
+                              'format': 'pinned-microsoft-arm64x-crt', 'sha256': digest})
+                continue
+            raise ValueError('Wrong PE architecture: ' + relative + ' machine=' + hex(machine)
+                             + ' sha256=' + digest)
         facts.append({'file': relative, 'machine': hex(machine)})
     return {'architecture': target, 'files': facts, 'passed': True}
 

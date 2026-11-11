@@ -59,7 +59,18 @@
 | #164 / 42958398408 | 9fd439eb | failure；原生前置通过，源码安装的Flutter未bootstrap，Dart ABI检查WinError2 | ea34df55先官方flutter --version再查真实ABI，后续完整入口继续验证 |
 | #165 / 42960144515 | ea34df55 | 主动取消于符号工具预检；历史复查已发现后段生产准备器硬限x64。不是客户端编译失败 | 两品牌ARM符号旧代码红2，03263609按真实架构匹配；Windows16项通过 |
 | #166 / 42962421116 | 03263609 | failure；共享通过，本地入口夹具4项中1项失败：auto实际选择amd64，未保留父进程注入的架构环境 | 不放宽预期，改由实际Dart SDK ABI选择Windows auto目标；保留显式目标ABI检查，本机10项及Windows正式Bash入口4项通过，ARM正式入口待复验 |
-| [#167](https://github.com/wvjh3z/XFlClash/actions/runs/42963464788) / 42963464788 | 084c56ce | failure；首次进入实际ARM64 Package，教程插件使用experimental coroutine，被MSVC19.51的STL1011拒绝，退出255 | 插件PRIVATE添加微软旧协程兼容定义，保留C++17 /await ABI；Windows10项及82锚点通过，真实VS2026 ARM构建待复验 |
+| [#167](https://github.com/wvjh3z/XFlClash/actions/runs/42963464788) / 42963464788 | 084c56ce | failure；首次进入实际ARM64 Package，教程插件使用experimental coroutine，被MSVC19.51的STL1011拒绝，退出255 | 插件PRIVATE兼容补修、Windows10项及82锚点通过；#168实际ARM64 Package成功，旧编译阻断已越过，设备另验 |
+| [#168](https://github.com/wvjh3z/XFlClash/actions/runs/42972258074) / 42972258074 | 9d285ba7 | failure；Package与命名通过，最终PE检查拒绝vcruntime140_1.dll，Machine=0x8664；符号处理未执行 | 原版同名签名有效ARM64X样本可复现旧守卫误拒；仅增加已验证精确指纹识别，未知x64仍拒绝；#168本体未留存，新批次需核对 |
+
+#### #168 原版运行库与架构校验
+
+用户要求查询后取得完整日志，确认Package与Normalize均success，失败位于Verify final Windows PE architectures，明确报`vcruntime140_1.dll machine=0x8664`。这仅证明现有PE Machine守卫拒绝该文件；尚未取得该DLL本体及完整PE元数据，不能直接判定错误x64库混入，也不能推定它就是合法ARM64X双架构运行库。需核对实际复制来源、微软运行库版本/签名、CHPE/ARM64X元数据及目标加载契约，再决定修复构建输入或校验器。此前STL1011不再阻断本轮编译，但没有执行后续Sentry处理或设备安装；原包是否可取得/复用须先核归档，不因步骤success承诺可直接续跑。
+
+后续按用户建议对照固定FlClash v0.9.3：windows/CMakeLists的InstallRequiredSystemLibraries块与品牌完全相同。下载原版ARM64 ZIP后，发现其同名DLL也为0x8664；Windows微软dumpbin明确显示“machine (x64) (ARM64X)”及混合arm64ec/x64代码范围，Authenticode为Valid/Microsoft Corporation，FileVersion14.51.36247.0。由此证明Machine字段不足以判断该运行库；不把PDB中的arm64ec文本或文件名单独当作兼容证明。官方语义见[Arm64X PE](https://learn.microsoft.com/en-us/windows/arm/arm64x-pe)。
+
+修复只在自有windows_architecture检查器中加入该已验证DLL的精确SHA256识别，限制为ARM64目标、根目录vcruntime140_1.dll及0x8664，报告明确记为pinned-microsoft-arm64x-crt。不是按文件名跳过，不放行其他x64插件、不修改原版复制规则，也不是恢复客户端安装包下载hash校验。旧守卫在真实原版包上红于同一DLL；新守卫27个模块记录通过，实际DLL追加字节后准确拒绝并恢复原字节；普通同名x64、修改字节、改名插件负控继续拒绝。Python36项、Windows正式Bash5项通过。未来CRT更新需重新核对签名、格式和来源再更新指纹，不能添加通配豁免。
+
+#168 artifact仅有报告，未保存其DLL/安装包本体，无法把原版样本当作#168原件，也不能复用已不存在的包只补跑审计。后续新构建只有产物字节确实匹配才会通过；Sentry和设备层仍待。证据统一见Docs/evidence/windows-arm64-v093-20261111/run168-fix.json及受限archive中的原版样本、dumpbin/签名回执；未执行下载的客户端。
 
 <a id="windows-arm64-coroutine-167"></a>
 #### #167 教程插件旧协程接口
