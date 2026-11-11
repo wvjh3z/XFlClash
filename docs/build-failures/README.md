@@ -39,6 +39,19 @@
 
 ### Windows ARM64 恢复准备（2026-11-11）
 
+逐次运行索引（不是将同一事件重复记为多项产品缺陷）：
+
+| Actions / run ID | 源码 | 结束阶段与实际结果 | 修复与后续证据 |
+| --- | --- | --- | --- |
+| #161 / 42955930995 | a46c9942 | 主动取消；取消前共享243项已有1项失败：首次/重试证据路径不一致。未到客户端编译 | 因远端A下一编号已为51停止旧分支默认编号尝试；重试路径遗漏随39b34efe修正 |
+| #162 / 42956120276 | a46c9942 | failure；显式A51，仍在同一证据路径断言失败 | 保留断言补齐路径，#163共享前置通过 |
+| #163 / 42956349173 | 39b34efe | failure；共享通过，ARM Runner WebView夹具11项6处失败，CMake4短/长路径误判越界 | WIN11同版真实红1→12绿；最终统一源目录及文件REALPATH后另2绿，#164原生前置通过 |
+| #164 / 42958398408 | 9fd439eb | failure；原生前置通过，源码安装的Flutter未bootstrap，Dart ABI检查WinError2 | ea34df55先官方flutter --version再查真实ABI，后续完整入口继续验证 |
+| #165 / 42960144515 | ea34df55 | 主动取消于符号工具预检；历史复查已发现后段生产准备器硬限x64。不是客户端编译失败 | 两品牌ARM符号旧代码红2，03263609按真实架构匹配；Windows16项通过 |
+| #166 / 42962421116 | 03263609 | failure；共享通过，本地入口夹具4项中1项失败：auto实际选择amd64，未保留父进程注入的架构环境 | 不放宽预期，改由实际Dart SDK ABI选择Windows auto目标；保留显式目标ABI检查，本机10项及Windows正式Bash入口4项通过，ARM正式入口待复验 |
+
+#166复现通过给shell环境保留AMD64、给受控SDK返回ARM64，旧auto规则稳定失败；这是环境/SDK架构混用，不能以放宽测试到任意目标解决。自动目标现在调用同一windows_architecture工具的--print-target，解析实际Dart版本ABI；未知、非Windows或多个ABI仍拒绝。显式windows-arm64仍校验真实SDK，不伪造硬件或允许x64包改名。普通Windows构建机实际--print-target返回amd64，显式amd64验证通过。
+
 按用户提醒对照v0.9.1的Windows符号根目录/架构经验后，提前发现prepare_sentry_windows_assets仍只接受x64 hook及x86_64 runner。新增两品牌ARM64回归在旧生产准备器均失败于明确x64限制；改按实际hook架构映射runner并继续逐PE/PDB匹配ID及架构后通过，错架构PDB、错hook标签仍拒绝。WIN11-BUILD符号/架构16项通过，包含旧x64、路径别名及真实CMake清单夹具，未上传符号。同步发现指定主机脚本漏显式windows-arm64参数及Git Bash模拟架构误判，补目标解析、真实Dart ABI门禁和最终PE/ELF检查；14项本机定向通过。#165在发现这项必然阻断后主动取消于符号工具前置阶段，不记为ARM编译失败。
 
 #164已通过共享前置、原生WebView、安装器与VC检查，停在新增Dart宿主检查WinError2：flutter-action源码安装分支仅检出固定Flutter，未运行bootstrap，bin/cache/dart-sdk/bin/dart.exe尚不存在。增加有界`flutter --version`先走官方初始化，再检查真实Dart ABI；不把missing executable当成ARM组件404，也不取消拒绝x64回退的断言。没有改SDK版本、共享缓存或生成工具文件，正式入口继续复验。

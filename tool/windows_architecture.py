@@ -25,9 +25,16 @@ def pe_machine(path):
         return struct.unpack_from('<H', header, 4)[0]
 
 
+def dart_target(version):
+    matches = re.findall(r'\bon "windows_(x64|arm64)"', version)
+    if len(matches) != 1:
+        raise ValueError('Expected one Windows Dart ABI')
+    return {'x64': 'amd64', 'arm64': 'arm64'}[matches[0]]
+
+
 def verify_dart(architecture, version):
-    target = 'x64' if architecture == 'amd64' else architecture
-    if target not in ('x64', 'arm64') or not re.search(r'\bon "windows_' + target + r'"', version):
+    target = 'amd64' if architecture == 'x64' else architecture
+    if target != dart_target(version):
         raise ValueError('Flutter Windows requires a native Dart host matching the release target')
 
 
@@ -60,10 +67,14 @@ def verify_bundle(bundle, architecture):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--architecture', required=True, choices=('amd64', 'x64', 'arm64'))
+    mode = parser.add_mutually_exclusive_group(required=True)
+    mode.add_argument('--architecture', choices=('amd64', 'x64', 'arm64'))
+    mode.add_argument('--print-target', action='store_true', help='Print the prepared Dart SDK target for local auto selection')
     parser.add_argument('--bundle', type=Path)
     parser.add_argument('--report', type=Path, default=Path('build/windows-architecture.json'))
     args = parser.parse_args()
+    if args.print_target and args.bundle:
+        parser.error('--print-target only inspects the prepared SDK')
     if args.bundle:
         # Invalidate previous success even when this candidate fails validation.
         args.report.unlink(missing_ok=True)
@@ -73,6 +84,9 @@ def main():
     else:
         dart = Path(os.environ['FLUTTER_ROOT']) / 'bin/cache/dart-sdk/bin/dart.exe'
         result = subprocess.run([str(dart), '--version'], capture_output=True, text=True, timeout=30, check=True)
+        if args.print_target:
+            print(dart_target(result.stdout + result.stderr))
+            return
         verify_dart(args.architecture, result.stdout + result.stderr)
     print('Windows target identity verified: ' + args.architecture)
 

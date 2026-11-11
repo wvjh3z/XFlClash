@@ -12,7 +12,7 @@
 # 用法:
 #   bash scripts/package_desktop_local.sh [flavor] [target] [选项]
 #     flavor  : brand_a（默认）| brand_b
-#     target  : auto（默认，按主机 OS+架构推断）| linux-amd64 | linux-arm64
+#     target  : auto（默认，Windows按实际Dart SDK，其余按主机）| linux-amd64 | linux-arm64
 #               | windows-amd64 | windows-arm64 | macos-amd64 | macos-arm64
 #   选项:
 #     --build-number=N : 必填本地开发编号（1..65535），不读取/修改GitHub或Android计数
@@ -108,17 +108,13 @@ case "$(uname -m)" in
   *) echo "✗ 不支持的主机架构：$(uname -m)"; exit 1 ;;
 esac
 
-if [ "${HOST_OS}" = "windows" ]; then
-  # Git Bash may itself be x64-emulated on an ARM64 Windows host.
-  case "${PROCESSOR_ARCHITEW6432:-${PROCESSOR_ARCHITECTURE:-}}" in
-    ARM64|arm64) HOST_ARCH="arm64" ;;
-    AMD64|amd64) HOST_ARCH="amd64" ;;
-  esac
-fi
-
+AUTO_TARGET=0
 if [ "${TARGET}" = "auto" ]; then
+  AUTO_TARGET=1
   TARGET="${HOST_OS}-${HOST_ARCH}"
-  echo "ℹ target=auto → 按主机推断为 ${TARGET}"
+  if [ "${HOST_OS}" != "windows" ]; then
+    echo "ℹ target=auto → 按主机推断为 ${TARGET}"
+  fi
 fi
 PLATFORM="${TARGET%-*}"   # linux / macos / windows
 ARCH="${TARGET##*-}"      # amd64 / arm64
@@ -144,6 +140,12 @@ need python3 "Sentry 符号准备、审计和上传（Python 3.10+）"
 
 if [ "${PLATFORM}" = "windows" ]; then
   flutter --version
+  if [ "${AUTO_TARGET}" = "1" ]; then
+    # Flutter selects the Windows target from its Dart host, not Git Bash's CPU.
+    ARCH="$(python3 tool/windows_architecture.py --print-target)"
+    TARGET="windows-${ARCH}"
+    echo "ℹ target=auto → 按实际 Dart SDK 选择 ${TARGET}"
+  fi
   python3 tool/windows_architecture.py --architecture "${ARCH}"
 fi
 

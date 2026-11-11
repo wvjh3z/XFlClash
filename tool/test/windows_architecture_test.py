@@ -10,7 +10,7 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from windows_architecture import verify_bundle, verify_dart
+from windows_architecture import dart_target, verify_bundle, verify_dart
 from release_pipeline import package_environment
 from sentry_symbols_test import elf_fixture
 
@@ -42,14 +42,14 @@ class WindowsArchitectureTests(unittest.TestCase):
                 'uname': 'if [ "$1" = -s ]; then echo MINGW64_NT; else echo x86_64; fi',
                 'flutter': 'echo BOOTSTRAP',
                 'dart': 'exit 0',
-                'python3': 'printf "CHECK %s\\n" "$*"; exit 47',
+                'python3': 'if [ "$2" = --print-target ]; then echo arm64; exit 0; fi; printf "CHECK %s\\n" "$*"; exit 47',
             }
             for name, body in commands.items():
                 path = tools/name
                 path.write_text('#!/usr/bin/env bash\n'+body+'\n', encoding='utf-8')
                 path.chmod(0o755)
             env = {**os.environ, 'PATH': str(tools)+os.pathsep+os.environ['PATH'],
-                   'PROCESSOR_ARCHITEW6432': 'ARM64', 'PROCESSOR_ARCHITECTURE': 'AMD64'}
+                   'PROCESSOR_ARCHITEW6432': 'AMD64', 'PROCESSOR_ARCHITECTURE': 'AMD64'}
             for target in ('windows-arm64', 'auto'):
                 result = subprocess.run([shutil.which('bash'), script.as_posix(), 'brand_a', target,
                                          '--build-number=51'], env=env, capture_output=True,
@@ -61,8 +61,13 @@ class WindowsArchitectureTests(unittest.TestCase):
     def test_mislabeled_x64_dart_cannot_build_arm64(self):
         for arch in ('x64', 'arm64'):
             verify_dart(arch, f'Dart SDK version: 3.13.5 (stable) on "windows_{arch}"')
+            self.assertEqual(dart_target(f'Dart SDK version: 3.13.5 (stable) on "windows_{arch}"'),
+                             'amd64' if arch == 'x64' else 'arm64')
         with self.assertRaises(ValueError):
             verify_dart('arm64', 'Dart SDK version: 3.13.5 on "windows_x64"')
+        for invalid in ('on "linux_arm64"', 'on "windows_x64" on "windows_arm64"', ''):
+            with self.assertRaises(ValueError):
+                dart_target(invalid)
 
     def test_both_brand_bundles_reject_one_mixed_architecture_dependency(self):
         for brand in ('OmoFly', 'Daishu'):
