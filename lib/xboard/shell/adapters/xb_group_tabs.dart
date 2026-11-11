@@ -21,6 +21,7 @@ class XbGroupTabs extends StatelessWidget {
     required this.groupBuilder,
     this.targetNonce = 0,
     this.header,
+    this.headerBuilder,
   });
 
   final List<XbGroupSummary> groups;
@@ -30,6 +31,7 @@ class XbGroupTabs extends StatelessWidget {
   groupBuilder;
   final int targetNonce;
   final Widget? header;
+  final Widget Function(BuildContext, XbGroupSummary)? headerBuilder;
 
   @override
   Widget build(BuildContext context) {
@@ -47,6 +49,10 @@ class XbGroupTabs extends StatelessWidget {
           primary: colors.primary,
           onPrimary: colors.onPrimary,
           surface: colors.surface,
+          // Prism 的浅色 Card 读取 surfaceBright，不能残留宿主配色。
+          surfaceBright: colors.brightness == material.Brightness.light
+              ? colors.surfaceBright
+              : native.colorScheme.surfaceBright,
           onSurface: colors.onSurface,
           onSurfaceVariant: colors.onSurfaceVariant,
           surfaceContainer: colors.surfaceContainer,
@@ -67,6 +73,7 @@ class XbGroupTabs extends StatelessWidget {
         groupBuilder: groupBuilder,
         targetNonce: targetNonce,
         header: header,
+        headerBuilder: headerBuilder,
       ),
     );
   }
@@ -81,6 +88,7 @@ class _GroupPager extends StatefulWidget {
     required this.groupBuilder,
     required this.targetNonce,
     required this.header,
+    required this.headerBuilder,
   });
 
   final List<XbGroupSummary> groups;
@@ -89,6 +97,7 @@ class _GroupPager extends StatefulWidget {
   final Widget Function(BuildContext, XbGroupSummary) groupBuilder;
   final int targetNonce;
   final Widget? header;
+  final Widget Function(BuildContext, XbGroupSummary)? headerBuilder;
 
   @override
   State<_GroupPager> createState() => _GroupPagerState();
@@ -204,7 +213,14 @@ class _GroupPagerState extends State<_GroupPager>
             key: const ValueKey('brand-group-pager'),
             child: Column(
               children: [
-                if (widget.header != null) widget.header!,
+                if (widget.headerBuilder != null)
+                  AnimatedBuilder(
+                    animation: _controller,
+                    builder: (context, _) => widget.headerBuilder!(
+                      context, widget.groups[_controller.index],
+                    ),
+                  )
+                else if (widget.header != null) widget.header!,
                 Padding(
                   padding: const EdgeInsets.only(bottom: 16),
                   child: _GroupStrip(

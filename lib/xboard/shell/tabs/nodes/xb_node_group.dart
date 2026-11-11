@@ -11,8 +11,6 @@
 /// - load-balance / relay：只读（不可手选单节点），节点行 dim 不可点。
 library;
 
-import 'dart:async';
-
 import 'package:fl_clash/xboard/widgets/xb_emoji_text.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter/rendering.dart' show RenderAbstractViewport;
@@ -21,26 +19,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:fl_clash/xboard/widgets/xb_components.dart'
     show XbTag, XbSpinner;
 import 'package:fl_clash/xboard/util/format.dart' show xbLatencyDisplay;
-import 'package:fl_clash/xboard/widgets/xb_feedback.dart' show xbToast;
 import 'package:fl_clash/xboard/widgets/xb_theme.dart' show XbTokens;
 
 import '../../adapters/xb_nodes_adapter.dart';
-
-/// 测延迟全局冷却窗口（60s）：跨所有分组共享——测完任意分组延迟后，所有分组的「测延迟」
-/// 按钮一起进入冷却（防止用户反复整组测速打爆服务器）。单节点测速（闪电按钮）不受限。
-const int _kDelayTestCooldownSec = 60;
-
-/// 库级共享单调时钟（跨分组、跨 tab 切换存活，与 group State 寿命解耦）。
-/// null = 从未整组测过。
-Stopwatch? _delayTestThrottle;
-
-/// 当前冷却剩余秒数（0 = 可测）。
-int _delayTestRemaining() {
-  final sw = _delayTestThrottle;
-  if (sw == null) return 0;
-  final r = _kDelayTestCooldownSec - sw.elapsed.inSeconds;
-  return r > 0 ? r : 0;
-}
+import 'xb_group_delay_action.dart';
 
 /// 自绘分组区块：测延迟按钮 + 节点行列表；分组名称由外层标签/侧栏展示。
 class XbNodeGroup extends ConsumerStatefulWidget {
@@ -50,12 +32,14 @@ class XbNodeGroup extends ConsumerStatefulWidget {
     this.scrollToNode,
     this.scrollNonce = 0,
     this.columns = 1,
+    this.showDelayAction = true,
   });
 
   final XbGroupSummary group;
 
   /// 节点行列数：移动端 1（单列，默认，行为不变）；桌面 master-detail 右栏传 2（双列网格）。
   final int columns;
+  final bool showDelayAction;
 
   /// 进入时滚动到该节点并尽量上下居中（不强制：靠顶/底则就近）。null = 不定位。
   final String? scrollToNode;
@@ -70,21 +54,6 @@ class XbNodeGroup extends ConsumerStatefulWidget {
 }
 
 class _XbNodeGroupState extends ConsumerState<XbNodeGroup> {
-  /// 本组「测延迟」进行中（点测延迟 → true，本组全部节点拿到结果 → false）。
-  bool _testing = false;
-
-  /// 本轮测速已完成节点数（进度「测速中 N/M」用）。
-  ///
-  /// **为何用本地计数而非读延迟表**：重测时节点已有上次延迟值，core 把测速中节点逐个重置为 0
-  /// 占位再回填真值，按「非0延迟节点数」估算会在 M↔M-1 间反复横跳（用户反馈「进度横跳」）。
-  /// 改为 adapter 每个节点测速 future 完成时回调累加，done 单调递增，进度准确不回退。
-  int _testedCount = 0;
-
-  /// 测延迟全局冷却剩余秒数（0=可测，>0=按钮灰+倒计时）。读共享时钟 [_delayTestRemaining]，
-  /// 由 _cooldownTicker 每秒刷新。切到本组时若仍在冷却 → 立即显示剩余。
-  int _cooldownSec = 0;
-  Timer? _cooldownTicker;
-
   /// 列表滚动控制器（用于进入时定位到选中节点）。
   final ScrollController _scrollCtrl = ScrollController();
 
@@ -96,24 +65,10 @@ class _XbNodeGroupState extends ConsumerState<XbNodeGroup> {
   @override
   void initState() {
     super.initState();
-    // 切到本组时若全局冷却仍在进行 → 同步显示剩余并启动倒计时。
-    _cooldownSec = _delayTestRemaining();
-    _startCooldownTicker();
     if (widget.scrollToNode != null) {
       // 首帧布局完成后把目标行滚动到视口中央（不强制：clamp 到可滚范围 → 靠边就近）。
       WidgetsBinding.instance.addPostFrameCallback((_) => _centerTarget());
     }
-  }
-
-  /// 启动 1s 倒计时（冷却剩余>0 才启）；归零自动停。
-  void _startCooldownTicker() {
-    _cooldownTicker?.cancel();
-    if (_cooldownSec <= 0) return;
-    _cooldownTicker = Timer.periodic(const Duration(seconds: 1), (_) {
-      final r = _delayTestRemaining();
-      if (mounted && r != _cooldownSec) setState(() => _cooldownSec = r);
-      if (r <= 0) _cooldownTicker?.cancel();
-    });
   }
 
   @override
@@ -130,7 +85,6 @@ class _XbNodeGroupState extends ConsumerState<XbNodeGroup> {
 
   @override
   void dispose() {
-    _cooldownTicker?.cancel();
     _scrollCtrl.dispose();
     super.dispose();
   }
@@ -154,52 +108,12 @@ class _XbNodeGroupState extends ConsumerState<XbNodeGroup> {
     );
   }
 
-  /// 测延迟：只测本组节点（不波及其它组）。await 完成后清测速态并开启全局 60s 冷却。
-  /// 冷却中再次点击 → 黄色浮层提示（引导单节点测速）。
-  Future<void> _testGroup() async {
-    if (_testing) return;
-    if (_delayTestRemaining() > 0) {
-      xbToast(context,
-          '延迟刚刚测试过，请勿频繁测试，您可以点击单个节点进行测试延迟');
-      return;
-    }
-    setState(() {
-      _testing = true;
-      _testedCount = 0;
-    });
-    try {
-      await ref.read(xbNodesAdapterProvider).testGroupDelay(
-        ref,
-        group.name,
-        onProgress: (done, total) {
-          // 完成计数单调递增 → 进度不横跳。仅在 mounted 且仍在测速时更新。
-          if (mounted && _testing) setState(() => _testedCount = done);
-        },
-      );
-    } catch (_) {
-      // 永不抛。
-    }
-    // 测完开启全局冷却（即便用户已切走本组也要计时，故不受 mounted 限制）。
-    _delayTestThrottle = Stopwatch()..start();
-    if (mounted) {
-      setState(() {
-        _testing = false;
-        _cooldownSec = _delayTestRemaining();
-      });
-      _startCooldownTicker();
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     final adapter = ref.watch(xbNodesAdapterProvider);
     final selected = adapter.selectedName(ref, group.name);
     // computed 组（url-test/fallback）是否自动模式（未手动锁定）：决定「自动」标签标在哪个节点。
     final autoMode = group.isComputed && adapter.isAutoMode(ref, group.name);
-
-    // 测速进度（N/M）：用本地完成计数器（adapter 回调累加，单调递增不横跳），
-    // 不再读延迟表统计「非0节点数」（重测时会 M↔M-1 横跳，见 _testedCount 注释）。
-    final tested = _testedCount;
 
     // 节点行（单列直排 / 多列网格）。
     final rows = group.nodes
@@ -240,19 +154,13 @@ class _XbNodeGroupState extends ConsumerState<XbNodeGroup> {
       cacheExtent: widget.scrollToNode != null ? 5000.0 : null,
       padding: EdgeInsets.fromLTRB(desktop ? 0 : 16, 2, desktop ? 0 : 16, 24),
       children: [
-        // 所有分组保留右侧测速动作。
-        Padding(
+        // Android 的入口位于分组工具栏；桌面保留原文字动作。
+        if (widget.showDelayAction) Padding(
           padding: const EdgeInsets.fromLTRB(0, 0, 0, 8),
           child: Row(
             children: [
               const Spacer(),
-              _DelayTestButton(
-                testing: _testing,
-                tested: tested,
-                total: group.nodes.length,
-                cooldownSec: _cooldownSec,
-                onTap: _testGroup,
-              ),
+              XbGroupDelayAction(group: group),
             ],
           ),
         ),
@@ -274,59 +182,6 @@ class _XbNodeGroupState extends ConsumerState<XbNodeGroup> {
             },
           ),
       ],
-    );
-  }
-}
-
-/// 测延迟按钮（分组头右侧）。测速中显示「测速中 N/M」+ 转圈；
-/// 全局冷却中显示「测延迟 Ns」灰色（仍可点 → 弹冷却提示，引导单节点测速）。
-class _DelayTestButton extends StatelessWidget {
-  const _DelayTestButton({
-    required this.onTap,
-    this.testing = false,
-    this.tested = 0,
-    this.total = 0,
-    this.cooldownSec = 0,
-  });
-
-  final VoidCallback onTap;
-  final bool testing;
-  final int tested;
-  final int total;
-  final int cooldownSec;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    if (testing) {
-      return TextButton.icon(
-        onPressed: null, // 测速中禁用。
-        icon: const XbSpinner(color: XbTokens.warn, size: 13, stroke: 2),
-        label: Text('测速中 $tested/$total'),
-        style: TextButton.styleFrom(
-          foregroundColor: scheme.primary,
-          disabledForegroundColor: scheme.primary.withValues(alpha: 0.7),
-          padding: const EdgeInsets.symmetric(horizontal: 8),
-          minimumSize: Size.zero,
-          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-        ),
-      );
-    }
-    final coolingDown = cooldownSec > 0;
-    // 冷却中：灰色外观但仍可点（onTap 内部 gate 弹提示，与刷新按钮一致）。
-    final color = coolingDown
-        ? scheme.onSurfaceVariant.withValues(alpha: 0.5)
-        : scheme.primary;
-    return TextButton.icon(
-      onPressed: onTap,
-      icon: Icon(Icons.bolt, size: 16, color: color),
-      label: Text(coolingDown ? '测延迟 ${cooldownSec}s' : '测延迟'),
-      style: TextButton.styleFrom(
-        foregroundColor: color,
-        padding: const EdgeInsets.symmetric(horizontal: 8),
-        minimumSize: Size.zero,
-        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-      ),
     );
   }
 }

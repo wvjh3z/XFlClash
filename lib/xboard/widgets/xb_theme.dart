@@ -32,7 +32,7 @@ class XbTokens {
 
   // —— 颜色（中性底色族，原型 CSS 变量）——
   final Color sf; // --sf 页面背景
-  final Color sf2; // --sf2 纯白面（sheet / orb 核心）
+  final Color sf2; // --sf2 柔白面（sheet / orb 核心）
   final Color card; // --card 卡片
   final Color sfc; // --sfc 容器 / 分段槽 / 输入框填充
   final Color on; // --on 正文
@@ -88,15 +88,17 @@ class XbTokens {
   static const double hButton = 52; // .go / .b（原型统一按钮高 52）
   static const double hCta = 52; // .cta（与所有主按钮统一 52）
 
+  // 借鉴 Prism 的 T94 页面 / T98 纸白层级，采用固定中性灰近似值，
+  // 不随品牌 seed 染色；内嵌容器约 T90，与页面和卡片保持区分。
   static const light = XbTokens(
-    sf: Color(0xFFF5F6F8),
-    sf2: Color(0xFFFFFFFF),
-    card: Color(0xFFFFFFFF),
-    sfc: Color(0xFFEEF0F4),
+    sf: Color(0xFFEEEEEE),
+    sf2: Color(0xFFF9F9F9),
+    card: Color(0xFFF9F9F9),
+    sfc: Color(0xFFE2E2E2),
     on: Color(0xFF11141B),
     onv: Color(0xFF565D6B), // 次要文字（精致化：6A7180→565D6B，白底对比度 ~4.6→~6:1）
-    line: Color(0xFFE9ECF1),
-    hair: Color(0xFFF0F2F5),
+    line: Color(0xFFDEDEDE),
+    hair: Color(0xFFE8E8E8),
     shadow1: [
       BoxShadow(
           color: Color(0x0A0F172A), blurRadius: 16, offset: Offset(0, 6), spreadRadius: -8),
@@ -170,6 +172,8 @@ ThemeData buildXbTheme({required Color brandColor, required Brightness brightnes
     primary: brandColor,
     onPrimary: Colors.white,
     surface: t.sf,
+    surfaceBright: isLight ? t.card : brand.surfaceBright,
+    surfaceDim: isLight ? t.sfc : brand.surfaceDim,
     onSurface: t.on,
     onSurfaceVariant: t.onv,
     surfaceContainerLowest: t.card,
@@ -251,7 +255,7 @@ ThemeData buildXbTheme({required Color brandColor, required Brightness brightnes
         textStyle: textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w700),
       ),
     ),
-    // 卡片（.card）：白底 + 圆角24 + sd1 阴影（用 surfaceTint 关掉 M3 染色）。
+    // 卡片（.card）：柔白底，圆角使用共享 token（surfaceTint 关闭 M3 染色）。
     cardTheme: CardThemeData(
       color: t.card,
       surfaceTintColor: Colors.transparent,

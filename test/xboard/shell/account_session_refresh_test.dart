@@ -2,6 +2,7 @@
 library;
 
 import 'dart:async';
+import '../../_fixtures/xb_action_finders.dart';
 
 import 'package:fl_clash/enum/enum.dart';
 import 'package:fl_clash/models/models.dart'
@@ -169,10 +170,10 @@ void main() {
         profile: profile,
         sync: sync,
       );
-      await tester.tap(find.text('刷新节点'));
+      await tester.tap(findActionLabel('刷新节点'));
       await tester.pump();
       expect(find.text('正在刷新节点，请稍候…'), findsNothing);
-      expect(find.text('刷新中…'), findsOneWidget);
+      expect(findActionLabel('刷新中…'), findsOneWidget);
       await _switchToB(tester, container, profile, nodes: true);
       responseA.complete(XbSyncOutcome.subscriptionExpired);
       await tester.pump();
@@ -181,9 +182,9 @@ void main() {
       expect(find.text('当前无可用线路'), findsNothing);
       expect(find.text('套餐已过期，请前往续费 / 购买'), findsNothing);
       expect(find.text('正在刷新节点，请稍候…'), findsNothing);
-      expect(find.text('刷新节点'), findsOneWidget);
-      expect(find.textContaining(RegExp(r'刷新节点 \d+s')), findsNothing);
-      await tester.tap(find.text('刷新节点'));
+      expect(findActionLabel('刷新节点'), findsOneWidget);
+      expect(findActionLabel(RegExp(r'刷新节点 \d+s')), findsNothing);
+      await tester.tap(findActionLabel('刷新节点'));
       await tester.pump();
       expect(calls, 2, reason: 'A 的晚到结果不能给 B 设置 60 秒冷却');
       expect(tester.takeException(), isNull);
@@ -211,17 +212,17 @@ void main() {
         profile: profile,
         sync: sync,
       );
-      await tester.tap(find.text('刷新节点'));
+      await tester.tap(findActionLabel('刷新节点'));
       await tester.pump();
       expect(find.text('当前无可用线路'), findsOneWidget);
-      expect(find.textContaining(RegExp(r'刷新节点 \d+s')), findsOneWidget);
+      expect(findActionLabel(RegExp(r'刷新节点 \d+s')), findsOneWidget);
       await tester.pump(const Duration(seconds: 4)); // 等 A 的旧提示自行消失。
       await _switchToB(tester, container, profile, nodes: true);
 
       expect(find.text('可用测试节点', findRichText: true), findsOneWidget);
       expect(find.text('当前无可用线路'), findsNothing);
-      expect(find.text('刷新节点'), findsOneWidget);
-      await tester.tap(find.text('刷新节点'));
+      expect(findActionLabel('刷新节点'), findsOneWidget);
+      await tester.tap(findActionLabel('刷新节点'));
       await tester.pump();
       expect(calls, 2);
       expect(tester.takeException(), isNull);

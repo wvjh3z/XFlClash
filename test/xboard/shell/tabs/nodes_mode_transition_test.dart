@@ -6,6 +6,7 @@ import 'package:fl_clash/xboard/models/xb_domain_subscription.dart';
 import 'package:fl_clash/xboard/providers/user_profile_provider.dart';
 import 'package:fl_clash/xboard/shell/tabs/nodes/nodes_tab.dart';
 import 'package:fl_clash/xboard/shell/tabs/nodes/xb_node_group.dart';
+import 'package:fl_clash/xboard/shell/tabs/nodes/xb_group_delay_action.dart';
 import 'package:fl_clash/xboard/shell/adapters/xb_group_tabs.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/legacy.dart' show StateProvider;
@@ -111,6 +112,16 @@ void main() {
           );
           await tester.pumpAndSettle();
           expect(find.byType(XbGroupTabs), desktop ? findsNothing : findsOneWidget);
+          expect(tester.widget<XbGroupDelayAction>(find.byType(XbGroupDelayAction)).compact, !desktop);
+          expect(tester.widget<XbNodeGroup>(find.byType(XbNodeGroup)).showDelayAction, desktop);
+          final capsule = find.byKey(const ValueKey('nodes-action-capsule'));
+          expect(capsule, desktop ? findsNothing : findsOneWidget);
+          if (!desktop) {
+            expect(find.descendant(of: capsule, matching: find.byType(XbGroupDelayAction)), findsOneWidget);
+            expect(find.descendant(of: capsule, matching: find.byTooltip('刷新节点')), findsOneWidget);
+            expect(tester.getCenter(capsule).dy, closeTo(tester.getCenter(find.text('选择线路')).dy, 1));
+            expect(find.text('刷新节点'), findsNothing);
+          }
           String active() =>
               tester.widget<XbNodeGroup>(find.byType(XbNodeGroup)).group.name;
           expect(
@@ -127,6 +138,10 @@ void main() {
           expect(active(), 'GLOBAL');
           expect(find.text('当前无可用线路'), findsNothing);
           expect(find.text('Hidden', findRichText: true), findsWidgets);
+          // The Android toolbar reserves space for the delay action; a retained
+          // off-screen tab must be scrolled into view before a pointer tap.
+          await tester.ensureVisible(find.text(business, findRichText: true).first);
+          await tester.pumpAndSettle();
           await tester.tap(find.text(business, findRichText: true).first);
           await tester.pumpAndSettle();
           expect(
@@ -143,6 +158,8 @@ void main() {
             active(),
             'GLOBAL',
           ); // Mode change resets entry, ordinary rebuild doesn't.
+          await tester.ensureVisible(find.text(business, findRichText: true).first);
+          await tester.pumpAndSettle();
           await tester.tap(find.text(business, findRichText: true).first);
           await tester.pumpAndSettle();
           container.read(sourceGroups.notifier).state = [groups[2], groups[1]];

@@ -42,7 +42,7 @@ lib/xboard/util/
 | 字段 | 含义 | 原型 CSS |
 |---|---|---|
 | `sf` | 页面背景 | `--sf` |
-| `sf2` | 纯白面（sheet / 连接球核心） | `--sf2` |
+| `sf2` | 柔白面（sheet / 连接球核心） | `--sf2` |
 | `card` | 卡片底 | `--card` |
 | `sfc` | 容器 / 分段槽 / 输入框填充 | `--sfc` |
 | `on` | 正文 | `--on` |
@@ -116,7 +116,7 @@ lib/xboard/util/
 ### 4.1 容器 / 卡片
 | 组件 | 原型 | 说明 |
 |---|---|---|
-| `XbCard({child, padding, onTap, radius})` | `.card`/`.dcard` | 通用卡片：白底 + 圆角 + 细边 + sd1 阴影。 |
+| `XbCard({child, padding, onTap, radius})` | `.card`/`.dcard` | 通用卡片：主题柔白底 + 圆角 + 细边 + sd1 阴影。 |
 | `XbSectionCard({title, children})` | `.dcard`+`.dt` | 带标题区块卡。 |
 | `XbInfoCard({icon, text})` | `.infocard` | 信息提示卡：图标 + 多行说明，淡品牌底。 |
 | `XbHairline` | `.sdiv` | 细分隔线。 |

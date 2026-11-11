@@ -6,6 +6,7 @@ import 'package:fl_clash/l10n/l10n.dart';
 import 'package:fl_clash/xboard/shell/adapters/xb_group_tabs.dart';
 import 'package:fl_clash/xboard/shell/adapters/xb_nodes_adapter.dart';
 import 'package:fl_clash/xboard/shell/adapters/xb_ui_compatibility.dart';
+import 'package:fl_clash/xboard/widgets/xb_theme.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart' as material;
@@ -39,6 +40,7 @@ Future<Fixture> pumpGroups(
   double width = 390,
   Brightness brightness = Brightness.light,
   bool outsideAction = false,
+  bool trailing = false,
 }) async {
   tester.view.devicePixelRatio = 1;
   tester.view.physicalSize = Size(width, 800);
@@ -66,6 +68,9 @@ Future<Fixture> pumpGroups(
               groups: fixture.groups,
               selected: fixture.selection ?? fixture.groups.first.name,
               targetNonce: fixture.targetNonce,
+              headerBuilder: trailing
+                  ? (_, group) => SizedBox(height: 44, child: Text('action:${group.name}'))
+                  : null,
               header: const SizedBox(
                 height: 56,
                 child: Center(child: Text('group header')),
@@ -79,7 +84,12 @@ Future<Fixture> pumpGroups(
             );
             return Column(
               children: [
-                Expanded(child: content),
+                Expanded(child: trailing
+                    ? material.Theme(
+                        data: buildXbTheme(brandColor: const Color(0xffd92e1a), brightness: brightness),
+                        child: content,
+                      )
+                    : content),
                 if (outsideAction)
                   material.TextButton(
                     onPressed: () => fixture.outsideCalls++,
@@ -122,6 +132,18 @@ Future<void> pickLast(WidgetTester tester, Fixture fixture) async {
 }
 
 void main() {
+  testWidgets('header action follows selected group without crowding the overflow menu', (tester) async {
+    final fixture = await pumpGroups(tester, width: 360, trailing: true);
+    final chipContext = tester.element(find.byType(prism.Card).first);
+    expect(prism.Theme.of(chipContext).colorScheme.surfaceBright,
+        material.Theme.of(chipContext).colorScheme.surfaceContainerLow);
+    expect(find.text('action:${fixture.groups.first.name}'), findsOneWidget);
+    await openMenu(tester);
+    await pickLast(tester, fixture);
+    await tester.pumpAndSettle();
+    expect(find.text('action:${fixture.groups.last.name}'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
   setUp(() {
     final original = WidgetController.hitTestWarningShouldBeFatal;
     WidgetController.hitTestWarningShouldBeFatal = true;

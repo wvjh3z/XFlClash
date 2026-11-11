@@ -1,4 +1,4 @@
-/// R8 套餐列表页：名称 + 最多三行介绍 + 右侧居中周期价 → 套餐详情页。
+/// R8 套餐列表页：名称与右上周期价同排 + 最多三行介绍 → 套餐详情页。
 ///
 /// **数据源**：反腐层 `getPlans()`。卡片只显示概要；周期选择 / 优惠码 / 提交在 [PlanDetailPage]。
 library;
@@ -158,7 +158,7 @@ class _PlanListPageState extends ConsumerState<PlanListPage> {
   }
 }
 
-/// 套餐选项卡：不额外展示流量标记，介绍最多三个显示行，价格独立居中。
+/// 套餐选项卡：不额外展示流量标记，介绍最多三个显示行，右上价格与名称基线对齐。
 class _PlanOptCard extends StatelessWidget {
   const _PlanOptCard({required this.plan, required this.onTap});
   final PlanItem plan;
@@ -199,15 +199,16 @@ class _PlanOptCard extends StatelessWidget {
           // 原型 .planopt 边框 1.8px。
           border: Border.all(color: t.line, width: 1.8),
         ),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.center,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
           children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  XbEmojiText(
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.baseline,
+              textBaseline: TextBaseline.alphabetic,
+              children: [
+                Expanded(
+                  child: XbEmojiText(
                     plan.name,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
@@ -217,46 +218,46 @@ class _PlanOptCard extends StatelessWidget {
                       color: t.on,
                     ),
                   ),
-                  if (description.isNotEmpty) ...[
-                    const SizedBox(height: 7),
-                    XbEmojiText(
-                      description,
-                      maxLines: 3,
-                      overflow: TextOverflow.clip,
-                      style: TextStyle(fontSize: 12, height: 1.5, color: t.onv),
-                    ),
-                  ],
-                ],
-              ),
-            ),
-            if (min != null) ...[
-              const SizedBox(width: 12),
-              // 价格（原型 .pr）：品牌色大字 + 周期单位小字（底部对齐，无「起」）。
-              RichText(
-                textAlign: TextAlign.right,
-                textScaler: MediaQuery.textScalerOf(context),
-                text: TextSpan(
-                  style: DefaultTextStyle.of(context).style,
-                  children: [
-                    TextSpan(
-                      text: xbYuan(min.amountYuan),
-                      style: TextStyle(
-                        fontSize: 22,
-                        fontWeight: FontWeight.w700,
-                        color: scheme.primary,
-                        fontFeatures: const [FontFeature.tabularFigures()],
-                      ),
-                    ),
-                    TextSpan(
-                      text: ' /${planPeriodLabel(min.period)}',
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w500,
-                        color: t.onv,
-                      ),
-                    ),
-                  ],
                 ),
+                if (min != null) ...[
+                  const SizedBox(width: 12),
+                  // 右上价格与套餐名称共用文字基线，周期仍跟随原始取价。
+                  RichText(
+                    textAlign: TextAlign.right,
+                    textScaler: MediaQuery.textScalerOf(context),
+                    text: TextSpan(
+                      style: DefaultTextStyle.of(context).style,
+                      children: [
+                        TextSpan(
+                          text: xbYuan(min.amountYuan),
+                          style: TextStyle(
+                            fontSize: 22,
+                            fontWeight: FontWeight.w700,
+                            color: scheme.primary,
+                            fontFeatures: const [FontFeature.tabularFigures()],
+                          ),
+                        ),
+                        TextSpan(
+                          text: ' /${planPeriodLabel(min.period)}',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w500,
+                            color: t.onv,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ],
+            ),
+            if (description.isNotEmpty) ...[
+              const SizedBox(height: 7),
+              XbEmojiText(
+                description,
+                maxLines: 3,
+                overflow: TextOverflow.clip,
+                style: TextStyle(fontSize: 12, height: 1.5, color: t.onv),
               ),
             ],
           ],

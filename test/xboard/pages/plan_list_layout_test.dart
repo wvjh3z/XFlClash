@@ -21,7 +21,7 @@ Finder paragraph(String text) => find.byWidgetPredicate(
 void main() {
   for (final brand in ['brand_a', 'brand_b']) {
     testWidgets(
-      '$brand plan description caps wrapped lines and leaves the centered price independent',
+      '$brand plan price shares title baseline above the three-line description',
       (tester) async {
         XboardConfig.bind(
           XboardConfig(
@@ -109,11 +109,15 @@ void main() {
             final titleRect = tester.getRect(paragraph('测试套餐 🇭🇰'));
             final introRect = tester.getRect(intro);
             final priceRect = tester.getRect(paragraph('¥12.50 /月付'));
-            expect(introRect.right, lessThanOrEqualTo(priceRect.left - 11));
+            expect(titleRect.right, lessThanOrEqualTo(priceRect.left - 11));
+            final titleBox = tester.renderObject<RenderBox>(paragraph('测试套餐 🇭🇰'));
+            final priceBox = tester.renderObject<RenderBox>(paragraph('¥12.50 /月付'));
             expect(
-              priceRect.center.dy,
-              closeTo((titleRect.top + introRect.bottom) / 2, 1),
+              titleRect.top + titleBox.getDryBaseline(titleBox.constraints, TextBaseline.alphabetic)!,
+              closeTo(priceRect.top + priceBox.getDryBaseline(priceBox.constraints, TextBaseline.alphabetic)!, 1),
             );
+            expect(introRect.top, greaterThanOrEqualTo(priceRect.bottom + 6));
+            expect(introRect.width, greaterThan(titleRect.width));
             expect(priceRect.right, lessThan(width));
             expect(find.text('999 GB', findRichText: true), findsNothing);
             expect(tester.takeException(), isNull);

@@ -1,6 +1,7 @@
 /// D04: retain the real page and account provider across subscription recovery.
 /// HTTP/sync and Core group inputs are controlled; this is not a device test.
 library;
+import '../../../_fixtures/xb_action_finders.dart';
 
 import 'package:fl_clash/enum/enum.dart';
 import 'package:fl_clash/models/models.dart'
@@ -63,7 +64,7 @@ void main() {
         late ProviderContainer container;
         var outcome = XbSyncOutcome.noSubscription;
         var accountLoads = 0;
-        final profile = XbDomainSubscription(
+        const profile = XbDomainSubscription(
           email: 'fixture@example.invalid', uuid: 'fixture', planId: 1,
           planName: 'fixture', totalBytes: 1000000, usedBytes: 1,
         );
@@ -102,7 +103,7 @@ void main() {
         await tester.pumpAndSettle();
         expect(find.text('recovered-node', findRichText: true), findsOneWidget);
         final page = tester.state(find.byType(NodesTab));
-        await tester.tap(find.text('刷新节点'));
+        await tester.tap(findActionLabel('刷新节点'));
         await tester.pumpAndSettle();
         expect(find.text('当前无可用线路'), findsOneWidget);
         expect(find.text('recovered-node', findRichText: true), findsNothing);
@@ -116,7 +117,7 @@ void main() {
           await container.read(userProfileProvider.future);
           await tester.pumpAndSettle();
           expect(find.text('当前无可用线路'), findsOneWidget);
-          await tester.tap(find.text('刷新节点'));
+          await tester.tap(findActionLabel('刷新节点'));
         } else {
           // Deliver a successful background result and refresh the real provider,
           // without replacing/remounting the page or overriding userProfile.

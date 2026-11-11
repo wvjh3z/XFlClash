@@ -32,6 +32,7 @@ import '../../widgets/xb_content_header.dart';
 import '../../widgets/xb_responsive.dart';
 import '../../widgets/xb_tab_refresh_indicator.dart';
 import 'xb_node_group.dart';
+import 'xb_group_delay_action.dart';
 
 /// 节点页 master-detail：可用宽 ≥ [XbBreakpoints.desktop] 才双栏（策略见 xb_responsive）。
 
@@ -370,7 +371,12 @@ class _NodesTabState extends ConsumerState<NodesTab>
                 groups: groups,
                 selected: current.name,
                 targetNonce: _handledNonce,
-                header: header,
+                headerBuilder: (context, group) => _NodesHeader(
+                  onRefresh: _refreshNodes,
+                  refreshing: _refreshing,
+                  cooldownSec: cooldownSeconds,
+                  group: group,
+                ),
                 onSelected: (name) {
                   if (!mounted ||
                       ref.read(authStateProvider) != AuthState.authenticated ||
@@ -388,6 +394,7 @@ class _NodesTabState extends ConsumerState<NodesTab>
                       child: XbNodeGroup(
                         key: ValueKey(group.name),
                         group: group,
+                        showDelayAction: false,
                         scrollToNode: group.name == current.name ? scrollNode : null,
                         scrollNonce: _handledNonce,
                       ),
@@ -620,11 +627,13 @@ class _NodesHeader extends StatelessWidget {
     required this.onRefresh,
     this.refreshing = false,
     this.cooldownSec = 0,
+    this.group,
   });
 
   final VoidCallback onRefresh;
   final bool refreshing;
   final int cooldownSec;
+  final XbGroupSummary? group;
 
   @override
   Widget build(BuildContext context) {
@@ -632,7 +641,7 @@ class _NodesHeader extends StatelessWidget {
     // 节点页专属紧凑标题行（不用共享 XbScreenTitle —— 它底部留白 12px 太大，与下方吸顶分组 tab
     // 间距过宽，和原型不符）。标题 + 右侧刷新，底部仅 2px 间距。
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 8, 8, 2),
+      padding: EdgeInsets.fromLTRB(16, 8, group == null ? 8 : 16, 2),
       child: Row(
         children: [
           Text(
@@ -645,11 +654,35 @@ class _NodesHeader extends StatelessWidget {
             ),
           ),
           const Spacer(),
-          _NodesRefreshAction(
-            onRefresh: onRefresh,
-            refreshing: refreshing,
-            cooldownSec: cooldownSec,
-          ),
+          if (group != null)
+            Material(
+              key: const ValueKey('nodes-action-capsule'),
+              color: t.card,
+              borderRadius: BorderRadius.circular(24),
+              clipBehavior: Clip.antiAlias,
+              child: Padding(
+                padding: const EdgeInsets.all(2),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    XbGroupDelayAction(group: group!, compact: true),
+                    SizedBox(width: 1, height: 16, child: ColoredBox(color: t.line)),
+                    _NodesRefreshAction(
+                      onRefresh: onRefresh,
+                      refreshing: refreshing,
+                      cooldownSec: cooldownSec,
+                      compact: true,
+                    ),
+                  ],
+                ),
+              ),
+            )
+          else
+            _NodesRefreshAction(
+              onRefresh: onRefresh,
+              refreshing: refreshing,
+              cooldownSec: cooldownSec,
+            ),
         ],
       ),
     );
@@ -663,11 +696,13 @@ class _NodesRefreshAction extends StatelessWidget {
     required this.onRefresh,
     this.refreshing = false,
     this.cooldownSec = 0,
+    this.compact = false,
   });
 
   final VoidCallback onRefresh;
   final bool refreshing;
   final int cooldownSec;
+  final bool compact;
 
   @override
   Widget build(BuildContext context) {
@@ -680,6 +715,36 @@ class _NodesRefreshAction extends StatelessWidget {
       label = '刷新节点 ${cooldownSec}s';
     } else {
       label = '刷新节点';
+    }
+    if (compact) {
+      final color = coolingDown ? scheme.onSurfaceVariant : scheme.primary;
+      return Tooltip(
+        message: label,
+        child: Semantics(
+          label: label,
+          button: true,
+          enabled: !refreshing,
+          onTap: refreshing ? null : onRefresh,
+          excludeSemantics: true,
+          child: SizedBox(
+            width: 44,
+            height: 44,
+            child: InkResponse(
+              onTap: refreshing ? null : onRefresh,
+              customBorder: const CircleBorder(),
+              child: Center(
+                child: refreshing
+                    ? SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2, color: scheme.primary),
+                      )
+                    : Icon(Icons.refresh, size: 19, color: color),
+              ),
+            ),
+          ),
+        ),
+      );
     }
     return TextButton.icon(
       // 真正刷新中才禁用（null）；冷却中保持可点 → 触发 _refreshNodes 内的冷却 toast。

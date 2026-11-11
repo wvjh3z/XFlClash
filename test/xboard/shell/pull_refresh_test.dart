@@ -2,6 +2,7 @@
 library;
 
 import 'dart:async';
+import '../../_fixtures/xb_action_finders.dart';
 
 import 'package:fl_clash/enum/enum.dart';
 import 'package:fl_clash/models/models.dart'
@@ -184,7 +185,7 @@ Finder _inside(bool nodes, Finder child) =>
 
 Finder _cooldown(bool nodes) => _inside(
   nodes,
-  find.textContaining(RegExp(nodes ? r'刷新节点 \d+s' : r'刷新信息 \d+s')),
+  findActionLabel(RegExp(nodes ? r'刷新节点 \d+s' : r'刷新信息 \d+s')),
 );
 
 Future<void> _pull(WidgetTester tester, {required bool nodes}) async {
@@ -215,13 +216,18 @@ Future<void> _finishAnimations(WidgetTester tester) async {
 }
 
 void _expectBusy(WidgetTester tester, {required bool nodes}) {
-  final busy = _inside(nodes, find.text('刷新中…'));
+  final busy = _inside(nodes, findActionLabel('刷新中…'));
   expect(busy, findsOneWidget);
   final button = find.ancestor(
     of: busy,
     matching: find.byWidgetPredicate((w) => w is TextButton),
   );
-  expect(tester.widget<TextButton>(button).onPressed, isNull);
+  if (button.evaluate().isNotEmpty) {
+    expect(tester.widget<TextButton>(button).onPressed, isNull);
+  } else {
+    final ink = find.descendant(of: busy, matching: find.byType(InkResponse));
+    expect(tester.widget<InkResponse>(ink).onTap, isNull);
+  }
   expect(_cooldown(nodes), findsNothing, reason: '请求完成后才启动 60 秒 CD');
 }
 
@@ -261,11 +267,14 @@ void main() {
         final response = Completer<XbSyncOutcome>();
         final f = _Fixture(nodeContent: nodes)..syncResponse = response;
         await _pump(tester, page: _Page.nodes, width: width, fixture: f);
+        final capsule = find.byKey(const ValueKey('nodes-action-capsule'));
+        final capsuleSize = capsule.evaluate().isEmpty ? null : tester.getSize(capsule);
         expect(f.syncCalls, 0, reason: '渲染节点页面不会自动手动强刷订阅');
         await _pull(tester, nodes: true);
         expect(f.syncCalls, 1);
         _expectBusy(tester, nodes: true);
-        await tester.tap(_inside(true, find.text('刷新中…')));
+        if (capsuleSize != null) expect(tester.getSize(capsule), capsuleSize);
+        await tester.tap(_inside(true, findActionLabel('刷新中…')));
         await tester.pump(const Duration(seconds: 5));
         expect(f.syncCalls, 1);
         _expectBusy(tester, nodes: true);
@@ -273,6 +282,7 @@ void main() {
         response.complete(XbSyncOutcome.ok);
         await _finishAnimations(tester);
         expect(_cooldown(true), findsOneWidget);
+        if (capsuleSize != null) expect(tester.getSize(capsule), capsuleSize);
         await tester.tap(_cooldown(true));
         await _pull(tester, nodes: true);
         expect(f.syncCalls, 1);
@@ -322,7 +332,7 @@ void main() {
       return XbSyncOutcome.failed;
     });
     await _pump(tester, page: _Page.nodes, fixture: f);
-    await tester.tap(find.text('刷新节点'));
+    await tester.tap(findActionLabel('刷新节点'));
     await _finishAnimations(tester);
     expect(f.syncCalls, 1);
     expect(find.text('可用测试节点', findRichText: true), findsOneWidget);
@@ -338,7 +348,7 @@ void main() {
     await _pull(tester, nodes: false);
     await _finishAnimations(tester);
     expect(_cooldown(false), findsOneWidget);
-    expect(find.text('刷新节点'), findsOneWidget);
+    expect(findActionLabel('刷新节点'), findsOneWidget);
     await _pull(tester, nodes: true);
     await _finishAnimations(tester);
     expect(f.accountCalls, 1);
