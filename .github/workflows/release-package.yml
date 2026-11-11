@@ -44,20 +44,18 @@ on:
           - brand_b
         default: brand_a
       target:
-        description: '构建目标（desktop=全部桌面；desktop-except-linux-amd64=跳过Linux x64；all=含Android）'
+        description: '构建平台'
         type: choice
         options:
-          - android
-          - windows-amd64
-          - windows-arm64
-          - linux-amd64
-          - linux-arm64
-          - macos-amd64
-          - macos-arm64
-          - desktop
-          - desktop-except-linux-amd64
-          - all
-        default: android
+          - 'Android（ARM32 / ARM64）'
+          - 'Windows AMD64'
+          - 'Windows ARM64'
+          - 'Linux AMD64'
+          - 'Linux ARM64'
+          - 'macOS Intel（AMD64）'
+          - 'macOS Apple（ARM64）'
+          - '全部平台'
+        default: 'Android（ARM32 / ARM64）'
       build_number:
         description: '构建号（可选）：留空自动使用仓库下一编号；也可手动指定更大编号'
         type: string
@@ -150,14 +148,14 @@ jobs:
           case "$TARGET" in
             android)       INC="[$A]" ;;
             windows-amd64) INC="[$WA]" ;;
-            windows-arm64) INC="[$WR]" ;; # Opt-in until ARM device acceptance.
+            windows-arm64) INC="[$WR]" ;;
             linux-amd64)   INC="[$LA]" ;;   # ubuntu-22.04 固定（rpm 4.20 坑，见头部）
             linux-arm64)   INC="[$LR]" ;;
             macos-amd64)   INC="[$MA]" ;;
             macos-arm64)   INC="[$MR]" ;;
             desktop)       INC="[$WA,$LA,$LR,$MA,$MR]" ;;
             desktop-except-linux-amd64) INC="[$WA,$LR,$MA,$MR]" ;;
-            all)           INC="[$A,$WA,$LA,$LR,$MA,$MR]" ;;
+            all)           INC="[$A,$WA,$WR,$LA,$LR,$MA,$MR]" ;;
             *)             echo "未知 target: $TARGET"; exit 1 ;;
           esac
           echo "include=$INC" >> "$GITHUB_OUTPUT"

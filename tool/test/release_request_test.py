@@ -63,6 +63,29 @@ class RequestTests(unittest.TestCase):
                 actual = requests.normalize({"inputs": {**self.inputs, "target": target, "flavor": flavor}}, self.env)
                 self.assertEqual((actual["target"], actual["flavor"]), (target, flavor))
 
+    def test_workflow_display_choices_preserve_targets_and_default(self):
+        workflow = (Path(__file__).resolve().parents[2] / '.github/workflows/release-package.yml').read_text(encoding='utf-8')
+        section = workflow.split('      target:\n', 1)[1].split('      build_number:', 1)[0]
+        choices = [line.strip()[2:].strip("'\"") for line in section.splitlines()
+                   if line.strip().startswith('- ')]
+        expected = {
+            'Android（ARM32 / ARM64）': 'android', 'Windows AMD64': 'windows-amd64',
+            'Windows ARM64': 'windows-arm64', 'Linux AMD64': 'linux-amd64',
+            'Linux ARM64': 'linux-arm64', 'macOS Intel（AMD64）': 'macos-amd64',
+            'macOS Apple（ARM64）': 'macos-arm64', '全部平台': 'all',
+        }
+        self.assertEqual(choices, list(expected))
+        for label, target in expected.items():
+            for flavor in requests.FLAVORS:
+                actual = requests.normalize({'inputs': {**self.inputs, 'flavor': flavor, 'target': label}}, self.env)
+                legacy = requests.normalize({'inputs': {**self.inputs, 'flavor': flavor, 'target': target}}, self.env)
+                self.assertEqual(actual, legacy)
+        default = next(line.split('default:', 1)[1].strip().strip("'\"")
+                       for line in section.splitlines() if line.strip().startswith('default:'))
+        self.assertIn(default, choices)
+        self.assertEqual(requests.normalize({'inputs': {'target': default}}, self.env)['target'],
+                         requests.PUBLIC_DEFAULTS['target'])
+
     def test_public_schema_rejects_removed_and_unknown_fields_or_invalid_containers(self):
         for field in ("prepared_from", "origin", "sdk_ref", "verify_symbolication", "unknown"):
             with self.subTest(field=field), self.assertRaises(requests.RequestError):

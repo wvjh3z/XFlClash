@@ -14,6 +14,16 @@ REPOSITORY = "wvjh3z/XFlClash"
 TARGETS = ("android", "windows-amd64", "windows-arm64", "linux-amd64", "linux-arm64", "macos-amd64", "macos-arm64",
            "desktop", "desktop-except-linux-amd64", "all")
 FLAVORS = ("brand_a", "brand_b")
+TARGET_LABELS = {
+    "Android（ARM32 / ARM64）": "android",
+    "Windows AMD64": "windows-amd64",
+    "Windows ARM64": "windows-arm64",
+    "Linux AMD64": "linux-amd64",
+    "Linux ARM64": "linux-arm64",
+    "macOS Intel（AMD64）": "macos-amd64",
+    "macOS Apple（ARM64）": "macos-arm64",
+    "全部平台": "all",
+}
 MAX_BUILD_NUMBER = 65_535
 PUBLIC_DEFAULTS = {"flavor": "brand_a", "target": "android", "build_number": "", "upload": False}
 
@@ -63,6 +73,11 @@ def normalize(event, env):
         raise RequestError("Invalid public release input fields")
     values = {**PUBLIC_DEFAULTS, **supplied}
     flavor, target = values["flavor"], values["target"]
+    # Choice labels are also the dispatched values. Keep the matrix and existing
+    # callers on stable IDs, including the two now-hidden legacy combinations.
+    if not isinstance(target, str):
+        raise RequestError("Invalid release brand or target")
+    target = TARGET_LABELS.get(target, target)
     if flavor not in FLAVORS or target not in TARGETS:
         raise RequestError("Invalid release brand or target")
     number = requested_number(values["build_number"])

@@ -435,7 +435,8 @@ class ReleaseWorkflowTests(unittest.TestCase):
                     ("macos", "amd64"), ("macos", "arm64")}
         for target, wanted in (("desktop-except-linux-amd64", expected),
                                ("desktop", expected | {("linux", "amd64")}),
-                               ("all", expected | {("linux", "amd64"), ("android", "")})):
+                               ("windows-arm64", {("windows", "arm64")}),
+                               ("all", expected | {("linux", "amd64"), ("windows", "arm64"), ("android", "")})):
             with self.subTest(target=target):
                 output.unlink(missing_ok=True)
                 result = subprocess.run(["bash", "-c", script], cwd=self.root,
