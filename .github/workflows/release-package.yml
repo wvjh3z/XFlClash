@@ -730,6 +730,7 @@ jobs:
             build/native-hook-diagnostics.json
             build/windows-iscc-preflight.json
             build/windows-title-preflight.json
+            build/windows-architecture.json
             build/distributor-preflight/
             build/release-context.json
             build/release-artifacts.json

@@ -39,6 +39,8 @@
 
 ### Windows ARM64 恢复准备（2026-11-11）
 
+首次任务分支a46c9942的#161/#162在共享前置243项中出现1项失败：新增windows-architecture.json仅进入首次证据上传路径，重试路径漏项。保留EvidenceRetryContractTest的路径集合相等断言，补齐重试清单后定向通过，再用正式入口复验；未进入ARM64编译，不记为原生依赖失败。#161另因远端A下一编号已由50推进至51而取消，#162显式使用51且upload=false；不以隔离分支旧计数替代派发前远端核号，不改main计数或沿用旧包身份。
+
 固定Flutter3.47.6的BuildWindowsCommand没有目标切换参数，按宿主选择x64/ARM64；因此不能用在x64主机安装ARM64 MSVC来证明正式Flutter整包可交叉构建。用户选择windows-11-arm原生Runner，WIN11-BUILD做既有x64/原生夹具检查。旧QuickJS x64 DLL与客服旧Loader阻塞已随依赖演进改变，不能照旧版失败禁用新目标，也不能由上游出包宣称品牌安装器/更新通过。
 
 前置检查首次缺固定distributor源码，按checkout_distributor准备后通过。新宿主检查用未解析的dart批处理名触发WinError2，改为FLUTTER_ROOT内真实dart.exe后正控0、错误目标负控1。Windows app.so由AotElfRelease生成，成品守卫必须区分PE原生模块与ELF AOT；已复用现有ELF解析器，并覆盖两品牌的错DLL/错AOT负控。VC配置必须按实际runner生成，ARM64策略查ARM64注册表/编译器/CRT，而不是仅允许发行名称。40策略、9子进程、两品牌×两架构20项真实Inno编译及Dart4项通过；正式ARM64整包与设备结果见[专项证据](https://github.com/wvjh3z/proxy-suite-docs/blob/feat/windows-arm64-v093/evidence/windows-arm64-v093-20261111/README.md)，本段不代替实际构建回执。
