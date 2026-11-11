@@ -22,9 +22,15 @@
 
 | 事件 | 品牌 / 目标 | 首个失败阶段 | 当前状态 |
 | --- | --- | --- | --- |
+| [Windows ARM64恢复](#windows-arm64-恢复准备2026-11-11) | A/B共享源码；A原生ARM构建 | #161–#167：请求/前置、路径、bootstrap、架构及教程插件STL1011 | 逐次索引及红绿证据见专项；#167窄作用域兼容已补，正式ARM复验待完成 |
 | [品牌分组菜单回归](#品牌分组菜单回归2026-11-11) | A/B共享UI，Windows隔离宿主 | 重复激活错误pop内容页；测试准备/旧断言失败 | 稳定Page身份保护；17文件分两批186项通过，golden/设备待验 |
+| [VC诊断编译与复核](#vc诊断编译与来源分类2026-11-11) | A/B Windows共同安装器 | Inno预处理换行、PS_MINIVCL接口；协议丢失来源误判 | 原生四组中英/剪贴板正负控通过；完整maker/正式失败页/真实redist恢复待验 |
+| [#150 SDK访问](#actions-150-sdk认证2026-11-10) | B 全六目标 | 私有SDK clone退出128 | 诊断证实原Secret401；授权同步后#151越过检出，不把128直接当过期 |
+| [#151 Android协议夹具](#actions-151-android协议夹具2026-11-10) | B/build37 Android；五桌面成功 | 引用旧CoreMethod加载失败，无该批APK | 新接口/响应/wireName修正受控通过；后续B39/40成功归属见STATUS，设备另验 |
+| [Windows build45制包/采集](#windows-build45原生制包与普通用户采集) | A Windows AMD64 | NuGet/JDK、ATL、安装前缀，随后普通用户Sentry数据库 | 分阶段保留失败，build46/48限定原生结果见候选证据，不外推其他目标 |
+| [GET采样/浏览器回归](https://github.com/wvjh3z/proxy-suite-docs/blob/main/evidence/update-get-probe-20261110/review-fix.json) | A/B共享业务 | Dio提前缓冲、取消异常、字号溢出 | 74/74受控通过；B40含修复，真实浏览器/设备仍待验 |
 | [v0.9.3候选验证](#v093升级候选验证2026-11-08) | A/B共用源码；Linux与Windows夹具 | 接口/测试宿主、golden环境及测试传输准备 | golden经论证、原型/配色修复和分批批准后最终55/55；原生缺口另记 |
-| [偏好提交失败候选夹带](#偏好提交失败候选夹带2026-11-08) | A/B Windows/Linux共用适配器；本轮Linux | 失败写入修改适配器缓存，后续无关写入带入 | 旧实现25例20失败，最小提交补丁后188例通过；Windows原生/全局门面边界仍待 |
+| [偏好提交失败候选夹带](#偏好提交失败候选夹带2026-11-08) | A/B Windows/Linux适配器 | 失败候选被后续写入夹带 | 旧25例20失败→188通过；后续Windows适配器40/40及6负控已有，后续门面/完整原生恢复边界见STATUS G05 |
 | [Jenkins本地工作区快照准备](#jenkins本地工作区快照准备2026-11-08) | Linux / 最新未提交工作区回归 | 源码一致性守卫发现准备步骤改写build_config | 核实为名称补引号后恢复快照原字节；89例通过，3503项前后一致 |
 | [Jenkins测试采集器时区缺失](#jenkins测试采集器时区缺失2026-11-08) | Linux / 偏好存储实文件验收 | 测试前ZoneInfoNotFoundError | 采集器使用明确北京时间UTC+8；测试随后14/14通过，非业务修复 |
 | [Jenkins Gradle计时无报告](#jenkins-gradle计时无报告2026-11-08) | 两品牌共用驱动 / Android；夹具为离线Gradle9.8.0 | init设置profile后任务成功，但报告缺失 | 改用任务完成事件；真实成功/失败夹具通过，完整新包未验 |
@@ -37,9 +43,13 @@
 
 ## v0.9.3升级候选验证（2026-11-08）
 
+以下按事件留存历史，不同采集批次的未提交/候选/新包待验仅指当时。当前包归属查Docs/STATUS，不相加测试数或把后续制包倒填成早期设备通过。
+
 ### Windows ARM64 恢复准备（2026-11-11）
 
-逐次运行索引（不是将同一事件重复记为多项产品缺陷）：
+#### 逐次运行索引
+
+同一错误在多个翻译单元重复出现，不计为多项产品缺陷；主动取消与取消前已发生的失败分别保留。
 
 | Actions / run ID | 源码 | 结束阶段与实际结果 | 修复与后续证据 |
 | --- | --- | --- | --- |
@@ -49,6 +59,18 @@
 | #164 / 42958398408 | 9fd439eb | failure；原生前置通过，源码安装的Flutter未bootstrap，Dart ABI检查WinError2 | ea34df55先官方flutter --version再查真实ABI，后续完整入口继续验证 |
 | #165 / 42960144515 | ea34df55 | 主动取消于符号工具预检；历史复查已发现后段生产准备器硬限x64。不是客户端编译失败 | 两品牌ARM符号旧代码红2，03263609按真实架构匹配；Windows16项通过 |
 | #166 / 42962421116 | 03263609 | failure；共享通过，本地入口夹具4项中1项失败：auto实际选择amd64，未保留父进程注入的架构环境 | 不放宽预期，改由实际Dart SDK ABI选择Windows auto目标；保留显式目标ABI检查，本机10项及Windows正式Bash入口4项通过，ARM正式入口待复验 |
+| [#167](https://github.com/wvjh3z/XFlClash/actions/runs/42963464788) / 42963464788 | 084c56ce | failure；首次进入实际ARM64 Package，教程插件使用experimental coroutine，被MSVC19.51的STL1011拒绝，退出255 | 插件PRIVATE添加微软旧协程兼容定义，保留C++17 /await ABI；Windows10项及82锚点通过，真实VS2026 ARM构建待复验 |
+
+<a id="windows-arm64-coroutine-167"></a>
+#### #167 教程插件旧协程接口
+
+Package日志的有效阻断均为同一STL1011/C2338，在多个翻译单元重复；CMP0175、C4244、C4458及Breakpad类型转换属于同时出现的warning，不把它们当作此次首错。锁定flutter_inappwebview_windows0.6.0用C++17和/await，经C++/WinRT进入experimental/coroutine；VS2026开始拒绝旧接口，错误本身给出专用兼容宏。微软[/await说明](https://learn.microsoft.com/en-us/cpp/build/reference/await-enable-coroutine-support?view=msvc-170)同时明确弃用和/await:strict的协程状态对象不兼容，因此未未经验证切换语言标准或协程ABI。
+
+既有windows/CMakeLists.txt教程插件兼容块PRIVATE增加`_SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS`，不加全局屏蔽、/WX-或修改Pub缓存。将来锁定插件改为标准协程后应连同此定义复核退役。既有Loader安装夹具扩展为两项兼容定义的作用域断言，并在MSVC下实际包含experimental/coroutine、使用/await编译；旧CMake绑定下因缺定义红1，修后WIN11-BUILD/MSVC19.44完整10项通过（两品牌、Debug/Release、默认/显式目录、MSVC/非MSVC分支与缺插件），82锚点命中。该红测证明缺少目标定义，并非在19.44上重现19.51原生STL1011；后者的失败证据来自#167，最终修复仍需新ARM Runner验证。
+
+脚本复查覆盖release-package、release_request、prepare_release_context、release_pipeline、指定主机入口、windows_architecture、VC准备/运行时及Windows符号准备：沿实际归一目标和native ABI、包名、PE/ELF、PDB身份与上传阶段核对；原有x64/ARM64隔离及错误拒绝保持。#167已越过先前所有前置阻断，不能继续记为bootstrap失败，也不能因前置绿而宣称包已生成。正式复验从main最新固定源码派发，未沿用旧失败源码重跑。
+
+#### 早期失败与修复沿革（#161–#166）
 
 #166复现通过给shell环境保留AMD64、给受控SDK返回ARM64，旧auto规则稳定失败；这是环境/SDK架构混用，不能以放宽测试到任意目标解决。自动目标现在调用同一windows_architecture工具的--print-target，解析实际Dart版本ABI；未知、非Windows或多个ABI仍拒绝。显式windows-arm64仍校验真实SDK，不伪造硬件或允许x64包改名。普通Windows构建机实际--print-target返回amd64，显式amd64验证通过。
 
@@ -72,6 +94,8 @@ ARM Runner已切VS2026，不能沿用x64的MSVC19.44/CRT14.44最低要求。在�
 
 测试准备失败分别处理：原版7.5行菜单末行半露且有弹性回弹，需真实滚动、ensureVisible并等待结束后再点，保留命中警告fatal；SemanticsHandle须在finally释放；新增内层PageView后旧全局Finder不唯一，改从页面标题真实拖动外层；漏import与桌面旧÷2断言属于编译/预期准备，不算产品负控。初始分析另纠正GlyphIcon导入、根路由父类调用及大括号；完整26文件分析通过，4个新文件格式化后再次分析/17项复验通过，最后一处仅大括号整理未重复行为回归。pubspec/lock已恢复、本机远端摘要一致；完整命令、红绿报告及归档索引见[本轮证据](https://github.com/wvjh3z/proxy-suite-docs/blob/main/evidence/node-group-client-20261111/README.md)。没有出包、安装或更新golden，设备视觉与正式交付仍待验。
 
+### VC诊断编译与来源分类（2026-11-11）
+
 2026-11-11 Windows VC诊断增强：固定Inno6.7.1真实编译揭示16项静态检查漏掉两处问题。错误兜底字符串换行以`#13#10`开头，被ISPP当作未知预处理指令；移到上一行后，编译继续暴露`TNewMemo.CopyToClipboard`未知标识符。PascalScript源码里的该注册受`IFNDEF PS_MINIVCL`控制，不能仅搜索到注册语句就认为Inno实际暴露接口。已改用原生编辑框`WM_COPY`及`GetClipboardSequenceNumber`核对复制是否发生。原始红编译退出2；修正后完整生产诊断Code/中英CustomMessages的无害夹具经Inno6.7.1编译成功，并以普通用户实际执行中英两种语言，覆盖UTF-8、中文/空格/单引号路径、入口/解析失败、原始退出1、协议分类、日志不可写及复制回读。38项策略和9项真实子进程另行通过，未安装VC或构建客户端。此夹具不含正式maker/Files/ISPP准备入口，不能替代双品牌完整预检。可复用夹具为`tool/test/windows_vc_diagnostics_native_test.py`；证据见Docs/evidence/vc-diagnostics-20261111。MCP首次超长内联传输触发WinError206，改分块传输；首次夹具收尾外层退出1，修正空剪贴板恢复及子进程清理后复验退出0，两者均非安装器缺陷。
 
 同轮复核补修：先按数字分类再用协议覆盖，会在标记丢失时把VC退出1误判检查器错误，也会把VC退出4004误判内部超时。新增生产XbVcError调用回归，修复前四组均在missing protocol exit1 neutral红测；改为已确认本地来源优先、协议结果/kind/子进程码匹配才分类，否则中性提示后通过。原生Python入口原先只编译，现在连接版本化PowerShell驱动，英/中×复制正常/真实剪贴板占用四组最终均退出0，失败和清理异常非零，报告可重放。占用负控首轮确实显示错误但驱动误用IDOK导致超时，改为仅关闭已识别的Inno自定义错误窗WM_CLOSE后通过。清理不能靠进程名及启动前PID快照：现用私有Windows Job在恢复挂起loader前接管全部后代，kill-on-close防驱动异常遗留，核对ActiveCount=0；实测同名无关ping进程不受影响。保留完整maker、正式失败页布局/点击及真实redist安装恢复待验。最新证据为Docs/evidence/vc-diagnostics-20261111/review-fix.json；本轮静态检查另有一条旧case语法断言失败，按新的来源/kind约束更新后16项通过，并有上述原生红绿作为行为依据。
@@ -86,9 +110,15 @@ ARM Runner已切VS2026，不能沿用x64的MSVC19.44/CRT14.44最低要求。在�
 
 2026-11-10复查修复测试准备：SdkResult.success是非const工厂，错误const导致新增登录用例加载失败，不能计为业务红测。弹窗pop后需先pump启动退出动画，再推进时间并pump完成销毁；仅推进一帧时页面仍在，不能据此前置失败声称迟到认证已复现。修正夹具后登录/注册二步登录均实测停在authenticating，修复后完成认证；Core选择与嵌套测速保留真实动作链，仅控制Core I/O。Jenkins通道曾中断；在同一授权节点恢复后读取已落盘SDK报告，区分测试exit1与传输异常，再运行未完成客户端测试，不重启节点或扩大主机范围。最终相关回归319/319、SDK版本响应25/25；修改测试文件的既有悬空library doc注释被fatal-infos拒绝，补library声明后另行分析。源码/测试身份、正负控与未出包边界见[本轮证据](https://github.com/wvjh3z/proxy-suite-docs/blob/main/evidence/upgrade-v0.9.3/review-fixes-20261110.json)。
 
+### Actions #151 Android协议夹具（2026-11-10）
+
 发行#151（run42730612787，cb6e1e02，品牌B/build37）已越过私有SDK检出，五个桌面目标成功；Android品牌通道测试仍引用已移除的CoreMethod.getIsInit而加载失败，未执行测试/生成APK。修为coreInitialized后，还需将mock的null答复改为新版Uint8List JSON响应，并断言实际wireName为core.initialized及结果可解码，不能只换枚举后吞no_response。A/B生产define各4项、相关平台/协议94项通过；最后去掉冗余typed_data导入，分析无问题。全仓149处CoreMethod引用没有其他无效成员。五桌面8产物的清单大小与GitHub自动digest一致，符号macOS各8/8、Linux各18/18、Windows21/21；这是流水线证据，不代替设备验收。草稿保留的两个APK早于本轮，不能随草稿标题误称build37；bump因Android失败跳过，37已有桌面成品占用，下一批重新核号。未自动删草稿或重跑，见[本批回执](https://github.com/wvjh3z/proxy-suite-docs/blob/main/evidence/ci151-platform-check/result.json)。
 
+### Actions #150 SDK认证（2026-11-10）
+
 GitHub发行#150（run42686858157，53feef32，品牌B/build37）六个平台都在Checkout Xboard_sdk的clone阶段退出128，尚未进入应用编译。原助手按凭据隔离要求丢弃Git输出，不能仅凭128断言Token过期；同助手在维护机使用有效root凭据可检出211c6be，固定对象不存在不是当前证据支持的结论。新增手动xboard-ci SDK-only诊断使用CI实际Secret做仓库/commit API检查与真实检出，输出固定状态分类，不反射API正文或Git原始错误；默认模块CI行为保持。用户只授权一次轻量诊断，不能自动重跑发行矩阵；源代码修复需新构建输入，重跑#150仍使用旧53feef32。后续实际诊断与修复回执由Docs/STATUS维护。
+
+后续诊断及授权同步后，#151六目标越过SDK检出，见[认证回执](https://github.com/wvjh3z/proxy-suite-docs/blob/main/evidence/ci150-sdk-access/initial-result.json)；保留以上原失败时点，不用后批成功改写#150。
 
 build47/48交付与设备阶段：增量Git对象包必须包含提交的根tree（`ls-tree -r -t`仅列其后代），遗漏会在checkout报Could not read tree；补齐根tree后检出真实原提交，不以重建临时提交冒充原源码。Windows Java ProcessBuilder的`python -c`内联引号曾破坏安装驱动，改为base64源码解码执行，避免多层命令行重解释。Linux干净组合使用固定Python3.12.15解包；主机默认旧Python不支持extractall(filter=...)。这三项均为准备失败，不算产品缺陷。IP恢复测试需真实ProviderScope/XbIpCard调度监听；独立容器夹具的失败重试计数误差排除后，最终红17通过/1目标失败、绿32/32。build48设备稳定恢复/手动正控、账号清理及Sentry有独立证据，初轮额外IP查询仍未归因，详见[候选边界](https://github.com/wvjh3z/proxy-suite-docs/blob/main/evidence/upgrade-v0.9.3/windows-candidate-acceptance.md#build48验收与边界)。启动性能专项已由用户停止，不因此修改产品或继续采样。
 
@@ -107,6 +137,8 @@ golden后续处理：先完成37张三方像素论证，再统一固定字体/�
 2026-11-09后续缺口验证保留真实页面/provider/SDK调用，用受控I/O复现D04、G18、UB-GAP-22/27；没有修改生产实现，目标失败断言不是打包失败。五批86个用例中78通过、8个目标失败，另有ABI方法探针；逐项含义见[受控验证](https://github.com/wvjh3z/proxy-suite-docs/blob/main/evidence/upgrade-v0.9.3/gap-validation.md)。夹具首次失败须分开：RichText未匹配导致前置断言失败、WidgetTester虚拟时间不能推进真实Stopwatch、测试遗漏ProfileRecoveryOwner导入导致0业务执行。修正测试夹具后才计业务证据；手动恢复对照只清节流计时，不清业务结果。不得覆写testNode后用离页测试代替生产链，也不得用“特征断言通过”宣称缺陷修复。
 
 剩余52项验证的初轮准备错误另记：选择线路spinner仍在运行时pumpAndSettle不会稳定，改为有限帧检查返回门禁，再解除受控等待；新增D07/G01夹具的const工厂/构造参数错误属于加载失败，修正后只重跑相关文件。最终去重784例中778通过、4个既知离页失败及2个门面reload交错失败，47项Python检查通过；[逐项证据](https://github.com/wvjh3z/proxy-suite-docs/blob/main/evidence/upgrade-v0.9.3/remaining-validation.md)明确模拟平台、helper/协议夹具与原生设备的界限。不得因为Tools导航测试吞渲染异常而宣称全部原生页面已验。
+
+### Windows build45原生制包与普通用户采集
 
 2026-11-09品牌A Windows候选build45首轮实际制包在CMake配置失败：WebView插件缺NuGet，jni0.14.2 FindJNI缺JDK头文件与JVM；已有Jenkins JRE不等于完整客户端构建工具链。CMP0175只是并行出现的警告。保持产品源码，补齐固定工具、官方摘要/签名和任务级JAVA_HOME/PATH后从package阶段续跑；结果与安装/运行边界见[候选原生验收](https://github.com/wvjh3z/proxy-suite-docs/blob/main/evidence/upgrade-v0.9.3/windows-candidate-acceptance.md)。首轮退出255、没有候选包，不能依据此前flutter doctor/工具版本检查声明制包通过。
 

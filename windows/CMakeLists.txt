@@ -64,8 +64,11 @@ include("xboard_webview_shutdown.cmake")
 # Restore MSVC's older mutex initialization for machines with older VC runtimes.
 # Apply consistently to this plugin's sources without exporting it to consumers.
 if(MSVC AND TARGET flutter_inappwebview_windows_plugin)
+  # Locked 0.6.0 uses C++17 /await. Keep that ABI until the plugin migrates to
+  # standard coroutines; /await:strict is not ABI-compatible with /await.
   target_compile_definitions(flutter_inappwebview_windows_plugin PRIVATE
-    _DISABLE_CONSTEXPR_MUTEX_CONSTRUCTOR)
+    _DISABLE_CONSTEXPR_MUTEX_CONSTRUCTOR
+    _SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS)
 endif()
 
 # Keep matching native symbols for Sentry outside the distributable bundle.

@@ -29,6 +29,8 @@ WINDOWS_CMAKE = Path(__file__).resolve().parents[2] / "windows" / "CMakeLists.tx
 OLD_LOADER = b"OLD_DLL\n"
 NEW_LOADER = b"NEW_DLL\n"
 MUTEX_COMPAT_DEFINITION = "_DISABLE_CONSTEXPR_MUTEX_CONSTRUCTOR"
+COROUTINE_COMPAT_DEFINITION = "_SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS"
+PRIVATE_COMPAT_DEFINITIONS = (MUTEX_COMPAT_DEFINITION, COROUTINE_COMPAT_DEFINITION)
 
 
 def find_cmake() -> str:
@@ -148,10 +150,10 @@ file(GENERATE OUTPUT "${CMAKE_BINARY_DIR}/runner-dir-$<CONFIG>.txt"
   CONTENT "$<TARGET_FILE_DIR:${BINARY_NAME}>")
 """,
         )
-        no_compat_definition = f"""#ifdef {MUTEX_COMPAT_DEFINITION}
-#error Mutex compatibility definition leaked beyond the InAppWebView plugin
+        no_compat_definition = ''.join(f"""#ifdef {definition}
+#error Compatibility definition leaked beyond the InAppWebView plugin
 #endif
-"""
+""" for definition in PRIVATE_COMPAT_DEFINITIONS)
         write_file(
             source / "runner" / "main.cpp",
             no_compat_definition + "int main() { return 0; }\n",
@@ -163,13 +165,15 @@ file(GENERATE OUTPUT "${CMAKE_BINARY_DIR}/runner-dir-$<CONFIG>.txt"
             "" if msvc is None else f"set(MSVC {'TRUE' if msvc else 'FALSE'})\n"
         )
         self.expect_compat_definition = os.name == "nt" if msvc is None else msvc
-        plugin_check = (
-            f"#ifndef {MUTEX_COMPAT_DEFINITION}\n"
-            "#error InAppWebView is missing the old-runtime mutex definition\n"
-            if self.expect_compat_definition
-            else f"#ifdef {MUTEX_COMPAT_DEFINITION}\n"
-            "#error Non-MSVC build received the MSVC mutex definition\n"
-        ) + "#endif\n"
+        plugin_check = ''.join((
+            f"#ifndef {definition}\n#error InAppWebView is missing {definition}\n"
+            if self.expect_compat_definition else
+            f"#ifdef {definition}\n#error Non-MSVC build received {definition}\n"
+        ) + "#endif\n" for definition in PRIVATE_COMPAT_DEFINITIONS)
+        if self.expect_compat_definition:
+            # Compile the real MSVC legacy header using the pinned plugin's
+            # coroutine mode; stand-in COM classes cannot expose STL1011.
+            plugin_check += '#ifdef _MSC_VER\n#include <experimental/coroutine>\n#endif\n'
         for name in ("plugin.cpp", "texture.cpp"):
             write_file(
                 source / "flutter" / name,
@@ -184,6 +188,10 @@ file(GENERATE OUTPUT "${CMAKE_BINARY_DIR}/runner-dir-$<CONFIG>.txt"
   "${CMAKE_CURRENT_LIST_DIR}/plugin.cpp"
   "${CMAKE_CURRENT_LIST_DIR}/texture.cpp")
 target_link_libraries(${BINARY_NAME} PRIVATE flutter_inappwebview_windows_plugin)
+target_compile_features(flutter_inappwebview_windows_plugin PRIVATE cxx_std_17)
+if(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
+  target_compile_options(flutter_inappwebview_windows_plugin PRIVATE /await)
+endif()
 file(GENERATE OUTPUT "${CMAKE_BINARY_DIR}/inapp-definitions-$<CONFIG>.txt"
   CONTENT "$<TARGET_PROPERTY:flutter_inappwebview_windows_plugin,COMPILE_DEFINITIONS>")
 file(GENERATE OUTPUT "${CMAKE_BINARY_DIR}/inapp-interface-definitions-$<CONFIG>.txt"
@@ -289,16 +297,12 @@ set(PLUGIN_BUNDLED_LIBRARIES
                 .split(";")
             )
 
-        self.assertNotIn(MUTEX_COMPAT_DEFINITION, definitions("runner"))
-        self.assertNotIn(MUTEX_COMPAT_DEFINITION, definitions("desktop"))
-        if include_inapp_plugin:
-            self.assertEqual(
-                MUTEX_COMPAT_DEFINITION in definitions("inapp"),
-                self.expect_compat_definition,
-            )
-            self.assertNotIn(
-                MUTEX_COMPAT_DEFINITION, definitions("inapp-interface")
-            )
+        for definition in PRIVATE_COMPAT_DEFINITIONS:
+            self.assertNotIn(definition, definitions("runner"))
+            self.assertNotIn(definition, definitions("desktop"))
+            if include_inapp_plugin:
+                self.assertEqual(definition in definitions("inapp"), self.expect_compat_definition)
+                self.assertNotIn(definition, definitions("inapp-interface"))
 
     def check_install(self, configuration: str, explicit_prefix: bool) -> None:
         with tempfile.TemporaryDirectory(prefix="xflclash-loader-install-") as tmp:
