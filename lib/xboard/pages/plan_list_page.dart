@@ -1,4 +1,4 @@
-/// R8 套餐列表页：名称 + 最多四行介绍 + 右侧居中周期价 → 套餐详情页。
+/// R8 套餐列表页：名称 + 最多三行介绍 + 右侧居中周期价 → 套餐详情页。
 ///
 /// **数据源**：反腐层 `getPlans()`。卡片只显示概要；周期选择 / 优惠码 / 提交在 [PlanDetailPage]。
 library;
@@ -158,7 +158,7 @@ class _PlanListPageState extends ConsumerState<PlanListPage> {
   }
 }
 
-/// 套餐选项卡：不额外展示流量标记，介绍最多四个显示行，价格独立居中。
+/// 套餐选项卡：不额外展示流量标记，介绍最多三个显示行，价格独立居中。
 class _PlanOptCard extends StatelessWidget {
   const _PlanOptCard({required this.plan, required this.onTap});
   final PlanItem plan;
@@ -221,7 +221,7 @@ class _PlanOptCard extends StatelessWidget {
                     const SizedBox(height: 7),
                     XbEmojiText(
                       description,
-                      maxLines: 4,
+                      maxLines: 3,
                       overflow: TextOverflow.clip,
                       style: TextStyle(fontSize: 12, height: 1.5, color: t.onv),
                     ),

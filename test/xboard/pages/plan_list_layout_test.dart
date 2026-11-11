@@ -77,14 +77,14 @@ void main() {
             await tester.pumpAndSettle();
             final intro = paragraph(description);
             final render = tester.renderObject<RenderParagraph>(intro);
-            expect(render.maxLines, 4);
+            expect(render.maxLines, 3);
             expect(render.overflow, TextOverflow.clip);
             final visibleBoxes = render.getBoxesForSelection(
               TextSelection(baseOffset: 0, extentOffset: description.length),
             );
             expect(
               visibleBoxes.map((box) => box.top.toStringAsFixed(2)).toSet(),
-              hasLength(4),
+              hasLength(3),
             );
             final fifth = description.indexOf('第五行不显示');
             expect(
@@ -96,10 +96,13 @@ void main() {
               ),
               isEmpty,
             );
-            // The long fourth paragraph itself must not create a fifth line.
+            // Even the start of the fourth paragraph is outside the line budget.
             expect(
               render.getBoxesForSelection(
-                TextSelection(baseOffset: fifth - 4, extentOffset: fifth - 1),
+                TextSelection(
+                  baseOffset: description.indexOf(longLine),
+                  extentOffset: fifth - 1,
+                ),
               ),
               isEmpty,
             );
