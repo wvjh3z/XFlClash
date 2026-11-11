@@ -65,8 +65,16 @@ function ConvertTo-XbVersion([string]$Value) {
     try { return [version]$Matches[1] } catch { return $null }
 }
 
-function Read-XbRuntimeConfig([string]$Path) {
+function Read-XbRuntimeConfig([string]$Path, [string]$Architecture = '') {
     $c = Get-Content -LiteralPath $Path -Raw -Encoding UTF8 | ConvertFrom-Json
+    if ($Architecture) {
+        if ($Architecture -notin @('x64', 'arm64')) { throw 'Unsupported VC runtime target' }
+        $c.architecture = $Architecture
+        if ($Architecture -eq 'arm64') {
+            $c.minimumVersion = $c.arm64Policy.minimumVersion
+            $c.validatedCompilerFamily = $c.arm64Policy.validatedCompilerFamily
+        }
+    }
     $minimum = ConvertTo-XbVersion $c.minimumVersion
     $bundled = ConvertTo-XbVersion $c.bundledVersion
     if ($null -eq $minimum -or $null -eq $bundled -or $minimum.Major -ne 14 -or

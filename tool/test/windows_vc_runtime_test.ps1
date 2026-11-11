@@ -55,6 +55,11 @@ try {
         Assert-Equal (Test-XbPayloadHash ($path + '.missing') $copy) $false
     }
     Case 'ARM64 policy uses the fixed dual-architecture Microsoft payload' {
+        $selected = Read-XbRuntimeConfig (Join-Path $repoRoot 'tool/windows/vc_runtime.json') 'arm64'
+        Assert-Equal $selected.minimumVersion '14.51.36247.0'
+        Assert-Equal $selected.validatedCompilerFamily '19.51'
+        Assert-Equal $selected.sha256 $config.sha256
+        Assert-Equal $config.minimumVersion '14.44.35211.0'
         $arm = $config | ConvertTo-Json | ConvertFrom-Json
         $arm.architecture = 'arm64'
         $path = Join-Path $fixture 'arm64.json'
@@ -250,23 +255,22 @@ set(CMAKE_CXX_COMPILER "$($fixture.Replace('\','/'))/VS/VC/Tools/MSVC/14.44.3520
         Assert-Throws { Test-XbCompilerPolicy $buildDir $config }
     }
     Case 'ARM64 compiler policy selects ARM64 redist and rejects x64 compiler' {
-        $arm = $config | ConvertTo-Json | ConvertFrom-Json
-        $arm.architecture = 'arm64'
+        $arm = Read-XbRuntimeConfig (Join-Path $repoRoot 'tool/windows/vc_runtime.json') 'arm64'
         $root = Join-Path $fixture 'arm compiler/VC'
         $build = Join-Path $fixture 'arm build'
         $dir = Join-Path $build 'CMakeFiles/fixture'
         [IO.Directory]::CreateDirectory($dir) | Out-Null
-        $crt = Join-Path $root 'Redist/MSVC/14.44.35211/arm64/Microsoft.VC143.CRT'
+        $crt = Join-Path $root 'Redist/MSVC/14.51.36247/arm64/Microsoft.VC145.CRT'
         [IO.Directory]::CreateDirectory($crt) | Out-Null
         $expectedArmDll = Join-Path $crt 'msvcp140.dll'
         [IO.File]::WriteAllText($expectedArmDll, 'fixture')
         function Get-XbFileVersion([string]$Path) {
             Assert-Equal ([IO.Path]::GetFullPath($Path)) ([IO.Path]::GetFullPath($expectedArmDll))
-            return $minimum
+            return [version]$arm.minimumVersion
         }
         $text = 'set(CMAKE_CXX_COMPILER_ID "MSVC")' + "`n" +
-            'set(CMAKE_CXX_COMPILER_VERSION "19.44.35222.0")' + "`n" +
-            'set(CMAKE_CXX_COMPILER "' + $root.Replace('\','/') + '/Tools/MSVC/14.44.35207/bin/Hostx64/arm64/cl.exe")'
+            'set(CMAKE_CXX_COMPILER_VERSION "19.51.36260.0")' + "`n" +
+            'set(CMAKE_CXX_COMPILER "' + $root.Replace('\','/') + '/Tools/MSVC/14.51.36231/bin/Hostarm64/arm64/cl.exe")'
         $inventory = Join-Path $dir 'CMakeCXXCompiler.cmake'
         [IO.File]::WriteAllText($inventory, $text)
         Test-XbCompilerPolicy $build $arm

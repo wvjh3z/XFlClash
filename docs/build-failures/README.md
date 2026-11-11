@@ -39,6 +39,10 @@
 
 ### Windows ARM64 恢复准备（2026-11-11）
 
+原生Runner #163通过共享前置后，WebView既有CMake夹具11项出现6处失败。Runner实际为windows-11-vs2026-arm64/20261101.203.1、CMake4.4.5、MSVC19.51。CMake4保留SOURCE_DIR的8.3短路径，get_filename_component(ABSOLUTE)却展开为长路径，RELATIVE_PATH因此将正常main.cpp误判越界。WIN11-BUILD隔离安装经官方SHA256验证的便携CMake4.4.5后准确复现；旧CMake对照正常。新增短路径/别名回归在旧helper下红1，源目录先REALPATH统一后完整12项通过，原工具链另2项通过；保留真实外部源拒绝、原版静态析构负控及源文件不变检查。该修改仅调整既有windows/xboard_webview_shutdown.cmake路径比较，不改COM所有权策略。
+
+ARM Runner已切VS2026，不能沿用x64的MSVC19.44/CRT14.44最低要求。在同一固定离线payload策略中增加ARM64的MSVC19.51/CRT14.51.36247目标要求，按实际runner选择；x64原要求保持。选择、错编译器及不降级40项策略通过，实际ARM构建仍须核对其CRT文件版本，不能仅据Runner标签放行。
+
 首次任务分支a46c9942的#161/#162在共享前置243项中出现1项失败：新增windows-architecture.json仅进入首次证据上传路径，重试路径漏项。保留EvidenceRetryContractTest的路径集合相等断言，补齐重试清单后定向通过，再用正式入口复验；未进入ARM64编译，不记为原生依赖失败。#161另因远端A下一编号已由50推进至51而取消，#162显式使用51且upload=false；不以隔离分支旧计数替代派发前远端核号，不改main计数或沿用旧包身份。
 
 固定Flutter3.47.6的BuildWindowsCommand没有目标切换参数，按宿主选择x64/ARM64；因此不能用在x64主机安装ARM64 MSVC来证明正式Flutter整包可交叉构建。用户选择windows-11-arm原生Runner，WIN11-BUILD做既有x64/原生夹具检查。旧QuickJS x64 DLL与客服旧Loader阻塞已随依赖演进改变，不能照旧版失败禁用新目标，也不能由上游出包宣称品牌安装器/更新通过。

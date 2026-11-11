@@ -13,6 +13,9 @@ function(xboard_fix_webview_shutdown target)
     return()
   endif()
   get_target_property(source_dir "${target}" SOURCE_DIR)
+  # CMake 4 preserves 8.3 SOURCE_DIR paths but ABSOLUTE expands file paths.
+  # Compare one canonical spelling; keep the outside-source rejection below.
+  get_filename_component(source_dir "${source_dir}" REALPATH)
   set(header "in_app_webview/in_app_webview_manager.h")
   set(implementation "in_app_webview/in_app_webview_manager.cpp")
   # Normalize checkout line endings, but reject all other upstream drift.
@@ -81,7 +84,7 @@ function(xboard_fix_webview_shutdown target)
     if(source MATCHES "\\$<")
       message(FATAL_ERROR "WebView shutdown patch: unsupported generated source")
     endif()
-    get_filename_component(absolute "${source}" ABSOLUTE BASE_DIR "${source_dir}")
+    get_filename_component(absolute "${source}" REALPATH BASE_DIR "${source_dir}")
     file(RELATIVE_PATH relative "${source_dir}" "${absolute}")
     if(relative MATCHES "^\\.\\./" OR IS_ABSOLUTE "${relative}" OR
        NOT EXISTS "${overlay}/${relative}")

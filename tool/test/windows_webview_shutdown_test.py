@@ -17,6 +17,7 @@ import unittest
 from unittest import mock
 import io
 import ast
+import os
 
 try:
     from .windows_loader_install_test import find_cmake, write_file
@@ -319,6 +320,29 @@ include("{HELPER.as_posix()}")
         self.assertEqual(program, self.compile())
         self.run_command([program, '4'])
         self.assert_source_unchanged()
+
+    def test_short_or_alias_source_paths_keep_in_tree_sources_and_reject_outside(self):
+        self.fixture()
+        if os.name == 'nt':
+            import ctypes
+            buffer = ctypes.create_unicode_buffer(32768)
+            count = ctypes.windll.kernel32.GetShortPathNameW(str(self.root), buffer, len(buffer))
+            self.assertGreater(count, 0)
+            alias = Path(buffer.value)
+        else:
+            alias = self.root / 'alias'
+            alias.symlink_to(self.root, target_is_directory=True)
+        self.source = alias / 'source with spaces'
+        self.build = alias / 'build with spaces'
+        self.configure()
+        self.run_command([self.compile(), '4'])
+        self.assert_source_unchanged()
+        write_file(self.source / 'outside.cpp', 'int outside() { return 0; }\n')
+        cmake = self.source / 'plugin/CMakeLists.txt'
+        cmake.write_text(cmake.read_text(encoding='utf-8') +
+            '\ntarget_sources(flutter_inappwebview_windows_plugin PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../outside.cpp")\n',
+            encoding='utf-8')
+        self.assertIn('source outside copied tree', self.configure(expected=1).stderr)
 
     def test_changed_upstream_blocks_an_incremental_build(self):
         self.fixture()

@@ -102,7 +102,8 @@ if ($MyInvocation.InvocationName -ne '.') {
         $Root = [IO.Path]::GetFullPath($Root)
         $config = Read-XbRuntimeConfig (Join-Path $Root 'tool/windows/vc_runtime.json')
         if (!$DownloadOnly) {
-            $config.architecture = Test-XbBundleArchitecture $Bundle
+            $architecture = Test-XbBundleArchitecture $Bundle
+            $config = Read-XbRuntimeConfig (Join-Path $Root 'tool/windows/vc_runtime.json') $architecture
             Test-XbCompilerPolicy (Join-Path $Root ('build/windows/' + $config.architecture)) $config
         }
         $directory = Join-Path $Root 'build/windows-prerequisites'
