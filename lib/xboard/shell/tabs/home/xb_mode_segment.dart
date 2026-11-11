@@ -66,23 +66,52 @@ class XbModeSegment extends ConsumerWidget {
               color: scheme.surfaceContainerHighest,
               borderRadius: BorderRadius.circular(16),
             ),
-            child: Row(
-              children: [
-                _ModePill(
-                  icon: Icons.bolt,
-                  label: '智能',
-                  selected: mode == XbMode.smart,
-                  onTap: () => adapter.setMode(ref, XbMode.smart),
-                ),
-                const SizedBox(width: 5),
-                _ModePill(
-                  icon: Icons.public,
-                  label: '全局',
-                  selected: mode == XbMode.global,
-                  onTap: () => adapter.setMode(ref, XbMode.global),
-                ),
-              ],
-            ),
+            child: LayoutBuilder(builder: (context, constraints) {
+              final pillWidth = (constraints.maxWidth - 5) / 2;
+              return Stack(
+                children: [
+                  if (mode != null)
+                    AnimatedPositionedDirectional(
+                      duration: MediaQuery.disableAnimationsOf(context)
+                          ? Duration.zero : const Duration(milliseconds: 240),
+                      curve: Curves.easeInOutCubic,
+                      start: mode == XbMode.smart ? 0 : pillWidth + 5,
+                      top: 0,
+                      bottom: 0,
+                      width: pillWidth,
+                      child: DecoratedBox(
+                        key: const ValueKey('xb-mode-indicator'),
+                        decoration: BoxDecoration(
+                          color: scheme.surfaceContainerLowest,
+                          borderRadius: BorderRadius.circular(10),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withValues(alpha: 0.10),
+                              blurRadius: 10,
+                              offset: const Offset(0, 4),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  Row(children: [
+                    _ModePill(
+                      icon: Icons.bolt,
+                      label: '智能',
+                      selected: mode == XbMode.smart,
+                      onTap: () => adapter.setMode(ref, XbMode.smart),
+                    ),
+                    const SizedBox(width: 5),
+                    _ModePill(
+                      icon: Icons.public,
+                      label: '全局',
+                      selected: mode == XbMode.global,
+                      onTap: () => adapter.setMode(ref, XbMode.global),
+                    ),
+                  ]),
+                ],
+              );
+            }),
           ),
         ],
       ),
@@ -111,42 +140,31 @@ class _ModePill extends StatelessWidget {
       child: GestureDetector(
         onTap: onTap,
         behavior: HitTestBehavior.opaque,
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 180),
-          padding: const EdgeInsets.symmetric(vertical: 11),
-          decoration: BoxDecoration(
-            color: selected
-                ? scheme.surfaceContainerLowest
-                : Colors.transparent,
-            borderRadius: BorderRadius.circular(10),
-            boxShadow: selected
-                ? [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.10),
-                      blurRadius: 10,
-                      offset: const Offset(0, 4),
+        child: TweenAnimationBuilder<Color?>(
+          duration: MediaQuery.disableAnimationsOf(context)
+              ? Duration.zero : const Duration(milliseconds: 240),
+          tween: ColorTween(end: selected ? scheme.primary : scheme.onSurfaceVariant),
+          builder: (context, color, _) => Semantics(
+            selected: selected,
+            button: true,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 11),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(icon, size: 16, color: color),
+                  const SizedBox(width: 5),
+                  Text(
+                    label,
+                    style: TextStyle(
+                      fontSize: 13.5,
+                      fontWeight: FontWeight.w500,
+                      color: color,
                     ),
-                  ]
-                : null,
-          ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(
-                icon,
-                size: 16,
-                color: selected ? scheme.primary : scheme.onSurfaceVariant,
+                  ),
+                ],
               ),
-              const SizedBox(width: 5),
-              Text(
-                label,
-                style: TextStyle(
-                  fontSize: 13.5,
-                  fontWeight: FontWeight.w500,
-                  color: selected ? scheme.primary : scheme.onSurfaceVariant,
-                ),
-              ),
-            ],
+            ),
           ),
         ),
       ),

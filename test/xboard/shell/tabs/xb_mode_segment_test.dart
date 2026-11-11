@@ -5,6 +5,7 @@ library;
 
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/legacy.dart' show StateProvider;
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:fl_clash/enum/enum.dart';
@@ -12,6 +13,20 @@ import 'package:fl_clash/models/models.dart' show PatchClashConfig;
 import 'package:fl_clash/providers/config.dart';
 import 'package:fl_clash/xboard/providers/auth_state_provider.dart';
 import 'package:fl_clash/xboard/shell/tabs/home/xb_mode_segment.dart';
+import 'package:fl_clash/xboard/shell/adapters/xb_mode_adapter.dart';
+
+final _mode = StateProvider<XbMode?>((ref) => XbMode.smart);
+
+class _ModeAdapter extends XbModeAdapter {
+  final calls = <XbMode>[];
+  @override
+  XbMode? currentMode(WidgetRef ref) => ref.watch(_mode);
+  @override
+  void setMode(WidgetRef ref, XbMode mode) {
+    calls.add(mode);
+    ref.read(_mode.notifier).state = mode;
+  }
+}
 
 Future<void> pumpSegment(
   WidgetTester tester, {
@@ -40,6 +55,50 @@ class _FakeAuth extends AuthStateNotifier {
 }
 
 void main() {
+  for (final reducedMotion in [false, true]) {
+    testWidgets('mode thumb slides and reverses without delaying actions, reduced=$reducedMotion', (tester) async {
+      final adapter = _ModeAdapter();
+      await tester.pumpWidget(ProviderScope(
+        overrides: [
+          xbModeAdapterProvider.overrideWithValue(adapter),
+          authStateProvider.overrideWith(() => _FakeAuth(AuthState.authenticated)),
+        ],
+        child: MaterialApp(home: Scaffold(body: MediaQuery(
+          data: MediaQueryData(disableAnimations: reducedMotion),
+          child: const SizedBox(width: 320, child: XbModeSegment()),
+        ))),
+      ));
+      final thumb = find.byKey(const ValueKey('xb-mode-indicator'));
+      final start = tester.getRect(thumb);
+      await tester.tap(find.text('全局'));
+      expect(adapter.calls, [XbMode.global]);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 120));
+      final middle = tester.getRect(thumb);
+      final destination = start.left + start.width + 5;
+      expect(middle.left, greaterThan(start.left));
+      if (reducedMotion) {
+        expect(middle.left, closeTo(destination, .1));
+      } else {
+        expect(middle.left, lessThan(destination));
+      }
+      await tester.tap(find.text('智能'));
+      expect(adapter.calls, [XbMode.global, XbMode.smart]);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(tester.getRect(thumb).left, closeTo(start.left, .1));
+      final container = ProviderScope.containerOf(tester.element(find.byType(XbModeSegment)));
+      container.read(_mode.notifier).state = XbMode.global;
+      await tester.pumpAndSettle();
+      expect(tester.getRect(thumb).left, closeTo(destination, .1));
+      expect(adapter.calls, hasLength(2));
+      container.read(_mode.notifier).state = null;
+      await tester.pump();
+      expect(thumb, findsNothing);
+      expect(find.text('模式状态异常，请选择智能或全局'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+  }
   testWidgets('unexpected direct is not falsely highlighted as smart', (
     tester,
   ) async {

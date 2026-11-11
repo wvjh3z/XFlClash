@@ -117,6 +117,16 @@ void main() {
           final capsule = find.byKey(const ValueKey('nodes-action-capsule'));
           expect(capsule, desktop ? findsNothing : findsOneWidget);
           if (!desktop) {
+            expect(tester.getSize(capsule), const Size(97, 44));
+            expect(tester.getSize(find.byKey(const ValueKey('nodes-action-capsule-background'))), const Size(97, 36));
+            final delaySurface = find.byKey(const ValueKey('node-delay-press-surface'));
+            final refreshSurface = find.byKey(const ValueKey('node-refresh-press-surface'));
+            expect(delaySurface, findsOneWidget);
+            expect(refreshSurface, findsOneWidget);
+            expect(tester.widget<Material>(delaySurface).clipBehavior, Clip.antiAlias);
+            expect(tester.widget<Material>(refreshSurface).clipBehavior, Clip.antiAlias);
+            expect(tester.widget<Icon>(find.descendant(of: capsule, matching: find.byIcon(Icons.bolt))).size, 22);
+            expect(tester.widget<Icon>(find.descendant(of: capsule, matching: find.byIcon(Icons.refresh))).size, 22);
             expect(find.descendant(of: capsule, matching: find.byType(XbGroupDelayAction)), findsOneWidget);
             expect(find.descendant(of: capsule, matching: find.byTooltip('刷新节点')), findsOneWidget);
             expect(tester.getCenter(capsule).dy, closeTo(tester.getCenter(find.text('选择线路')).dy, 1));

@@ -56,7 +56,7 @@ void main() {
     ));
     final action = find.byType(XbGroupDelayAction).first;
     final originalSize = tester.getSize(action);
-    expect(originalSize, const Size(44, 44));
+    expect(originalSize, const Size(46, 44));
     expect(find.text('测延迟'), findsOneWidget); // Desktop remains a text action.
     await tester.tap(action);
     await tester.pump();

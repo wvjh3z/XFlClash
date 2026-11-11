@@ -69,7 +69,7 @@ void main() {
           final paragraphs = tester.renderObjectList<RenderParagraph>(
             find.byType(RichText),
           );
-          for (final text in ['$name 套餐 🇭🇰', '100 GB/月', '¥12.50 /月付']) {
+          for (final text in ['$name 套餐 🇭🇰', '100 GB/月', '¥12.5 /月']) {
             final p = paragraphs.singleWhere(
               (p) => p.text.toPlainText() == text,
             );

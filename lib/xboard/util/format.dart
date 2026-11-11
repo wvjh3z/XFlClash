@@ -8,6 +8,16 @@ library;
 /// 人民币金额（元）：`¥40.00`（始终两位小数）。
 String xbYuan(double yuan) => '¥${yuan.toStringAsFixed(2)}';
 
+/// 仅套餐列表使用的简洁价格：按分精度，去掉小数末尾零。
+String xbPlanListPrice(double yuan) {
+  var value = yuan.toStringAsFixed(2);
+  while (value.endsWith('0')) {
+    value = value.substring(0, value.length - 1);
+  }
+  if (value.endsWith('.')) value = value.substring(0, value.length - 1);
+  return '¥$value';
+}
+
 /// 带符号人民币（用于优惠/抵扣行）：负数前缀 `-`，如 `-¥5.00`。
 /// [yuan] 传正数表示「减免金额」，输出带负号；传负数原样反映。
 String xbYuanMinus(double yuan) => '-¥${yuan.abs().toStringAsFixed(2)}';

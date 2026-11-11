@@ -657,11 +657,24 @@ class _NodesHeader extends StatelessWidget {
           if (group != null)
             Material(
               key: const ValueKey('nodes-action-capsule'),
-              color: t.card,
+              color: Colors.transparent,
               borderRadius: BorderRadius.circular(24),
               clipBehavior: Clip.antiAlias,
-              child: Padding(
-                padding: const EdgeInsets.all(2),
+              child: Stack(
+                children: [
+                  Positioned.fill(
+                    top: 4,
+                    bottom: 4,
+                    child: Ink(
+                      key: const ValueKey('nodes-action-capsule-background'),
+                      decoration: BoxDecoration(
+                        color: t.card,
+                        borderRadius: BorderRadius.circular(18),
+                      ),
+                    ),
+                  ),
+                  Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 2),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
@@ -675,6 +688,8 @@ class _NodesHeader extends StatelessWidget {
                     ),
                   ],
                 ),
+                  ),
+                ],
               ),
             )
           else
@@ -727,19 +742,35 @@ class _NodesRefreshAction extends StatelessWidget {
           onTap: refreshing ? null : onRefresh,
           excludeSemantics: true,
           child: SizedBox(
-            width: 44,
+            width: 46,
             height: 44,
-            child: InkResponse(
+            child: Material(
+              key: const ValueKey('node-refresh-press-surface'),
+              type: MaterialType.transparency,
+              borderRadius: BorderRadius.circular(18),
+              clipBehavior: Clip.antiAlias,
+              child: InkResponse(
+              containedInkWell: true,
+              highlightShape: BoxShape.rectangle,
+              borderRadius: BorderRadius.circular(18),
               onTap: refreshing ? null : onRefresh,
               customBorder: const CircleBorder(),
               child: Center(
                 child: refreshing
                     ? SizedBox(
-                        width: 16,
-                        height: 16,
+                        width: 18,
+                        height: 18,
                         child: CircularProgressIndicator(strokeWidth: 2, color: scheme.primary),
                       )
-                    : Icon(Icons.refresh, size: 19, color: color),
+                    : coolingDown
+                        ? Text('${cooldownSec}s',
+                            style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                              color: color,
+                              fontWeight: FontWeight.w600,
+                              fontFeatures: const [FontFeature.tabularFigures()],
+                            ))
+                        : Icon(Icons.refresh, size: 22, color: color),
+              ),
               ),
             ),
           ),

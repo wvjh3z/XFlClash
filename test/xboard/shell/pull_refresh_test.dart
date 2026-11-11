@@ -2,6 +2,8 @@
 library;
 
 import 'dart:async';
+import 'dart:ui' show ImageByteFormat;
+import 'package:flutter/rendering.dart' show RenderRepaintBoundary;
 import '../../_fixtures/xb_action_finders.dart';
 
 import 'package:fl_clash/enum/enum.dart';
@@ -92,6 +94,7 @@ Future<_Fixture> _pump(
   bool guest = false,
   _Nodes nodes = _Nodes.populated,
   _Fixture? fixture,
+  GlobalKey? captureKey,
 }) async {
   final originalErrorBuilder = ErrorWidget.builder;
   final f = fixture ?? _Fixture(nodeContent: nodes);
@@ -171,7 +174,8 @@ Future<_Fixture> _pump(
   await tester.pumpWidget(
     UncontrolledProviderScope(
       container: f.container,
-      child: MaterialApp(home: Scaffold(body: body)),
+      child: MaterialApp(home: Scaffold(body: captureKey == null
+          ? body : RepaintBoundary(key: captureKey, child: body))),
     ),
   );
   await _finishAnimations(tester);
@@ -232,6 +236,42 @@ void _expectBusy(WidgetTester tester, {required bool nodes}) {
 }
 
 void main() {
+  testWidgets('按住测速只改变左半胶囊像素，不染灰右侧刷新', (tester) async {
+    final captureKey = GlobalKey();
+    await _pump(tester, page: _Page.nodes, captureKey: captureKey);
+    final boundary = captureKey.currentContext!.findRenderObject()! as RenderRepaintBoundary;
+    final origin = tester.getTopLeft(find.byKey(captureKey));
+    final left = tester.getRect(find.byKey(const ValueKey('node-delay-press-surface'))).shift(-origin);
+    final right = tester.getRect(find.byKey(const ValueKey('node-refresh-press-surface'))).shift(-origin);
+    Future<List<int>> pixels() async => (await tester.runAsync(() async {
+      final image = await boundary.toImage(pixelRatio: 1);
+      final data = await image.toByteData(format: ImageByteFormat.rawRgba);
+      image.dispose();
+      return data!.buffer.asUint8List().toList();
+    }))!;
+    final before = await pixels();
+    final gesture = await tester.startGesture(tester.getCenter(find.byKey(const ValueKey('node-delay-press-surface'))));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 250));
+    // Tap recognition starts the ink ticker; paint a subsequent animation frame.
+    await tester.pump(const Duration(milliseconds: 200));
+    final after = await pixels();
+    final width = boundary.size.width.round();
+    int changed(Rect rect) {
+      var count = 0;
+      for (var y = rect.top.ceil(); y < rect.bottom.floor(); y++) {
+        for (var x = rect.left.ceil(); x < rect.right.floor(); x++) {
+          final i = (y * width + x) * 4;
+          if (before[i] != after[i] || before[i + 1] != after[i + 1] || before[i + 2] != after[i + 2]) count++;
+        }
+      }
+      return count;
+    }
+    expect(changed(left), greaterThan(0));
+    expect(changed(right), 0);
+    await gesture.cancel();
+    await tester.pump(const Duration(milliseconds: 500));
+  });
   for (final width in [390.0, 1280.0]) {
     testWidgets('我的 $width：下拉刷新与按钮共用在途防重及完成后的 60 秒 CD', (tester) async {
       final response = Completer<XbResult<XbDomainSubscription>>();
@@ -282,7 +322,11 @@ void main() {
         response.complete(XbSyncOutcome.ok);
         await _finishAnimations(tester);
         expect(_cooldown(true), findsOneWidget);
-        if (capsuleSize != null) expect(tester.getSize(capsule), capsuleSize);
+        if (capsuleSize != null) {
+          expect(tester.getSize(capsule), capsuleSize);
+          expect(find.descendant(of: _cooldown(true), matching: find.textContaining(RegExp(r'^\d+s$'))), findsOneWidget);
+          expect(find.byIcon(Icons.bolt), findsWidgets, reason: 'Refresh cooldown does not put the delay action into cooldown');
+        }
         await tester.tap(_cooldown(true));
         await _pull(tester, nodes: true);
         expect(f.syncCalls, 1);

@@ -15,6 +15,18 @@ String planPeriodLabel(XbPlanPeriod period) => switch (period) {
       XbPlanPeriod.resetTraffic => '流量重置包',
     };
 
+/// 套餐列表价格的单位，不改变订单/周期选择标签或实际计费周期。
+String planPeriodUnit(XbPlanPeriod period) => switch (period) {
+      XbPlanPeriod.monthly => '月',
+      XbPlanPeriod.quarterly => '季',
+      XbPlanPeriod.halfYearly => '半年',
+      XbPlanPeriod.yearly => '年',
+      XbPlanPeriod.twoYearly => '两年',
+      XbPlanPeriod.threeYearly => '三年',
+      XbPlanPeriod.onetime => '一次性',
+      XbPlanPeriod.resetTraffic => '次',
+    };
+
 /// 订单状态中文标签（R9）。
 String orderStatusLabel(XbOrderStatus status) => switch (status) {
       XbOrderStatus.pending => '待支付',
@@ -36,4 +48,3 @@ int? planPeriodMonths(XbPlanPeriod period) => switch (period) {
       XbPlanPeriod.onetime => null,
       XbPlanPeriod.resetTraffic => null,
     };
-

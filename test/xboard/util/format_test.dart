@@ -3,8 +3,25 @@ library;
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fl_clash/xboard/util/format.dart';
+import 'package:fl_clash/xboard/util/period_label.dart';
+import 'package:fl_clash/xboard/models/xb_domain_types.dart';
 
 void main() {
+  test('列表价格单位简写，不改变周期选择和订单标签', () {
+    expect(planPeriodUnit(XbPlanPeriod.monthly), '月');
+    expect(planPeriodUnit(XbPlanPeriod.quarterly), '季');
+    expect(planPeriodUnit(XbPlanPeriod.yearly), '年');
+    expect(planPeriodLabel(XbPlanPeriod.monthly), '月付');
+  });
+  test('套餐列表单独省略末尾零，其他金额继续保留两位小数', () {
+    expect(xbPlanListPrice(40), '¥40');
+    expect(xbPlanListPrice(35.5), '¥35.5');
+    expect(xbPlanListPrice(12.05), '¥12.05');
+    expect(xbPlanListPrice(0), '¥0');
+    expect(xbPlanListPrice(1000), '¥1000');
+    expect(xbYuan(40), '¥40.00');
+    expect(xbYuanMinus(5), '-¥5.00');
+  });
   test('xbYuan 两位小数 + ¥', () {
     expect(xbYuan(40), '¥40.00');
     expect(xbYuan(35.5), '¥35.50');

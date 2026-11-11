@@ -22,6 +22,8 @@
 
 | 事件 | 品牌 / 目标 | 首个失败阶段 | 当前状态 |
 | --- | --- | --- | --- |
+| [Linux build54节点断连](#linux-build54节点断连2026-11-11) | A Android ARM64 / Jenkins #6 | 首个远端sh前Remoting/WebSocket ClosedChannelException | 无工作区/无APK，节点现已恢复在线；底层原因未知，待授权重试 |
+| [Linux build53调度准备](#linux-build53调度准备2026-11-11) | A Android ARM64 / Linux节点 | 维护机缺Paramiko；SSH信任文件相对路径未解析 | 改用现有OpenSSH并按运维仓库根解析原信任文件，未绕过验证；正式构建结果另记 |
 | [套餐右上价格基线](#套餐右上价格基线回归2026-11-11) | 两品牌共享UI；Windows测试宿主 | 测试在布局/绘制阶段之外调用getDistanceToBaseline触发Flutter断言 | 改用dry baseline查询，保留几何断言；16项及两文件分析通过 |
 | [浅色表面与测速入口](#浅色表面与测速入口回归2026-11-11) | 两品牌共享UI；Windows隔离宿主 | 残留导入、夹具漏等菜单动画、点击已移出视口的标签 | 修正导入及测试交互前提，45项通过；既有弃用info、golden/设备边界保留 |
 | [套餐列表四行布局](#套餐列表四行布局回归2026-11-11) | 两品牌共享UI；Windows测试宿主 | 夹具把第4个逻辑段误当第4个显示行 | 改为实际可见行盒断言，16项通过；golden/设备待验 |
@@ -45,6 +47,34 @@
 **当前结论**：以下“未提交/待修/待复验”是各历史阶段当时状态，不是当前main状态。首轮修复提交3b6a5fbb，#141暴露剩余问题，9c136383补修，#143（a3152f5b）全六目标成功；已合入main。正式证据见[run143](https://github.com/wvjh3z/proxy-suite-docs/blob/main/evidence/run143/README.md)。不能由新批次成功反推#140具体文件变化原因已经找到。后续按新失败证据另评估，不覆盖历史。
 
 ## v0.9.3升级候选验证（2026-11-08）
+
+### 胶囊按压像素夹具帧时序（2026-11-11）
+
+build54后胶囊/列表简价候选10文件分析通过。`test-20261111-222210`前48项通过，新像素用例却在“左侧必须有反馈”断言得到0：单次pump到达手势确认时启动ink ticker，该帧仍是动画起点，尚未画出按压反馈。不是右侧隔离失效，也不能通过删除左侧正控来通过。补手势后的首帧和后续200ms绘制，保留左右两个真实像素差断言；`test-20261111-222433`两文件18项全通过，实际左侧变化>0、右侧=0，刷新倒计时/忙态/共享手势及测速冷却同时通过。最终夹具分析无问题。原失败报告及后续正控分别保留于Docs/evidence/capsule-price-refinement-20261111/results.json，未构建新包或声明设备通过。
+
+### Linux build54节点断连（2026-11-11）
+
+用户授权同输入重试后的#7已SUCCESS（810579ms），build54原签名/仅ARM64/AOT/fallback/Sentry7/7通过，APK与匹配符号已取回，本机ZIP CRC及12个AArch64模块复验通过。没有改变源码、驱动、服务或网络；本次成功不证明#6底层断连原因已修复，原失败记录保留。正式正控摘要见Docs/evidence/android-arm64-a54-20261111/success.json，设备未验。
+
+Jenkins android-arm64 #6（A/build54，冻结源04ca3d59d1f6）181149ms后FAILURE，无artifact。Frozen source and toolchain首个sh未输出实际命令，Remoting/WebSocket ClosedChannelException及RequestAbortedException；post always也因DumbSlave offline失败。没有执行APK编译，不归因于本轮Flutter改动或build53已修的编号初始化。
+
+用户要求核验后，API返回同一Linux节点online、temporaryOffline=false、两执行器空闲；原SSH严格信任通道可用，目标android-arm64-6工作区不存在，无checkout/release-batch/reports/APK。仅确认断连机制，不把当前在线当作底层原因已修复；没有重启服务、调整网络或自动重发。待用户确认同冻结输入/build54重试；完整私密日志与公开摘要归Docs/evidence/android-arm64-a54-20261111/failure.json，正式重试结果需另补。
+
+### 应用内模式滑块分析失败（2026-11-11）
+
+本轮Android胶囊尺寸、套餐底行价格及模式动画的首次分析`analyze-20261111-211543`退出1，xb_mode_segment.dart新增AnimatedPositionedDirectional后漏闭合构造器，Row被解析为其位置参数，报extra_positional_arguments_could_be_named/expected_token。补齐括号后`analyze-20261111-211725`八文件无问题，正式受控入口`test-20261111-211837`六文件48项通过，包括实际动画中间位移、快速反向与减少动画，不以只检查duration字段替代动画行为。未启动应用构建；原红绿日志/源摘要见Docs/evidence/ui-polish-20261111/results.json。
+
+### Linux build53调度准备（2026-11-11）
+
+正式复验已完成：Jenkins Android ARM64 #5 SUCCESS，554681ms；counter-seed记录起点52/请求53，原签名、仅ARM64、AOT/fallback和Sentry7/7通过，APK与匹配符号已取回。此前#4前置失败与预期红控不改写，具体材料见Docs/evidence/android-arm64-a53-20261111/success.json。产物采集脚本曾将Sentry的字符串build_number直接与整数53比较而断言，规范化比较后回读通过；属采集类型假设错误，不是APK/Sentry失败。未验设备、不做公开发布结论。
+
+用户随后授权修复并重试。Jenkins v2适配器新增仅新workspace的requested-1初始化，已有计数不降低、已绑定批次缺计数及符号链接拒绝；正式CLI仍执行原门控和成功回写。4项新回归先红，随后全7项通过；真实CLI的受控正控确认53越过编号门控并写入53输入，无原生调用。节点空闲时原子部署并校验，已派发#5同源码/build53；正式结果待回报。补丁/部署摘要见Docs/evidence/android-arm64-a53-20261111，#4失败不改写。
+
+正式Jenkins Android ARM64 #4随后FAILURE：代码生成完成后，本地release门控拒绝显式53。远端新workspace的Git下一编号53被首次迁移成本地起点53，而本地release要求严格大于current；实际无build-inputs/verification，不存在该workspace的成功build53。维护机用临时公开夹具调用真实main并mock工具探测复现相同拒绝，无原生调用。需修正Jenkins显式编号初始化适配，保留已有成功计数不可倒退和重复编号门控；当前未修复/重试，不能用改号54替代用户明确要求53。原始273448ms批次日志和阶段timings已归档至本批archive，见Docs/evidence/android-arm64-a53-20261111/result.json。
+
+本轮首次只读节点检查因维护机未安装Paramiko失败，尚未派发应用构建；改用已有OpenSSH与受限记录驱动的SSH_ASKPASS，不安装额外库、不把密码写入命令行或项目。随后StrictHostKeyChecking拒绝连接，因为运维记录的known_hosts_file为相对运维仓库根的路径，错误地从客户端cwd解析后找不到。按记录所属运维仓库根解析成绝对路径，继续使用原known_hosts并保持严格校验，连接及四份v2驱动摘要正控通过；没有接受新主机密钥、修改known_hosts或绕过信任检查。
+
+源码bundle随后传入独立目录并校验通过，用户明确要求与GitHub同源码build53同号，Jenkins Android ARM64 #4才正式派发。上述环境失败不得记成Gradle/编译失败或出包结论；原受限SSH诊断位于任务目录，公开范围与结果见Docs/evidence/android-arm64-a53-20261111。构建完成/失败后按原阶段继续补充，不改写这两个准备失败。
 
 ### 浅色表面与测速入口回归（2026-11-11）
 

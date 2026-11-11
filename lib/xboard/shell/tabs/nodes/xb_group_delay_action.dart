@@ -142,9 +142,17 @@ class _XbGroupDelayActionState extends ConsumerState<XbGroupDelayAction> {
         onTap: widget.group.nodes.isEmpty ? null : _test,
         excludeSemantics: true,
         child: SizedBox(
-          width: 44,
+          width: 46,
           height: 44,
-          child: InkResponse(
+          child: Material(
+            key: const ValueKey('node-delay-press-surface'),
+            type: MaterialType.transparency,
+            borderRadius: BorderRadius.circular(18),
+            clipBehavior: Clip.antiAlias,
+            child: InkResponse(
+            containedInkWell: true,
+            highlightShape: BoxShape.rectangle,
+            borderRadius: BorderRadius.circular(18),
             onTap: widget.group.nodes.isEmpty ? null : _test,
             customBorder: const CircleBorder(),
             child: Center(
@@ -160,8 +168,8 @@ class _XbGroupDelayActionState extends ConsumerState<XbGroupDelayAction> {
                   children: [
                     if (testing)
                       SizedBox(
-                        width: 16,
-                        height: 16,
+                        width: 18,
+                        height: 18,
                         child: CircularProgressIndicator(
                           strokeWidth: 2,
                           color: color,
@@ -183,10 +191,11 @@ class _XbGroupDelayActionState extends ConsumerState<XbGroupDelayAction> {
                         ),
                       )
                     else if (!testing)
-                      Icon(Icons.bolt, size: 18, color: color),
+                      Icon(Icons.bolt, size: 22, color: color),
                   ],
                 ),
               ),
+            ),
             ),
           ),
         ),
