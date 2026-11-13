@@ -44,12 +44,14 @@ public class LoginProbeWindow {
 '@
 if($env:TEST_ARCH -eq 'arm64') {
   # Advance the observed first-sign-in privacy wizard on this disposable VM.
-  for($i=0;$i -lt 4;$i++) {
+  for($i=0;$i -lt 2;$i++) {
     [LoginProbeWindow]::SetCursorPos(865,658) | Out-Null
     [LoginProbeWindow]::mouse_event(2,0,0,0,[UIntPtr]::Zero)
     [LoginProbeWindow]::mouse_event(4,0,0,0,[UIntPtr]::Zero)
     Start-Sleep -Seconds 2
   }
+  # An observed first-run WSL updater can take foreground; no WSL is needed here.
+  Get-Process -Name wsl -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
 }
 try {
  $p=Start-Process "$dest/Daishu.exe" -WorkingDirectory $dest -PassThru -RedirectStandardOutput "$env:RUNNER_TEMP/client.private.stdout" -RedirectStandardError "$env:RUNNER_TEMP/client.private.stderr"
