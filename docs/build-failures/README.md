@@ -51,6 +51,8 @@
 
 ### Actions #173/#174 Linux APT依赖失败（2026-11-12）
 
+后续独立测试入口故障（2026-11-13）：B42 Windows安装冒烟run43412237827两架构均在下载草稿Release资产时收到HTTP403 Resource not accessible by integration，尚未执行安装。原因是GITHUB_TOKEN contents:read不能读取未发布草稿资产；用户明确批准后将contents:write限定到独立下载job，仅GET固定asset并校验大小/MZ，传入artifact后安装job保持contents:read。不发布/修改Release，不使用个人Token绕过；旧run为负控，新run需核对下载和安装实际结果。初次独立worktree缺lint缓存导致检查器ValueError，复用现有固定actionlint对新增workflow检查通过，未恢复工具链。
+
 两批均固定源码07fd0f45261aeb5d68f9de7e223463aee06835c9。A [#173](https://github.com/wvjh3z/XFlClash/actions/runs/43050035131)为build54，B [#174](https://github.com/wvjh3z/XFlClash/actions/runs/43050085572)为build42；两品牌均仅Linux AMD64/ARM64失败，Android、Windows双架构及macOS双架构五任务成功，bump跳过。四份失败日志均指向Install Linux package deps：AMD64的azure.archive.ubuntu.com、ARM64的ports.ubuntu.com暂时无法解析。apt-get update警告后返回并沿旧索引继续install，随后步骤15分钟超时。源码中该APT步骤与上次成功#172相同；底层Runner DNS故障原因未知，不认定为UI/SDK编译回归，也不把pub缓存miss当失败。
 
 复现：以冻结workflow的原Linux步骤运行实际Bash、仅替换sudo/apt-get为受控命令；update模拟日志中的“failed indexes + exit0”，旧步骤确实到达install。修复限定自有CI准备工具：amd64仍Ubuntu22.04/jammy、arm64仍Ubuntu24.04/noble，使用临时架构限定.sources和新索引目录，Canonical HTTPS主源/对应Azure备源；Signed-By保留Ubuntu原keyring，不改系统sources或resolver。update强制Error-Mode=any，并拒绝兼容情况下的exit0失败索引警告；下载完成后--no-download安装，安装阶段不重试。签名/证书/完整性/认证/包缺失/配置/锁错误优先失败，只有索引/下载网络错误或依赖阶段超时允许一次备源恢复。总预算840秒，update120/download240/install240秒单阶段上限，共享总预算，保留workflow15分钟外限。
