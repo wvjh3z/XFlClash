@@ -37,6 +37,10 @@ try {
  [LoginProbeWindow]::mouse_event(2,0,0,0,[UIntPtr]::Zero)
  [LoginProbeWindow]::mouse_event(4,0,0,0,[UIntPtr]::Zero)
  Start-Sleep -Seconds 3
+ [LoginProbeWindow]::SetCursorPos(620,207) | Out-Null
+ [LoginProbeWindow]::mouse_event(2,0,0,0,[UIntPtr]::Zero)
+ [LoginProbeWindow]::mouse_event(4,0,0,0,[UIntPtr]::Zero)
+ Start-Sleep -Seconds 3
  $image=[System.Drawing.Bitmap]::new(900,680)
  $graphics=[System.Drawing.Graphics]::FromImage($image)
  $graphics.CopyFromScreen([System.Drawing.Point]::new(20,20),[System.Drawing.Point]::Empty,[System.Drawing.Size]::new(900,680))
