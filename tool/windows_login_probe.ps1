@@ -7,12 +7,6 @@ $result=[ordered]@{installed=$false;loginRecordCommitted=$false;uninstalled=$fal
 $out=Join-Path $PWD 'evidence'
 $dest='C:\b42-login'
 $prefs=Join-Path $env:APPDATA 'com.cloud.app\daishu'
-if($env:TEST_ARCH -eq 'arm64') {
-  # Disposable Runner only: suppress first-sign-in privacy setup, not security policy.
-  New-Item 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\OOBE' -Force | Out-Null
-  New-ItemProperty 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\OOBE' -Name DisablePrivacyExperience -Value 1 -PropertyType DWord -Force | Out-Null
-  Get-Process -Name UserOOBEBroker,CloudExperienceHostBroker -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
-}
 New-Item -ItemType Directory -Force $prefs | Out-Null
 # Use the existing device reporting opt-out before SDK initialization.
 '{"flutter.xb_sentry_reporting_enabled_v1":false}' | Set-Content (Join-Path $prefs 'shared_preferences.json') -Encoding utf8NoBOM
@@ -48,6 +42,15 @@ public class LoginProbeWindow {
  }
 }
 '@
+if($env:TEST_ARCH -eq 'arm64') {
+  # Advance the observed first-sign-in privacy wizard on this disposable VM.
+  for($i=0;$i -lt 4;$i++) {
+    [LoginProbeWindow]::SetCursorPos(865,658) | Out-Null
+    [LoginProbeWindow]::mouse_event(2,0,0,0,[UIntPtr]::Zero)
+    [LoginProbeWindow]::mouse_event(4,0,0,0,[UIntPtr]::Zero)
+    Start-Sleep -Seconds 2
+  }
+}
 try {
  $p=Start-Process "$dest/Daishu.exe" -WorkingDirectory $dest -PassThru -RedirectStandardOutput "$env:RUNNER_TEMP/client.private.stdout" -RedirectStandardError "$env:RUNNER_TEMP/client.private.stderr"
  Start-Sleep -Seconds 20
