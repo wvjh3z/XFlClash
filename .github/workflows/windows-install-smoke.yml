@@ -64,6 +64,8 @@ jobs:
         shell: pwsh
         env:
           TEST_ARCH: ${{ matrix.arch }}
+          B42_TEST_ACCOUNT: ${{ secrets.B42_LOGIN_ACCOUNT_20261113 }}
+          B42_TEST_PASSWORD: ${{ secrets.B42_LOGIN_PASSWORD_20261113 }}
         run: ./tool/windows_login_probe.ps1
       - name: Preserve evidence
         if: always()
