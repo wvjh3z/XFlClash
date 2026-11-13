@@ -1,6 +1,6 @@
 $ErrorActionPreference='Stop'
-$account='probe@example.invalid'
-$password='synthetic-input-only'
+$account=$env:B42_TEST_ACCOUNT
+$password=$env:B42_TEST_PASSWORD
 Remove-Item Env:B42_TEST_ACCOUNT,Env:B42_TEST_PASSWORD -ErrorAction SilentlyContinue
 if(-not $account -or -not $password){throw 'Missing test credentials'}
 $result=[ordered]@{installed=$false;loginRecordCommitted=$false;uninstalled=$false;noPostCredentialScreenshots=$true}
@@ -75,22 +75,14 @@ try {
  [LoginProbeWindow]::SetCursorPos(520,313) | Out-Null
  [LoginProbeWindow]::mouse_event(2,0,0,0,[UIntPtr]::Zero);[LoginProbeWindow]::mouse_event(4,0,0,0,[UIntPtr]::Zero)
  Start-Sleep -Milliseconds 500
- $result.nativeInputEventsAccepted=[LoginProbeWindow]::TypeText($account)
- Start-Sleep -Milliseconds 800
- $result.accountFieldVerified=$false # Visual synthetic-only probe, not an auth verdict.
- $image=[System.Drawing.Bitmap]::new(900,680)
- $graphics=[System.Drawing.Graphics]::FromImage($image)
- $graphics.CopyFromScreen([System.Drawing.Point]::new(20,20),[System.Drawing.Point]::Empty,[System.Drawing.Size]::new(900,680))
- $image.Save("$out/synthetic-input.png")
- $graphics.Dispose();$image.Dispose()
- $result.syntheticInputOnly=$true
- return
- if(-not $result.accountFieldVerified){throw 'Account field not verified; login withheld'}
+  $result.accountInputAccepted=([LoginProbeWindow]::TypeText($account) -eq (2*$account.Length))
+  Start-Sleep -Milliseconds 800
+  if(-not $result.accountInputAccepted){throw 'Native account input failed; login withheld'}
  [LoginProbeWindow]::SetCursorPos(520,373) | Out-Null
  [LoginProbeWindow]::mouse_event(2,0,0,0,[UIntPtr]::Zero);[LoginProbeWindow]::mouse_event(4,0,0,0,[UIntPtr]::Zero)
  Start-Sleep -Milliseconds 500
- Set-Clipboard -Value $password
- [System.Windows.Forms.SendKeys]::SendWait('^v')
+  $result.passwordInputAccepted=([LoginProbeWindow]::TypeText($password) -eq (2*$password.Length))
+  if(-not $result.passwordInputAccepted){throw 'Native password input failed; login withheld'}
  Start-Sleep -Milliseconds 800
  Set-Clipboard -Value ''
  $account=$null;$password=$null
