@@ -26,6 +26,20 @@ public class LoginProbeWindow {
  [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
  [DllImport("user32.dll",CharSet=CharSet.Unicode)] public static extern IntPtr SendMessage(IntPtr hwnd,uint msg,UIntPtr wparam,IntPtr lparam);
  [DllImport("user32.dll")] public static extern void mouse_event(uint flags,uint dx,uint dy,uint data,UIntPtr extra);
+ [StructLayout(LayoutKind.Sequential)] struct KEY { public ushort vk,scan; public uint flags,time; public UIntPtr extra; }
+ [StructLayout(LayoutKind.Sequential)] struct MOUSE { public int x,y; public uint data,flags,time; public UIntPtr extra; }
+ [StructLayout(LayoutKind.Explicit)] struct UNION { [FieldOffset(0)] public KEY key; [FieldOffset(0)] public MOUSE mouse; }
+ [StructLayout(LayoutKind.Sequential)] struct INPUT { public uint type; public UNION value; }
+ [DllImport("user32.dll",SetLastError=true)] static extern uint SendInput(uint count,INPUT[] inputs,int size);
+ public static int TypeText(string text) {
+   int total=0;
+   foreach(char ch in text) {
+     INPUT down=new INPUT(); down.type=1;down.value.key.scan=ch;down.value.key.flags=4;
+     INPUT up=down;up.value.key.flags=6;
+     total+=(int)SendInput(2,new INPUT[]{down,up},Marshal.SizeOf(typeof(INPUT)));
+   }
+   return total;
+ }
 }
 '@
 try {
@@ -61,13 +75,9 @@ try {
  [LoginProbeWindow]::SetCursorPos(520,313) | Out-Null
  [LoginProbeWindow]::mouse_event(2,0,0,0,[UIntPtr]::Zero);[LoginProbeWindow]::mouse_event(4,0,0,0,[UIntPtr]::Zero)
  Start-Sleep -Milliseconds 500
- foreach($ch in $account.ToCharArray()) { [LoginProbeWindow]::SendMessage($p.MainWindowHandle,0x0102,[UIntPtr][uint32][char]$ch,[IntPtr]::Zero) | Out-Null }
+ $result.nativeInputEventsAccepted=[LoginProbeWindow]::TypeText($account)
  Start-Sleep -Milliseconds 800
- Set-Clipboard -Value 'B42_INPUT_CHECK_SENTINEL'
- [System.Windows.Forms.SendKeys]::SendWait('^a')
- [System.Windows.Forms.SendKeys]::SendWait('^c')
- Start-Sleep -Milliseconds 500
- $result.accountFieldVerified=((Get-Clipboard -Raw).TrimEnd("`r","`n") -eq $account.TrimEnd("`r","`n"))
+ $result.accountFieldVerified=$false # Visual synthetic-only probe, not an auth verdict.
  $image=[System.Drawing.Bitmap]::new(900,680)
  $graphics=[System.Drawing.Graphics]::FromImage($image)
  $graphics.CopyFromScreen([System.Drawing.Point]::new(20,20),[System.Drawing.Point]::Empty,[System.Drawing.Size]::new(900,680))
