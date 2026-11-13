@@ -1,0 +1,46 @@
+name: B42 existing Windows installer smoke
+on:
+  push:
+    branches: [test/b42-windows-install-20261113]
+permissions:
+  contents: read
+jobs:
+  smoke:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: windows-2025
+            asset: 737414076
+          - arch: arm64
+            runner: windows-11-arm
+            asset: 737453077
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+      - name: Download existing installer
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ASSET_ID: ${{ matrix.asset }}
+        run: |
+          New-Item -ItemType Directory -Force evidence | Out-Null
+          gh api "repos/$env:GITHUB_REPOSITORY/releases/assets/$env:ASSET_ID" --jq '{id,name,size,created_at,updated_at}' > evidence/asset.json
+          $url = "https://api.github.com/repos/$env:GITHUB_REPOSITORY/releases/assets/$env:ASSET_ID"
+          Invoke-WebRequest -Uri $url -Headers @{Authorization="Bearer $env:GH_TOKEN";Accept='application/octet-stream'} -OutFile "$env:RUNNER_TEMP/setup.exe"
+      - name: Install and inspect startup
+        shell: pwsh
+        env:
+          TEST_ARCH: ${{ matrix.arch }}
+        run: ./tool/windows_install_smoke.ps1
+      - name: Preserve evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: b42-windows-install-${{ matrix.arch }}
+          path: evidence/
+          retention-days: 14
