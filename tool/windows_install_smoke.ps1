@@ -44,6 +44,46 @@ try {
   $report.adminLaunch = @{alive=(-not $p.HasExited);exitCode=if($p.HasExited){$p.ExitCode}else{$null};windowTitle=$p.MainWindowTitle}
   $report.newProtocolKeys = @(Get-ChildItem 'HKCU:\Software\Classes' | Where-Object { $_.PSChildName -notin $before } | Select-Object -ExpandProperty PSChildName)
   Stop-TestProcesses
+  # Controlled negative case on this disposable VM only. Restore the original ACL.
+  $protocolPath = 'Software\Classes\com.cloud.app.daishu'
+  $key = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey($protocolPath, [Microsoft.Win32.RegistryKeyPermissionCheck]::Default, ([System.Security.AccessControl.RegistryRights]::ChangePermissions -bor [System.Security.AccessControl.RegistryRights]::ReadPermissions))
+  if (-not $key) { throw 'Normal startup did not create expected protocol key' }
+  $acl = $key.GetAccessControl()
+  $savedAcl = $acl.GetSecurityDescriptorBinaryForm()
+  try {
+    $sid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User
+    $deny = [System.Security.AccessControl.RegistryAccessRule]::new($sid, [System.Security.AccessControl.RegistryRights]::SetValue, [System.Security.AccessControl.AccessControlType]::Deny)
+    $acl.AddAccessRule($deny)
+    $key.SetAccessControl($acl)
+    $report.registryDenyControl = @{applied=$true;writeDenied=$false;limitation='DACL may reject key open before setValue; not the exact production stack'}
+    try {
+      $probe = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey($protocolPath, $true)
+      try { $probe.SetValue('URL Protocol','') } finally { if ($probe) { $probe.Close() } }
+    } catch { $report.registryDenyControl.writeDenied=$true }
+    if (-not $report.registryDenyControl.writeDenied) { throw 'Registry negative control not enforced' }
+    $p = Start-Process $exe.FullName -WorkingDirectory $dest -PassThru -RedirectStandardOutput "$out/denied-stdout.log" -RedirectStandardError "$out/denied-stderr.log"
+    Start-Sleep -Seconds 15
+    $p.Refresh()
+    $report.registryDenyControl.alive = -not $p.HasExited
+    $report.registryDenyControl.windowTitle = $p.MainWindowTitle
+    try {
+      Add-Type -AssemblyName System.Windows.Forms
+      Add-Type -AssemblyName System.Drawing
+      $bounds = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+      $image = [System.Drawing.Bitmap]::new($bounds.Width,$bounds.Height)
+      $graphics = [System.Drawing.Graphics]::FromImage($image)
+      $graphics.CopyFromScreen($bounds.Location,[System.Drawing.Point]::Empty,$bounds.Size)
+      $image.Save("$out/registry-denied.png")
+      $graphics.Dispose(); $image.Dispose()
+      $report.registryDenyControl.screenshot = $true
+    } catch { $report.registryDenyControl.screenshot = $false }
+    Stop-TestProcesses
+  } finally {
+    $restore = [System.Security.AccessControl.RegistrySecurity]::new()
+    $restore.SetSecurityDescriptorBinaryForm($savedAcl)
+    $key.SetAccessControl($restore)
+    $key.Close()
+  }
   # Explicit low-privilege account. Lack of a usable GUI session stays a limitation.
   $password = [Guid]::NewGuid().ToString() + '!aA9'
   $secure = ConvertTo-SecureString $password -AsPlainText -Force
