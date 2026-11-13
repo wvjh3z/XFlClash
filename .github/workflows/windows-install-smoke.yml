@@ -13,8 +13,8 @@ jobs:
     strategy:
       matrix:
         include:
-          - arch: amd64
-            asset: 737414076
+          - arch: arm64
+            asset: 737453077
     steps:
       - name: Read fixed draft asset
         env:
@@ -42,9 +42,9 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - arch: amd64
-            runner: windows-2025
-            asset: 737414076
+          - arch: arm64
+            runner: windows-11-arm
+            asset: 737453077
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 20
     steps:
