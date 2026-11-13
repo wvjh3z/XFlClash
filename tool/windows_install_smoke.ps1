@@ -25,7 +25,9 @@ try {
   foreach ($file in $executables) {
     New-NetFirewallRule -DisplayName ('B42-smoke-' + $file.Name) -Direction Outbound -Program $file.FullName -Action Block | Out-Null
   }
-  $entry = @(Get-ChildItem $dest -Filter '*.exe' | Where-Object { $_.Name -notmatch '(?i)(^unins|helper|core\.exe$|crashpad)' })
+  $report.installedExecutables = @($executables | Select-Object -ExpandProperty Name)
+  # Fixed B42 entry verified from both installer logs, not guessed by exclusion.
+  $entry = @(Get-ChildItem $dest -Filter 'Daishu.exe')
   if ($entry.Count -ne 1) { throw 'Ambiguous application entry' }
   $exe = $entry[0]
   $report.executable = $exe.Name

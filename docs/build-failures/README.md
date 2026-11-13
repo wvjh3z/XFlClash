@@ -51,6 +51,8 @@
 
 ### Actions #173/#174 Linux APT依赖失败（2026-11-12）
 
+Windows安装冒烟第二轮run43412599912：草稿下载两任务通过，两种安装器退出0并完成安装；测试脚本采用排除式入口识别时漏掉EnableLoopback.exe，导致Ambiguous application entry，尚未启动客户端。安装日志两架构均确认实际入口Daishu.exe，修正为精确匹配并保留安装EXE清单。该失败属于测试脚本，不作为客户端启动失败；修正后的启动结果仍须正式Runner回验。
+
 后续独立测试入口故障（2026-11-13）：B42 Windows安装冒烟run43412237827两架构均在下载草稿Release资产时收到HTTP403 Resource not accessible by integration，尚未执行安装。原因是GITHUB_TOKEN contents:read不能读取未发布草稿资产；用户明确批准后将contents:write限定到独立下载job，仅GET固定asset并校验大小/MZ，传入artifact后安装job保持contents:read。不发布/修改Release，不使用个人Token绕过；旧run为负控，新run需核对下载和安装实际结果。初次独立worktree缺lint缓存导致检查器ValueError，复用现有固定actionlint对新增workflow检查通过，未恢复工具链。
 
 两批均固定源码07fd0f45261aeb5d68f9de7e223463aee06835c9。A [#173](https://github.com/wvjh3z/XFlClash/actions/runs/43050035131)为build54，B [#174](https://github.com/wvjh3z/XFlClash/actions/runs/43050085572)为build42；两品牌均仅Linux AMD64/ARM64失败，Android、Windows双架构及macOS双架构五任务成功，bump跳过。四份失败日志均指向Install Linux package deps：AMD64的azure.archive.ubuntu.com、ARM64的ports.ubuntu.com暂时无法解析。apt-get update警告后返回并沿旧索引继续install，随后步骤15分钟超时。源码中该APT步骤与上次成功#172相同；底层Runner DNS故障原因未知，不认定为UI/SDK编译回归，也不把pub缓存miss当失败。
