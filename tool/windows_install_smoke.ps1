@@ -46,7 +46,7 @@ try {
   Stop-TestProcesses
   # Controlled negative case on this disposable VM only. Restore the original ACL.
   $protocolPath = 'Software\Classes\com.cloud.app.daishu'
-  $key = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey($protocolPath, [Microsoft.Win32.RegistryKeyPermissionCheck]::Default, ([System.Security.AccessControl.RegistryRights]::ChangePermissions -bor [System.Security.AccessControl.RegistryRights]::ReadPermissions))
+  $key = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey($protocolPath, [Microsoft.Win32.RegistryKeyPermissionCheck]::ReadWriteSubTree, ([System.Security.AccessControl.RegistryRights]::ChangePermissions -bor [System.Security.AccessControl.RegistryRights]::ReadKey -bor [System.Security.AccessControl.RegistryRights]::WriteKey))
   if (-not $key) { throw 'Normal startup did not create expected protocol key' }
   $acl = $key.GetAccessControl()
   $savedAcl = $acl.GetSecurityDescriptorBinaryForm()
