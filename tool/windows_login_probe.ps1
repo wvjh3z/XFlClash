@@ -16,6 +16,8 @@ using System.Runtime.InteropServices;
 public class LoginProbeWindow {
  [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hwnd);
  [DllImport("user32.dll")] public static extern bool MoveWindow(IntPtr hwnd,int x,int y,int w,int h,bool repaint);
+ [DllImport("user32.dll")] public static extern bool SetCursorPos(int x,int y);
+ [DllImport("user32.dll")] public static extern void mouse_event(uint flags,uint dx,uint dy,uint data,UIntPtr extra);
 }
 '@
 try {
@@ -25,6 +27,15 @@ try {
  if($p.HasExited){throw 'Application exited'}
  [LoginProbeWindow]::MoveWindow($p.MainWindowHandle,20,20,900,680,$true) | Out-Null
  [LoginProbeWindow]::SetForegroundWindow($p.MainWindowHandle) | Out-Null
+ Start-Sleep -Seconds 3
+ # Locations from the credential-free AMD64 screenshot, relative to capture origin.
+ [LoginProbeWindow]::SetCursorPos(593,602) | Out-Null
+ [LoginProbeWindow]::mouse_event(2,0,0,0,[UIntPtr]::Zero)
+ [LoginProbeWindow]::mouse_event(4,0,0,0,[UIntPtr]::Zero)
+ Start-Sleep -Seconds 5
+ [LoginProbeWindow]::SetCursorPos(110,600) | Out-Null
+ [LoginProbeWindow]::mouse_event(2,0,0,0,[UIntPtr]::Zero)
+ [LoginProbeWindow]::mouse_event(4,0,0,0,[UIntPtr]::Zero)
  Start-Sleep -Seconds 3
  $image=[System.Drawing.Bitmap]::new(900,680)
  $graphics=[System.Drawing.Graphics]::FromImage($image)
