@@ -61,6 +61,11 @@ try {
  [LoginProbeWindow]::MoveWindow($p.MainWindowHandle,20,20,900,680,$true) | Out-Null
  [LoginProbeWindow]::SetForegroundWindow($p.MainWindowHandle) | Out-Null
  Start-Sleep -Seconds 3
+ [LoginProbeWindow]::SetCursorPos(400,35) | Out-Null
+ [LoginProbeWindow]::mouse_event(2,0,0,0,[UIntPtr]::Zero)
+ [LoginProbeWindow]::mouse_event(4,0,0,0,[UIntPtr]::Zero)
+ Start-Sleep -Seconds 2
+ if([LoginProbeWindow]::GetForegroundWindow() -ne $p.MainWindowHandle){throw 'App foreground not established before navigation'}
  # Locations from the credential-free AMD64 screenshot, relative to capture origin.
  [LoginProbeWindow]::SetCursorPos(593,602) | Out-Null
  [LoginProbeWindow]::mouse_event(2,0,0,0,[UIntPtr]::Zero)
