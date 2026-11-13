@@ -1,6 +1,6 @@
 $ErrorActionPreference='Stop'
-$account=$env:B42_TEST_ACCOUNT
-$password=$env:B42_TEST_PASSWORD
+$account='probe@example.invalid'
+$password='synthetic-input-only'
 Remove-Item Env:B42_TEST_ACCOUNT,Env:B42_TEST_PASSWORD -ErrorAction SilentlyContinue
 if(-not $account -or -not $password){throw 'Missing test credentials'}
 $result=[ordered]@{installed=$false;loginRecordCommitted=$false;uninstalled=$false;noPostCredentialScreenshots=$true}
@@ -24,6 +24,7 @@ public class LoginProbeWindow {
  [DllImport("user32.dll")] public static extern bool MoveWindow(IntPtr hwnd,int x,int y,int w,int h,bool repaint);
  [DllImport("user32.dll")] public static extern bool SetCursorPos(int x,int y);
  [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
+ [DllImport("user32.dll",CharSet=CharSet.Unicode)] public static extern IntPtr SendMessage(IntPtr hwnd,uint msg,UIntPtr wparam,IntPtr lparam);
  [DllImport("user32.dll")] public static extern void mouse_event(uint flags,uint dx,uint dy,uint data,UIntPtr extra);
 }
 '@
@@ -60,14 +61,20 @@ try {
  [LoginProbeWindow]::SetCursorPos(520,313) | Out-Null
  [LoginProbeWindow]::mouse_event(2,0,0,0,[UIntPtr]::Zero);[LoginProbeWindow]::mouse_event(4,0,0,0,[UIntPtr]::Zero)
  Start-Sleep -Milliseconds 500
- Set-Clipboard -Value $account
- [System.Windows.Forms.SendKeys]::SendWait('^v')
+ foreach($ch in $account.ToCharArray()) { [LoginProbeWindow]::SendMessage($p.MainWindowHandle,0x0102,[UIntPtr][uint32][char]$ch,[IntPtr]::Zero) | Out-Null }
  Start-Sleep -Milliseconds 800
  Set-Clipboard -Value 'B42_INPUT_CHECK_SENTINEL'
  [System.Windows.Forms.SendKeys]::SendWait('^a')
  [System.Windows.Forms.SendKeys]::SendWait('^c')
  Start-Sleep -Milliseconds 500
  $result.accountFieldVerified=((Get-Clipboard -Raw).TrimEnd("`r","`n") -eq $account.TrimEnd("`r","`n"))
+ $image=[System.Drawing.Bitmap]::new(900,680)
+ $graphics=[System.Drawing.Graphics]::FromImage($image)
+ $graphics.CopyFromScreen([System.Drawing.Point]::new(20,20),[System.Drawing.Point]::Empty,[System.Drawing.Size]::new(900,680))
+ $image.Save("$out/synthetic-input.png")
+ $graphics.Dispose();$image.Dispose()
+ $result.syntheticInputOnly=$true
+ return
  if(-not $result.accountFieldVerified){throw 'Account field not verified; login withheld'}
  [LoginProbeWindow]::SetCursorPos(520,373) | Out-Null
  [LoginProbeWindow]::mouse_event(2,0,0,0,[UIntPtr]::Zero);[LoginProbeWindow]::mouse_event(4,0,0,0,[UIntPtr]::Zero)
