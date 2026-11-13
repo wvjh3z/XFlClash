@@ -59,12 +59,22 @@ try {
  if([LoginProbeWindow]::GetForegroundWindow() -ne $p.MainWindowHandle){throw 'App not foreground; credentials withheld'}
  [LoginProbeWindow]::SetCursorPos(520,313) | Out-Null
  [LoginProbeWindow]::mouse_event(2,0,0,0,[UIntPtr]::Zero);[LoginProbeWindow]::mouse_event(4,0,0,0,[UIntPtr]::Zero)
+ Start-Sleep -Milliseconds 500
  Set-Clipboard -Value $account
  [System.Windows.Forms.SendKeys]::SendWait('^v')
+ Start-Sleep -Milliseconds 800
+ Set-Clipboard -Value 'B42_INPUT_CHECK_SENTINEL'
+ [System.Windows.Forms.SendKeys]::SendWait('^a')
+ [System.Windows.Forms.SendKeys]::SendWait('^c')
+ Start-Sleep -Milliseconds 500
+ $result.accountFieldVerified=((Get-Clipboard -Raw).TrimEnd("`r","`n") -eq $account.TrimEnd("`r","`n"))
+ if(-not $result.accountFieldVerified){throw 'Account field not verified; login withheld'}
  [LoginProbeWindow]::SetCursorPos(520,373) | Out-Null
  [LoginProbeWindow]::mouse_event(2,0,0,0,[UIntPtr]::Zero);[LoginProbeWindow]::mouse_event(4,0,0,0,[UIntPtr]::Zero)
+ Start-Sleep -Milliseconds 500
  Set-Clipboard -Value $password
  [System.Windows.Forms.SendKeys]::SendWait('^v')
+ Start-Sleep -Milliseconds 800
  Set-Clipboard -Value ''
  $account=$null;$password=$null
  [LoginProbeWindow]::SetCursorPos(520,439) | Out-Null
@@ -78,8 +88,21 @@ try {
      if($raw){$record=$raw | ConvertFrom-Json -AsHashtable;if($record['key'] -or $record['value']){$result.loginRecordCommitted=$true;break}}
    } catch { }
  }
+ $privateText = ''
+ foreach($file in @("$env:RUNNER_TEMP/client.private.stdout","$env:RUNNER_TEMP/client.private.stderr")) {
+   if(Test-Path $file){$privateText += Get-Content $file -Raw -ErrorAction SilentlyContinue}
+ }
+ $result.diagnosticSignals=@{
+   networkTimeout=($privateText -match 'connection timeout|SocketException|请求超时|连接超时');
+   forbidden=($privateText -match 'status[: =]+403|状态码.?403');
+   unauthorized=($privateText -match 'status[: =]+401|状态码.?401');
+   storageFailure=($privateText -match 'Token storage|storage.*failed|存储.*失败');
+   coreTimeout=($privateText -match 'Core method .*timed out')
+ }
+ $privateText=$null
  if(-not $result.loginRecordCommitted){throw 'Login record not committed within observation window'}
 } finally {
+ Set-Clipboard -Value ''
  Get-Process | Where-Object {$_.Path -and $_.Path.StartsWith($dest,[StringComparison]::OrdinalIgnoreCase)} | Stop-Process -Force -ErrorAction SilentlyContinue
  $uninstaller=Get-ChildItem $dest -Filter 'unins*.exe' | Select-Object -First 1
  if($uninstaller){$u=Start-Process $uninstaller.FullName -ArgumentList '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART' -PassThru;if($u.WaitForExit(120000)){$result.uninstallExit=$u.ExitCode;$result.uninstalled=($u.ExitCode -eq 0 -and -not (Test-Path "$dest/Daishu.exe"))}}

@@ -51,6 +51,8 @@
 
 ### Actions #173/#174 Linux APT依赖失败（2026-11-12）
 
+B42 UI登录测试run43422448745：安装/卸载成功，表单提交后120秒未观察到有效登录记录，不能凭该结果认定密码错误或客户端缺陷。初版自动化未确认输入实际送达且粘贴后立即替换/清空剪贴板；增加帧等待、先置非秘密sentinel再从账号框复制并只比较布尔值，以及固定网络/认证/存储错误分类（不上传原始日志），保留登录失败断言。临时GitHub Secrets已删除，下一轮需重新临时加密注入；任何输入后不截图。此为验证完善，不冒充业务修复。
+
 注册表拒绝夹具run43413824489：正常安装/启动成功，但PowerShell以RegistryKeyPermissionCheck.Default和只含ChangePermissions/ReadPermissions的句柄调用SetAccessControl被.NET拒绝“Cannot write to the registry key”，没有进入客户端负控。修正测试句柄为ReadWriteSubTree并显式ReadKey/WriteKey/ChangePermissions，保留原ACL finally恢复。此错误属于测试夹具，与Sentry RegSetValueEx拒绝不是同一位置，不能冒充复现。
 
 Windows安装冒烟第二轮run43412599912：草稿下载两任务通过，两种安装器退出0并完成安装；测试脚本采用排除式入口识别时漏掉EnableLoopback.exe，导致Ambiguous application entry，尚未启动客户端。安装日志两架构均确认实际入口Daishu.exe，修正为精确匹配并保留安装EXE清单。该失败属于测试脚本，不作为客户端启动失败；修正后的启动结果仍须正式Runner回验。
