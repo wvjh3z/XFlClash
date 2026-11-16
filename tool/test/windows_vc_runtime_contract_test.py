@@ -107,6 +107,22 @@ class RuntimeContractTest(unittest.TestCase):
         with self.assertRaises(AssertionError):
             assert_prepare_order(template.replace("  KillProcesses;", ""))
 
+    def test_restart_message_explicitly_tells_user_to_reboot_and_rerun(self):
+        source = self.read("windows/packaging/exe/vc_runtime.iss")
+        self.assertIn("chineseSimplified.XbVcReboot=运行库更新需要重启。请保存工作，手动重启电脑后重新运行此安装程序。", source)
+        self.assertIn("english.XbVcReboot=The runtime update requires a restart. Save your work, restart Windows manually, then run this installer again.", source)
+        for lang in ("chineseSimplified", "english"):
+            self.assertIn("如提示需要重启，请保存工作后手动重启电脑" if lang == "chineseSimplified" else "If a restart is requested, save your work, restart Windows manually", source)
+            self.assertIn("重新运行此安装程序" if lang == "chineseSimplified" else "run this installer again", source)
+        self.assertIn("(XbVcKind = 'reboot') and (Code = 3010) and XbVcHasRedist and", source)
+        self.assertNotIn("XbVcRetry", source)
+        self.assertNotIn("x64 运行库", source)
+        self.assertNotIn("x64 Runtime", source)
+        # Every nonzero prerequisite result flows through XbVcError, which
+        # installs the copy-diagnostics button; silent installs stay text-only.
+        self.assertIn("XbVcShowCopyButton;", source)
+        self.assertIn("if WizardSilent then exit;", source)
+
     def test_errors_localized_and_reentry_does_not_launch_another_installer(self):
         source = self.read("windows/packaging/exe/vc_runtime.iss")
         zh = set(re.findall(r"^chineseSimplified\.(XbVc\w+)=", source, re.M))
