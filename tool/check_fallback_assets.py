@@ -70,6 +70,9 @@ def verify(root, flavor, platform, *, packages=(), build_root=None):
                 fallbacks = [n for n in names if n.startswith('assets/flutter_assets/flavors/') and n.endswith('/fallback.bin')]
                 if fallbacks != [wanted] or archive.read(wanted) != expected:
                     raise ValueError('apk_fallback_missing_mixed_or_changed')
+                logo = 'assets/flutter_assets/assets/images/icon.png'
+                if names.count(logo) != 1 or archive.read(logo) != (root / f'flavors/{flavor}/assets/icons/{flavor}.png').read_bytes():
+                    raise ValueError('apk_in_app_logo_missing_or_wrong_brand')
             checked.append(Path(package).name)
     else:
         build = Path(build_root) if build_root else root/'build'

@@ -19,6 +19,7 @@ class FallbackAssetsTests(unittest.TestCase):
     def source(self,brand):
         source=self.root/f'flavors/{brand}/assets/fallback.bin'
         source.parent.mkdir(parents=True,exist_ok=True);source.write_bytes(('ciphertext-'+brand).encode())
+        logo=source.parent/'icons'/f'{brand}.png';logo.parent.mkdir(exist_ok=True);logo.write_bytes(brand.encode())
         return source
 
     def test_both_brands_all_desktop_layouts_verify_selected_bytes(self):
@@ -44,13 +45,14 @@ class FallbackAssetsTests(unittest.TestCase):
     def test_both_apk_abis_reject_missing_mixed_duplicate_and_changed_fallback(self):
         for brand in ('brand_a','brand_b'):
             source=self.source(brand);wanted='assets/flutter_assets/'+source.relative_to(self.root).as_posix()
-            for variant in ('good','missing','mixed','duplicate','changed'):
+            for variant in ('good','missing','mixed','duplicate','changed','original-logo','absent-logo','other-logo'):
                 packages=[]
                 for abi in ('arm64-v8a','armeabi-v7a'):
                     package=self.root/(abi+'.apk');packages.append(package)
                     with warnings.catch_warnings():
                         warnings.simplefilter('ignore',UserWarning)
                         with zipfile.ZipFile(package,'w') as z:
+                            if variant!='absent-logo':z.writestr('assets/flutter_assets/assets/images/icon.png', b'upstream' if variant=='original-logo' else b'other' if variant=='other-logo' else brand.encode())
                             if variant!='missing':z.writestr(wanted,b'wrong' if variant=='changed' else source.read_bytes())
                             if variant=='duplicate':z.writestr(wanted,source.read_bytes())
                             if variant=='mixed':z.writestr('assets/flutter_assets/flavors/other/assets/fallback.bin',b'other')

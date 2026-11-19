@@ -441,6 +441,13 @@ class AndroidLocalTests(unittest.TestCase):
         (self.root / "core/Clash.Meta/core.go").write_text("original core source", encoding="utf-8")
         (self.root / "flavors/brand_a/flavor.yaml").write_text("versionName: '0.0.1'\nappId: com.example.test\nappName: Test Brand\nupdatePackageName: test\n", encoding="utf-8")
         (self.root / "flavors/brand_a/assets/fallback.bin").write_bytes(b"fake-fallback")
+        for brand in ('brand_a','brand_b'):
+            logo = self.root/f'flavors/{brand}/assets/icons/{brand}.png'
+            logo.parent.mkdir(parents=True, exist_ok=True)
+            logo.write_bytes(brand.encode())
+        shared_logo = self.root/'assets/images/icon.png'
+        shared_logo.parent.mkdir(parents=True)
+        shared_logo.write_bytes(b'original-logo')
         self.ci_counter = self.root / "scripts/build_number.brand_a.txt"
         self.ci_counter.write_text("17\n", encoding="utf-8")
         self.counter = self.root / ".local-build/build_number.brand_a.txt"
@@ -479,6 +486,7 @@ class AndroidLocalTests(unittest.TestCase):
             if name == failure:
                 raise android.ReleaseError("fake failure at " + name)
             if name == "prepare-flavor":
+                (owner.root/"assets/images/icon.png").write_bytes(b"brand_a")
                 spec = owner.root / "pubspec.yaml"
                 spec.write_text(spec.read_text(encoding="utf-8").replace('flavors/brand_a/assets/', 'flavors/brand_a/assets/fallback.bin'), encoding="utf-8")
                 owner.properties.write_text("sdk.dir=/original\nstorePassword=fake\nkeyAlias=fake\nXB_TARGET_ABI=arm64-v8a\n", encoding="utf-8")
@@ -501,7 +509,7 @@ class AndroidLocalTests(unittest.TestCase):
             if command[1] == "rev-parse":
                 return head
             repository = Path(cwd)
-            names = ("pubspec.yaml\0pubspec.lock\0lib/source.dart\0" if repository == owner.root else "pubspec.lock\0lib/source.dart\0" if repository == owner.sdk else "core.go\0")
+            names = ("pubspec.yaml\0pubspec.lock\0lib/source.dart\0assets/images/icon.png\0" if repository == owner.root else "pubspec.lock\0lib/source.dart\0" if repository == owner.sdk else "core.go\0")
             return names.encode()
         with mock.patch.dict(os.environ, {"ANDROID_HOME": str(self.base / "android-sdk"), "ANDROID_NDK": "fake-ndk", "GRADLE_USER_HOME": str(self.gradle_home)}, clear=True), mock.patch.object(android.shutil, "which", return_value="fake-tool"), mock.patch.object(android, "android_tools", return_value=self.base), mock.patch.object(android.subprocess, "check_output", side_effect=git_output), mock.patch.object(android.LocalBuild, "run", run), mock.patch.object(android, "verify_apk", return_value={"signatureVerified": True}), contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
             return android.main(arguments or self.arguments)
@@ -780,6 +788,7 @@ class AndroidLocalTests(unittest.TestCase):
             for library in ("libapp.so", "libflutter.so", "libclash.so", "librust_api.so"):
                 archive.writestr("lib/arm64-v8a/" + library, minimal_aot())
             archive.writestr("assets/flutter_assets/flavors/brand_a/assets/fallback.bin", b"fake-fallback")
+            archive.writestr('assets/flutter_assets/assets/images/icon.png', b'brand_a')
             archive.writestr("classes.dex", "\0".join("com.follow.clash/" + x for x in ["service", "core", "app", "battery", "battery/optimization", "tile"]).encode()+b"\0")
         inputs = {"flavor": "brand_a", "arch": "arm64", "packageName": "com.example.test", "baseVersion": "0.8.93", "buildNumber": 18, "displayName": "Test Brand"}
         certificate = b"original-der-certificate"
@@ -836,6 +845,7 @@ class AndroidLocalTests(unittest.TestCase):
                     for lib in ('libapp.so', 'libflutter.so', 'libclash.so', 'librust_api.so'):
                         archive.writestr('lib/arm64-v8a/' + lib, minimal_aot())
                     archive.writestr(f'assets/flutter_assets/flavors/{flavor}/assets/fallback.bin', b'fake-fallback')
+                    archive.writestr('assets/flutter_assets/assets/images/icon.png', flavor.encode())
                     archive.writestr('classes.dex', '\0'.join('com.follow.clash/' + s for s in ['service', 'core', 'app', 'battery', 'battery/optimization', 'tile']) + '\0')
                 inputs = {'flavor': flavor, 'arch': 'arm64', 'packageName': package, 'baseVersion': '0.9.1', 'buildNumber': 38, 'displayName': 'Test Brand'}
                 outputs = [f"package: name='{package}' versionCode='1000038' versionName='0.9.1'\napplication-label:'Test Brand'\n".encode(), resource_dump(package).encode(), b'certificate', pem_certificate(b'certificate').encode(), b'']
@@ -922,9 +932,10 @@ if name == 'git':
         print('a' * 40)
     else:
         current = Path.cwd()
-        files = ['pubspec.yaml','pubspec.lock','lib/source.dart'] if current == root else ['pubspec.lock','lib/source.dart'] if current.name == 'Xboard_sdk' else ['core.go']
+        files = ['pubspec.yaml','pubspec.lock','lib/source.dart','assets/images/icon.png'] if current == root else ['pubspec.lock','lib/source.dart'] if current.name == 'Xboard_sdk' else ['core.go']
         sys.stdout.buffer.write(('\\0'.join(files) + '\\0').encode())
 elif name == 'dart':
+    (root/'assets/images/icon.png').write_bytes(b'brand_a')
     (root / 'flavor_defines.json').write_text(json.dumps({'XB_FLAVOR_ID':'brand_a','XB_DEBUG':'false','XB_SENTRY_DSN':'configured'}), encoding='utf-8')
     (root / 'android/local.properties').write_text('sdk.dir=/fake\\nstorePassword=fake\\nkeyAlias=fake\\nXB_TARGET_ABI=arm64-v8a\\n', encoding='utf-8')
     (root / 'android/app/keystore.jks').write_bytes(b'selected-brand')
@@ -941,6 +952,7 @@ elif name == 'flutter' and args[:2] == ['build', 'apk']:
         for library in ['libapp.so', 'libflutter.so', 'libclash.so', 'librust_api.so']:
             archive.writestr('lib/arm64-v8a/' + library, data)
         archive.writestr('assets/flutter_assets/flavors/brand_a/assets/fallback.bin', b'fake-fallback')
+        archive.writestr('assets/flutter_assets/assets/images/icon.png', b'brand_a')
         archive.writestr('classes.dex', '\\0'.join('com.follow.clash/' + x for x in ['service', 'core', 'app', 'battery', 'battery/optimization', 'tile']).encode()+b'\\0')
 elif name == 'keytool':
     sys.stdout.buffer.write(b'original-der-certificate')

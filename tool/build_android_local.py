@@ -235,6 +235,10 @@ def retain_verified_apk(apk: Path, batch: Path, inputs: dict, verification: dict
 def temporary_android_configuration(root: Path, gradle_home: Path, *, flavor: str | None = None):
     """Restore complete prior properties/keystore, including any user ABI."""
     paths = [root / "android/local.properties", root / "android/app/keystore.jks"]
+    logo = root / 'assets/images/icon.png'
+    brand_logo = root / f'flavors/{flavor}/assets/icons/{flavor}.png'
+    prior_logo = logo.read_bytes() if logo.is_file() else None
+    selected_logo = brand_logo.read_bytes() if brand_logo.is_file() else None
     original = {path: (path.read_bytes(), path.stat().st_mode & 0o777) if path.exists() else None
                 for path in paths}
     pubspec = root / 'pubspec.yaml'
@@ -248,6 +252,11 @@ def temporary_android_configuration(root: Path, gradle_home: Path, *, flavor: st
     try:
         yield
     finally:
+        if selected_logo is not None and logo.is_file() and logo.read_bytes() == selected_logo and prior_logo != selected_logo:
+            if prior_logo is None:
+                logo.unlink()
+            else:
+                logo.write_bytes(prior_logo)
         for path, prior in original.items():
             if prior is None:
                 path.unlink(missing_ok=True)
@@ -601,10 +610,12 @@ def main(argv: list[str] | None = None) -> int:
             if args.mode == "release":
                 prepare.append("--android-signing")
             builder.run(prepare, "prepare-flavor")
+            prepared_sources = {**sources, 'client': {**sources['client'], 'files': dict(sources['client']['files'])}}
+            prepared_sources['client']['files']['assets/images/icon.png'] = sources['selected_flavor'][f'flavors/{args.flavor}/assets/icons/{args.flavor}.png']
             if args.mode == "release":
                 builder.run([*symbol, "--preflight"], "sentry-preflight")
             set_abi(root / "android/local.properties", inputs["abi"])
-            assert_sources(root, sdk, args.flavor, sources)
+            assert_sources(root, sdk, args.flavor, prepared_sources)
             command = ["flutter", "build", "apk", "--" + args.mode, "--flavor", args.flavor,
                        "--dart-define-from-file=flavor_defines.json", "--dart-define=APP_ENV=stable", "--dart-define=XB_FORM_A=true",
                        "--dart-define=XB_ANDROID_ABI=" + inputs["abi"], "--dart-define=XB_BUILD_TAG=" + inputs["buildTag"],
@@ -619,7 +630,7 @@ def main(argv: list[str] | None = None) -> int:
             report = verify_apk(root, apk, inputs, tools, builder.environment) if args.mode == "release" else {}
             if any(digest(path) != expected for path, expected in locks.items()):
                 raise ReleaseError("A dependency lockfile changed; stop before symbol upload")
-            assert_sources(root, sdk, args.flavor, sources)
+            assert_sources(root, sdk, args.flavor, prepared_sources)
             if args.mode == "release":
                 # The retained, verified bytes become the final package input
                 # for symbol matching and later promotion. A future clean does
