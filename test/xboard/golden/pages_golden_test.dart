@@ -5,6 +5,7 @@
 library;
 
 import 'golden_environment.dart';
+import 'shell_fixture.dart';
 import 'home_states_golden_test.dart' show pumpHome;
 import 'package:fl_clash/enum/enum.dart' show CoreStatus;
 
@@ -195,17 +196,6 @@ void main() {
   });
 
   testWidgets('我的（已登录、返佣与客服均已配置）golden', (t) async {
-    XboardConfig.bind(
-      const XboardConfig(
-        subscribeUserAgent: 'golden',
-        devApiEndpoint: 'https://example.invalid',
-        devSubscriptionEndpoint: 'https://example.invalid',
-        debug: false,
-        kIsTest: true,
-        crispWebsiteId: 'fixture-website-id',
-      ),
-    );
-    addTearDown(XboardConfig.resetForTest);
     final service = _MockService();
     when(service.getInviteInfo).thenAnswer(
       (_) async => const XbSuccess(
@@ -220,24 +210,12 @@ void main() {
         ),
       ),
     );
-    await pump(
-      t,
-      ProviderScope(
-        overrides: [
-          authStateProvider.overrideWith(_FakeAuth.new),
-          userProfileProvider.overrideWith(
-            (ref) async => _sub.copyWith(usedBytes: _sub.totalBytes * 62 ~/ 100),
-          ),
-          xboardServiceProvider.overrideWithValue(service),
-        ],
-        child: app(XbBrandTheme(
-          brandColor: const Color(0xFFD92E1A),
-          // active:false → 账号卡填充动画直接置终态（不播放），golden 像素确定、不因动画末帧抖动。
-          // now:_goldenNow → 到期/重置剩余按固定时刻算，golden 不随真实日期漂移（根治）。
-          child: MineTab(active: false, now: _goldenNow),
-        )),
-      ),
-    );
+    await pumpShell(t, core: CoreStatus.connected, mobile: true, size: const Size(390,844),
+      config: const XboardConfig(subscribeUserAgent: 'golden', devApiEndpoint: 'https://example.invalid',
+        devSubscriptionEndpoint: 'https://example.invalid', debug: false,kIsTest:true,formA:true,crispWebsiteId:'fixture-website-id'),
+      subscription: _sub.copyWith(usedBytes: _sub.totalBytes * 62 ~/ 100, expiredAt:null,nextResetAt:null,resetDay:null), service: service);
+    await t.tap(find.text('我的').hitTestable());
+    await t.pumpAndSettle();
     expect(t.takeException(), isNull);
     expect(find.text('购买重置包立即恢复本月流量', findRichText: true), findsNothing);
     expect(find.text('续费当前套餐', findRichText: true), findsNothing);
@@ -245,7 +223,7 @@ void main() {
     expect(find.text('已用 62%'), findsOneWidget);
     expect(find.text('返 17%'), findsOneWidget);
     expect(find.text('在线客服'), findsOneWidget);
-    await expectXbGolden(t, find.byType(MineTab), 'goldens/page_mine_auth.png');
+    await expectXbGolden(t, find.byKey(const ValueKey('home-golden-window')), 'goldens/page_mine_auth.png');
   });
 
   testWidgets('我的（账号信息加载失败）golden', (t) async {

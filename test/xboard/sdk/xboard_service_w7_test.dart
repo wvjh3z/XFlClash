@@ -229,7 +229,7 @@ void main() {
           'a%2f..%2f..%2foutside.png',
           '',
         ])
-          PaymentMethodModel(id: raw, name: 'Channel', icon: raw),
+          PaymentMethodModel(id: 'channel-$raw', name: 'Channel', icon: raw),
       ]);
 
       Future<List<String?>> icons() async =>

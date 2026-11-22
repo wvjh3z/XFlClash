@@ -32,7 +32,7 @@ class XbNavRail extends StatelessWidget {
     required this.currentIndex,
     required this.onTap,
     required this.onTapAccount,
-    this.width = 208,
+    this.width = 200,
   });
 
   /// 当前选中项，对齐移动端顺序并在末尾附加设置。
@@ -44,7 +44,7 @@ class XbNavRail extends StatelessWidget {
   /// 底部账户芯片点击（→ 跳「我的」/ 登录）。
   final VoidCallback onTapAccount;
 
-  /// 栏宽（默认 208；原型 .side 为 200，留 8px 余量避免账户芯片到期行在长文案下溢出）。
+  /// 栏宽与桌面原型 .side 一致；长文案由账户芯片布局处理。
   final double width;
 
   /// 导航项 = 复用移动端底栏 + 追加「设置」（桌面独立 Tab）。
@@ -61,7 +61,7 @@ class XbNavRail extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     return Material(
-      color: scheme.surface,
+      color: scheme.surfaceContainerLow,
       child: Container(
         width: width,
         padding: const EdgeInsets.fromLTRB(12, 16, 12, 14),
@@ -179,7 +179,7 @@ class _RailItem extends StatelessWidget {
             alignment: Alignment.center,
             children: [
               Positioned(
-                left: 14,
+                left: 18,
                 top: 0,
                 bottom: 0,
                 child: Icon(

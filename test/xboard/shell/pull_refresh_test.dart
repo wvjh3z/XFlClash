@@ -383,29 +383,32 @@ void main() {
     await _pump(tester, page: _Page.nodes, fixture: f, nodesAdapter: delay);
 
     final semantics = tester.ensureSemantics();
-    addTearDown(semantics.dispose);
-    await tester.pump();
-    await tester.tap(find.bySemanticsLabel('手选线路 · 测延迟'));
-    await tester.pump();
-    expect(delay.calls, 1);
-    expect(find.bySemanticsLabel('手选线路 · 测速中'), findsOneWidget);
+    try {
+      await tester.pump();
+      await tester.tap(find.bySemanticsLabel('手选线路 · 测延迟'));
+      await tester.pump();
+      expect(delay.calls, 1);
+      expect(find.bySemanticsLabel('手选线路 · 测速中'), findsOneWidget);
 
-    await tester.tap(find.bySemanticsLabel('刷新节点'));
-    await tester.pump();
-    expect(f.syncCalls, 1);
-    _expectBusy(tester, nodes: true);
-    expect(find.bySemanticsLabel('手选线路 · 测速中'), findsOneWidget);
+      await tester.tap(find.bySemanticsLabel('刷新节点'));
+      await tester.pump();
+      expect(f.syncCalls, 1);
+      _expectBusy(tester, nodes: true);
+      expect(find.bySemanticsLabel('手选线路 · 测速中'), findsOneWidget);
 
-    sync.complete(XbSyncOutcome.ok);
-    await tester.pump();
-    expect(find.bySemanticsLabel(RegExp(r'^刷新节点 \d+s$')), findsOneWidget);
-    expect(find.bySemanticsLabel('手选线路 · 测速中'), findsOneWidget);
+      sync.complete(XbSyncOutcome.ok);
+      await tester.pump();
+      expect(find.bySemanticsLabel(RegExp(r'^刷新节点 \d+s$')), findsOneWidget);
+      expect(find.bySemanticsLabel('手选线路 · 测速中'), findsOneWidget);
 
-    delay.response.complete();
-    await tester.pump();
-    expect(find.bySemanticsLabel(RegExp(r'^手选线路 · 测速冷却 \d+ 秒$')), findsOneWidget);
-    expect(find.bySemanticsLabel(RegExp(r'^刷新节点 \d+s$')), findsOneWidget);
-    expect(tester.takeException(), isNull);
+      delay.response.complete();
+      await tester.pump();
+      expect(find.bySemanticsLabel(RegExp(r'^手选线路 · 测速冷却 \d+ 秒$')), findsOneWidget);
+      expect(find.bySemanticsLabel(RegExp(r'^刷新节点 \d+s$')), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    } finally {
+      semantics.dispose();
+    }
   });
 
   for (final nodes in [_Nodes.expired, _Nodes.exhausted]) {

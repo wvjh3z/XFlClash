@@ -64,7 +64,7 @@ void main() {
             expect(brandTheme.brightness, brightness);
             expect(brandTheme.colorScheme.primary, brand.value);
             expect(brandTheme.scaffoldBackgroundColor,
-                brightness == Brightness.dark ? const Color(0xff0a0c11) : const Color(0xfff5f6f8));
+                brightness == Brightness.dark ? const Color(0xff0a0c11) : const Color(0xffeeeeee));
             expect(brandTheme.textTheme.bodyMedium?.color,
                 brightness == Brightness.dark ? const Color(0xfff1f3f8) : const Color(0xff11141b));
             expect(brandTheme.textTheme.bodyMedium?.fontSize, 14);
@@ -113,7 +113,7 @@ void main() {
           await tester.pumpAndSettle();
           expect(pushed, isTrue);
           final expectedBackground = brightness == Brightness.dark
-              ? const Color(0xff0a0c11) : const Color(0xfff5f6f8);
+              ? const Color(0xff0a0c11) : const Color(0xffeeeeee);
           expect(tester.widgetList<material.Material>(find.byType(material.Material))
               .any((surface) => surface.color == expectedBackground), isTrue);
           expect(find.text('brand-content', findRichText: true), findsWidgets);
@@ -171,7 +171,7 @@ void main() {
           await tester.pumpAndSettle();
           expect(observed.last, [value, value, value]);
           final expected = value == Brightness.dark
-              ? const Color(0xff0a0c11) : const Color(0xfff5f6f8);
+              ? const Color(0xff0a0c11) : const Color(0xffeeeeee);
           expect(tester.widgetList<material.Material>(find.byType(material.Material))
               .any((surface) => surface.color == expected), isTrue);
           expect(find.text('theme-change-destination'), findsOneWidget);

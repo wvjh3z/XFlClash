@@ -11,6 +11,9 @@
 library;
 
 import 'golden_environment.dart';
+import 'shell_fixture.dart';
+import 'package:fl_clash/enum/enum.dart' show CoreStatus;
+import 'package:fl_clash/xboard/shell/tabs/home/home_tab.dart';
 
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -102,6 +105,13 @@ void main() {
 
   group('公告弹窗（showXbNoticeSheet，注入假数据）', () {
     Future<void> pumpSheet(WidgetTester t, Brightness brightness) async {
+      if (brightness == Brightness.light) {
+        await pumpShell(t, core: CoreStatus.connected, mobile:true, size:const Size(390,844));
+        showXbNoticeSheet(t.element(find.byType(HomeTab)), _fakeNotices);
+        await t.pump();
+        await t.pump(const Duration(milliseconds: 400));
+        return;
+      }
       sizePhone(t);
       await t.pumpWidget(app(
         brightness: brightness,

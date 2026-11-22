@@ -147,16 +147,19 @@ void main() {
     expect(find.text('刷新节点'), findsNothing);
     expect(find.text('测延迟'), findsNothing);
     final semantics = tester.ensureSemantics();
-    addTearDown(semantics.dispose);
-    await tester.pump();
-    expect(find.bySemanticsLabel('立即登录'), findsOneWidget);
-    await tester.sendKeyEvent(LogicalKeyboardKey.tab);
-    await tester.sendKeyEvent(LogicalKeyboardKey.enter);
-    await tester.pump();
-    expect(logins, 1);
+    try {
+      await tester.pump();
+      expect(find.bySemanticsLabel('立即登录'), findsOneWidget);
+      await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+      await tester.pump();
+      expect(logins, 1);
+    } finally {
+      semantics.dispose();
+    }
   });
 
-  testWidgets('低高度访客布局可滚到登录按钮，桌面仍用原空态', (tester) async {
+  testWidgets('低高度游客可滚到登录按钮，桌面仍用独立上方布局', (tester) async {
     tester.view.physicalSize = const Size(320, 180);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
@@ -179,8 +182,10 @@ void main() {
       auth: AuthState.unauthenticated,
       theme: ThemeData(platform: TargetPlatform.windows),
     );
+    await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('nodes-guest-badge')), findsNothing);
-    expect(find.byKey(const ValueKey('nodes-guest-login-gradient')), findsNothing);
+    expect(find.byKey(const ValueKey('nodes-desktop-guest-badge')), findsOneWidget);
+    expect(find.byKey(const ValueKey('nodes-guest-login-gradient')), findsOneWidget);
     expect(login, findsOneWidget);
   });
 

@@ -824,16 +824,6 @@ class _GuestNodes extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (!mobile) {
-      return XbEmptyState(
-        icon: Icons.public,
-        title: _title,
-        description: _description,
-        actionLabel: _login,
-        actionIcon: Icons.login,
-        onAction: onTapLogin,
-      );
-    }
     final t = XbTokens.of(context);
     final brand = Theme.of(context).colorScheme.primary;
     const headline = AppTextStyle.headline;
@@ -843,15 +833,15 @@ class _GuestNodes extends StatelessWidget {
         child: ConstrainedBox(
           // The prototype centers the guest block in the upper 78% of the
           // body. Let it grow and scroll when fonts are large or space is short.
-          constraints: BoxConstraints(minHeight: constraints.maxHeight * 0.78),
+          constraints: BoxConstraints(minHeight: mobile ? constraints.maxHeight * 0.78 : 0),
           child: Center(
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 14),
+              padding: EdgeInsets.symmetric(horizontal: 32, vertical: mobile ? 14 : 54),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   DecoratedBox(
-                    key: const ValueKey('nodes-guest-badge'),
+                    key: ValueKey(mobile ? 'nodes-guest-badge' : 'nodes-desktop-guest-badge'),
                     decoration: BoxDecoration(
                       borderRadius: BorderRadius.circular(XbTokens.rLg),
                       gradient: LinearGradient(
@@ -864,7 +854,7 @@ class _GuestNodes extends StatelessWidget {
                       ),
                     ),
                     child: SizedBox.square(
-                      dimension: 80,
+                      dimension: mobile ? 80 : 74,
                       child: Icon(Icons.public, size: 36, color: brand),
                     ),
                   ),
@@ -873,7 +863,7 @@ class _GuestNodes extends StatelessWidget {
                     _title,
                     textAlign: TextAlign.center,
                     style: TextStyle(
-                      fontSize: headline.size,
+                      fontSize: mobile ? headline.size : 18,
                       fontWeight: headline.weight,
                       color: t.on,
                     ),
@@ -888,7 +878,7 @@ class _GuestNodes extends StatelessWidget {
                       color: t.onv,
                     ),
                   ),
-                  const SizedBox(height: 14),
+                  SizedBox(height: mobile ? 14 : 22),
                   _GuestNodeLoginButton(label: _login, onPressed: onTapLogin),
                 ],
               ),

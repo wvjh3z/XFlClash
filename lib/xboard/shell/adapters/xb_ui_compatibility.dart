@@ -1,6 +1,7 @@
 import 'package:flutter/widgets.dart';
 import 'package:material_ui/material_ui.dart' as material;
 import 'package:prism_ui/prism_ui.dart' as prism;
+import '../../widgets/xb_legacy_material.dart';
 
 material.ColorScheme xbMaterialColorScheme(prism.ColorScheme source) =>
     material.ColorScheme(
@@ -81,7 +82,7 @@ class XbUiCompatibilityHost extends StatelessWidget {
   Widget build(BuildContext context) => material.Theme(
     data: xbMaterialHostTheme(prism.Theme.of(context)),
     child: material.ScaffoldMessenger(
-      child: material.MaterialUiCompatibilityBridge(child: child),
+      child: xbLegacyMaterial(child),
     ),
   );
 }

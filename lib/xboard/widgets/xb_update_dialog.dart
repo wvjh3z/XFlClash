@@ -21,6 +21,7 @@ import '../services/xb_update_service.dart';
 import '../services/xb_update_sources.dart';
 import '../services/xb_update_region.dart';
 import '../services/xb_update_probe.dart';
+import 'xb_ui_kit.dart' show XbGradientAction;
 import 'xb_feedback.dart' show xbBrandColor;
 import 'xb_theme.dart' show xbShowDialog, XbTokens;
 
@@ -281,6 +282,11 @@ class _UpdateDialogState extends ConsumerState<_UpdateDialog> {
     return PopScope(
       canPop: !_busy,
       child: AlertDialog(
+        backgroundColor: t.sf2,
+        constraints: const BoxConstraints(maxWidth: 300),
+        insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+        titlePadding: const EdgeInsets.fromLTRB(22, 28, 22, 0),
+        contentPadding: const EdgeInsets.fromLTRB(22, 16, 22, 20),
         title: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -315,7 +321,7 @@ class _UpdateDialogState extends ConsumerState<_UpdateDialog> {
           Container(
             width: double.infinity,
             constraints: const BoxConstraints(maxHeight: 160),
-            padding: const EdgeInsets.all(12),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
             decoration: BoxDecoration(
               color: t.sf,
               borderRadius: BorderRadius.circular(XbTokens.rSm),
@@ -331,13 +337,13 @@ class _UpdateDialogState extends ConsumerState<_UpdateDialog> {
               ),
             ),
           ),
-        const SizedBox(height: 14),
+        const SizedBox(height: 16),
         // Browser controls grow with text scaling; preserve existing states.
         if (_state == _DialogState.browser)
           ConstrainedBox(constraints: const BoxConstraints(minHeight: 118),
               child: _buildFooter(t, scheme))
         else
-          SizedBox(height: 72, child: Center(child: _buildFooter(t, scheme))),
+          ConstrainedBox(constraints: const BoxConstraints(minHeight: 84), child: Center(child: _buildFooter(t, scheme))),
       ],
     );
   }
@@ -441,13 +447,8 @@ class _UpdateDialogState extends ConsumerState<_UpdateDialog> {
         Expanded(
           child: SizedBox(
             height: 46,
-            child: FilledButton(
+            child: XbGradientAction(
               onPressed: _onUpdate,
-              style: FilledButton.styleFrom(
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(XbTokens.rMd),
-                ),
-              ),
               child: const Text('立即更新'),
             ),
           ),

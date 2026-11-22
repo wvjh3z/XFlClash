@@ -21,7 +21,7 @@ on:
         description: 'Current documentation commit'
         type: string
         required: true
-        default: 'db32c31e50a1aa2b1d8555526e8cce379eb05638'
+        default: '75995a33feea18ecac5cacb64efd6a51890edff8'
 
 permissions:
   contents: read
@@ -151,8 +151,25 @@ jobs:
       - name: Analyze (xboard module, fatal-infos)
         run: flutter analyze lib/xboard
 
+      # flutter_check disables app build hooks; the real editor tests still need their FFI library.
+      - name: Prepare the Linux editor test library
+        id: editor_native
+        working-directory: plugins/rust_api/rust
+        shell: bash
+        run: |
+          set -euo pipefail
+          version=$(python3 -c "import tomllib; print(tomllib.load(open('rust-toolchain.toml', 'rb'))['toolchain']['channel'])")
+          rustup toolchain install "$version" --profile minimal
+          target=x86_64-unknown-linux-gnu
+          out="$RUNNER_TEMP/xboard-editor-cargo"
+          cargo +"$version" build --locked --lib --target "$target" --target-dir "$out"
+          test -s "$out/$target/debug/librust_api.so"
+          echo "dir=$out/$target/debug" >> "$GITHUB_OUTPUT"
+
       # DD-20 contract + 全 xboard 单测/widget test（已包含 shell/，无需重复执行）。
       - name: Test (xboard + contract)
+        env:
+          FRB_DART_LOAD_EXTERNAL_LIBRARY_NATIVE_LIB_DIR: ${{ steps.editor_native.outputs.dir }}
         run: python tool/flutter_check.py test/xboard/ test/sdk_contract_test.dart test/_fixtures/
 
       - name: Test desktop installer branding and version injection

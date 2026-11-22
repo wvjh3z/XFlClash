@@ -460,3 +460,11 @@ Windows测试控制器长时间无返回时，先检查是否已创建本批隔�
 2026-11-23 · 会话订单列表专项：初次并行执行早于完整 codegen 结束，旧 Freezed 构造仍要求非空状态与周期，导致测试编译失败。待完整生成成功再同步对应产物并复跑。登录过期用例另硬编码商店加入前的“我的”索引 2；保留返回游客页与登录入口的行为断言，按现布局改为 3。最终七文件 157/157、订单列表 golden 1/1，图片未改，未打包。
 
 2026-11-23 · SDK HTTP 终态日志回归：损坏 JSON 的 HTTP 400 同时走解析 warning 和最终请求 warning，受控用例期望一次、实得两次。请求层负责记录终态时不再额外记录错误响应的解析 warning；正常响应及直接 Dio 消费者保留原诊断。SDK 日志、支付与面板契约 98/98；不代表原生出包验收。
+
+2026-11-23 · ca2a1824 远端干净验收不放行（未打包）：CI 固定 Docs 白名单缺 4 项；发布预检 5 个桌面场景复现同一缺失 Info.plist 夹具，临时补足后对应测试通过。客户端全量 3458 通过、66 失败、6 跳过，24 张截图差异尚待逐图核查，没有更新基线。各套件范围、对照与材料见[干净验收报告](https://github.com/wvjh3z/proxy-suite-docs/blob/main/evidence/clean-ca2a1824-20261123/README.md)，尚未修复或复验放行。
+
+后续修订：Docs 机器登记已独立提交 `75995a3` 并验证 86/86、无未登记文件；发布测试夹具补最小合法 Info.plist 后正式共享预检 263/263。35 项主题失败由旧浅色常量导致，换为业务已批准值后该文件 68/68。复核 24 张图时发现桌面“我的”需等待动画完成再断言夹具用量，不能从正在过渡的帧更新基线。逐组处置见 [Docs 修订说明](https://github.com/wvjh3z/proxy-suite-docs/blob/main/evidence/clean-ca2a1824-20261123/remediation.md)；其余截图及编辑器 native 环境不由专项通过自动关闭。
+
+编辑器夹具后续：按同一提交和锁文件生成 Rust FFI 测试库后，仅复制到 Flutter `build/native_assets/linux` 不足以供关闭 native hook 的测试持续加载；在独立 Cargo target 保留文件，并在测试进程设置 `FRB_DART_LOAD_EXTERNAL_LIBRARY_NATIVE_LIB_DIR`。实际单次保存 SQLite 1 行、1通过／2项既有诊断跳过。已在模块 CI 本地候选接入独立准备，不启用 App 打包。
+
+24 项原型对齐后的候选：真实外壳夹具挂载时会安装全局 `ErrorWidget.builder`，应在同一挂载调用的 finally 还原，不能把首次触发的测试结束时断言误判为图片差异。更新弹窗按已选原型调整视觉不代表改变 D11 返回策略；保留初始和失败态返回的既有回归。修复这两处后 3523/0/8（通过/失败/跳过），发布预检 263/263；没有安装包结果。详见 [候选图和测试摘要](https://github.com/wvjh3z/proxy-suite-docs/blob/main/evidence/clean-ca2a1824-20261123/remediation.md)。

@@ -18,6 +18,7 @@ import '../shell/sheets/sheet_scaffold.dart';
 import '../util/format.dart' show xbDate;
 import '../util/html_link.dart';
 import '../util/html_text.dart' show wrapEmojiForHtml, htmlRenderableBody, kXbEmojiClass;
+import 'xb_ui_kit.dart' show XbGradientAction;
 import 'xb_theme.dart' show XbTokens;
 
 /// 「有新公告」胶囊（标题旁）。无未读 / 游客 / 未就绪 → 不占位。
@@ -118,10 +119,11 @@ Future<void> showXbNoticeSheet(BuildContext context, List<XbNotice> notices) {
                   ),
                 ),
               ),
-              const SizedBox(height: 14),
+              const SizedBox(height: 6),
               SizedBox(
                 width: double.infinity,
-                child: FilledButton(
+                child: XbGradientAction(
+                  height: 52,
                   onPressed: () => Navigator.of(ctx).pop(),
                   child: const Text('我知道了'),
                 ),

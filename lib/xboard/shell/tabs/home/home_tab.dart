@@ -21,6 +21,7 @@ import 'package:fl_clash/xboard/widgets/xb_ui_kit.dart' show XbIconBadge;
 import 'package:fl_clash/xboard/widgets/xb_update_dialog.dart';
 
 import '../../adapters/xb_mode_adapter.dart';
+import '../../adapters/xb_connect_adapter.dart';
 import '../../adapters/xb_nodes_adapter.dart';
 import '../../adapters/xb_takeover_adapter.dart';
 import '../../adapters/xb_traffic_adapter.dart';
@@ -150,7 +151,7 @@ class _HomeTabState extends ConsumerState<HomeTab> {
     required ColorScheme scheme,
   }) {
     return SingleChildScrollView(
-      padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
+      padding: const EdgeInsets.fromLTRB(18, 0, 18, 16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -163,24 +164,23 @@ class _HomeTabState extends ConsumerState<HomeTab> {
           // 套餐到期提醒卡（已登录 + 剩≤7天/已过期才显示）。
           XbExpiryCard(onTapRenew: widget.onTapRenew),
           const XbTrafficNotice(),
-          const SizedBox(height: 8),
+          const SizedBox(height: 24),
           Center(
             child: Stack(
               alignment: Alignment.center,
               children: [
                 // 品牌红光晕（原型 `.aura`）：球后径向辉光，未连接也显示（与桌面 hero 一致）。
-                IgnorePointer(
-                  child: Container(
-                    width: 255,
-                    height: 255,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      gradient: RadialGradient(
-                        colors: [
-                          scheme.primary.withValues(alpha: 0.20),
-                          scheme.primary.withValues(alpha: 0.0),
-                        ],
-                        stops: const [0.0, 0.66],
+                Positioned.fill(
+                  child: IgnorePointer(
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        gradient: RadialGradient(
+                          colors: [
+                            scheme.primary.withValues(alpha: 0.20),
+                            scheme.primary.withValues(alpha: 0.0),
+                          ],
+                        ),
                       ),
                     ),
                   ),
@@ -193,6 +193,7 @@ class _HomeTabState extends ConsumerState<HomeTab> {
               ],
             ),
           ),
+          const SizedBox(height: 8),
           // 游客态说明行（原型 subline）。
           if (isGuest) ...[
             const SizedBox(height: 15),
@@ -206,7 +207,7 @@ class _HomeTabState extends ConsumerState<HomeTab> {
               ),
             ),
           ],
-          const SizedBox(height: 17),
+          const SizedBox(height: 14),
           XbSpeedCard(latencyMs: latencyMs),
           // 当前线路卡：仅已登录显示（原型 guest 态无线路卡）。
           if (!isGuest) ...[
@@ -230,6 +231,7 @@ class _HomeTabState extends ConsumerState<HomeTab> {
     required ColorScheme scheme,
     required double availWidth,
   }) {
+    final inlineMetrics = isGuest || !ref.watch(xbConnectAdapterProvider).isConnected(ref);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -282,11 +284,17 @@ class _HomeTabState extends ConsumerState<HomeTab> {
                                         onBlocked: _checkConnectBlock,
                                       ),
                                     ),
+                                    if (inlineMetrics) ...[
+                                      const SizedBox(height: 14),
+                                      _SpeedTilesDesktop(latencyMs: latencyMs),
+                                    ],
                                   ],
                                 ),
                               ),
-                              const SizedBox(height: 14),
-                              _SpeedTilesDesktop(latencyMs: latencyMs),
+                              if (!inlineMetrics) ...[
+                                const SizedBox(height: 14),
+                                _SpeedTilesDesktop(latencyMs: latencyMs),
+                              ],
                             ],
                           ),
                         ),
@@ -350,8 +358,9 @@ class _HomeHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(4, 8, 4, 14),
+    return Container(
+      constraints: const BoxConstraints(minHeight: 58),
+      padding: const EdgeInsets.symmetric(horizontal: 2),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
@@ -360,6 +369,12 @@ class _HomeHeader extends StatelessWidget {
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(7),
+                  child: Image.asset('assets/images/icon.png', width: 26, height: 26,
+                      fit: BoxFit.contain, excludeFromSemantics: true),
+                ),
+                const SizedBox(width: 6),
                 Flexible(
                   child: Text(
                     XboardConfig.current.appName,
@@ -476,7 +491,7 @@ class _GuestBanner extends StatelessWidget {
             border: Border.all(color: scheme.primary.withValues(alpha: 0.24)),
           ),
           child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 14),
+            padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 15),
             child: Row(
               // 桌面 fit-content → min（横幅按内容收窄）；移动全宽 → max。
               mainAxisSize: centered ? MainAxisSize.min : MainAxisSize.max,

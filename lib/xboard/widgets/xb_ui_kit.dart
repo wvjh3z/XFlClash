@@ -10,6 +10,7 @@ library;
 import 'package:material_ui/material_ui.dart';
 
 import '../config/xboard_config.dart';
+import 'xb_legacy_material.dart';
 import 'xb_theme.dart';
 
 /// 形态 A 品牌主题注入点（薄封装，真源 = [buildXbTheme]）。
@@ -38,7 +39,7 @@ class XbBrandTheme extends StatelessWidget {
       ),
       // Third-party HTML/QR widgets still use Flutter's bundled Material.
       // The official bridge preserves the same brand typography and locale.
-      child: MaterialUiCompatibilityBridge(child: child),
+      child: xbLegacyMaterial(child),
     );
   }
 }
@@ -109,6 +110,30 @@ class XbBrandScaffold extends StatelessWidget {
           );
         },
       ),
+    );
+  }
+}
+
+class XbGradientAction extends StatelessWidget {
+  const XbGradientAction({super.key, required this.onPressed, required this.child, this.height = 46});
+  final VoidCallback? onPressed;
+  final Widget child;
+  final double height;
+
+  @override
+  Widget build(BuildContext context) {
+    final brand = Theme.of(context).colorScheme.primary;
+    final radius = BorderRadius.circular(XbTokens.rButton);
+    return DecoratedBox(
+      decoration: BoxDecoration(borderRadius: radius, gradient: onPressed == null ? null : LinearGradient(
+        begin: Alignment.topLeft, end: Alignment.bottomRight,
+        colors: [brand == const Color(0xffd92e1a) ? const Color(0xffff5a44) : Color.lerp(brand, Colors.white, 0.16)!, brand],
+      )),
+      child: FilledButton(onPressed: onPressed, style: FilledButton.styleFrom(
+        backgroundColor: Colors.transparent, foregroundColor: Colors.white,
+        minimumSize: Size(0, height), tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        shape: RoundedRectangleBorder(borderRadius: radius), elevation: 0,
+      ), child: child),
     );
   }
 }

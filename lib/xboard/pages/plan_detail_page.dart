@@ -599,7 +599,7 @@ class _PlanDetailPageState extends ConsumerState<PlanDetailPage> {
             Row(
               children: [
                 Expanded(child: periodLabel),
-                if (discount != null) discount,
+                ?discount,
               ],
             ),
           const SizedBox(height: 4),

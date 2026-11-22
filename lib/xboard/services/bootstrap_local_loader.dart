@@ -141,7 +141,7 @@ class BootstrapLocalLoader {
       return null;
     } catch (_) {
       try {
-        (await _prefs).remove(kBootstrapCacheKey);
+        await (await _prefs).remove(kBootstrapCacheKey);
       } catch (_) {}
       return null;
     }

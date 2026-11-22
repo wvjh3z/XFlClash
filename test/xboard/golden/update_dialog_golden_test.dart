@@ -5,6 +5,9 @@
 library;
 
 import 'golden_environment.dart';
+import 'shell_fixture.dart';
+import 'package:fl_clash/enum/enum.dart' show CoreStatus;
+import 'package:fl_clash/xboard/shell/tabs/home/home_tab.dart';
 
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -34,29 +37,10 @@ void main() {
   setUpAll(loadGoldenFonts);
 
   Future<void> pumpDialog(WidgetTester tester, {required bool force}) async {
-    tester.view.physicalSize = const Size(390 * 3, 844 * 3);
-    tester.view.devicePixelRatio = 3.0;
-    addTearDown(tester.view.resetPhysicalSize);
-    addTearDown(tester.view.resetDevicePixelRatio);
-
-    await tester.pumpWidget(
-      MaterialApp(
-        debugShowCheckedModeBanner: false,
-        theme: ThemeData(useMaterial3: true, brightness: Brightness.light),
-        home: Builder(
-          builder: (context) => Scaffold(
-            body: Center(
-              child: ElevatedButton(
-                onPressed: () => showXbUpdateDialog(context, _model(force: force)),
-                child: const Text('open'),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-    await tester.tap(find.text('open'));
-    await tester.pumpAndSettle();
+    await pumpShell(tester, core: CoreStatus.connected, mobile:true, size:const Size(390,844));
+    showXbUpdateDialog(tester.element(find.byType(HomeTab)), _model(force: force));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
   }
 
   testWidgets('更新弹窗（普通 · 以后再说+立即更新）golden', (t) async {
@@ -66,7 +50,7 @@ void main() {
     expect(find.text('🎉 发现新版本', findRichText: true), findsOneWidget);
     expect(find.text('以后再说'), findsOneWidget);
     expect(find.text('立即更新'), findsOneWidget);
-    await expectXbGolden(t, find.byType(AlertDialog), 'goldens/update_dialog_normal.png');
+    await expectXbGolden(t, find.byKey(const ValueKey('home-golden-window')), 'goldens/update_dialog_normal.png');
   });
 
   testWidgets('更新弹窗（强制 · 仅立即更新 + 强制提示）golden', (t) async {
@@ -76,49 +60,28 @@ void main() {
     expect(find.text('以后再说'), findsNothing);
     expect(find.text('立即更新'), findsOneWidget);
     expect(find.text('此为重要更新，必须更新后使用'), findsOneWidget);
-    await expectXbGolden(t, find.byType(AlertDialog), 'goldens/update_dialog_force.png');
+    await expectXbGolden(t, find.byKey(const ValueKey('home-golden-window')), 'goldens/update_dialog_force.png');
   });
 
-  testWidgets('关于页（无更新）golden', (t) async {
-    t.view.physicalSize = const Size(390 * 3, 844 * 3);
-    t.view.devicePixelRatio = 3.0;
-    addTearDown(t.view.resetPhysicalSize);
-    addTearDown(t.view.resetDevicePixelRatio);
-    await t.pumpWidget(
-      const ProviderScope(
-        child: MaterialApp(
-          debugShowCheckedModeBanner: false,
-          home: XbAboutPage(),
-        ),
-      ),
-    );
-    await t.pumpAndSettle();
-    expect(t.takeException(), isNull);
-    expect(find.text('检查更新'), findsOneWidget);
-    await expectXbGolden(t, find.byType(XbAboutPage), 'goldens/about_page_no_update.png');
-  });
-
-  testWidgets('关于页（有更新 → 显示 pill）golden', (t) async {
-    t.view.physicalSize = const Size(390 * 3, 844 * 3);
-    t.view.devicePixelRatio = 3.0;
-    addTearDown(t.view.resetPhysicalSize);
-    addTearDown(t.view.resetDevicePixelRatio);
-    await t.pumpWidget(
-      ProviderScope(
-        overrides: [
-          availableUpdateProvider.overrideWith(() => _FakeUpdate()),
-        ],
-        child: const MaterialApp(
-          debugShowCheckedModeBanner: false,
-          home: XbAboutPage(),
-        ),
-      ),
-    );
-    await t.pumpAndSettle();
-    expect(t.takeException(), isNull);
-    expect(find.text('🎉 有新版本啦', findRichText: true), findsOneWidget);
-    await expectXbGolden(t, find.byType(XbAboutPage), 'goldens/about_page_has_update.png');
-  });
+  for (final hasUpdate in [false, true]) {
+    testWidgets('关于页（${hasUpdate ? '有更新' : '无更新'}）golden', (t) async {
+      t.view.physicalSize = const Size(390, 844);
+      t.view.devicePixelRatio = 1;
+      addTearDown(t.view.reset);
+      await t.pumpWidget(ProviderScope(
+        overrides: [if (hasUpdate) availableUpdateProvider.overrideWith(() => _FakeUpdate())],
+        child: MaterialApp(debugShowCheckedModeBanner: false,
+          routes: {'/': (_) => const SizedBox(), '/about': (_) => const XbAboutPage()},
+          initialRoute: '/about'),
+      ));
+      await t.pumpAndSettle();
+      expect(find.byType(BackButton), findsOneWidget);
+      expect(find.text('检查更新'), findsOneWidget);
+      expect(find.text('🎉 有新版本啦', findRichText: true), hasUpdate ? findsOneWidget : findsNothing);
+      await expectXbGolden(t, find.byType(XbAboutPage),
+          'goldens/about_page_${hasUpdate ? 'has' : 'no'}_update.png');
+    });
+  }
 }
 
 /// 注入「有更新」状态的 fake notifier。

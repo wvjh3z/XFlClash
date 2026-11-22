@@ -6,46 +6,13 @@ library;
 import 'golden_environment.dart';
 
 import 'package:material_ui/material_ui.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-
 import 'package:fl_clash/enum/enum.dart';
-import 'package:fl_clash/models/models.dart'
-    show PatchClashConfig, Group, Proxy, ProxiesTabState;
-import 'package:fl_clash/providers/app.dart';
-import 'package:fl_clash/providers/config.dart';
-import 'package:fl_clash/providers/state.dart';
-import 'package:fl_clash/providers/providers.dart'
-    show selectedMapProvider, groupsProvider, currentProfileProvider;
-import 'package:fl_clash/xboard/providers/auth_state_provider.dart';
-import 'package:fl_clash/xboard/providers/user_profile_provider.dart';
 import 'package:fl_clash/xboard/models/xb_domain_subscription.dart';
-import 'package:fl_clash/xboard/providers/xboard_providers.dart';
-import 'package:fl_clash/xboard/shell/tabs/home/home_tab.dart';
-import '../shell/_net_detection_stub.dart';
+import 'package:fl_clash/xboard/providers/auth_state_provider.dart';
 import 'package:fl_clash/xboard/sdk/xboard_service.dart';
-import 'package:fl_clash/xboard/widgets/xb_ui_kit.dart' show XbBrandTheme;
-
-class _FakeAuth extends AuthStateNotifier {
-  _FakeAuth(this._initial);
-  final AuthState _initial;
-  @override
-  AuthState build() => _initial;
-}
-
-ProxiesTabState _tab() => const ProxiesTabState(
-      groups: [
-        Group(
-          type: GroupType.Selector,
-          name: '智能优选',
-          now: '香港01', // 已选中节点 → 线路卡展示「香港01 / 当前分组：智能优选」
-          all: [Proxy(name: '香港01', type: 'ss')],
-        ),
-      ],
-      currentGroupName: '智能优选',
-      proxyCardType: ProxyCardType.standard,
-
-    );
+import 'package:fl_clash/xboard/shell/tabs/home/xb_line_card.dart';
+import 'shell_fixture.dart';
 
 Future<void> pumpHome(
   WidgetTester tester, {
@@ -55,55 +22,13 @@ Future<void> pumpHome(
   XbDomainSubscription? sub,
   XboardService? service,
 }) async {
-  tester.view.physicalSize = const Size(390 * 3, 844 * 3);
-  tester.view.devicePixelRatio = 3.0;
-  addTearDown(tester.view.resetPhysicalSize);
-  addTearDown(tester.view.resetDevicePixelRatio);
-
-  final container = ProviderContainer(
-    overrides: [
-      authStateProvider.overrideWith(() => _FakeAuth(auth)),
-      isStartProvider.overrideWith((ref) => isStart),
-      proxiesTabStateProvider.overrideWith((ref) => _tab()),
-      netDetectionOverride(),
-      if (service != null) xboardServiceProvider.overrideWithValue(service),
-      if (sub != null)
-        userProfileProvider.overrideWith((ref) => Future.value(sub)),
-      groupsProvider.overrideWithValue(const [
-        Group(
-          type: GroupType.Selector,
-          name: '智能优选',
-          now: '香港01',
-          all: [Proxy(name: '香港01', type: 'ss')],
-        ),
-      ]),
-      selectedMapProvider.overrideWith((ref) => const {'智能优选': '香港01'}),
-      currentProfileProvider.overrideWith((ref) => null),
-      patchClashConfigProvider
-          .overrideWithBuild((ref, _) => const PatchClashConfig(mode: Mode.rule)),
-    ],
-  );
-  addTearDown(container.dispose);
-  container.read(bootstrapReadyProvider.notifier).set(true);
-  container.read(coreStatusProvider.notifier).value = core;
-
-  await tester.pumpWidget(
-    UncontrolledProviderScope(
-      container: container,
-      child: RepaintBoundary(key: const ValueKey('home-golden-window'), child: MaterialApp(
-        debugShowCheckedModeBanner: false,
-        theme: ThemeData(useMaterial3: true, brightness: Brightness.light),
-        home: const Scaffold(
-          body: XbBrandTheme(
-            brandColor: Color(0xFFD92E1A),
-            child: HomeTab(),
-          ),
-        ),
-      )),
-    ),
-  );
-  await tester.pump();
-  await tester.pump(const Duration(milliseconds: 400));
+  await pumpShell(tester, core: core, auth: auth, mobile: true, size: const Size(390,844),
+      subscription: sub, service: service, unselected: !isStart);
+  expect(find.text('节点').hitTestable(), findsOneWidget);
+  expect(find.text('商店').hitTestable(), findsOneWidget);
+  expect(find.byType(XbLineCard), auth == AuthState.authenticated ? findsOneWidget : findsNothing);
+  expect(Theme.of(tester.element(find.byType(Scaffold).first)).scaffoldBackgroundColor,
+      const Color(0xFFEEEEEE));
 }
 
 void main() {
@@ -115,7 +40,7 @@ void main() {
         core: CoreStatus.disconnected,
         isStart: false);
     expect(t.takeException(), isNull);
-    await expectXbGolden(t, find.byType(HomeTab), 'goldens/home_guest.png');
+    await expectXbGolden(t, find.byKey(const ValueKey('home-golden-window')), 'goldens/home_guest.png');
   });
 
   testWidgets('首页 · 已登录未连接 golden', (t) async {
@@ -124,7 +49,7 @@ void main() {
         core: CoreStatus.disconnected,
         isStart: false);
     expect(t.takeException(), isNull);
-    await expectXbGolden(t, find.byType(HomeTab), 'goldens/home_ready.png');
+    await expectXbGolden(t, find.byKey(const ValueKey('home-golden-window')), 'goldens/home_ready.png');
   });
 
   testWidgets('首页 · 已连接 golden', (t) async {
@@ -133,29 +58,29 @@ void main() {
         core: CoreStatus.connected,
         isStart: true);
     expect(t.takeException(), isNull);
-    await expectXbGolden(t, find.byType(HomeTab), 'goldens/home_connected.png');
+    await expectXbGolden(t, find.byKey(const ValueKey('home-golden-window')), 'goldens/home_connected.png');
   });
 
   testWidgets('首页 · 套餐到期提醒（剩7天）golden', (t) async {
     final now = DateTime.now();
     await pumpHome(t,
         auth: AuthState.authenticated,
-        core: CoreStatus.disconnected,
-        isStart: false,
+        core: CoreStatus.connected,
+        isStart: true,
         sub: _subExpiring(now.add(const Duration(days: 7, hours: 12))));
     expect(t.takeException(), isNull);
-    await expectXbGolden(t, find.byType(HomeTab), 'goldens/home_expiry_7d.png');
+    await expectXbGolden(t, find.byKey(const ValueKey('home-golden-window')), 'goldens/home_expiry_7d.png');
   });
 
   testWidgets('首页 · 套餐已过期 golden', (t) async {
     final now = DateTime.now();
     await pumpHome(t,
         auth: AuthState.authenticated,
-        core: CoreStatus.disconnected,
-        isStart: false,
+        core: CoreStatus.connected,
+        isStart: true,
         sub: _subExpiring(now.subtract(const Duration(days: 1))));
     expect(t.takeException(), isNull);
-    await expectXbGolden(t, find.byType(HomeTab), 'goldens/home_expiry_expired.png');
+    await expectXbGolden(t, find.byKey(const ValueKey('home-golden-window')), 'goldens/home_expiry_expired.png');
   });
 }
 

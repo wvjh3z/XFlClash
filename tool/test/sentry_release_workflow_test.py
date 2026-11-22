@@ -2,6 +2,7 @@
 """Execute release workflow shell blocks with stubs; never build the client."""
 import json
 import os
+import plistlib
 from pathlib import Path
 import re
 import shutil
@@ -354,6 +355,9 @@ class ReleaseWorkflowTests(unittest.TestCase):
         (self.root/'tool/identity').mkdir(exist_ok=True)
         shutil.copyfile(catalog,self.root/'tool/identity/brands.json')
         (self.root/'env.json').write_text(json.dumps(identity_fields(identity)),encoding='utf-8')
+        plist = self.root / 'macos/Runner/Info.plist'
+        plist.parent.mkdir(parents=True, exist_ok=True)
+        plist.write_bytes(plistlib.dumps({'CFBundleExecutable': 'Fixture'}))
         for name,needles in native_checks(identity,platform).items():
             path=self.root/name;path.parent.mkdir(parents=True,exist_ok=True)
             path.write_text('\n'.join(needles),encoding='utf-8')

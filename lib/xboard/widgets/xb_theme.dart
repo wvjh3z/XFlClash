@@ -10,6 +10,7 @@
 library;
 
 import 'package:material_ui/material_ui.dart';
+import 'xb_legacy_material.dart';
 
 /// 原型设计 token（full.html `:root` 浅色 / `.screen.dark` 深色）。
 ///
@@ -407,7 +408,7 @@ class _XbBrandThemeHost extends StatelessWidget {
         brandColor: brandColor,
         brightness: Theme.of(context).brightness,
       ),
-      child: MaterialUiCompatibilityBridge(child: child),
+      child: xbLegacyMaterial(child),
     );
   }
 }

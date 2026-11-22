@@ -69,11 +69,14 @@ class XbBottomBar extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     return Material(
-      color: scheme.surfaceContainer,
+      color: Color.alphaBlend(scheme.surfaceContainerLow.withValues(alpha: 0.72), scheme.surface),
       child: SafeArea(
         top: false,
-        child: SizedBox(
+        minimum: const EdgeInsets.only(bottom: 12),
+        child: Container(
           height: 68,
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          decoration: BoxDecoration(border: Border(top: BorderSide(color: scheme.outlineVariant))),
           child: Row(
             children: [
               for (var i = 0; i < items.length; i++)

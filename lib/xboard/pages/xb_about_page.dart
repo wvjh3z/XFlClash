@@ -17,7 +17,7 @@ import 'package:fl_clash/xboard/widgets/xb_components.dart'
     show XbListCard, XbListRow;
 import 'package:fl_clash/xboard/widgets/xb_feedback.dart' show xbBrandColor;
 import 'package:fl_clash/xboard/widgets/xb_theme.dart' show xbPush;
-import 'package:fl_clash/xboard/widgets/xb_ui_kit.dart' show XbBrandScaffold;
+import 'package:fl_clash/xboard/widgets/xb_ui_kit.dart' show XbBrandScaffold, XbGradientAction;
 import 'package:fl_clash/xboard/widgets/xb_update_dialog.dart';
 import 'legal_pages.dart';
 
@@ -87,10 +87,10 @@ class _AboutBodyState extends ConsumerState<_AboutBody> {
             children: [
               // App Logo
               Container(
-                width: 76,
-                height: 76,
+                width: 72,
+                height: 72,
                 decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(20),
+                  borderRadius: BorderRadius.circular(18),
                   gradient: LinearGradient(
                     begin: Alignment.topLeft,
                     end: Alignment.bottomRight,
@@ -146,17 +146,11 @@ class _AboutBodyState extends ConsumerState<_AboutBody> {
               const SizedBox(height: 24),
               // Check Update Button（原型 .achk：限宽 300 居中）。
               ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 300),
+                constraints: BoxConstraints(maxWidth: MediaQuery.sizeOf(context).width < 600 ? double.infinity : 300),
                 child: SizedBox(
                   width: double.infinity,
-                  child: FilledButton(
+                  child: XbGradientAction(
                     onPressed: _checking ? null : _checkForUpdate,
-                    style: FilledButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 13),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(14),
-                      ),
-                    ),
                     child: _checking
                         ? const SizedBox(
                             width: 18,

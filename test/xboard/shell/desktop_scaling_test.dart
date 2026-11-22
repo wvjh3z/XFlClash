@@ -183,18 +183,18 @@ void main() {
     expect(find.byType(XbBottomBar), findsOneWidget);
     expect(find.byType(XbNavRail), findsNothing);
     await selectShellTab(tester, '我的');
-    expect(tester.widget<XbBottomBar>(find.byType(XbBottomBar)).currentIndex, 2);
+    expect(tester.widget<XbBottomBar>(find.byType(XbBottomBar)).currentIndex, 3);
 
     await resizeShell(tester, container, 601);
     expect(find.byType(XbBottomBar), findsNothing);
     expect(find.byType(XbNavRail), findsOneWidget);
-    expect(tester.widget<XbNavRail>(find.byType(XbNavRail)).currentIndex, 2);
+    expect(tester.widget<XbNavRail>(find.byType(XbNavRail)).currentIndex, 3);
     expect(tester.takeException(), isNull);
 
     await resizeShell(tester, container, 600);
     expect(find.byType(XbBottomBar), findsOneWidget);
     expect(find.byType(XbNavRail), findsNothing);
-    expect(tester.widget<XbBottomBar>(find.byType(XbBottomBar)).currentIndex, 2);
+    expect(tester.widget<XbBottomBar>(find.byType(XbBottomBar)).currentIndex, 3);
     expect(tester.takeException(), isNull);
   });
 

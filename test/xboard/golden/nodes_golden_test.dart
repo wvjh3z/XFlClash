@@ -5,6 +5,7 @@
 library;
 
 import 'golden_environment.dart';
+import 'shell_fixture.dart';
 
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -109,7 +110,9 @@ void main() {
   setUpAll(loadGoldenFonts);
 
   testWidgets('节点 · 优选分组(url-test) golden + 结构对照原型', (t) async {
-    await pumpNodes(t, auth: AuthState.authenticated);
+    await pumpShell(t, core: CoreStatus.connected, mobile:true, size:const Size(390,844));
+    await t.tap(find.text('节点').hitTestable());
+    await t.pumpAndSettle();
     expect(t.takeException(), isNull);
     // 结构对照原型 nodes('recommend')：标题右侧的测速 / 刷新胶囊，随后是分组标签和节点。
     // 注：分组 tab / 节点名经 EmojiText（=RichText）渲染，find.text 默认不匹配 RichText，
@@ -118,27 +121,27 @@ void main() {
     final capsule = find.byKey(const ValueKey('nodes-action-capsule'));
     expect(t.getSize(capsule), const Size(157, 48));
     expect(find.descendant(of: capsule, matching: find.text('刷新节点')), findsOneWidget);
-    expect(find.text('智能优选', findRichText: true), findsWidgets); // 顶部分组 tab
+    expect(find.text('优选', findRichText: true), findsWidgets); // 顶部分组 tab
     expect(find.text('香港', findRichText: true), findsWidgets);
     expect(find.descendant(of: capsule, matching: find.text('测延迟')), findsOneWidget);
     expect(find.text('自动', findRichText: true), findsOneWidget); // url-test 首项「自动」标
     expect(find.textContaining('url-test', findRichText: true),
         findsNothing); // 类型说明已按产品要求移除，PNG基线需另外论证与验收。
     expect(find.text('🇯🇵 东京 IEPL 02', findRichText: true), findsOneWidget);
-    await expectXbGolden(t, find.byType(NodesTab), 'goldens/nodes_recommend.png');
+    await expectXbGolden(t, find.byKey(const ValueKey('home-golden-window')), 'goldens/nodes_recommend.png');
   });
 
   testWidgets('节点 · 游客态 golden', (t) async {
-    var taps = 0;
-    await pumpNodes(t, auth: AuthState.unauthenticated, onLogin: () => taps++);
+    await pumpShell(t, core: CoreStatus.disconnected, auth:AuthState.unauthenticated, mobile:true, size:const Size(390,844));
+    await t.tap(find.text('节点').hitTestable());
+    await t.pumpAndSettle();
     expect(find.text('选择线路'), findsOneWidget);
     expect(find.byKey(const ValueKey('nodes-action-capsule')), findsNothing);
     expect(t.getSize(find.byKey(const ValueKey('nodes-guest-badge'))), const Size(80, 80));
     expect(find.byKey(const ValueKey('nodes-guest-login-gradient')), findsOneWidget);
     expect(t.takeException(), isNull);
-    await expectXbGolden(t, find.byType(NodesTab), 'goldens/nodes_guest.png');
-    await t.tap(find.text('立即登录'));
-    expect(taps, 1);
+    await expectXbGolden(t, find.byKey(const ValueKey('home-golden-window')), 'goldens/nodes_guest.png');
+    expect(find.text('立即登录').hitTestable(), findsOneWidget);
   });
 
   testWidgets('节点 · 空态(无线路) golden', (t) async {

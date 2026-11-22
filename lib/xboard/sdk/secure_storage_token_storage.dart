@@ -24,6 +24,9 @@ abstract final class SecureStorageTokenStorage {
   /// 此选项是锁定的9.2.4/3.1.3实际读取的键，不改变其他平台选项。
   static const defaultStorage = FlutterSecureStorage(
     aOptions: AndroidOptions(
+      // 10.3.1 still reads this flag for existing Android ESP credentials when
+      // migration is off. Remove only with a verified credential migration.
+      // ignore: deprecated_member_use
       encryptedSharedPreferences: true,
       migrateOnAlgorithmChange: false,
       resetOnError: false,
