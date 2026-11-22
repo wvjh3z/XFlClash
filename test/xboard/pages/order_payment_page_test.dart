@@ -265,6 +265,10 @@ void main() {
     );
     h.service.onRead = (_) async => XbResult.success(detail);
     await h.mount(t, size: const Size(1200, 800));
+    expect(text('抵扣前订单金额'), findsOneWidget);
+    expect(text('¥45.00'), findsOneWidget);
+    expect(text('订单优惠（已抵扣）'), findsOneWidget);
+    expect(text('-¥5.00'), findsOneWidget);
     expect(text('支付手续费'), findsOneWidget);
     expect(text('¥41.25'), findsOneWidget);
     expect(text('应付金额'), findsOneWidget);
@@ -301,15 +305,17 @@ void main() {
       PaymentMethodItem(id: 'free', name: '免手续费渠道'),
     ]);
     await h.mount(t, size: const Size(390, 1200));
-    expect(text('订单金额'), findsOneWidget);
-    expect(text('¥3.00'), findsOneWidget);
+    expect(text('抵扣前订单金额'), findsOneWidget);
+    expect(text('¥3.50'), findsOneWidget);
     expect(text('余额抵扣'), findsOneWidget);
     expect(text('-¥1.00'), findsOneWidget);
     expect(text('支付手续费'), findsOneWidget);
     expect(text('¥0.16'), findsOneWidget); // 200 分 × 6.25% + 3 分 → 16 分
     expect(text('应付金额'), findsOneWidget);
     expect(text('¥2.16'), findsOneWidget);
-    expect(text('优惠券'), findsNothing);
+    expect(text('订单优惠（已抵扣）'), findsOneWidget);
+    expect(text('-¥0.50'), findsOneWidget);
+    expect(find.byIcon(Icons.check_circle_outline), findsOneWidget);
     expect(text('手续费 6.25% + ¥0.03'), findsOneWidget);
     expect(text('手续费 2%'), findsOneWidget);
     expect(text('手续费 ¥0.80'), findsOneWidget);
@@ -320,6 +326,8 @@ void main() {
     await t.pump();
     await t.tap(rate);
     await t.pump();
+    final selectedRow = find.ancestor(of: rate, matching: find.byType(InkWell)).first;
+    expect(find.descendant(of: selectedRow, matching: find.byIcon(Icons.check_circle_outline)), findsOneWidget);
     expect(text('¥0.04'), findsOneWidget);
     expect(text('¥2.04'), findsOneWidget);
 
@@ -355,17 +363,65 @@ void main() {
         final detail = order(
           XbOrderStatus.completed,
           totalAmountYuan: 2,
-        ).copyWith(balanceAmountYuan: amount, handlingAmountYuan: amount);
+        ).copyWith(balanceAmountYuan: amount, handlingAmountYuan: amount, discountAmountYuan: amount);
         h.service.onRead = (_) async => XbResult.success(detail);
         await h.mount(t);
         expect(text('订单金额'), findsOneWidget);
         expect(text('应付金额'), findsOneWidget);
         expect(text('¥2.00'), findsNWidgets(2));
         expect(text('余额抵扣'), findsNothing);
+        expect(text('订单优惠（已抵扣）'), findsNothing);
+        expect(text('抵扣前订单金额'), findsNothing);
         expect(text('支付手续费'), findsNothing);
         expect(h.service.methodsReads, 0);
       },
     );
+  }
+
+  for (final status in [XbOrderStatus.pending, XbOrderStatus.completed]) {
+    for (final scenario in <(String, double, double, double?, double?, double?)>[
+      // Net, balance, reported excess, effective surplus deduction, subtotal.
+      ('partial', 60, 10, null, 20, 100),
+      ('balance covers rest', 0, 10, null, 20, 40),
+      ('exact', 0, 0, 0, 20, 30),
+      ('excess', 0, 0, 7, 13, 23),
+      ('no new charge', 0, 0, 20, 0, 10),
+      ('missing credit', 0, 0, null, null, null),
+      ('credit exceeds surplus', 0, 0, 23, null, null),
+    ]) {
+      _paymentTest('order deductions: $status ${scenario.$1}', (t, h) async {
+        final (_, net, balance, credit, applied, subtotal) = scenario;
+        final detail = order(status, totalAmountYuan: net).copyWith(
+          balanceAmountYuan: balance,
+          discountAmountYuan: 10,
+          surplusAmountYuan: 20,
+          surplusCreditYuan: credit,
+          handlingAmountYuan: net > 0 ? 2 : 0,
+        );
+        h.service.onRead = (_) async => XbSuccess(detail);
+        h.service.onMethods = () async => const XbSuccess([
+          PaymentMethodItem(id: 'channel', name: '渠道', feeFixedYuan: 1),
+        ]);
+        await h.mount(t, size: const Size(390, 1200));
+        void checkRow(String label, double? value, {bool minus = false}) {
+          if (value == null) {
+            expect(text(label), findsNothing);
+            return;
+          }
+          final row = find.ancestor(of: text(label), matching: find.byType(Row)).first;
+          expect(find.descendant(of: row, matching: text('${minus ? '-' : ''}¥${value.toStringAsFixed(2)}')), findsOneWidget);
+        }
+        checkRow('抵扣前订单金额', subtotal);
+        checkRow('旧套餐结余抵扣', applied == 0 ? null : applied, minus: true);
+        checkRow('旧套餐结余（抵扣额待核实）', applied == null ? 20 : null);
+        checkRow('结余返还金额', credit == 0 ? null : credit);
+        checkRow('订单优惠（已抵扣）', 10, minus: true);
+        checkRow('余额抵扣', balance > 0 ? balance : null, minus: true);
+        final fee = net > 0 ? (status == XbOrderStatus.pending ? 1.0 : 2.0) : 0.0;
+        checkRow('应付金额', net + fee);
+        expect(h.service.checkouts, 0);
+      });
+    }
   }
 
   _paymentTest('mobile pending without channels does not reuse a recorded fee', (
@@ -738,12 +794,16 @@ void main() {
       await h.mount(t, size: const Size(1220, 850));
       final response = Completer<XbResult<List<PaymentMethodItem>>>();
       h.service.onMethods = () => response.future;
-      final retry = t.widget<OutlinedButton>(find.widgetWithText(OutlinedButton, '重新加载'));
-      retry.focusNode!.requestFocus();
+      Focus.of(t.element(find.text('重新加载'))).requestFocus();
       await t.pump();
       await t.sendKeyEvent(LogicalKeyboardKey.enter);
       await t.pump();
       expect(h.service.methodsReads, 2);
+      expect(text('正在加载支付方式…'), findsOneWidget);
+      expect(text('支付方式加载失败'), findsNothing);
+      final pay = find.widgetWithText(FilledButton, '立即支付');
+      expect(t.widget<FilledButton>(pay).onPressed, isNull);
+      expect(find.descendant(of: pay, matching: find.byType(CircularProgressIndicator)), findsNothing);
       if (leave) FocusManager.instance.primaryFocus!.unfocus();
       await t.pump();
       response.complete(const XbSuccess([PaymentMethodItem(id: 'alipay', name: '支付宝')]));
@@ -753,6 +813,69 @@ void main() {
       expect(h.service.checkouts, 0);
     });
   }
+
+  for (final brightness in Brightness.values) {
+    _paymentTest('mobile channel retry stays centered, legible and exclusive: $brightness', (t, h) async {
+      h.service.onMethods = () async => XbResult.failure(const XbServer(503, 'offline'));
+      await h.mount(t, size: const Size(390, 1200), brightness: brightness);
+      final retry = find.widgetWithText(FilledButton, '重新加载');
+      final pay = find.widgetWithText(FilledButton, '立即支付');
+      final cancel = find.widgetWithText(OutlinedButton, '取消订单');
+      final check = find.widgetWithText(TextButton, '检测支付状态');
+      final centerX = t.getCenter(pay).dx;
+      expect(t.getCenter(retry).dx, closeTo(centerX, 1));
+      expect(t.getCenter(text('支付方式加载失败')).dx, closeTo(centerX, 1));
+
+      final response = Completer<XbResult<List<PaymentMethodItem>>>();
+      h.service.onMethods = () => response.future;
+      await tap(t, '重新加载');
+      expect(t.getCenter(text('正在加载支付方式…')).dx, closeTo(centerX, 1));
+      // Check the inherited text color and painted button background, rather
+      // than assuming the theme's disabled defaults provide readable contrast.
+      for (final entry in [(retry, '重新加载'), (pay, '立即支付'), (cancel, '取消订单'), (check, '检测支付状态')]) {
+        final (finder, label) = entry;
+        final button = t.widget<ButtonStyleButton>(finder);
+        expect(button.onPressed, isNull);
+        final ink = DefaultTextStyle.of(t.element(find.text(label))).style.color!;
+        final decoration = button is FilledButton
+            ? t.widget<DecoratedBox>(find.ancestor(of: finder, matching: find.byType(DecoratedBox)).first).decoration as BoxDecoration
+            : null;
+        final backgrounds = decoration == null
+            ? [button.style!.backgroundColor!.resolve({WidgetState.disabled})!]
+            : decoration.gradient?.colors ?? [decoration.color!];
+        for (final background in backgrounds) {
+          final a = ink.computeLuminance(), b = background.computeLuminance();
+          expect((a > b ? (a + .05) / (b + .05) : (b + .05) / (a + .05)), greaterThanOrEqualTo(4.5), reason: label);
+        }
+        await t.tap(finder);
+      }
+      expect(h.service.methodsReads, 2);
+      expect(h.service.checkouts, 0);
+      expect(h.service.cancellations, 0);
+      expect(h.service.reads, 1);
+      response.complete(const XbSuccess([PaymentMethodItem(id: 'alipay', name: '支付宝')]));
+      await t.pumpAndSettle();
+      for (final finder in [pay, cancel, check]) {
+        expect(t.widget<ButtonStyleButton>(finder).onPressed, isNotNull);
+      }
+    });
+  }
+
+  _paymentTest('channel retry exception stays in the method card and allows retry', (t, h) async {
+    h.service.onMethods = () async => XbResult.failure(const XbServer(503, 'offline'));
+    await h.mount(t);
+    h.service.onMethods = () async => throw StateError('channel offline');
+    await tap(t, '重新加载');
+    expect(text('支付方式加载失败'), findsOneWidget);
+    expect(text('正在加载支付方式…'), findsNothing);
+    expect(text('标准套餐'), findsOneWidget);
+    h.service.onMethods = null;
+    await tap(t, '重新加载');
+    await t.pumpAndSettle();
+    expect(text('支付宝'), findsOneWidget);
+    expect(h.service.reads, 1);
+    expect(h.service.checkouts, 0);
+  });
 
   _paymentTest('empty channel list cannot submit payment', (t, h) async {
     h.service.onMethods = () async => const XbSuccess([]);

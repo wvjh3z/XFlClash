@@ -17,7 +17,9 @@
 library;
 
 import 'dart:async';
+import 'dart:math' as math;
 
+import 'package:flutter/rendering.dart' show RenderAbstractViewport;
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -127,6 +129,7 @@ class _XbConnectOrbState extends ConsumerState<XbConnectOrb>
     final scheme = Theme.of(context).colorScheme;
     final size = widget.size;
     final reduced = XbMotion.reduced(context);
+    final mobileOrb = !widget.statusBelow && Theme.of(context).platform == TargetPlatform.android;
 
     // 状态跃迁 → 连上瞬间触发 pop（reduce-motion 跳过）。
     if (_prevState != null &&
@@ -159,14 +162,26 @@ class _XbConnectOrbState extends ConsumerState<XbConnectOrb>
             height: size,
             child: Stack(
               alignment: Alignment.center,
+              clipBehavior: Clip.none,
               children: [
+                if (mobileOrb && state == XbConnState.connected)
+                  Positioned(
+                    // The 255px aura begins 24px above the 177px orb.
+                    top: -size * 24 / 177,
+                    width: size * 255 / 177,
+                    height: size * 255 / 177,
+                    child: !reduced && TickerMode.valuesOf(context).enabled &&
+                            ModalRoute.isCurrentOf(context) != false
+                        ? _ConnectedAura(color: scheme.primary)
+                        : _AuraGradient(color: scheme.primary),
+                  ),
                 // 连接中：向外扩散的声呐脉冲（比单纯转圈更"正在建立连接"）。
                 if (connecting && !reduced)
                   _SonarLayer(size: size, color: scheme.primary),
                 // 轨道环（静态细环，留白底）。
                 _TrackRing(size: size, color: scheme.surfaceContainerHighest),
                 // 进度环（连接态主题色满环 / 连接中主题色弧转动）。
-                _ProgressRing(size: size, state: state, color: scheme.primary),
+                _ProgressRing(size: size, state: state, color: scheme.primary, mobile: mobileOrb),
                 // 核心（留白 + 图标 + 状态文字）；连上回弹 pop。
                 ScaleTransition(
                   scale: _popScale,
@@ -290,8 +305,134 @@ class _XbConnectOrbState extends ConsumerState<XbConnectOrb>
   };
 }
 
-/// 连接中声呐脉冲层：两层向外扩散的环（错相），表达「正在建立连接」。
-/// 仅 connecting 时挂载 → 仅此时循环（与进度环 spinner 同款 golden 安全性）。
+/// One full breath takes 3.6 seconds. Only the decorative layer repaints.
+class _AuraGradient extends StatelessWidget {
+  const _AuraGradient({required this.color});
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) => RepaintBoundary(
+    child: DecoratedBox(
+      decoration: BoxDecoration(
+        gradient: RadialGradient(
+          // CSS circle uses the farthest corner; soften its outer tail
+          // without a live blur filter or an off-screen layer per frame.
+          radius: .7071,
+          stops: const [0, .42, .66, .80],
+          colors: [
+            color.withValues(alpha: .22), color.withValues(alpha: .08),
+            color.withValues(alpha: .015), color.withValues(alpha: 0),
+          ],
+        ),
+      ),
+    ),
+  );
+}
+
+class _ConnectedAura extends StatefulWidget {
+  const _ConnectedAura({required this.color});
+  final Color color;
+
+  @override
+  State<_ConnectedAura> createState() => _ConnectedAuraState();
+}
+
+class _ConnectedAuraState extends State<_ConnectedAura>
+    with SingleTickerProviderStateMixin, WidgetsBindingObserver {
+  late final _pulse = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 1800),
+  );
+  late final _wave = CurvedAnimation(parent: _pulse, curve: Curves.easeInOut);
+  late final _opacity = Tween(begin: 0.7, end: 1.0).animate(_wave);
+  late final _scale = Tween(begin: 0.96, end: 1.06).animate(_wave);
+  ScrollPosition? _scroll;
+  bool _scheduled = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final position = Scrollable.maybeOf(context, axis: Axis.vertical)?.position;
+    if (_scroll != position) {
+      _scroll?.removeListener(_afterLayout);
+      _scroll = position;
+      _scroll?.addListener(_afterLayout);
+    }
+    _afterLayout();
+  }
+
+  void _afterLayout() {
+    if (_scheduled) return;
+    _scheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _scheduled = false;
+      if (mounted) _sync();
+    });
+  }
+
+  @override
+  void didChangeMetrics() => _afterLayout();
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _afterLayout();
+    } else {
+      _pulse.stop();
+    }
+  }
+
+  void _sync() {
+    final lifecycle = WidgetsBinding.instance.lifecycleState;
+    var visible = lifecycle == null || lifecycle == AppLifecycleState.resumed;
+    final scroll = _scroll;
+    final box = context.findRenderObject();
+    if (visible && scroll != null && scroll.hasContentDimensions && box is RenderBox && box.hasSize) {
+      final viewport = RenderAbstractViewport.maybeOf(box);
+      if (viewport != null) {
+        final top = viewport.getOffsetToReveal(box, 0).offset;
+        visible = top < scroll.pixels + scroll.viewportDimension &&
+            top + box.size.height > scroll.pixels;
+      }
+    }
+    if (visible && !_pulse.isAnimating) {
+      _pulse.repeat(reverse: true);
+    } else if (!visible && _pulse.isAnimating) {
+      _pulse.stop();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => IgnorePointer(
+    child: RepaintBoundary(
+      child: FadeTransition(
+        key: const ValueKey('home-connected-breath'),
+        opacity: _opacity,
+        child: ScaleTransition(
+          scale: _scale,
+          child: _AuraGradient(color: widget.color),
+        ),
+      ),
+    ),
+  );
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _scroll?.removeListener(_afterLayout);
+    _wave.dispose();
+    _pulse.dispose();
+    super.dispose();
+  }
+}
+
+/// 连接中声呐脉冲层：两层向外扩散的环，仅在 connecting 时挂载。
 class _SonarLayer extends StatefulWidget {
   const _SonarLayer({required this.size, required this.color});
 
@@ -383,11 +524,13 @@ class _ProgressRing extends StatefulWidget {
     required this.size,
     required this.state,
     required this.color,
+    required this.mobile,
   });
 
   final double size;
   final XbConnState state;
   final Color color;
+  final bool mobile;
 
   @override
   State<_ProgressRing> createState() => _ProgressRingState();
@@ -400,23 +543,29 @@ class _ProgressRingState extends State<_ProgressRing>
     duration: const Duration(seconds: 1),
   );
 
-  bool get _isSpinning =>
-      widget.state == XbConnState.connecting ||
-      widget.state == XbConnState.booting;
+  bool _reduced = false;
+  bool get _isSpinning => !(widget.mobile && _reduced) &&
+      (widget.state == XbConnState.connecting || widget.state == XbConnState.booting);
 
   @override
-  void initState() {
-    super.initState();
-    if (_isSpinning) _spin.repeat();
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _reduced = XbMotion.reduced(context);
+    _syncSpin();
   }
 
   @override
   void didUpdateWidget(_ProgressRing oldWidget) {
     super.didUpdateWidget(oldWidget);
+    _syncSpin();
+  }
+
+  void _syncSpin() {
     if (_isSpinning && !_spin.isAnimating) {
       _spin.repeat();
     } else if (!_isSpinning && _spin.isAnimating) {
       _spin.stop();
+      if (widget.mobile && _reduced) _spin.value = 0;
     }
   }
 
@@ -428,6 +577,26 @@ class _ProgressRingState extends State<_ProgressRing>
 
   @override
   Widget build(BuildContext context) {
+    if (widget.mobile) {
+      final state = widget.state;
+      final partial = state == XbConnState.booting || state == XbConnState.connecting;
+      if (!partial && state != XbConnState.connected) return const SizedBox.shrink();
+      final extent = widget.size * (partial ? 1 : 205 / 177);
+      final ring = RepaintBoundary(key: const ValueKey('home-mobile-progress-ring'), child: CustomPaint(
+        size: Size.square(extent),
+        painter: _MobileRingPainter(state, widget.color),
+      ));
+      if (!partial) {
+        return SizedBox.square(
+          dimension: widget.size,
+          child: OverflowBox(
+            minWidth: extent, maxWidth: extent, minHeight: extent, maxHeight: extent,
+            child: ring,
+          ),
+        );
+      }
+      return !_reduced ? RotationTransition(turns: _spin, child: ring) : ring;
+    }
     return AnimatedBuilder(
       animation: _spin,
       builder: (context, _) {
@@ -442,6 +611,54 @@ class _ProgressRingState extends State<_ProgressRing>
       },
     );
   }
+}
+
+/// Static angular shader; the compositor rotates the small cached ring.
+class _MobileRingPainter extends CustomPainter {
+  const _MobileRingPainter(this.state, this.brand);
+  final XbConnState state;
+  final Color brand;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final rect = Offset.zero & size;
+    final full = state == XbConnState.connected;
+    // Full rings reserve 14px for the static glow on each side.
+    final scale = size.shortestSide / (full ? 205 : 177);
+    final radius = 88.5 * scale;
+    final connecting = state == XbConnState.connecting;
+    final light = brand == const Color(0xffd92e1a)
+        ? const Color(0xffff5a44) : Color.lerp(brand, Colors.white, .16)!;
+    final clear = brand.withValues(alpha: 0);
+    final gradient = full
+        ? SweepGradient(colors: [light, brand, light],
+            transform: const GradientRotation(-math.pi / 2))
+        : SweepGradient(colors: [clear, brand, clear, clear],
+            stops: [0, (connecting ? 120 : 110) / 360, (connecting ? 200 : 180) / 360, 1],
+            transform: const GradientRotation(-math.pi));
+    final paint = Paint()..style = PaintingStyle.stroke;
+    if (full) {
+      paint
+        ..strokeWidth = 3.5 * scale
+        ..color = brand.withValues(alpha: .45)
+        ..maskFilter = MaskFilter.blur(BlurStyle.normal, 4.5 * scale);
+      canvas.drawCircle(rect.center, radius - 1.75 * scale, paint);
+    }
+    paint
+      ..maskFilter = null
+      ..shader = gradient.createShader(rect);
+    // Inner 2px radial mask ramps from clear at 83 to opaque at 85.
+    for (var i = 0; i < 3; i++) {
+      final width = (i == 2 ? 3.5 : 1.0) * scale;
+      paint
+        ..color = Colors.white.withValues(alpha: [0.25, 0.75, 1.0][i])
+        ..strokeWidth = width;
+      canvas.drawCircle(rect.center, (83 + i) * scale + width / 2, paint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(_MobileRingPainter old) => old.state != state || old.brand != brand;
 }
 
 class _ProgressPainter extends CustomPainter {
@@ -578,7 +795,7 @@ IconData _orbIcon(XbConnState state) => switch (state) {
   XbConnState.connected => Icons.verified_user,
   XbConnState.paused => Icons.pause_circle_outline,
   XbConnState.connecting => Icons.shield_outlined,
-  XbConnState.booting => Icons.hourglass_empty,
+  XbConnState.booting => Icons.power_settings_new,
   XbConnState.disconnected => Icons.power_settings_new,
 };
 

@@ -115,25 +115,48 @@ class XbBrandScaffold extends StatelessWidget {
 }
 
 class XbGradientAction extends StatelessWidget {
-  const XbGradientAction({super.key, required this.onPressed, required this.child, this.height = 46});
+  const XbGradientAction({super.key, required this.onPressed, required this.child, this.height = 46, this.padding, this.tintWhenDisabled = false});
   final VoidCallback? onPressed;
   final Widget child;
   final double height;
+  final EdgeInsetsGeometry? padding;
+  final bool tintWhenDisabled;
 
   @override
   Widget build(BuildContext context) {
     final brand = Theme.of(context).colorScheme.primary;
+    final tokens = XbTokens.of(context);
     final radius = BorderRadius.circular(XbTokens.rButton);
+    final start = brand == const Color(0xffd92e1a)
+        ? const Color(0xffff5a44)
+        : Color.lerp(brand, Colors.white, 0.16)!;
+    final enabled = onPressed != null;
+    final disabledInk = tintWhenDisabled
+        ? Color.lerp(tokens.onv, tokens.on, .25)!
+        : tokens.onv;
     return DecoratedBox(
-      decoration: BoxDecoration(borderRadius: radius, gradient: onPressed == null ? null : LinearGradient(
-        begin: Alignment.topLeft, end: Alignment.bottomRight,
-        colors: [brand == const Color(0xffd92e1a) ? const Color(0xffff5a44) : Color.lerp(brand, Colors.white, 0.16)!, brand],
-      )),
+      decoration: BoxDecoration(
+        borderRadius: radius,
+        color: tokens.sfc,
+        gradient: enabled || tintWhenDisabled ? LinearGradient(
+          begin: Alignment.topLeft, end: Alignment.bottomRight,
+          colors: enabled ? [start, brand] : [
+            Color.lerp(tokens.sfc, start, .16)!,
+            Color.lerp(tokens.sfc, brand, .16)!,
+          ],
+        ) : null,
+      ),
       child: FilledButton(onPressed: onPressed, style: FilledButton.styleFrom(
         backgroundColor: Colors.transparent, foregroundColor: Colors.white,
-        minimumSize: Size(0, height), tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        disabledBackgroundColor: Colors.transparent,
+        disabledForegroundColor: disabledInk,
+        disabledIconColor: disabledInk,
+        minimumSize: Size(0, height), padding: padding, tapTargetSize: MaterialTapTargetSize.shrinkWrap,
         shape: RoundedRectangleBorder(borderRadius: radius), elevation: 0,
-      ), child: child),
+      ), child: DefaultTextStyle.merge(
+        style: TextStyle(color: enabled ? Colors.white : disabledInk),
+        child: IconTheme.merge(data: IconThemeData(color: enabled ? Colors.white : disabledInk), child: child),
+      )),
     );
   }
 }

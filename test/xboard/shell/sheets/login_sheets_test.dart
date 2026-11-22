@@ -65,18 +65,16 @@ void main() {
       addTearDown(tester.view.resetPhysicalSize);
       addTearDown(tester.view.resetDevicePixelRatio);
       await pumpWithSheet(tester, ready: true, open: showLoginSheet);
-      await tester.tap(find.text('注册账号'));
+      await tester.tap(find.text('立即注册'));
       await tester.pumpAndSettle();
       expect(find.byType(LoginSheet), findsNothing);
       expect(find.byType(RegisterSheet), findsOneWidget);
       expect(find.byType(TextField), findsNWidgets(3));
       expect(find.byType(Dialog), width >= 600 ? findsOneWidget : findsNothing);
-      Navigator.of(tester.element(find.byType(RegisterSheet))).pop();
+      await tester.tap(find.text('返回登录'));
       await tester.pumpAndSettle();
       expect(find.byType(RegisterSheet), findsNothing);
-
-      await tester.tap(find.text('open'));
-      await tester.pumpAndSettle();
+      expect(find.byType(LoginSheet), findsOneWidget);
       await tester.tap(find.text('忘记密码？'));
       await tester.pumpAndSettle();
       expect(find.byType(LoginSheet), findsNothing);
@@ -88,6 +86,20 @@ void main() {
       expect(find.byType(ForgotPwdSheet), findsNothing);
       expect(find.text('open'), findsOneWidget);
       expect(tester.takeException(), isNull);
+    });
+  }
+
+  for (final open in [showForgotPwdSheet, showRegisterSheet]) {
+    testWidgets('independent auth sheet $open can return to login', (tester) async {
+      await pumpWithSheet(tester, ready: true, open: open);
+      await tester.ensureVisible(find.text('返回登录'));
+      await tester.tap(find.text('返回登录'));
+      await tester.pumpAndSettle();
+      expect(find.byType(LoginSheet), findsOneWidget);
+      Navigator.of(tester.element(find.byType(LoginSheet))).pop();
+      await tester.pumpAndSettle();
+      expect(find.text('open'), findsOneWidget);
+      expect(find.text('返回登录'), findsNothing);
     });
   }
 
@@ -103,8 +115,20 @@ void main() {
   testWidgets('LoginSheet：bootstrap 就绪 → 按钮「登录」可用', (tester) async {
     await pumpWithSheet(tester, ready: true, open: showLoginSheet);
     expect(find.text('登录'), findsWidgets);
-    expect(find.text('注册账号'), findsOneWidget);
+    expect(find.text('立即注册'), findsOneWidget);
     expect(find.text('忘记密码？'), findsOneWidget);
+  });
+
+  testWidgets('窄屏大字号下邮箱验证码与发送按钮分行', (tester) async {
+    tester.view.physicalSize = const Size(320, 640);
+    tester.view.devicePixelRatio = 1;
+    tester.platformDispatcher.textScaleFactorTestValue = 1.4;
+    addTearDown(tester.view.reset);
+    addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+    await pumpWithSheet(tester, ready: true, suffixes: const ['mail.com'], open: showRegisterSheet);
+    final code = find.widgetWithText(TextField, '邮箱验证码');
+    final send = find.widgetWithText(OutlinedButton, '获取验证码');
+    expect(tester.getBottomLeft(code).dy, lessThanOrEqualTo(tester.getTopLeft(send).dy));
   });
 
   testWidgets('RegisterSheet：有白名单 → 后缀下拉（R5.6）+ 验证码在密码上方（R5.7）', (
@@ -120,8 +144,8 @@ void main() {
     expect(find.byType(DropdownButtonFormField<String>), findsOneWidget);
     expect(find.text('@gmail.com'), findsWidgets);
     // 字段顺序：验证码 label 在密码 label 之上（y 坐标更小）。
-    final codeY = tester.getTopLeft(find.text('验证码')).dy;
-    final pwY = tester.getTopLeft(find.text('密码')).dy;
+    final codeY = tester.getTopLeft(find.text('邮箱验证码')).dy;
+    final pwY = tester.getTopLeft(find.text('设置密码')).dy;
     expect(codeY, lessThan(pwY));
   });
 

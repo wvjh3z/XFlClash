@@ -99,18 +99,18 @@ class _RecordRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final t = XbTokens.of(context);
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 11),
+      padding: const EdgeInsets.symmetric(vertical: 12),
       child: Row(
         children: [
           Container(
-            width: 40,
-            height: 40,
+            width: 38,
+            height: 38,
             alignment: Alignment.center,
             decoration: BoxDecoration(
-              color: XbTokens.ok.withValues(alpha: 0.12),
+              color: XbTokens.ok.withValues(alpha: 0.11),
               borderRadius: BorderRadius.circular(11),
             ),
-            child: const Icon(Icons.redeem, size: 20, color: XbTokens.ok),
+            child: const Icon(Icons.redeem, size: 19, color: XbTokens.ok),
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -133,7 +133,7 @@ class _RecordRow extends StatelessWidget {
           Text(
             '+${xbYuan(record.getAmountYuan)}',
             style: const TextStyle(
-              fontSize: 16,
+              fontSize: 15,
               fontWeight: FontWeight.w700,
               color: XbTokens.ok,
               fontFeatures: [FontFeature.tabularFigures()],

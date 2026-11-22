@@ -3,7 +3,7 @@
 /// - 胶囊（[XbNoticePill]）：watch [noticeStateProvider]，仅 `hasUnread` 时显示（纯文字，无红点）。
 /// - 点击：**打开即已读**（用户决策）—— 标记已读 + 失效 provider（徽标消失）→ 弹 sheet。
 /// - sheet 正文用 flutter_html 渲染（复用 §6.5 框架：emoji 分流 / 正文清洗 / 主题色 / 链接），
-///   与套餐/教程同一条渲染管线（markdown 由后端/编辑器侧统一存 HTML，客户端只渲 HTML）。
+///   客户端按 HTML 渲染公告，不解析 Markdown。
 library;
 
 import 'package:fl_clash/xboard/widgets/xb_emoji_text.dart';
@@ -19,6 +19,7 @@ import '../util/format.dart' show xbDate;
 import '../util/html_link.dart';
 import '../util/html_text.dart' show wrapEmojiForHtml, htmlRenderableBody, kXbEmojiClass;
 import 'xb_ui_kit.dart' show XbGradientAction;
+import 'xb_html_contrast.dart' show xbReadableHtmlColor;
 import 'xb_theme.dart' show XbTokens;
 
 /// 「有新公告」胶囊（标题旁）。无未读 / 游客 / 未就绪 → 不占位。
@@ -91,6 +92,9 @@ Future<void> showXbNoticeSheet(BuildContext context, List<XbNotice> notices) {
     context: context,
     builder: (ctx) {
       final t = XbTokens.of(ctx);
+      final brand = Theme.of(ctx).colorScheme.primary;
+      final quoteBg = Color.alphaBlend(brand.withValues(alpha: .05), t.sf2);
+      final linkInk = xbReadableHtmlColor(xbReadableHtmlColor(brand, t.sf2), quoteBg);
       return SafeArea(
         child: Padding(
           padding: const EdgeInsets.fromLTRB(20, 4, 20, 20),
@@ -113,7 +117,7 @@ Future<void> showXbNoticeSheet(BuildContext context, List<XbNotice> notices) {
                     children: [
                       for (var i = 0; i < notices.length; i++) ...[
                         if (i > 0) Divider(height: 1, color: t.hair),
-                        _NoticeItem(notice: notices[i]),
+                        _NoticeItem(notice: notices[i], quoteBg: quoteBg, linkInk: linkInk),
                       ],
                     ],
                   ),
@@ -123,7 +127,7 @@ Future<void> showXbNoticeSheet(BuildContext context, List<XbNotice> notices) {
               SizedBox(
                 width: double.infinity,
                 child: XbGradientAction(
-                  height: 52,
+                  height: 50,
                   onPressed: () => Navigator.of(ctx).pop(),
                   child: const Text('我知道了'),
                 ),
@@ -138,13 +142,16 @@ Future<void> showXbNoticeSheet(BuildContext context, List<XbNotice> notices) {
 
 /// 单条公告：标题行(标题 ←→ 日期) + flutter_html 富文本正文（复用 §6.5 框架）。
 class _NoticeItem extends ConsumerWidget {
-  const _NoticeItem({required this.notice});
+  const _NoticeItem({required this.notice, required this.quoteBg, required this.linkInk});
 
   final XbNotice notice;
+  final Color quoteBg;
+  final Color linkInk;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final t = XbTokens.of(context);
+    final brand = Theme.of(context).colorScheme.primary;
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 13),
       child: Column(
@@ -176,9 +183,60 @@ class _NoticeItem extends ConsumerWidget {
               'body': Style(
                   margin: Margins.zero,
                   padding: HtmlPaddings.zero,
+                  fontSize: FontSize(13),
+                  lineHeight: const LineHeight(1.65),
                   color: t.on),
+              'h4': Style(fontSize: FontSize(13.5), fontWeight: FontWeight.w700,
+                  margin: Margins.only(top: 10, bottom: 4)),
+              'p': Style(margin: Margins.symmetric(vertical: 6)),
+              'ul': Style(margin: Margins.symmetric(vertical: 6),
+                  padding: HtmlPaddings.only(left: 20)),
+              'li': Style(margin: Margins.symmetric(vertical: 2)),
+              'strong': Style(fontWeight: FontWeight.w700),
+              'a': Style(color: linkInk, textDecoration: TextDecoration.none),
+              'blockquote': Style(display: Display.block, color: t.onv),
+              'code': Style(fontFamily: 'monospace', fontSize: FontSize(12)),
               '.$kXbEmojiClass': Style(fontFamily: 'Twemoji'),
             },
+            // flutter_html 3.0.0 的普通 inline TextSpan 不绘制内边距/圆角；
+            // 沿用解析后的子 spans，保留内嵌链接、强调和 emoji。
+            extensions: [
+              TagExtension.inline(
+                tagsToExtend: const {'code', 'blockquote'},
+                builder: (ctx) {
+                  final code = ctx.elementName == 'code';
+                  final content = Text.rich(TextSpan(
+                    style: ctx.style!.generateTextStyle(),
+                    children: ctx.inlineSpanChildren!,
+                  ));
+                  return WidgetSpan(
+                    alignment: code ? PlaceholderAlignment.baseline : PlaceholderAlignment.bottom,
+                    baseline: TextBaseline.alphabetic,
+                    child: code
+                        ? Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                            decoration: BoxDecoration(color: t.sfc, borderRadius: BorderRadius.circular(5)),
+                            child: content,
+                          )
+                        : Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 8),
+                            child: ClipRRect(
+                              borderRadius: const BorderRadius.horizontal(right: Radius.circular(8)),
+                              child: Container(
+                                width: double.infinity,
+                                padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 7),
+                                decoration: BoxDecoration(
+                                  color: quoteBg,
+                                  border: Border(left: BorderSide(width: 3, color: Color.lerp(brand, t.line, .5)!)),
+                                ),
+                                child: content,
+                              ),
+                            ),
+                          ),
+                  );
+                },
+              ),
+            ],
             onLinkTap: (url, _, _) =>
                 openHtmlLink(url, base: ref.read(apiEndpointProvider)),
           ),

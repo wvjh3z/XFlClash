@@ -13,6 +13,7 @@ import '../services/withdraw_eligibility.dart';
 import '../util/error_text.dart';
 import '../util/format.dart';
 import '../widgets/xb_feedback.dart' show XbStateToast;
+import '../widgets/xb_purchase_confirmation.dart' show XbPurchaseActions;
 import '../widgets/xb_theme.dart' show XbTokens;
 
 /// Preflight and application are separate steps. Neither a passing preflight
@@ -249,6 +250,7 @@ class _WithdrawCommissionDialogState
     ref.watch(authStateProvider);
     ref.watch(xboardServiceProvider);
     final current = _current;
+    final compact = MediaQuery.sizeOf(context).width < 360;
     return PopScope(
       canPop: !_submitting || !current,
       onPopInvokedWithResult: (didPop, _) {
@@ -256,60 +258,61 @@ class _WithdrawCommissionDialogState
       },
       child: AlertDialog(
         backgroundColor: XbTokens.of(context).sf2,
+        insetPadding: compact ? const EdgeInsets.symmetric(horizontal: 10, vertical: 10) : null,
+        titlePadding: compact ? const EdgeInsets.fromLTRB(12, 14, 12, 0) : null,
+        contentPadding: compact ? const EdgeInsets.fromLTRB(12, 8, 12, 0) : null,
+        actionsPadding: compact ? const EdgeInsets.fromLTRB(12, 8, 12, 12) : null,
         scrollable: true,
-        title: const Text('佣金提现'),
+        title: const Text('佣金提现', textAlign: TextAlign.center),
         content: !current
             ? const Text('账号状态已变化，请关闭后重新检测。')
             : _form
-            ? _applicationForm(context)
-            : _preflight(context),
+            ? _applicationForm(context, compact: compact)
+            : _preflight(context, compact: compact),
         actions: [
-          TextButton(
-            onPressed: _submitting && current ? null : _close,
-            style: _form && !_unconfirmed ? TextButton.styleFrom(backgroundColor: XbTokens.of(context).sfc, foregroundColor: XbTokens.of(context).on) : null,
-            child: Text(_form && !_unconfirmed ? '取消' : '关闭'),
-          ),
-          if (current && !_form) ...[
-            if (!_checking && (_balanceCents == null || _paidRecords == null))
-              TextButton(
-                onPressed: _checkEligibility,
-                child: const Text('重新检测'),
-              ),
-            FilledButton(
-              onPressed: _eligible ? _continue : null,
-              child: const Text('填写收款资料'),
-            ),
-          ],
-          if (current && _form && !_unconfirmed)
-            FilledButton(
-              onPressed: _canSubmit ? _submit : null,
-              child: Text(_submitting ? '提交中…' : '提交申请'),
-            ),
+          if (current && (!_form || !_unconfirmed))
+            XbPurchaseActions(
+              cancelLabel: _form ? '取消' : '关闭',
+              onCancel: _submitting ? null : _close,
+              confirmLabel: !_form ? '提交提现申请' : _submitting ? '提交中…' : '提交申请',
+              onConfirm: !_form ? (_eligible ? _continue : null) : (_canSubmit ? _submit : null),
+            )
+          else
+            TextButton(onPressed: _close, child: const Text('关闭')),
+
         ],
       ),
     );
   }
 
-  Widget _preflight(BuildContext context) {
+  Widget _preflight(BuildContext context, {required bool compact}) {
     final balance = _balanceCents;
     final records = _paidRecords;
+    final muted = XbTokens.of(context).onv;
     return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text('满足两项条件后可提交申请。'),
-        const SizedBox(height: 12),
+        Center(child: Text('满足两项条件后可提交申请',
+          style: TextStyle(fontSize: 13, color: muted))),
+        SizedBox(height: compact ? 8 : 12),
+        _amountRow(context, '可用佣金', balance, prominent: true),
+        SizedBox(height: compact ? 4 : 12),
         _condition(
           context,
+          compact: compact,
           label: '可用佣金 ≥ ¥${withdrawMinimumCents ~/ 100}',
           checking: _balanceChecking,
-          value: balance == null ? null : xbYuan(balance / 100),
+          known: balance != null,
           passed: balance != null && balance >= withdrawMinimumCents,
         ),
+        Divider(height: 1, thickness: 1, color: XbTokens.of(context).hair),
         _condition(
           context,
+          compact: compact,
           label: '成功邀请 ≥$withdrawMinimumPaidRecords 次',
           checking: _recordsChecking,
+          known: records != null,
           value: records == null
               ? null
               : records >= withdrawMinimumPaidRecords
@@ -317,80 +320,138 @@ class _WithdrawCommissionDialogState
               : '$records 次',
           passed: records != null && records >= withdrawMinimumPaidRecords,
         ),
-        const SizedBox(height: 12),
-        const Text('提现前请联系在线客服。申请提交后需人工审核。'),
+        SizedBox(height: compact ? 8 : 12),
+        Text(_checking ? '正在检测提现条件…' : balance == null || records == null ? '暂时无法核实提现条件。' : _eligible ? '两项条件均已满足。' : '暂未满足提现条件。',
+          style: TextStyle(fontSize: 12, color: muted)),
+        if (!_checking && (balance == null || records == null))
+          TextButton(onPressed: _checkEligibility, child: const Text('重新检测')),
+        const SizedBox(height: 8),
+        Text('提现前请先联系在线客服。提交后由人工审核。',
+          style: TextStyle(fontSize: 12, color: muted)),
       ],
     );
   }
 
   Widget _condition(
     BuildContext context, {
+    required bool compact,
     required String label,
     required bool checking,
-    required String? value,
+    required bool known,
+    String? value,
     required bool passed,
   }) {
-    final text = Theme.of(context).textTheme;
-    final icon = checking
-        ? Icons.more_horiz
+    final t = XbTokens.of(context);
+    final (icon, color, status) = checking
+        ? (Icons.more_horiz, t.onv, '检测中…')
+        : !known
+        ? (Icons.info_outline, t.onv, '无法核实')
         : passed
-        ? Icons.check_circle_outline
-        : Icons.info_outline;
+        ? (Icons.check_circle, XbTokens.ok, '已达标')
+        : (Icons.cancel, XbTokens.bad, '未达标');
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 5),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      padding: EdgeInsets.symmetric(vertical: compact ? 6 : 9),
+      child: Table(
+        defaultVerticalAlignment: TableCellVerticalAlignment.middle,
+        columnWidths: const {
+          0: FlexColumnWidth(),
+          1: FixedColumnWidth(5),
+          2: MinColumnWidth(IntrinsicColumnWidth(), FractionColumnWidth(.5)),
+        },
         children: [
-          Icon(icon, size: 17, color: passed ? XbTokens.ok : null),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+          TableRow(children: [
+            Row(
               children: [
-                Text(label, style: text.titleSmall),
-                Text(
-                  checking
-                      ? '检测中…'
-                      : value == null
-                      ? '无法核实'
-                      : '$value · ${passed ? '已达标' : '未达标'}',
-                  style: text.bodyMedium,
-                ),
+                Icon(icon, size: 16, color: color),
+                const SizedBox(width: 5),
+                Flexible(child: Text(label, style: TextStyle(fontSize: 12, color: t.on))),
               ],
             ),
-          ),
+            const SizedBox.shrink(),
+            Text(
+              value != null && known && !checking ? '$value · $status' : status,
+              textAlign: TextAlign.end,
+              style: TextStyle(fontSize: 11, color: t.onv),
+            ),
+          ]),
         ],
       ),
     );
   }
 
-  Widget _applicationForm(BuildContext context) {
-    final systemText = Theme.of(context).textTheme;
+  Widget _amountRow(
+    BuildContext context,
+    String label,
+    int? cents, {
+    bool prominent = false,
+  }) {
+    final t = XbTokens.of(context);
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 12),
+      decoration: BoxDecoration(
+        color: t.sfc,
+        borderRadius: BorderRadius.circular(XbTokens.rMd),
+      ),
+      child: Table(
+        defaultVerticalAlignment: TableCellVerticalAlignment.middle,
+        columnWidths: const {
+          0: FlexColumnWidth(),
+          1: FixedColumnWidth(8),
+          // Reserve the natural amount width first. Only an exceptionally long
+          // amount needs to wrap; never scale the user's text to fit.
+          2: MinColumnWidth(IntrinsicColumnWidth(), FractionColumnWidth(.82)),
+        },
+        children: [
+          TableRow(children: [
+            Text(label, textAlign: TextAlign.start, style: TextStyle(fontSize: 13, color: t.onv)),
+            const SizedBox.shrink(),
+            Text(
+              cents == null ? '—' : xbYuan(cents / 100),
+              textAlign: TextAlign.end,
+              style: TextStyle(
+                fontSize: prominent ? 21 : 14,
+                fontWeight: FontWeight.w700,
+                color: t.on,
+                fontFeatures: const [FontFeature.tabularFigures()],
+              ),
+            ),
+          ]),
+        ],
+      ),
+    );
+  }
+
+  Widget _applicationForm(BuildContext context, {required bool compact}) {
     final editing = !_submitting && !_unconfirmed;
+    final t = XbTokens.of(context);
     return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Text(
-          '整笔可用佣金（当前）：${xbYuan(_balanceCents! / 100)}',
-          style: systemText.titleSmall,
+          '佣金整笔提现，不可拆分。到账以审核和收款渠道处理结果为准，提交不代表已打款。',
+          textAlign: TextAlign.center,
+          style: TextStyle(fontSize: 13, height: 1.4, color: t.onv),
         ),
-        const Text('佣金整笔提现，不可拆分。申请由人工审核，到账时间以审核和收款渠道处理结果为准，提交不代表已打款。'),
-        const SizedBox(height: 12),
+        SizedBox(height: compact ? 8 : 12),
+        _amountRow(context, '提现金额（整笔佣金）', _balanceCents),
+        SizedBox(height: compact ? 8 : 12),
         if (_methodsChecking)
           const LinearProgressIndicator()
         else if (_methods.isEmpty) ...[
           const Text('暂时无法核实可用收款方式。'),
           TextButton(onPressed: _loadMethods, child: const Text('重试')),
         ] else ...[
-          InputDecorator(
-            decoration: const InputDecoration(labelText: '收款方式'),
+          _payoutField(context, '收款方式',
             child: DropdownButtonHideUnderline(
               child: DropdownButton<String>(
                 value: _method,
-                hint: const Text('请选择'),
+                style: TextStyle(color: t.on, fontSize: 13),
+                hint: Text('请选择收款方式',
+                  style: TextStyle(color: t.onv, fontSize: 13)),
                 isExpanded: true,
-                isDense: true,
+                isDense: false,
                 onChanged: editing
                     ? (method) => setState(() {
                         _method = method;
@@ -404,15 +465,23 @@ class _WithdrawCommissionDialogState
               ),
             ),
           ),
-          const SizedBox(height: 12),
-          TextField(
+          SizedBox(height: compact ? 8 : 12),
+          _payoutField(context, '收款账户', child: TextField(
             controller: _account,
             enabled: editing,
             autocorrect: false,
             enableSuggestions: false,
-            decoration: const InputDecoration(labelText: '收款账户'),
+            style: TextStyle(color: t.on, fontSize: 14),
+            decoration: InputDecoration(
+              isDense: true, filled: false,
+              contentPadding: const EdgeInsets.symmetric(vertical: 12),
+              hintText: '请输入收款账户',
+              hintStyle: TextStyle(color: t.onv, fontSize: 13),
+              border: InputBorder.none, enabledBorder: InputBorder.none,
+              disabledBorder: InputBorder.none, focusedBorder: InputBorder.none,
+            ),
             onChanged: (_) => setState(() => _confirmed = false),
-          ),
+          )),
           if (_method == '支付宝')
             const Text('支付宝提现请联系在线客服提供收款码。'),
           CheckboxListTile(
@@ -425,9 +494,35 @@ class _WithdrawCommissionDialogState
                 : null,
           ),
         ],
+        const SizedBox(height: 4),
+        Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Icon(Icons.info_outline, size: 15, color: t.onv),
+          const SizedBox(width: 6),
+          Expanded(child: Text(
+            '提现门槛 ¥${withdrawMinimumCents ~/ 100}，申请由人工审核。',
+            style: TextStyle(fontSize: 12, height: 1.4, color: t.onv),
+          )),
+        ]),
         if (_unconfirmed)
           const Text('申请结果尚未确认。请先核对余额和记录，或联系在线客服，勿重复提交。'),
       ],
+    );
+  }
+
+  Widget _payoutField(BuildContext context, String label, {required Widget child}) {
+    final t = XbTokens.of(context);
+    return Container(
+      constraints: const BoxConstraints(minHeight: 48),
+      padding: const EdgeInsets.symmetric(horizontal: 11),
+      decoration: BoxDecoration(
+        color: t.sfc,
+        borderRadius: BorderRadius.circular(XbTokens.rMd),
+      ),
+      child: Row(children: [
+        Text(label, style: TextStyle(fontSize: 13, color: t.onv)),
+        const SizedBox(width: 8),
+        Expanded(child: Semantics(label: label, child: child)),
+      ]),
     );
   }
 }

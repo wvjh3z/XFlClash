@@ -21,6 +21,8 @@ class _FakeAuth extends AuthStateNotifier {
   AuthState build() => _initial;
 }
 
+final _now = DateTime.utc(2026, 6, 1, 12);
+
 XbDomainSubscription _sub(DateTime? expiredAt) => XbDomainSubscription(
       email: 't@e.com',
       uuid: 'u',
@@ -37,6 +39,7 @@ Future<void> pumpCard(
 }) async {
   final overrides = [
     authStateProvider.overrideWith(() => _FakeAuth(auth)),
+    expiryClockProvider.overrideWithValue(() => _now),
   ];
   if (profileOverride is XbDomainSubscription) {
     overrides.add(
@@ -64,7 +67,7 @@ Future<void> pumpCard(
 }
 
 void main() {
-  final now = DateTime.now();
+  final now = _now;
 
   testWidgets('游客 → 不显示', (t) async {
     await pumpCard(t,
@@ -81,14 +84,14 @@ void main() {
   testWidgets('剩余 >7 天 → 不显示', (t) async {
     await pumpCard(t,
         auth: AuthState.authenticated,
-        profileOverride: _sub(now.add(const Duration(days: 30))));
+        profileOverride: _sub(now.add(const Duration(days: 7, microseconds: 1))));
     expect(find.textContaining('套餐'), findsNothing);
   });
 
   testWidgets('剩余 7 天 → 显示「仅剩 7 天」+ 去续费', (t) async {
     await pumpCard(t,
         auth: AuthState.authenticated,
-        profileOverride: _sub(now.add(const Duration(days: 7, hours: 12))));
+        profileOverride: _sub(now.add(const Duration(days: 7))));
     expect(find.textContaining('套餐即将到期'), findsOneWidget);
     expect(find.textContaining('仅剩 7 天'), findsOneWidget);
     expect(find.text('去续费'), findsOneWidget);

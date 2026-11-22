@@ -305,7 +305,10 @@ class _UpdateDialogState extends ConsumerState<_UpdateDialog> {
             ),
           ],
         ),
-        content: _state == _DialogState.browser
+        content: _state == _DialogState.browser ||
+                _state == _DialogState.selecting ||
+                _state == _DialogState.downloading ||
+                (_state == _DialogState.initial && _info.force)
             ? SingleChildScrollView(child: _buildContent(t, scheme))
             : _buildContent(t, scheme),
       ),
@@ -357,14 +360,15 @@ class _UpdateDialogState extends ConsumerState<_UpdateDialog> {
           children: [
             _initialButtons(t),
             if (_info.force)
-              Padding(
-                padding: const EdgeInsets.only(top: 8),
+              const Padding(
+                padding: EdgeInsets.only(top: 10),
                 child: Text(
                   '此为重要更新，必须更新后使用',
+                  textAlign: TextAlign.center,
                   style: TextStyle(
                     fontSize: 11,
                     fontWeight: FontWeight.w500,
-                    color: scheme.error,
+                    color: XbTokens.warn,
                   ),
                 ),
               ),
@@ -408,12 +412,13 @@ class _UpdateDialogState extends ConsumerState<_UpdateDialog> {
             style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant)),
         const SizedBox(height: 8),
         Row(children: [
-          Expanded(child: ConstrainedBox(constraints: const BoxConstraints(minHeight: 46), child: OutlinedButton(
+          Expanded(child: ConstrainedBox(constraints: const BoxConstraints(minHeight: 46), child: FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: XbTokens.of(context).sfc, foregroundColor: XbTokens.of(context).on),
             onPressed: _busy ? null : _launchBrowser,
             child: const Text('重新打开', textAlign: TextAlign.center),
           ))),
           const SizedBox(width: 11),
-          Expanded(child: ConstrainedBox(constraints: const BoxConstraints(minHeight: 46), child: FilledButton(
+          Expanded(child: ConstrainedBox(constraints: const BoxConstraints(minHeight: 46), child: XbGradientAction(
             onPressed: _busy || _browserUrls.length < 2 ? null : _nextBrowserSource,
             child: const Text('换下一条', textAlign: TextAlign.center),
           ))),
@@ -489,13 +494,8 @@ class _UpdateDialogState extends ConsumerState<_UpdateDialog> {
         Expanded(
           child: SizedBox(
             height: 46,
-            child: FilledButton(
+            child: XbGradientAction(
               onPressed: _onUpdate,
-              style: FilledButton.styleFrom(
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(XbTokens.rMd),
-                ),
-              ),
               child: const Text('重试'),
             ),
           ),
@@ -505,30 +505,28 @@ class _UpdateDialogState extends ConsumerState<_UpdateDialog> {
   }
 
   Widget _downloadingFooter(ColorScheme scheme) {
-    final pct = (_progress * 100).toInt();
+    final progress = _progress.clamp(0.0, 1.0);
+    final pct = (progress * 100).toInt();
     final hasProgress = _state != _DialogState.selecting && _progress > 0;
     if (!hasProgress) {
-      // 未收到进度：spinner + 文字（琥珀色，居中）
-      return Row(
-        mainAxisAlignment: MainAxisAlignment.center,
+      return Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const SizedBox(
-            width: 18,
-            height: 18,
+          SizedBox.square(
+            dimension: 24,
             child: CircularProgressIndicator(
-              strokeWidth: 2,
-              color: XbTokens.warn,
+              strokeWidth: 3,
+              color: scheme.primary,
+              backgroundColor: scheme.primary.withValues(alpha: 0.2),
             ),
           ),
-          const SizedBox(width: 8),
-          Flexible(
-            child: Text(
-              _state == _DialogState.selecting ? '选择线路中…' : '正在准备下载…',
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
-            ),
+          const SizedBox(height: 18), // 10px flex gap + 8px status margin
+          Text(
+            _state == _DialogState.selecting ? '选择线路中…' : '正在准备下载…',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            textAlign: TextAlign.center,
+            style: TextStyle(fontSize: 11, color: scheme.onSurfaceVariant),
           ),
         ],
       );
@@ -538,63 +536,62 @@ class _UpdateDialogState extends ConsumerState<_UpdateDialog> {
     final totalMb = _totalBytes > 0
         ? (_totalBytes / (1024 * 1024)).toStringAsFixed(1)
         : '?';
+    final brand = scheme.primary;
+    final highlight = brand == const Color(0xffd92e1a)
+        ? const Color(0xffff5a44)
+        : Color.lerp(brand, Colors.white, 0.16)!;
+    final radius = BorderRadius.circular(18);
+    const labelStyle = TextStyle(fontSize: 13, fontWeight: FontWeight.w700);
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        // 胶囊进度条：双层百分比（底层品牌红字 + 上层白字按进度裁剪），任何进度都清晰可读。
-        SizedBox(
+        // 未覆盖部分采用主题正文色；白字只在彩色填充上绘制。语义只读一次。
+        Container(
           width: double.infinity,
-          height: 28,
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(14),
+          constraints: const BoxConstraints(minHeight: 36),
+          decoration: BoxDecoration(
+            color: brand.withValues(alpha: 0.08),
+            border: Border.all(color: brand.withValues(alpha: 0.12)),
+            borderRadius: radius,
+          ),
+          child: Semantics(
+            value: '$pct%',
+            label: '下载进度',
+            excludeSemantics: true,
             child: Stack(
+              alignment: Alignment.center,
               children: [
-                // 底：浅红槽 + 居中品牌红百分比（未填充区域看这层，红字浅底 → 清晰）
                 Positioned.fill(
-                  child: Container(
-                    color: scheme.primary.withValues(alpha: 0.1),
-                  ),
-                ),
-                Center(
-                  child: Text(
-                    '$pct%',
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w700,
-                      color: scheme.primary,
+                  child: FractionallySizedBox(
+                    alignment: Alignment.centerLeft,
+                    widthFactor: progress,
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        borderRadius: radius,
+                        gradient: LinearGradient(
+                          begin: Alignment.centerLeft,
+                          end: Alignment.centerRight,
+                          colors: [brand, highlight],
+                        ),
+                      ),
                     ),
                   ),
                 ),
-                // 上：红色填充 + 居中白色百分比，整体按进度宽度从左裁剪。
-                // 文字全宽居中布局，与底层完全重合 → 被裁掉的部分露出底层红字。
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 4),
+                  child: Text('$pct%', style: labelStyle.copyWith(color: scheme.onSurface)),
+                ),
                 Positioned.fill(
-                  child: ClipRect(
-                    clipper: _ProgressClipper(_progress.clamp(0.0, 1.0)),
-                    child: Stack(
-                      children: [
-                        Positioned.fill(
-                          child: Container(
-                            decoration: BoxDecoration(
-                              gradient: LinearGradient(
-                                colors: [
-                                  scheme.primary,
-                                  scheme.primary.withValues(alpha: 0.85),
-                                ],
-                              ),
-                            ),
-                          ),
+                  child: ClipRRect(
+                    clipper: _ProgressClipper(progress),
+                    child: Center(
+                      child: Text(
+                        '$pct%',
+                        style: labelStyle.copyWith(
+                          color: Colors.white,
+                          shadows: const [Shadow(color: Color(0x4d000000), blurRadius: 4)],
                         ),
-                        Center(
-                          child: Text(
-                            '$pct%',
-                            style: const TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w700,
-                              color: Colors.white,
-                            ),
-                          ),
-                        ),
-                      ],
+                      ),
                     ),
                   ),
                 ),
@@ -605,6 +602,7 @@ class _UpdateDialogState extends ConsumerState<_UpdateDialog> {
         const SizedBox(height: 8),
         Text(
           '正在下载 · $receivedMb / $totalMb MB',
+          textAlign: TextAlign.center,
           style: TextStyle(fontSize: 11, color: scheme.onSurfaceVariant),
         ),
       ],
@@ -612,14 +610,16 @@ class _UpdateDialogState extends ConsumerState<_UpdateDialog> {
   }
 }
 
-/// 进度裁剪器：从左裁剪到 [progress] 宽度（用于进度条上层白字+红填充的可见区域）。
-class _ProgressClipper extends CustomClipper<Rect> {
+/// 从左裁剪百分比白字；其余字符露出底层主题文字。
+class _ProgressClipper extends CustomClipper<RRect> {
   _ProgressClipper(this.progress);
   final double progress;
 
   @override
-  Rect getClip(Size size) =>
-      Rect.fromLTWH(0, 0, size.width * progress, size.height);
+  RRect getClip(Size size) => RRect.fromRectAndRadius(
+    Rect.fromLTWH(0, 0, size.width * progress, size.height),
+    const Radius.circular(18),
+  ).scaleRadii();
 
   @override
   bool shouldReclip(_ProgressClipper old) => old.progress != progress;

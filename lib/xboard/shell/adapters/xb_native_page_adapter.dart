@@ -11,7 +11,8 @@ library;
 
 import 'package:fl_clash/common/common.dart' show system;
 import 'package:fl_clash/l10n/l10n.dart' show AppLocalizations;
-import 'package:fl_clash/providers/config.dart' show appSettingProvider;
+import 'package:fl_clash/providers/config.dart' show appSettingProvider, themeSettingProvider;
+import 'package:prism_ui/prism_ui.dart' as prism show ThemeMode;
 import 'package:fl_clash/views/disclaimer.dart' show requestDisclaimerConsent;
 import 'package:fl_clash/views/about.dart' show AboutView;
 import 'package:fl_clash/views/access.dart' show AccessView;
@@ -43,6 +44,14 @@ class XbNativePageAdapter {
 
   Future<void> openTheme(BuildContext context) =>
       _push(context, const ThemeView());
+
+  String themeModeLabel(WidgetRef ref) => switch (
+    ref.watch(themeSettingProvider.select((setting) => setting.themeMode))
+  ) {
+    prism.ThemeMode.system => '跟随系统',
+    prism.ThemeMode.light => '浅色',
+    prism.ThemeMode.dark => '深色',
+  };
 
   Future<void> openBackup(BuildContext context) =>
       _push(context, const BackupAndRestore());

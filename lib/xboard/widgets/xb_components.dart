@@ -16,7 +16,7 @@ import 'package:material_ui/material_ui.dart';
 import '../shell/widgets/xb_responsive.dart' show xbIsDesktopWidth;
 import 'xb_theme.dart';
 import 'xb_emoji_text.dart';
-import 'xb_ui_kit.dart' show XbIconBadge;
+import 'xb_ui_kit.dart' show XbIconBadge, XbGradientAction;
 
 /// 细环转圈（原型 `.spin`）：淡色整环 + 一段实色弧，匀速旋转。比 Material
 /// `CircularProgressIndicator`（粗弧扫尾）更接近原型的精致小圈。[color] 实色弧色，
@@ -1402,7 +1402,8 @@ class XbInfoSheet extends StatelessWidget {
               const SizedBox(height: 16),
               SizedBox(
                 width: double.infinity,
-                child: FilledButton(
+                child: XbGradientAction(
+                  height: 50,
                   onPressed: () => Navigator.of(context).pop(),
                   child: Text(confirmLabel),
                 ),

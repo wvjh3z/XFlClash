@@ -54,12 +54,14 @@ final inviteInfoProvider = FutureProvider.autoDispose<XbInviteInfo>((
   }
 }, retry: (retryCount, error) => null);
 
-/// 返佣记录（首页 50 条；记录页用）。autoDispose：进页拉、离页回收。
+const commissionRecordsPageSize = 50;
+
+/// 邀请页入口与流水页共享首页，不将满页的条数当作总数。
 final commissionRecordsProvider =
     FutureProvider.autoDispose<List<XbCommissionRecord>>((ref) async {
       final result = await ref
           .watch(xboardServiceProvider)
-          .getCommissionRecords(pageSize: 50);
+          .getCommissionRecords(pageSize: commissionRecordsPageSize);
       return switch (result) {
         XbSuccess(:final data) => data,
         XbFailure(:final error) => throw error,

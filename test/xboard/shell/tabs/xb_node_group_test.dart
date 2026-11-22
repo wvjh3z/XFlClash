@@ -27,7 +27,7 @@ XbGroupSummary _group(
   );
 }
 
-Future<void> pump(WidgetTester tester, XbGroupSummary group) async {
+Future<void> pump(WidgetTester tester, XbGroupSummary group, {ThemeData? theme}) async {
   await tester.pumpWidget(
     ProviderScope(
       overrides: [
@@ -41,6 +41,7 @@ Future<void> pump(WidgetTester tester, XbGroupSummary group) async {
           delayProvider(proxyName: n.name, testUrl: null).overrideWithValue(38),
       ],
       child: MaterialApp(
+        theme: theme,
         home: Scaffold(
           body: XbNodeGroup(group: group),
         ),
@@ -51,6 +52,22 @@ Future<void> pump(WidgetTester tester, XbGroupSummary group) async {
 }
 
 void main() {
+  for (final brightness in Brightness.values) {
+    testWidgets('Android $brightness：自动命中标签白字品牌渐变，节点毫秒不留空格', (tester) async {
+      final scheme = ColorScheme.fromSeed(seedColor: Colors.red, brightness: brightness)
+          .copyWith(primary: const Color(0xffd92e1a));
+      await pump(tester, _group(XbGroupKind.urlTest),
+          theme: ThemeData(colorScheme: scheme, platform: TargetPlatform.android));
+      final label = find.text('自动');
+      expect(tester.widget<Text>(label).style!.color, Colors.white);
+      final badge = find.ancestor(of: label, matching: find.byWidgetPredicate((w) =>
+          w is DecoratedBox && w.decoration is BoxDecoration &&
+          (w.decoration as BoxDecoration).gradient is LinearGradient));
+      final decoration = tester.widget<DecoratedBox>(badge.first).decoration as BoxDecoration;
+      expect(decoration.gradient!.colors, const [Color(0xffff5a44), Color(0xffd92e1a)]);
+      expect(find.text('9ms'), findsNWidgets(2));
+    });
+  }
   testWidgets('url-test：不显示类型说明，保留自动节点标记和测延迟',
       (tester) async {
     await pump(tester, _group(XbGroupKind.urlTest));

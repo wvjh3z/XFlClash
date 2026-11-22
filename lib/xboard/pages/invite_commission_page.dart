@@ -20,6 +20,7 @@ import '../providers/auth_state_provider.dart';
 import '../providers/invite_provider.dart';
 import '../providers/share_link_provider.dart';
 import '../providers/xboard_providers.dart';
+import '../services/withdraw_eligibility.dart' show withdrawPaidRecordCount;
 import '../util/error_text.dart';
 import '../util/format.dart';
 import '../util/money_input.dart';
@@ -29,7 +30,7 @@ import '../widgets/xb_feedback.dart' show xbBrandColor, xbToast;
 import '../widgets/xb_share_links.dart';
 import '../widgets/xb_theme.dart'
     show xbDialogRoute, xbPush, xbShowDialog, XbTokens;
-import '../widgets/xb_ui_kit.dart' show XbBrandScaffold;
+import '../widgets/xb_ui_kit.dart' show XbBrandScaffold, XbGradientAction;
 import 'commission_records_page.dart';
 import 'withdraw_commission_dialog.dart';
 
@@ -63,6 +64,7 @@ class _InviteBody extends ConsumerWidget {
       onRefresh: () async {
         ref.invalidate(inviteInfoProvider);
         ref.invalidate(shareLinkProvider);
+        ref.invalidate(commissionRecordsProvider);
         // 等两者本次重拉都落定再收起转圈；失败吞掉（错误态由 XbAsyncView 接管，不重复弹）。
         try {
           await Future.wait([
@@ -84,12 +86,12 @@ class _InviteBody extends ConsumerWidget {
           ref.invalidate(inviteInfoProvider);
           ref.invalidate(shareLinkProvider);
         },
-        builder: (context) => _content(context, ref, async.requireValue),
+        builder: (context) => _content(context, async.requireValue),
       ),
     );
   }
 
-  Widget _content(BuildContext context, WidgetRef ref, XbInviteInfo info) {
+  Widget _content(BuildContext context, XbInviteInfo info) {
     return LayoutBuilder(
       builder: (context, c) {
         // 桌面双栏（原型屏29）：左=余额卡+统计+确认中提示+返佣记录入口；右=分享链接+邀请码+返佣流程。
@@ -111,7 +113,7 @@ class _InviteBody extends ConsumerWidget {
                       const _PendingTip(),
                       const SizedBox(height: 14),
                       const XbGroupLabel('返佣记录'),
-                      _recordsEntry(context),
+                      const _RecordsEntry(),
                     ],
                   ),
                 ),
@@ -124,7 +126,7 @@ class _InviteBody extends ConsumerWidget {
                       const SizedBox(height: 4),
                       _InviteCodeCard(code: info.code),
                       const SizedBox(height: 4),
-                      const _FlowSection(),
+                      _FlowSection(rate: info.commissionRate),
                     ],
                   ),
                 ),
@@ -145,23 +147,46 @@ class _InviteBody extends ConsumerWidget {
             const SizedBox(height: 4),
             _InviteCodeCard(code: info.code),
             const SizedBox(height: 4),
-            const _FlowSection(),
+            _FlowSection(rate: info.commissionRate),
             const SizedBox(height: 14),
             const XbGroupLabel('返佣记录'),
-            _recordsEntry(context),
+            const _RecordsEntry(),
           ],
         );
       },
     );
   }
+}
 
-  /// 返佣记录入口卡（单列 / 双栏共用）。
-  Widget _recordsEntry(BuildContext context) {
+/// 只有记录入口订阅首批流水；网络异常不阻挡邀请信息或点入详情。
+class _RecordsEntry extends ConsumerWidget {
+  const _RecordsEntry();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final records = ref.watch(commissionRecordsProvider);
+    final rows = records.isLoading ? null : records.asData?.value;
+    final count = rows == null ? null : withdrawPaidRecordCount(rows);
+    final tokens = XbTokens.of(context);
     return XbListCard(
       rows: [
         XbListRow(
           icon: Icons.receipt_long,
           label: '查看返佣记录',
+          trailing: count == null
+              ? null
+              : Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      count < commissionRecordsPageSize
+                          ? '共 $count 条'
+                          : '至少 $count 条',
+                      style: TextStyle(fontSize: 12.5, color: tokens.onv),
+                    ),
+                    Icon(Icons.chevron_right, color: tokens.onv, size: 20),
+                  ],
+                ),
           onTap: () => xbPush(
             context,
             const CommissionRecordsPage(),
@@ -190,7 +215,7 @@ class _BalanceCard extends ConsumerWidget {
         .withLightness((hsl.lightness * 1.18).clamp(0.0, 1.0))
         .toColor();
     return Container(
-      padding: const EdgeInsets.fromLTRB(20, 18, 20, 18),
+      clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(XbTokens.rLg),
         gradient: LinearGradient(
@@ -207,7 +232,18 @@ class _BalanceCard extends ConsumerWidget {
           ),
         ],
       ),
-      child: Column(
+      child: Stack(children: [
+        Positioned(
+          right: -44,
+          top: -54,
+          width: 190,
+          height: 190,
+          child: IgnorePointer(child: DecoratedBox(decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: Colors.white.withValues(alpha: .12),
+          ))),
+        ),
+        Padding(padding: const EdgeInsets.fromLTRB(20, 18, 20, 18), child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           // 双列余额：佣金余额（主）+ 账户余额（次，竖分隔线）。
@@ -269,7 +305,8 @@ class _BalanceCard extends ConsumerWidget {
             ],
           ),
         ],
-      ),
+      )),
+      ]),
     );
   }
 
@@ -616,11 +653,7 @@ class _InviteCodeCard extends StatelessWidget {
     final t = XbTokens.of(context);
     final brand = Theme.of(context).colorScheme.primary;
     final hasCode = code != null && code!.isNotEmpty;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        const XbGroupLabel('我的邀请码'),
-        XbCard(
+    return XbCard(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -759,8 +792,6 @@ class _InviteCodeCard extends StatelessWidget {
               ),
             ],
           ),
-        ),
-      ],
     );
   }
 }
@@ -768,7 +799,8 @@ class _InviteCodeCard extends StatelessWidget {
 // ───────────────────────── 返佣流程 5 步 ─────────────────────────
 
 class _FlowSection extends StatelessWidget {
-  const _FlowSection();
+  const _FlowSection({required this.rate});
+  final int rate;
 
   static const _steps = [
     (Icons.share, '分享'),
@@ -843,7 +875,12 @@ class _FlowSection extends StatelessWidget {
                         fontWeight: FontWeight.w600,
                       ),
                     ),
-                    const TextSpan(text: '套餐后，你将获得订单金额一定比例的返佣。'),
+                    const TextSpan(text: '套餐后，你将获得订单金额 '),
+                    TextSpan(
+                      text: '$rate%',
+                      style: TextStyle(color: brand, fontWeight: FontWeight.w700),
+                    ),
+                    const TextSpan(text: ' 的返佣。'),
                   ],
                 ),
               ),
@@ -871,9 +908,16 @@ class _FlowSection extends StatelessWidget {
           alignment: Alignment.center,
           decoration: BoxDecoration(
             shape: BoxShape.circle,
-            color: last
-                ? brand
-                : Color.alphaBlend(brand.withValues(alpha: 0.09), t.sfc),
+            color: last ? null : Color.alphaBlend(brand.withValues(alpha: 0.09), t.sfc),
+            gradient: last ? LinearGradient(
+              begin: Alignment.topLeft, end: Alignment.bottomRight,
+              colors: [brand == const Color(0xffd92e1a)
+                  ? const Color(0xffff5a44) : Color.lerp(brand, Colors.white, .16)!, brand],
+            ) : null,
+            boxShadow: last ? [BoxShadow(
+              color: brand.withValues(alpha: .5), blurRadius: 14,
+              spreadRadius: -6, offset: const Offset(0, 6),
+            )] : null,
             border: last
                 ? null
                 : Border.all(
@@ -964,6 +1008,9 @@ class _TransferDialogState extends ConsumerState<_TransferDialog> {
     final brand = Theme.of(context).colorScheme.primary;
     return AlertDialog(
       backgroundColor: t.sf2,
+      scrollable: true,
+      insetPadding: MediaQuery.sizeOf(context).width < 360
+          ? const EdgeInsets.symmetric(horizontal: 10, vertical: 10) : null,
       title: const Column(
         mainAxisSize: MainAxisSize.min,
         children: [Text('划转到账户余额', textAlign: TextAlign.center)],
@@ -983,11 +1030,12 @@ class _TransferDialogState extends ConsumerState<_TransferDialog> {
             to: widget.info.accountBalanceYuan,
           ),
           const SizedBox(height: 12),
-          // 划转金额：原型 .xfer-field —— 紧凑 50px 描边行（¥ 前缀 + 内嵌无边框输入 + 右侧「全部」），
-          // 而非 Material 浮动标签输入框（后者更高、观感与原型不符）。
+          // 字段名常驻；保留真实可编辑的预填金额与「全部」操作。
           _CompactFieldShell(
             child: Row(
               children: [
+                Text('划转金额', style: TextStyle(fontSize: 13, color: t.onv)),
+                const SizedBox(width: 6),
                 Text('¥', style: TextStyle(fontSize: 14.5, color: t.onv)),
                 const SizedBox(width: 4),
                 Expanded(
@@ -997,7 +1045,7 @@ class _TransferDialogState extends ConsumerState<_TransferDialog> {
                       decimal: true,
                     ),
                     style: TextStyle(fontSize: 14.5, color: t.on),
-                    decoration: InputDecoration(
+                    decoration: const InputDecoration(
                       isCollapsed: true,
                       contentPadding: EdgeInsets.zero,
                       // 全部边框态置空：外层 _CompactFieldShell 已提供中性描边；不显式关闭则
@@ -1008,8 +1056,7 @@ class _TransferDialogState extends ConsumerState<_TransferDialog> {
                       errorBorder: InputBorder.none,
                       focusedErrorBorder: InputBorder.none,
                       disabledBorder: InputBorder.none,
-                      hintText: '划转金额',
-                      hintStyle: TextStyle(fontSize: 14.5, color: t.onv),
+                      filled: false,
                     ),
                   ),
                 ),
@@ -1046,7 +1093,7 @@ class _TransferDialogState extends ConsumerState<_TransferDialog> {
 
 // 弹窗公共小部件。
 
-/// 原型 `.field` 紧凑输入行外壳：50px 高、1.5px 描边、sfc 底、r-md 圆角。
+/// 原型 `.field` 紧凑输入行外壳：最小 48dp，按字号增高。
 /// 包裹 Dropdown / TextField，替代 Material 浮动标签输入框（后者更高，观感不符原型）。
 class _CompactFieldShell extends StatelessWidget {
   const _CompactFieldShell({required this.child});
@@ -1056,7 +1103,7 @@ class _CompactFieldShell extends StatelessWidget {
   Widget build(BuildContext context) {
     final t = XbTokens.of(context);
     return Container(
-      height: 50,
+      constraints: const BoxConstraints(minHeight: 48),
       padding: const EdgeInsets.symmetric(horizontal: 15),
       decoration: BoxDecoration(
         color: t.sfc,
@@ -1150,13 +1197,8 @@ class _DialogActions extends StatelessWidget {
         Expanded(
           child: SizedBox(
             height: 46,
-            child: FilledButton(
+            child: XbGradientAction(
               onPressed: submitting ? null : onConfirm,
-              style: FilledButton.styleFrom(
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(XbTokens.rMd),
-                ),
-              ),
               child: submitting
                   ? const SizedBox(
                       width: 18,

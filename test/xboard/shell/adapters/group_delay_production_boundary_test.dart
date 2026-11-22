@@ -145,7 +145,7 @@ void main() {
           expect(container.read(delayTestPhaseProvider(proxyName: 'node-0', testUrl: _url)), isNotNull);
           expect(container.read(xbMeasuringNodesProvider), isEmpty);
           expect(find.byType(XbSpinner), findsOneWidget);
-          if (old != null) expect(find.text('61 ms'), findsNothing);
+          if (old != null) expect(find.text('61ms'), findsNothing);
           pending.single.reply.complete(const Delay(name: 'node-0', url: _url, value: 120));
         }
         if (scenario.startsWith('leave-')) {

@@ -220,7 +220,7 @@ void main() {
         await selectShellTab(tester, label);
         if (label == '我的') {
           await tester.pump(const Duration(milliseconds: 800));
-          for (final value in ['155.0', '/ 250.0 GB', '已用 62%']) {
+          for (final value in ['155.0', '/ 250.0 GB', '已用 62.0%']) {
             expect(
               find.descendant(of: find.byType(MineTab), matching: find.text(value)),
               findsOneWidget,

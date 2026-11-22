@@ -22,7 +22,7 @@ import '../widgets/xb_components.dart';
 import '../widgets/xb_feedback.dart' show xbBrandColor;
 import '../widgets/xb_theme.dart' show xbPush, XbTokens;
 import '../widgets/xb_ui_kit.dart'
-    show XbBrandScaffold, XbIconBadge;
+    show XbBrandScaffold, XbGradientAction, XbIconBadge;
 import 'tutorial_detail_page.dart';
 
 class TutorialListPage extends ConsumerWidget {
@@ -184,12 +184,12 @@ class _TutorialListStatus extends StatelessWidget {
                       size: 72,
                       radius: XbTokens.rLg,
                       background: failed
-                          ? XbTokens.bad.withValues(alpha: 0.09)
+                          ? Color.alphaBlend(XbTokens.bad.withValues(alpha: 0.08), t.sfc)
                           : t.sfc,
                       iconColor: failed ? XbTokens.bad : t.onv,
                       iconSize: 32,
                     ),
-                    const SizedBox(height: XbTokens.s4),
+                    const SizedBox(height: 22),
                     Text(
                       title,
                       textAlign: TextAlign.center,
@@ -199,21 +199,35 @@ class _TutorialListStatus extends StatelessWidget {
                         color: t.on,
                       ),
                     ),
-                    const SizedBox(height: XbTokens.s2),
-                    Text(
-                      description,
-                      textAlign: TextAlign.center,
-                      style: TextStyle(color: t.onv, height: 1.6),
+                    const SizedBox(height: 10),
+                    ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 290),
+                      child: Text(
+                        description,
+                        textAlign: TextAlign.center,
+                        style: TextStyle(color: t.onv, fontSize: 13, height: 1.75),
+                      ),
                     ),
                     if (actionLabel != null) ...[
-                      const SizedBox(height: XbTokens.s5),
+                      const SizedBox(height: 28),
                       SizedBox(
                         width: 144,
-                        child: FilledButton.icon(
-                          style: FilledButton.styleFrom(minimumSize: const Size(0, 46), elevation: 0, shadowColor: Colors.transparent, textStyle: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
-                          label: Text(actionLabel!),
-                          icon: const Icon(Icons.refresh, size: 19),
+                        child: XbGradientAction(
                           onPressed: onAction,
+                          padding: const EdgeInsets.symmetric(horizontal: 8),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(Icons.refresh, size: 19),
+                              const SizedBox(width: 7),
+                              Flexible(
+                                child: Text(
+                                  actionLabel!,
+                                  style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
                       ),
                     ],

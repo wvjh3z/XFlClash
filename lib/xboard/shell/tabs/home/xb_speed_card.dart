@@ -100,6 +100,7 @@ class _Metric extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    final android = Theme.of(context).platform == TargetPlatform.android;
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 7, horizontal: 6),
       decoration: BoxDecoration(
@@ -141,8 +142,12 @@ class _Metric extends StatelessWidget {
                   children: unit.isEmpty
                       ? null
                       : [
+                          // Preserve the spoken space but size it to the 2dp
+                          // inline margin instead of the font's space glyph.
+                          if (android)
+                            const TextSpan(text: ' ', style: TextStyle(fontSize: 0, letterSpacing: 2)),
                           TextSpan(
-                            text: ' $unit',
+                            text: android ? unit : ' $unit',
                             style: TextStyle(
                               fontSize: 10,
                               fontWeight: FontWeight.w500,

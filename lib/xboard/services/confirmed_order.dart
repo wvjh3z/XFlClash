@@ -7,7 +7,8 @@ import '../sdk/xboard_service.dart';
 import '../util/format.dart';
 import '../util/period_label.dart';
 import '../widgets/xb_feedback.dart' show xbBrandColor;
-import '../widgets/xb_theme.dart' show xbShowDialog;
+import '../widgets/xb_theme.dart' show xbShowDialog, XbTokens;
+import '../widgets/xb_purchase_confirmation.dart' show XbPurchaseActions;
 import 'sentry_bootstrap.dart';
 
 export '../models/confirmed_order.dart';
@@ -79,16 +80,26 @@ class _ExistingOrderDialog extends StatelessWidget {
       ]),
     );
     return AlertDialog(
-      title: Text(replace ? '已有待支付订单' : '继续支付已有订单？'),
+      title: Text(replace ? '已有待支付订单' : '继续支付已有订单？', textAlign: TextAlign.center),
       scrollable: true,
       content: Column(crossAxisAlignment: CrossAxisAlignment.stretch, mainAxisSize: MainAxisSize.min, children: [
-          Text(replace ? '本次选择与原订单不同' : '套餐和周期相同，请核对旧单应付金额。'),
+          Text(replace ? '本次选择与原订单不同' : '套餐和周期相同，请核对旧单应付金额。', textAlign: TextAlign.center),
           const SizedBox(height: 8),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10),
+            decoration: BoxDecoration(color: XbTokens.of(context).sfc, borderRadius: BorderRadius.circular(XbTokens.rMd)),
+            child: Column(children: [
           comparison('待支付订单', conflict.existingPlanName, '${planPeriodLabel(conflict.existingPeriod)} · $due'),
           const Divider(height: 1),
           comparison(replace ? '本次下单' : '本次结算', conflict.quote.planName, '${planPeriodLabel(conflict.quote.period)} · 当前预估 $estimate'),
+            ]),
+          ),
+          const SizedBox(height: 8),
           Text('旧订单号：${conflict.existingTradeNo}（以上不含支付手续费）', style: theme.textTheme.bodySmall),
-          if (conflict.existingCreditCents > 0) Text('旧单已抵扣 ${xbYuan(conflict.existingCreditCents / 100)}'),
+          if (conflict.existingCreditCents == null)
+            const Text('旧单结余抵扣金额待核实')
+          else if (conflict.existingCreditCents! > 0)
+            Text('旧单已抵扣 ${xbYuan(conflict.existingCreditCents! / 100)}'),
           const SizedBox(height: 12),
           Text(
             replace
@@ -98,13 +109,11 @@ class _ExistingOrderDialog extends StatelessWidget {
         ],
       ),
       actions: [
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(false),
-          child: Text(replace ? '再想想' : '返回结算'),
-        ),
-        FilledButton(
-          onPressed: () => Navigator.of(context).pop(true),
-          child: Text(replace ? '取消旧单并下单' : '支付已有订单 $due'),
+        XbPurchaseActions(
+          cancelLabel: replace ? '再想想' : '返回结算',
+          confirmLabel: replace ? '取消旧单并下单' : '支付已有订单 $due',
+          onCancel: () => Navigator.of(context).pop(false),
+          onConfirm: () => Navigator.of(context).pop(true),
         ),
       ],
     );

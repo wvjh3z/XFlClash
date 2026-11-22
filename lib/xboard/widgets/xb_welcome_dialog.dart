@@ -16,6 +16,7 @@ import 'package:material_ui/material_ui.dart';
 
 import '../config/xboard_config.dart';
 import '../pages/legal_pages.dart' show TermsPage, PrivacyPage;
+import 'xb_ui_kit.dart' show XbGradientAction;
 import 'xb_theme.dart' show xbShowDialog, xbPush, XbTokens;
 
 /// 首启欢迎/隐私安全弹窗（对外唯一入口）。
@@ -178,13 +179,8 @@ class _WelcomeDialogBodyState extends State<_WelcomeDialogBody> {
                   Expanded(
                     child: SizedBox(
                       height: 46,
-                      child: FilledButton(
+                      child: XbGradientAction(
                         onPressed: () => Navigator.of(context).pop(true),
-                        style: FilledButton.styleFrom(
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(XbTokens.rMd),
-                          ),
-                        ),
                         child: const Text('同意并开始'),
                       ),
                     ),

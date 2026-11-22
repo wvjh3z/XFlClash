@@ -45,6 +45,7 @@ Future<bool> xbConfirm(
   String confirmLabel = '确定',
   String cancelLabel = '取消',
   bool destructive = false,
+  bool centered = false,
   IconData? icon,
 }) async {
   final ok = await xbShowDialog<bool>(
@@ -73,10 +74,10 @@ Future<bool> xbConfirm(
                   Text(title, textAlign: TextAlign.center),
                 ],
               )
-            : Text(title),
+            : Text(title, textAlign: centered ? TextAlign.center : TextAlign.start),
         content: Text(
           message,
-          textAlign: hasIcon ? TextAlign.center : TextAlign.start,
+          textAlign: hasIcon || centered ? TextAlign.center : TextAlign.start,
         ),
         actionsPadding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
         actions: [

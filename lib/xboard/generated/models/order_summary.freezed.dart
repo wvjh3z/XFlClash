@@ -300,7 +300,7 @@ as DateTime,
 /// @nodoc
 mixin _$OrderDetail {
 
- OrderSummary get summary; PaymentMethodItem? get paymentMethod; double? get balanceAmountYuan; double? get surplusAmountYuan; double? get discountAmountYuan; double? get handlingAmountYuan;
+ OrderSummary get summary; PaymentMethodItem? get paymentMethod; double? get balanceAmountYuan; double? get surplusAmountYuan; double? get surplusCreditYuan; double? get discountAmountYuan; double? get handlingAmountYuan;
 /// Create a copy of OrderDetail
 /// with the given fields replaced by the non-null parameter values.
 @JsonKey(includeFromJson: false, includeToJson: false)
@@ -312,20 +312,20 @@ $OrderDetailCopyWith<OrderDetail> get copyWith => _$OrderDetailCopyWithImpl<Orde
 @override
 bool operator ==(Object other) {
   final _this = this as OrderDetail;
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is OrderDetail&&(identical(other.summary, _this.summary) || other.summary == _this.summary)&&(identical(other.paymentMethod, _this.paymentMethod) || other.paymentMethod == _this.paymentMethod)&&(identical(other.balanceAmountYuan, _this.balanceAmountYuan) || other.balanceAmountYuan == _this.balanceAmountYuan)&&(identical(other.surplusAmountYuan, _this.surplusAmountYuan) || other.surplusAmountYuan == _this.surplusAmountYuan)&&(identical(other.discountAmountYuan, _this.discountAmountYuan) || other.discountAmountYuan == _this.discountAmountYuan)&&(identical(other.handlingAmountYuan, _this.handlingAmountYuan) || other.handlingAmountYuan == _this.handlingAmountYuan));
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is OrderDetail&&(identical(other.summary, _this.summary) || other.summary == _this.summary)&&(identical(other.paymentMethod, _this.paymentMethod) || other.paymentMethod == _this.paymentMethod)&&(identical(other.balanceAmountYuan, _this.balanceAmountYuan) || other.balanceAmountYuan == _this.balanceAmountYuan)&&(identical(other.surplusAmountYuan, _this.surplusAmountYuan) || other.surplusAmountYuan == _this.surplusAmountYuan)&&(identical(other.surplusCreditYuan, _this.surplusCreditYuan) || other.surplusCreditYuan == _this.surplusCreditYuan)&&(identical(other.discountAmountYuan, _this.discountAmountYuan) || other.discountAmountYuan == _this.discountAmountYuan)&&(identical(other.handlingAmountYuan, _this.handlingAmountYuan) || other.handlingAmountYuan == _this.handlingAmountYuan));
 }
 
 
 @override
 int get hashCode {
   final _this = this as OrderDetail;
-  return Object.hash(runtimeType,_this.summary,_this.paymentMethod,_this.balanceAmountYuan,_this.surplusAmountYuan,_this.discountAmountYuan,_this.handlingAmountYuan);
+  return Object.hash(runtimeType,_this.summary,_this.paymentMethod,_this.balanceAmountYuan,_this.surplusAmountYuan,_this.surplusCreditYuan,_this.discountAmountYuan,_this.handlingAmountYuan);
 }
 
 @override
 String toString() {
   final _this = this as OrderDetail;
-  return 'OrderDetail(summary: ${_this.summary}, paymentMethod: ${_this.paymentMethod}, balanceAmountYuan: ${_this.balanceAmountYuan}, surplusAmountYuan: ${_this.surplusAmountYuan}, discountAmountYuan: ${_this.discountAmountYuan}, handlingAmountYuan: ${_this.handlingAmountYuan})';
+  return 'OrderDetail(summary: ${_this.summary}, paymentMethod: ${_this.paymentMethod}, balanceAmountYuan: ${_this.balanceAmountYuan}, surplusAmountYuan: ${_this.surplusAmountYuan}, surplusCreditYuan: ${_this.surplusCreditYuan}, discountAmountYuan: ${_this.discountAmountYuan}, handlingAmountYuan: ${_this.handlingAmountYuan})';
 }
 
 
@@ -336,7 +336,7 @@ abstract mixin class $OrderDetailCopyWith<$Res>  {
   factory $OrderDetailCopyWith(OrderDetail value, $Res Function(OrderDetail) _then) = _$OrderDetailCopyWithImpl;
 @useResult
 $Res call({
- OrderSummary summary, PaymentMethodItem? paymentMethod, double? balanceAmountYuan, double? surplusAmountYuan, double? discountAmountYuan, double? handlingAmountYuan
+ OrderSummary summary, PaymentMethodItem? paymentMethod, double? balanceAmountYuan, double? surplusAmountYuan, double? surplusCreditYuan, double? discountAmountYuan, double? handlingAmountYuan
 });
 
 
@@ -353,12 +353,13 @@ class _$OrderDetailCopyWithImpl<$Res>
 
 /// Create a copy of OrderDetail
 /// with the given fields replaced by the non-null parameter values.
-@pragma('vm:prefer-inline') @override $Res call({Object? summary = null,Object? paymentMethod = freezed,Object? balanceAmountYuan = freezed,Object? surplusAmountYuan = freezed,Object? discountAmountYuan = freezed,Object? handlingAmountYuan = freezed,}) {
+@pragma('vm:prefer-inline') @override $Res call({Object? summary = null,Object? paymentMethod = freezed,Object? balanceAmountYuan = freezed,Object? surplusAmountYuan = freezed,Object? surplusCreditYuan = freezed,Object? discountAmountYuan = freezed,Object? handlingAmountYuan = freezed,}) {
   return _then(OrderDetail(
 summary: null == summary ? _self.summary : summary // ignore: cast_nullable_to_non_nullable
 as OrderSummary,paymentMethod: freezed == paymentMethod ? _self.paymentMethod : paymentMethod // ignore: cast_nullable_to_non_nullable
 as PaymentMethodItem?,balanceAmountYuan: freezed == balanceAmountYuan ? _self.balanceAmountYuan : balanceAmountYuan // ignore: cast_nullable_to_non_nullable
 as double?,surplusAmountYuan: freezed == surplusAmountYuan ? _self.surplusAmountYuan : surplusAmountYuan // ignore: cast_nullable_to_non_nullable
+as double?,surplusCreditYuan: freezed == surplusCreditYuan ? _self.surplusCreditYuan : surplusCreditYuan // ignore: cast_nullable_to_non_nullable
 as double?,discountAmountYuan: freezed == discountAmountYuan ? _self.discountAmountYuan : discountAmountYuan // ignore: cast_nullable_to_non_nullable
 as double?,handlingAmountYuan: freezed == handlingAmountYuan ? _self.handlingAmountYuan : handlingAmountYuan // ignore: cast_nullable_to_non_nullable
 as double?,
@@ -467,10 +468,10 @@ return $default(_that);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult maybeWhen<TResult extends Object?>(TResult Function( OrderSummary summary,  PaymentMethodItem? paymentMethod,  double? balanceAmountYuan,  double? surplusAmountYuan,  double? discountAmountYuan,  double? handlingAmountYuan)?  $default,{required TResult orElse(),}) {final _that = this;
+@optionalTypeArgs TResult maybeWhen<TResult extends Object?>(TResult Function( OrderSummary summary,  PaymentMethodItem? paymentMethod,  double? balanceAmountYuan,  double? surplusAmountYuan,  double? surplusCreditYuan,  double? discountAmountYuan,  double? handlingAmountYuan)?  $default,{required TResult orElse(),}) {final _that = this;
 switch (_that) {
 case _OrderDetail() when $default != null:
-return $default(_that.summary,_that.paymentMethod,_that.balanceAmountYuan,_that.surplusAmountYuan,_that.discountAmountYuan,_that.handlingAmountYuan);case _:
+return $default(_that.summary,_that.paymentMethod,_that.balanceAmountYuan,_that.surplusAmountYuan,_that.surplusCreditYuan,_that.discountAmountYuan,_that.handlingAmountYuan);case _:
   return orElse();
 
 }
@@ -488,10 +489,10 @@ return $default(_that.summary,_that.paymentMethod,_that.balanceAmountYuan,_that.
 /// }
 /// ```
 
-@optionalTypeArgs TResult when<TResult extends Object?>(TResult Function( OrderSummary summary,  PaymentMethodItem? paymentMethod,  double? balanceAmountYuan,  double? surplusAmountYuan,  double? discountAmountYuan,  double? handlingAmountYuan)  $default,) {final _that = this;
+@optionalTypeArgs TResult when<TResult extends Object?>(TResult Function( OrderSummary summary,  PaymentMethodItem? paymentMethod,  double? balanceAmountYuan,  double? surplusAmountYuan,  double? surplusCreditYuan,  double? discountAmountYuan,  double? handlingAmountYuan)  $default,) {final _that = this;
 switch (_that) {
 case _OrderDetail():
-return $default(_that.summary,_that.paymentMethod,_that.balanceAmountYuan,_that.surplusAmountYuan,_that.discountAmountYuan,_that.handlingAmountYuan);case _:
+return $default(_that.summary,_that.paymentMethod,_that.balanceAmountYuan,_that.surplusAmountYuan,_that.surplusCreditYuan,_that.discountAmountYuan,_that.handlingAmountYuan);case _:
   throw StateError('Unexpected subclass');
 
 }
@@ -508,10 +509,10 @@ return $default(_that.summary,_that.paymentMethod,_that.balanceAmountYuan,_that.
 /// }
 /// ```
 
-@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>(TResult? Function( OrderSummary summary,  PaymentMethodItem? paymentMethod,  double? balanceAmountYuan,  double? surplusAmountYuan,  double? discountAmountYuan,  double? handlingAmountYuan)?  $default,) {final _that = this;
+@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>(TResult? Function( OrderSummary summary,  PaymentMethodItem? paymentMethod,  double? balanceAmountYuan,  double? surplusAmountYuan,  double? surplusCreditYuan,  double? discountAmountYuan,  double? handlingAmountYuan)?  $default,) {final _that = this;
 switch (_that) {
 case _OrderDetail() when $default != null:
-return $default(_that.summary,_that.paymentMethod,_that.balanceAmountYuan,_that.surplusAmountYuan,_that.discountAmountYuan,_that.handlingAmountYuan);case _:
+return $default(_that.summary,_that.paymentMethod,_that.balanceAmountYuan,_that.surplusAmountYuan,_that.surplusCreditYuan,_that.discountAmountYuan,_that.handlingAmountYuan);case _:
   return null;
 
 }
@@ -523,13 +524,14 @@ return $default(_that.summary,_that.paymentMethod,_that.balanceAmountYuan,_that.
 
 
 class _OrderDetail implements OrderDetail {
-  const _OrderDetail({required this.summary, this.paymentMethod, this.balanceAmountYuan, this.surplusAmountYuan, this.discountAmountYuan, this.handlingAmountYuan});
+  const _OrderDetail({required this.summary, this.paymentMethod, this.balanceAmountYuan, this.surplusAmountYuan, this.surplusCreditYuan, this.discountAmountYuan, this.handlingAmountYuan});
   
 
 @override final  OrderSummary summary;
 @override final  PaymentMethodItem? paymentMethod;
 @override final  double? balanceAmountYuan;
 @override final  double? surplusAmountYuan;
+@override final  double? surplusCreditYuan;
 @override final  double? discountAmountYuan;
 @override final  double? handlingAmountYuan;
 
@@ -543,18 +545,18 @@ _$OrderDetailCopyWith<_OrderDetail> get copyWith => __$OrderDetailCopyWithImpl<_
 
 @override
 bool operator ==(Object other) {
-    return identical(this, other) || (other.runtimeType == runtimeType&&other is _OrderDetail&&(identical(other.summary, summary) || other.summary == summary)&&(identical(other.paymentMethod, paymentMethod) || other.paymentMethod == paymentMethod)&&(identical(other.balanceAmountYuan, balanceAmountYuan) || other.balanceAmountYuan == balanceAmountYuan)&&(identical(other.surplusAmountYuan, surplusAmountYuan) || other.surplusAmountYuan == surplusAmountYuan)&&(identical(other.discountAmountYuan, discountAmountYuan) || other.discountAmountYuan == discountAmountYuan)&&(identical(other.handlingAmountYuan, handlingAmountYuan) || other.handlingAmountYuan == handlingAmountYuan));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is _OrderDetail&&(identical(other.summary, summary) || other.summary == summary)&&(identical(other.paymentMethod, paymentMethod) || other.paymentMethod == paymentMethod)&&(identical(other.balanceAmountYuan, balanceAmountYuan) || other.balanceAmountYuan == balanceAmountYuan)&&(identical(other.surplusAmountYuan, surplusAmountYuan) || other.surplusAmountYuan == surplusAmountYuan)&&(identical(other.surplusCreditYuan, surplusCreditYuan) || other.surplusCreditYuan == surplusCreditYuan)&&(identical(other.discountAmountYuan, discountAmountYuan) || other.discountAmountYuan == discountAmountYuan)&&(identical(other.handlingAmountYuan, handlingAmountYuan) || other.handlingAmountYuan == handlingAmountYuan));
 }
 
 
 @override
 int get hashCode {
-    return Object.hash(runtimeType,summary,paymentMethod,balanceAmountYuan,surplusAmountYuan,discountAmountYuan,handlingAmountYuan);
+    return Object.hash(runtimeType,summary,paymentMethod,balanceAmountYuan,surplusAmountYuan,surplusCreditYuan,discountAmountYuan,handlingAmountYuan);
 }
 
 @override
 String toString() {
-    return 'OrderDetail(summary: $summary, paymentMethod: $paymentMethod, balanceAmountYuan: $balanceAmountYuan, surplusAmountYuan: $surplusAmountYuan, discountAmountYuan: $discountAmountYuan, handlingAmountYuan: $handlingAmountYuan)';
+    return 'OrderDetail(summary: $summary, paymentMethod: $paymentMethod, balanceAmountYuan: $balanceAmountYuan, surplusAmountYuan: $surplusAmountYuan, surplusCreditYuan: $surplusCreditYuan, discountAmountYuan: $discountAmountYuan, handlingAmountYuan: $handlingAmountYuan)';
 }
 
 
@@ -565,7 +567,7 @@ abstract mixin class _$OrderDetailCopyWith<$Res> implements $OrderDetailCopyWith
   factory _$OrderDetailCopyWith(_OrderDetail value, $Res Function(_OrderDetail) _then) = __$OrderDetailCopyWithImpl;
 @override @useResult
 $Res call({
- OrderSummary summary, PaymentMethodItem? paymentMethod, double? balanceAmountYuan, double? surplusAmountYuan, double? discountAmountYuan, double? handlingAmountYuan
+ OrderSummary summary, PaymentMethodItem? paymentMethod, double? balanceAmountYuan, double? surplusAmountYuan, double? surplusCreditYuan, double? discountAmountYuan, double? handlingAmountYuan
 });
 
 
@@ -582,12 +584,13 @@ class __$OrderDetailCopyWithImpl<$Res>
 
 /// Create a copy of OrderDetail
 /// with the given fields replaced by the non-null parameter values.
-@override @pragma('vm:prefer-inline') $Res call({Object? summary = null,Object? paymentMethod = freezed,Object? balanceAmountYuan = freezed,Object? surplusAmountYuan = freezed,Object? discountAmountYuan = freezed,Object? handlingAmountYuan = freezed,}) {
+@override @pragma('vm:prefer-inline') $Res call({Object? summary = null,Object? paymentMethod = freezed,Object? balanceAmountYuan = freezed,Object? surplusAmountYuan = freezed,Object? surplusCreditYuan = freezed,Object? discountAmountYuan = freezed,Object? handlingAmountYuan = freezed,}) {
   return _then(_OrderDetail(
 summary: null == summary ? _self.summary : summary // ignore: cast_nullable_to_non_nullable
 as OrderSummary,paymentMethod: freezed == paymentMethod ? _self.paymentMethod : paymentMethod // ignore: cast_nullable_to_non_nullable
 as PaymentMethodItem?,balanceAmountYuan: freezed == balanceAmountYuan ? _self.balanceAmountYuan : balanceAmountYuan // ignore: cast_nullable_to_non_nullable
 as double?,surplusAmountYuan: freezed == surplusAmountYuan ? _self.surplusAmountYuan : surplusAmountYuan // ignore: cast_nullable_to_non_nullable
+as double?,surplusCreditYuan: freezed == surplusCreditYuan ? _self.surplusCreditYuan : surplusCreditYuan // ignore: cast_nullable_to_non_nullable
 as double?,discountAmountYuan: freezed == discountAmountYuan ? _self.discountAmountYuan : discountAmountYuan // ignore: cast_nullable_to_non_nullable
 as double?,handlingAmountYuan: freezed == handlingAmountYuan ? _self.handlingAmountYuan : handlingAmountYuan // ignore: cast_nullable_to_non_nullable
 as double?,

@@ -64,6 +64,18 @@ void main() {
     await pumpCard(tester, down: 0, up: 0, latencyMs: 38);
     expect(find.text('9 ms', findRichText: true), findsOneWidget);
     expect(find.text('38 ms', findRichText: true), findsNothing);
+    final label = tester.widget<RichText>(find.text('9 ms', findRichText: true));
+    final paragraph = TextPainter(
+      text: label.text,
+      textScaler: label.textScaler,
+      textDirection: TextDirection.ltr,
+    )..layout();
+    try {
+      final gap = paragraph.getBoxesForSelection(const TextSelection(baseOffset: 1, extentOffset: 2)).single;
+      expect(gap.right - gap.left, closeTo(2, 0.15));
+    } finally {
+      paragraph.dispose();
+    }
   });
 
   testWidgets('最小正数延迟 → 显示整数零，保持有效结果', (tester) async {

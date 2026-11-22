@@ -839,12 +839,15 @@ void main() {
       (widget) => widget is IconButton && widget.tooltip == '刷新教程',
     );
     expect(tester.widget<IconButton>(refreshButton).onPressed, isNull);
+    expect(find.bySemanticsLabel('正在加载教程正文'), findsOneWidget);
+    expect(find.byKey(const Key('native-reader-placeholder')), findsNothing);
     await tester.tap(find.byTooltip('刷新教程'));
     await _finish(tester);
     expect(calls, 2, reason: '正文请求在途时重复点击不能发起新请求');
     refreshed.complete(XbResult.success(_detail('<p>新版教程正文</p>')));
     await _finish(tester);
     expect(tester.widget<IconButton>(refreshButton).onPressed, isNotNull);
+    expect(find.bySemanticsLabel('正在加载教程正文'), findsNothing);
     expect(f.inputs.last.html, contains('新版教程正文'));
     expect(f.inputs.last.html, isNot(contains('旧版教程正文')));
     expect(tester.takeException(), isNull);

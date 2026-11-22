@@ -22,6 +22,7 @@ import 'package:fl_clash/xboard/providers/user_profile_provider.dart';
 import 'package:fl_clash/xboard/providers/xboard_providers.dart';
 import 'package:fl_clash/xboard/sdk/xboard_service.dart';
 import 'package:fl_clash/xboard/shell/tabs/mine/mine_tab.dart';
+import 'package:fl_clash/xboard/shell/widgets/xb_tab_refresh_indicator.dart';
 import 'package:fl_clash/xboard/widgets/xb_components.dart' show XbSkeletonBar, XbSyncBanner;
 
 class _MockService extends Mock implements XboardService {}
@@ -92,6 +93,54 @@ void main() {
   const urlChannel = MethodChannel('plugins.flutter.io/url_launcher');
 
   setUpAll(() => registerFallbackValue(CrispConfig(websiteID: 'test')));
+
+  for (final days in <int?>[5, 0, null, -1]) {
+    testWidgets('没有明确重置时间时仅展示有效剩余天数：$days', (tester) async {
+      await pumpMine(
+        tester,
+        auth: AuthState.authenticated,
+        sub: _sub(total: gb, used: 0).copyWith(resetDay: days),
+      );
+      expect(find.textContaining('每月'), findsNothing);
+      if (days == null || days < 0) {
+        expect(find.textContaining('流量重置'), findsNothing);
+      } else {
+        expect(find.text(days == 0 ? '流量重置 已到重置时间' : '流量重置 剩余 $days 天'), findsOneWidget);
+      }
+    });
+  }
+
+  testWidgets('有明确重置时间时优先使用它', (tester) async {
+    await pumpMine(tester, auth: AuthState.authenticated,
+        sub: _sub(total: gb, used: 0).copyWith(resetDay: 4, nextResetAt: DateTime(2030, 4, 17, 10, 25)));
+    expect(find.textContaining('17号10:25'), findsOneWidget);
+    expect(find.text('流量重置 剩余 4 天'), findsNothing);
+  });
+
+  testWidgets('账号初载时刷新按钮禁用，下拉不重复拉取，成功后恢复', (tester) async {
+    final pending = Completer<XbDomainSubscription>();
+    final service = _MockService();
+    await tester.pumpWidget(ProviderScope(
+      overrides: [
+        authStateProvider.overrideWith(() => _FakeAuth(AuthState.authenticated)),
+        xboardServiceProvider.overrideWithValue(service),
+        userProfileProvider.overrideWith((ref) => pending.future),
+      ],
+      child: const MaterialApp(home: Scaffold(body: MineTab())),
+    ));
+    await tester.pump();
+    expect(find.byType(XbSkeletonBar), findsWidgets);
+    final indicator = tester.widget<XbTabRefreshIndicator>(find.byType(XbTabRefreshIndicator));
+    await indicator.onRefresh();
+    expect(tester.widget<TextButton>(find.ancestor(
+      of: find.text('刷新中…'), matching: find.byWidgetPredicate((w) => w is TextButton),
+    )).onPressed, isNull);
+    verifyNever(service.getSubscription);
+    pending.complete(_sub(total: gb, used: 0));
+    await tester.pump();
+    await tester.pump();
+    expect(find.text('刷新信息'), findsOneWidget);
+  });
 
   testWidgets('客服打开期间显示进度并防止重复点击', (tester) async {
     XboardConfig.bind(
@@ -448,7 +497,7 @@ void main() {
     expect(find.text('demo@example.com'), findsOneWidget);
     expect(find.text('专业版', findRichText: true), findsOneWidget);
     // 紧凑卡：用量% 在流量行右侧「已用 N%」（去掉了原「本月已用流量（已使用 N%）」标签行）。
-    expect(find.text('已用 37%'), findsOneWidget);
+    expect(find.text('已用 37.0%'), findsOneWidget);
     expect(find.text('退出登录'), findsOneWidget);
     // 邮箱后有复制按钮（已登录账号卡）。
     expect(find.byIcon(Icons.content_copy), findsOneWidget);
@@ -612,6 +661,12 @@ void main() {
     expect(find.text('续费当前套餐'), findsNothing);
 
     // 等 getSubscription 落定 + invalidate + setState(_retrying=false)。
+    final indicator = tester.widget<XbTabRefreshIndicator>(find.byType(XbTabRefreshIndicator));
+    await indicator.onRefresh();
+    expect(tester.widget<TextButton>(find.ancestor(
+      of: find.text('刷新中…'), matching: find.byWidgetPredicate((w) => w is TextButton),
+    )).onPressed, isNull);
+    verify(svc.getSubscription).called(1);
     // _retry等待service结果，失败也必须退出骨架忙态。
     try {
       await tester.pumpAndSettle(const Duration(milliseconds: 100));

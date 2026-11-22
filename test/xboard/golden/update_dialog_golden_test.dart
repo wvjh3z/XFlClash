@@ -1,4 +1,4 @@
-/// 更新弹窗 golden 核对（初始态：普通可关 / 强制不可关）。
+/// 更新弹窗 golden 核对（初始态：普通双按钮 / 强制单按钮）。
 ///
 /// 只覆盖静态确定态。下载中（spinner + 进度动画）/ 失败态（需触发网络）不进 golden
 /// （循环动画 + 网络不确定性，违反 golden 像素确定性原则）。
@@ -59,7 +59,8 @@ void main() {
     expect(find.text('🎉 发现新版本', findRichText: true), findsOneWidget);
     expect(find.text('以后再说'), findsNothing);
     expect(find.text('立即更新'), findsOneWidget);
-    expect(find.text('此为重要更新，必须更新后使用'), findsOneWidget);
+    final hint = find.text('此为重要更新，必须更新后使用');
+    expect(t.widget<Text>(hint).style?.color, const Color(0xffe08a1e));
     await expectXbGolden(t, find.byKey(const ValueKey('home-golden-window')), 'goldens/update_dialog_force.png');
   });
 

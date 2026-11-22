@@ -22,7 +22,7 @@ abstract class XbDomainSubscription with _$XbDomainSubscription {
     required int usedBytes, // (u ?? 0) + (d ?? 0)（字节 R6.8）
     DateTime? expiredAt, // null = 长期有效（一次性套餐 D51）
     DateTime? nextResetAt, // null = 流量套餐/不重置（D51）
-    int? resetDay, // 月内重置日（F408 v1.13.0；≠ nextResetAt.day）
+    int? resetDay, // 距下次重置的剩余天数（非月内日期）
     int? planId,
   }) = _XbDomainSubscription;
 

@@ -87,6 +87,27 @@ void main() {
     verifyNever(() => apis.orderApi.getOrder(any()));
   });
 
+  test('strict order detail preserves reported surplus credit in cents, never guesses from a legacy key', () async {
+    final http = OrderFixtureHttp();
+    when(() => sdk.httpService).thenReturn(http);
+    for (final credit in <Object?>[null, 0, 725, -1, 0.5, '725']) {
+      final wire = orderWireDetail(amount: 0);
+      (wire['data'] as Map).addAll({
+        'surplus_amount': 2000, 'discount_amount': 1000,
+        'refund_amount': 1900, if (credit != null) 'surplus_credit': credit,
+      });
+      when(() => http.getRequest(orderDetailPath('T'))).thenAnswer((_) async => wire);
+      final result = await service.getOrder('T');
+      if (credit == null || credit is int && credit >= 0) {
+        expect(result.dataOrNull?.surplusAmountYuan, 20);
+        expect(result.dataOrNull?.discountAmountYuan, 10);
+        expect(result.dataOrNull?.surplusCreditYuan, credit == null ? null : (credit as int) / 100);
+      } else {
+        expect(result, isA<XbFailure<OrderDetail?>>());
+      }
+    }
+  });
+
   test('known terminal details render but cannot pay or cancel', () async {
     final http = OrderFixtureHttp();
     when(() => sdk.httpService).thenReturn(http);

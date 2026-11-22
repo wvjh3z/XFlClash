@@ -179,7 +179,7 @@ void main() {
             await t.tapAt(const Offset(5, 50));
           }
           if (change == 'register' || change == 'forgot') {
-            await t.tap(find.text(change == 'register' ? '注册账号' : '忘记密码？'));
+            await t.tap(find.text(change == 'register' ? '立即注册' : '忘记密码？'));
           }
           if (closing) {
             await t.pump();

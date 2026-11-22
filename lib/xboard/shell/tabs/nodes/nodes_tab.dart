@@ -141,7 +141,7 @@ class _NodesTabState extends ConsumerState<NodesTab>
     if (outcome != XbSyncOutcome.ok) {
       final msg = switch (outcome) {
         XbSyncOutcome.subscriptionExpired => '套餐已过期，请前往续费 / 购买',
-        XbSyncOutcome.trafficExhausted => '本周期流量已用尽，请购买流量包或更改套餐',
+        XbSyncOutcome.trafficExhausted => '本周期流量已用尽，请重置流量或更改套餐',
         XbSyncOutcome.noSubscription => '当前套餐无可用线路，请购买套餐',
         XbSyncOutcome.authExpired => '登录已过期，请重新登录',
         _ => '刷新失败，请稍后重试',
@@ -686,14 +686,16 @@ class _NodesHeader extends StatelessWidget {
             ],
             if (group != null && onRefresh != null) ...[
               const SizedBox(width: 8),
-              Material(
+              Stack(
                 key: const ValueKey('nodes-action-capsule'),
-                color: t.card,
-                borderRadius: AppRadius.xl,
-                clipBehavior: Clip.antiAlias,
-                child: Padding(
-                  padding: const EdgeInsets.all(2),
-                  child: Row(
+                alignment: Alignment.center,
+                children: [
+                  Positioned(left: 0, right: 0, child: Container(
+                    key: const ValueKey('nodes-action-capsule-face'),
+                    height: 36,
+                    decoration: BoxDecoration(color: t.card, borderRadius: AppRadius.xl),
+                  )),
+                  Padding(padding: const EdgeInsets.symmetric(horizontal: 2), child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       XbGroupDelayAction(group: group, compact: true),
@@ -710,8 +712,8 @@ class _NodesHeader extends StatelessWidget {
                         compact: true,
                       ),
                     ],
-                  ),
-                ),
+                  )),
+                ],
               ),
             ] else if (onRefresh != null)
               _NodesRefreshAction(
@@ -801,31 +803,48 @@ class _EmptyNodes extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return XbEmptyState(
+    return _NodeAvailabilityPrompt(
       icon: Icons.cloud_off,
       title: '当前无可用线路',
       description: '套餐可能已到期或未生效，\n续费 / 购买套餐后即可同步线路。',
       actionLabel: '前往续费 / 购买',
+      actionIcon: Icons.shopping_cart,
       onAction: onTapRenew,
     );
   }
 }
 
 /// 游客态：移动版对照 `.guestcta`，其他空态与桌面照旧。
-class _GuestNodes extends StatelessWidget {
-  const _GuestNodes({required this.mobile, this.onTapLogin});
+class _GuestNodes extends _NodePrompt {
+  const _GuestNodes({required super.mobile, VoidCallback? onTapLogin})
+      : super(
+          title: '登录后查看专属线路',
+          description: '高速节点由服务端下发，\n登录账号即可同步全部线路。',
+          icon: Icons.public,
+          actionLabel: '立即登录',
+          onAction: onTapLogin,
+        );
+}
 
+class _NodePrompt extends StatelessWidget {
+  const _NodePrompt({
+    required this.mobile, required this.title, required this.description,
+    required this.icon, required this.actionLabel, this.actionIcon, this.onAction,
+    this.secondaryLabel, this.onSecondary,
+  });
   final bool mobile;
-  final VoidCallback? onTapLogin;
-
-  static const _title = '登录后查看专属线路';
-  static const _description = '高速节点由服务端下发，\n登录账号即可同步全部线路。';
-  static const _login = '立即登录';
+  final String title, description, actionLabel;
+  final String? secondaryLabel;
+  final IconData icon;
+  final IconData? actionIcon;
+  final VoidCallback? onAction, onSecondary;
 
   @override
   Widget build(BuildContext context) {
     final t = XbTokens.of(context);
     final brand = Theme.of(context).colorScheme.primary;
+    final accent = secondaryLabel != null ? XbTokens.warn : brand;
+    final action = _NodePromptButton(label: actionLabel, icon: actionIcon, onPressed: onAction);
     const headline = AppTextStyle.headline;
 
     return LayoutBuilder(
@@ -841,26 +860,28 @@ class _GuestNodes extends StatelessWidget {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   DecoratedBox(
-                    key: ValueKey(mobile ? 'nodes-guest-badge' : 'nodes-desktop-guest-badge'),
+                    key: actionIcon == null
+                        ? ValueKey(mobile ? 'nodes-guest-badge' : 'nodes-desktop-guest-badge')
+                        : null,
                     decoration: BoxDecoration(
                       borderRadius: BorderRadius.circular(XbTokens.rLg),
                       gradient: LinearGradient(
                         begin: Alignment.topLeft,
                         end: Alignment.bottomRight,
                         colors: [
-                          Color.alphaBlend(brand.withValues(alpha: 0.14), t.sfc),
+                          Color.alphaBlend(accent.withValues(alpha: 0.14), t.sfc),
                           t.sfc,
                         ],
                       ),
                     ),
                     child: SizedBox.square(
                       dimension: mobile ? 80 : 74,
-                      child: Icon(Icons.public, size: 36, color: brand),
+                      child: Icon(icon, size: 36, color: accent),
                     ),
                   ),
                   const SizedBox(height: 14),
                   Text(
-                    _title,
+                    title,
                     textAlign: TextAlign.center,
                     style: TextStyle(
                       fontSize: mobile ? headline.size : 18,
@@ -870,7 +891,7 @@ class _GuestNodes extends StatelessWidget {
                   ),
                   const SizedBox(height: 14),
                   Text(
-                    _description,
+                    description,
                     textAlign: TextAlign.center,
                     style: TextStyle(
                       fontSize: AppTextStyle.footnote.size,
@@ -879,7 +900,28 @@ class _GuestNodes extends StatelessWidget {
                     ),
                   ),
                   SizedBox(height: mobile ? 14 : 22),
-                  _GuestNodeLoginButton(label: _login, onPressed: onTapLogin),
+                  if (secondaryLabel == null)
+                    action
+                  else
+                    IntrinsicWidth(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          action,
+                          const SizedBox(height: 10),
+                          OutlinedButton.icon(
+                            style: OutlinedButton.styleFrom(
+                              minimumSize: const Size(0, 50),
+                              backgroundColor: Color.alphaBlend(brand.withValues(alpha: .09), t.card),
+                              side: BorderSide(color: brand.withValues(alpha: .30)),
+                            ),
+                            icon: const Icon(Icons.shopping_cart, size: 18),
+                            onPressed: onSecondary,
+                            label: Text(secondaryLabel!),
+                          ),
+                        ],
+                      ),
+                    ),
                 ],
               ),
             ),
@@ -890,11 +932,12 @@ class _GuestNodes extends StatelessWidget {
   }
 }
 
-class _GuestNodeLoginButton extends StatelessWidget {
-  const _GuestNodeLoginButton({required this.label, required this.onPressed});
+class _NodePromptButton extends StatelessWidget {
+  const _NodePromptButton({required this.label, required this.onPressed, this.icon});
 
   final String label;
   final VoidCallback? onPressed;
+  final IconData? icon;
 
   static const _loginGlyph = Glyph([
     GlyphPolyline([
@@ -924,7 +967,7 @@ class _GuestNodeLoginButton extends StatelessWidget {
     const buttonText = AppTextStyle.subheadline;
 
     return DecoratedBox(
-      key: const ValueKey('nodes-guest-login-gradient'),
+      key: icon == null ? const ValueKey('nodes-guest-login-gradient') : null,
       decoration: onPressed == null
           ? const BoxDecoration()
           : BoxDecoration(
@@ -959,8 +1002,11 @@ class _GuestNodeLoginButton extends StatelessWidget {
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
+          mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            GlyphIcon(
+            if (icon != null)
+              Icon(icon, size: 18)
+            else GlyphIcon(
               _loginGlyph,
               size: 18,
               fill: 1,
@@ -988,16 +1034,49 @@ class _ExhaustedNodes extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return XbEmptyState(
+    return _NodeAvailabilityPrompt(
       icon: Icons.warning_amber_rounded,
       title: '当前套餐流量已用尽',
-      description: '流量用尽后线路暂不可用。\n可购买流量包恢复本周期流量，或购买 / 更改其他套餐。',
-      actionLabel: '购买流量包',
+      description: '流量用尽后线路暂不可用。\n可重置流量恢复本周期流量，或购买 / 更改其他套餐。',
+      actionLabel: '重置流量',
       actionIcon: Icons.bolt,
       onAction: onBuyResetPack,
       secondaryLabel: '购买 / 更改套餐',
-      secondaryIcon: Icons.shopping_cart,
       onSecondary: onBuyPlan,
     );
   }
+}
+
+/// Narrow Android prompts share the guest panel's geometry; other surfaces
+/// retain their existing empty-state layout and pull-to-refresh scroll view.
+class _NodeAvailabilityPrompt extends StatelessWidget {
+  const _NodeAvailabilityPrompt({
+    required this.icon, required this.title, required this.description,
+    required this.actionLabel, required this.actionIcon, this.onAction,
+    this.secondaryLabel, this.onSecondary,
+  });
+  final IconData icon, actionIcon;
+  final String title, description, actionLabel;
+  final String? secondaryLabel;
+  final VoidCallback? onAction, onSecondary;
+
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (context, constraints) {
+      if (Theme.of(context).platform == TargetPlatform.android &&
+          !xbIsDesktopWidth(constraints.maxWidth)) {
+        return _NodePrompt(
+          mobile: true, title: title, description: description, icon: icon,
+          actionLabel: actionLabel, actionIcon: actionIcon, onAction: onAction,
+          secondaryLabel: secondaryLabel, onSecondary: onSecondary,
+        );
+      }
+      return XbEmptyState(
+        icon: icon, title: title, description: description,
+        actionLabel: actionLabel, actionIcon: actionIcon, onAction: onAction,
+        secondaryLabel: secondaryLabel, secondaryIcon: Icons.shopping_cart,
+        onSecondary: onSecondary,
+      );
+    },
+  );
 }

@@ -331,7 +331,7 @@ void main() {
         final capsule = find.byKey(const ValueKey('nodes-action-capsule'));
         final capsuleSize = capsule.evaluate().isEmpty ? null : tester.getSize(capsule);
         if (width == 390 && nodes == _Nodes.populated) {
-          expect(capsuleSize, const Size(157, 48));
+          expect(capsuleSize, const Size(157, 44));
         }
         expect(f.syncCalls, 0, reason: '渲染节点页面不会自动手动强刷订阅');
         await _pull(tester, nodes: true);
@@ -440,6 +440,17 @@ void main() {
     await _pull(tester, nodes: false);
     expect(f.accountCalls, 1);
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('节点：流量用尽的刷新结果与空态都提示重置流量', (tester) async {
+    final f = _Fixture();
+    when(() => f.sync.sync(force: true)).thenAnswer((_) async => XbSyncOutcome.trafficExhausted);
+    await _pump(tester, page: _Page.nodes, fixture: f);
+    await tester.tap(findActionLabel('刷新节点'));
+    await _finishAnimations(tester);
+    expect(find.text('本周期流量已用尽，请重置流量或更改套餐'), findsOneWidget);
+    expect(find.text('重置流量'), findsOneWidget);
+    expect(find.text('可用测试节点', findRichText: true), findsNothing);
   });
 
   testWidgets('节点：按钮同步失败后保留旧节点，下拉也受同一 CD 限制', (tester) async {

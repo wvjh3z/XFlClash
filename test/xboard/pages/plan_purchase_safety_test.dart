@@ -113,7 +113,8 @@ void main() {
       final button = find.widgetWithText(FilledButton, '提交订单');
       final form = find.byType(TextField);
       expect(tester.getTopLeft(form).dy, greaterThan(tester.getTopLeft(button).dy));
-      expect(find.text(_plan.name, findRichText: true), findsOneWidget);
+      expect(find.widgetWithText(AppBar, width < 840 ? _plan.name : '购买套餐'), findsOneWidget);
+      expect(find.text(_plan.name, findRichText: true), findsNWidgets(width < 840 ? 2 : 1));
       expect(find.textContaining('10 GB', findRichText: true), findsOneWidget);
       expect(find.byType(Html), findsNothing);
       expect(find.text('订单摘要'), findsNothing);
@@ -128,7 +129,7 @@ void main() {
       expect(service.submitCalls, 1);
       expect(service.submittedQuote!.period, XbPlanPeriod.monthly);
       expect(service.submittedQuote!.estimatedCents, 1000);
-      expect(find.text('确认更换套餐？'), findsNothing);
+      expect(find.text('确认更换套餐'), findsNothing);
       expect(find.textContaining('当前预估 ¥10'), findsOneWidget);
       final payExisting = find.textContaining('支付已有订单 ¥25');
       expect(payExisting, findsOneWidget);
@@ -276,7 +277,10 @@ void main() {
         );
         await tester.pumpAndSettle();
 
-        final name = find.text(plan.name, findRichText: true);
+        final name = find.descendant(
+          of: find.byType(XbCard),
+          matching: find.text(plan.name, findRichText: true),
+        );
         final details = find.byType(XbPlanDetails);
         final html = find.byType(Html);
         final period = find.text(renew ? '选择续费时长' : '选择计费周期');

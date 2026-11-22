@@ -22,6 +22,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import 'package:fl_clash/xboard/models/xb_domain_subscription.dart';
 import 'package:fl_clash/xboard/pages/invite_commission_page.dart';
+import 'package:fl_clash/xboard/pages/legal_pages.dart' show PrivacyPage, TermsPage;
 import 'package:fl_clash/xboard/pages/order_list_page.dart';
 import 'package:fl_clash/xboard/pages/share_friend_page.dart';
 import 'package:fl_clash/xboard/pages/tutorial_list_page.dart';
@@ -81,9 +82,32 @@ class MineTab extends ConsumerStatefulWidget {
 class _MineTabState extends ConsumerState<MineTab> with XbRefreshThrottleGuard {
   /// 按钮与下拉共用刷新中状态和 60 秒冷却。
   bool _refreshing = false;
+  bool _retrying = false;
+
+  bool _skeletonLoading(AsyncValue<XbDomainSubscription> profile) =>
+      profile.isLoading && !profile.hasValue;
+
+  bool get _accountBusy =>
+      _refreshing || _retrying || _skeletonLoading(ref.read(userProfileProvider));
+
+  Future<void> _retryAccount() async {
+    if (ref.read(authStateProvider) != AuthState.authenticated || _accountBusy) return;
+    final revision = ref.read(authStateProvider.notifier).sessionRevision;
+    setState(() => _retrying = true);
+    try {
+      await ref.read(xboardServiceProvider).getSubscription();
+    } finally {
+      if (mounted &&
+          ref.read(authStateProvider) == AuthState.authenticated &&
+          ref.read(authStateProvider.notifier).sessionRevision == revision) {
+        ref.invalidate(userProfileProvider);
+        setState(() => _retrying = false);
+      }
+    }
+  }
 
   Future<void> _onRefresh() async {
-    if (ref.read(authStateProvider) != AuthState.authenticated || _refreshing) {
+    if (ref.read(authStateProvider) != AuthState.authenticated || _accountBusy) {
       return;
     }
     if (throttled) {
@@ -128,28 +152,36 @@ class _MineTabState extends ConsumerState<MineTab> with XbRefreshThrottleGuard {
     ref.listen<AuthState>(authStateProvider, (previous, next) {
       if (previous != next) {
         resetThrottle();
-        setState(() => _refreshing = false);
+        setState(() {
+          _refreshing = false;
+          _retrying = false;
+        });
       }
     });
     final isGuest = ref.watch(authStateProvider) != AuthState.authenticated;
+    final profile = isGuest ? null : ref.watch(userProfileProvider);
+    final skeleton = _retrying || (profile != null && _skeletonLoading(profile));
+    final busy = _refreshing || skeleton;
 
     final content = SafeArea(
       child: LayoutBuilder(
         builder: (context, constraints) {
           final header = _MineHeader(
             isGuest: isGuest,
-            refreshing: _refreshing,
+            refreshing: busy,
             cooldownSec: cooldownSeconds,
             onRefresh: _onRefresh,
           );
           final isDesktop = xbIsDesktopWidth(constraints.maxWidth);
           final accountBlock = isGuest
               ? _GuestCard(onTapLogin: widget.onTapLogin)
-              : _AccountSection(
-                  active: widget.active,
-                  now: widget.now,
-                  large: isDesktop,
-                );
+              : skeleton
+                  ? const _AccountSkeleton()
+                  : profile!.when(
+                      loading: () => const _AccountSkeleton(),
+                      error: (error, stack) => _AccountErrorCard(onRetry: _retryAccount),
+                      data: (sub) => _AccountCard(sub: sub, active: widget.active, now: widget.now, large: isDesktop),
+                    );
 
           // 宽窗口双栏（C-分支，原型对齐）：左=信息卡/按钮 + 账户组；右=应用组。
           if (isDesktop) {
@@ -162,7 +194,7 @@ class _MineTabState extends ConsumerState<MineTab> with XbRefreshThrottleGuard {
                   trailing: isGuest
                       ? null
                       : _RefreshButton(
-                          refreshing: _refreshing,
+                          refreshing: busy,
                           cooldownSec: cooldownSeconds,
                           onTap: _onRefresh,
                         ),
@@ -228,6 +260,7 @@ class _MineTabState extends ConsumerState<MineTab> with XbRefreshThrottleGuard {
               accountBlock,
               const SizedBox(height: 16),
               _SettingsSection(isGuest: isGuest),
+              if (isGuest) _GuestTermsFooter(),
             ],
           );
         },
@@ -241,6 +274,22 @@ class _MineTabState extends ConsumerState<MineTab> with XbRefreshThrottleGuard {
 
 /// 「我的」头部：左标题 + 右「刷新信息」按钮（已登录才显示）。
 /// 抽出供移动端单列 / 桌面双栏复用（C-分支）。
+class _GuestTermsFooter extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    final ink = XbTokens.of(context).onv;
+    final text = TextStyle(color: ink, fontSize: 10);
+    final link = TextButton.styleFrom(foregroundColor: ink, textStyle: text,
+        padding: const EdgeInsets.symmetric(horizontal: 3), minimumSize: const Size(44, 44));
+    return Wrap(alignment: WrapAlignment.center, crossAxisAlignment: WrapCrossAlignment.center, children: [
+      Text('登录即同意', style: text),
+      TextButton(style: link, onPressed: () => xbPush(context, const TermsPage(), brandColor: xbBrandColor()), child: const Text('服务条款')),
+      Text('与', style: text),
+      TextButton(style: link, onPressed: () => xbPush(context, const PrivacyPage(), brandColor: xbBrandColor()), child: const Text('隐私政策')),
+    ]);
+  }
+}
+
 class _MineHeader extends StatelessWidget {
   const _MineHeader({
     required this.isGuest,
@@ -310,60 +359,6 @@ class _RefreshButton extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 8),
         minimumSize: Size.zero,
         tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-      ),
-    );
-  }
-}
-
-/// 已登录账号区：账号卡及加载/失败状态。
-class _AccountSection extends ConsumerStatefulWidget {
-  const _AccountSection({required this.active, this.now, this.large = false});
-
-  /// 当前是否可见 Tab（透传给账号卡触发填充动画）。
-  final bool active;
-
-  /// 测试注入的固定时刻（透传给账号卡算到期/重置剩余）；生产 null → DateTime.now()。
-  final DateTime? now;
-
-  /// 桌面放大态（原型 `.dcol .plan`）。
-  final bool large;
-
-  @override
-  ConsumerState<_AccountSection> createState() => _AccountSectionState();
-}
-
-class _AccountSectionState extends ConsumerState<_AccountSection> {
-  /// 重试期间保留骨架。直接等待service结果后失效provider，
-  /// 不等待无人监听时可能不落定的provider.future。
-  bool _retrying = false;
-
-  Future<void> _retry() async {
-    if (_retrying) return;
-    setState(() => _retrying = true);
-    // 直接调反腐层（永不抛；含反腐层 failOver 切域名 + 5s 超时），无论成功失败都会落定。
-    await ref.read(xboardServiceProvider).getSubscription();
-    if (!mounted) return;
-    // 用最新结果刷新账号卡 provider（成功 → 渲染卡片；失败 → 失败卡）。
-    ref.invalidate(userProfileProvider);
-    setState(() => _retrying = false);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    // 重试与首次加载都保留骨架卡，不显示刷新横幅。
-    if (_retrying) {
-      return const _AccountSkeleton();
-    }
-    // F14：已 gate authenticated（MineTab 已判 isGuest），可安全 watch。
-    final async = ref.watch(userProfileProvider);
-    return async.when(
-      loading: () => const _AccountSkeleton(),
-      error: (e, _) => _AccountErrorCard(onRetry: _retry),
-      data: (sub) => _AccountCard(
-        sub: sub,
-        active: widget.active,
-        now: widget.now,
-        large: widget.large,
       ),
     );
   }
@@ -568,7 +563,7 @@ class _AccountCardState extends State<_AccountCard>
               AnimatedBuilder(
                 animation: _fill,
                 builder: (context, _) => Text(
-                  '已用 ${(usedPct * 100 * _fill.value).round()}%',
+                  '已用 ${((usedPct * 1000 * _fill.value).floor() / 10).toStringAsFixed(1)}%',
                   style: TextStyle(
                     fontSize: 12,
                     fontWeight: FontWeight.w600,
@@ -632,9 +627,10 @@ class _AccountCardState extends State<_AccountCard>
   static String? _resetText(XbDomainSubscription sub, {DateTime? now}) {
     final d = sub.nextResetAt;
     if (d != null) return xbResetText(d, now: now);
-    // 无 nextResetAt 但有 resetDay（理论少见）→ 仅显示重置日。
-    if (sub.resetDay != null) return '流量重置 每月 ${sub.resetDay} 号';
-    return null;
+    // reset_day is the remaining duration, not a day of the month.
+    final remaining = sub.resetDay;
+    if (remaining == null || remaining < 0) return null;
+    return remaining == 0 ? '流量重置 已到重置时间' : '流量重置 剩余 $remaining 天';
   }
 }
 
@@ -905,6 +901,7 @@ class _SettingsSection extends ConsumerWidget {
       title: '退出登录',
       message: '退出后需重新登录才能连接和管理套餐，确定退出吗？',
       confirmLabel: '退出登录',
+      centered: true,
       destructive: true,
     );
     if (!ok || !context.mounted) return;
@@ -941,6 +938,7 @@ class _SettingsSection extends ConsumerWidget {
           const XbGroupLabel('账户'),
           XbListCard(
             rows: [
+              ...[
               XbListRow(
                 icon: Icons.receipt_long,
                 label: '我的订单',
@@ -989,6 +987,7 @@ class _SettingsSection extends ConsumerWidget {
                         brandColor: xbBrandColor(),
                       ),
               ),
+              ].map((row) => isGuest ? Opacity(opacity: 0.45, child: row) : row),
               // 在线客服（D9 Crisp）：不登录也可用（游客匿名会话）。
               // websiteId 未配置（XboardConfig.crispWebsiteId 空）→ 隐藏入口，不暴露空会话。
               if (CrispSupportService.isEnabled)

@@ -119,7 +119,7 @@ void main() {
     //     故全部加 findRichText: true（纯增量，仍匹配普通 Text）。
     expect(find.text('选择线路', findRichText: true), findsOneWidget);
     final capsule = find.byKey(const ValueKey('nodes-action-capsule'));
-    expect(t.getSize(capsule), const Size(157, 48));
+    expect(t.getSize(capsule), const Size(157, 44));
     expect(find.descendant(of: capsule, matching: find.text('刷新节点')), findsOneWidget);
     expect(find.text('优选', findRichText: true), findsWidgets); // 顶部分组 tab
     expect(find.text('香港', findRichText: true), findsWidgets);
@@ -178,7 +178,7 @@ void main() {
     await expectXbGolden(t, find.byType(NodesTab), 'goldens/nodes_expired.png');
   });
 
-  testWidgets('节点 · 流量已用尽 → 清空节点 + 购买流量包/套餐 golden', (t) async {
+  testWidgets('节点 · 流量已用尽 → 清空节点 + 重置流量/套餐 golden', (t) async {
     await pumpNodes(
       t,
       auth: AuthState.authenticated,
@@ -190,7 +190,7 @@ void main() {
     );
     expect(t.takeException(), isNull);
     expect(find.text('当前套餐流量已用尽'), findsOneWidget);
-    expect(find.text('购买流量包'), findsOneWidget);
+    expect(find.text('重置流量'), findsOneWidget);
     expect(find.text('购买 / 更改套餐'), findsOneWidget);
     expect(find.text('🇯🇵 东京 IEPL 02'), findsNothing);
     await expectXbGolden(t, find.byType(NodesTab), 'goldens/nodes_exhausted.png');

@@ -132,6 +132,26 @@ void main() {
       _noWrites(service);
     });
   }
+  testWidgets('six compact choices fit a 320dp shop without scrolling', (t) async {
+    t.view.devicePixelRatio = 1;
+    t.view.physicalSize = const Size(320, 840);
+    addTearDown(t.view.reset);
+    final service = _Service();
+    final prices = [for (final period in XbPlanPeriod.values.take(6)) PricePlan(period: period, amountYuan: 20.0 + period.index)];
+    when(service.getPlans).thenAnswer((_) async => XbSuccess([_plans.first.copyWith(prices: prices, transferEnableGb: 100, description: '<p>流量　100 GB/月</p>')]));
+    await t.pumpWidget(_app(_container(service, profile: () async => _profile())));
+    await t.pumpAndSettle();
+    expect(find.byIcon(Icons.data_usage), findsNothing);
+    expect(find.textContaining('100 GB/月', findRichText: true), findsOneWidget);
+    final last = find.byKey(const ValueKey(('shop-period', 4, XbPlanPeriod.threeYearly)));
+    final row = find.ancestor(of: last, matching: find.byType(SingleChildScrollView)).first;
+    expect(t.getRect(last).right, lessThanOrEqualTo(t.getRect(row).right));
+    expect(t.getSize(last).height, greaterThanOrEqualTo(44));
+    await t.tap(last);
+    await t.pumpAndSettle();
+    expect(_text('¥25.00  / 三年'), findsOneWidget);
+    _noWrites(service);
+  });
   testWidgets('catalog shows cents, real periods and complete details', (t) async {
     t.view.devicePixelRatio = 1;
     t.view.physicalSize = const Size(1000, 900);
@@ -192,12 +212,19 @@ void main() {
       await _tap(t, action);
       if (!expired) {
         expect(find.byType(PlanDetailPage), findsNothing);
-        final title = same ? '确认续费？' : '确认更换套餐？';
+        final title = same ? '确认续费相同套餐' : '确认更换套餐';
         expect(_text(title), findsOneWidget);
         expect(
-          find.textContaining(same ? '下次重置日期不变' : '已用流量清零'),
+          find.textContaining(same ? '流量重置日不变' : '剩余流量和有效期不会保留', findRichText: true),
           findsOneWidget,
         );
+        if (same) {
+          expect(_text('当前的可续订套餐仍在有效期内。'), findsOneWidget);
+          expect(_text('不会改变'), findsOneWidget);
+          expect(_text('按购买周期增加'), findsOneWidget);
+          expect(t.getSize(find.widgetWithText(FilledButton,'继续续费')).width,
+              closeTo(t.getSize(find.widgetWithText(FilledButton,'再想想')).width, 0.1));
+        }
         await _tap(t, '再想想');
         expect(_text(title), findsNothing);
         _noWrites(service);
@@ -210,6 +237,9 @@ void main() {
       expect(page.plan.id, same ? 4 : 9);
       expect(page.initialPeriod, scenario == 'renew' ? isNull : equals(same ? XbPlanPeriod.yearly : XbPlanPeriod.onetime));
       expect(page.confirmedFor, expired ? null : 4);
+      Navigator.of(t.element(find.byType(PlanDetailPage))).pop();
+      await t.pumpAndSettle();
+      expect(find.ancestor(of: _text(action), matching: find.byType(FilledButton)), findsOneWidget);
       _noWrites(service);
     });
   }
@@ -277,8 +307,12 @@ void main() {
     verify(service.getGuestCatalog).called(1);
     verifyNever(service.getPlans);
     expect(profileReads, 0);
+    final buy = _text('购买 真实公开套餐');
+    final outline = find.ancestor(of: buy, matching: find.byType(OutlinedButton));
+    expect(t.widget<OutlinedButton>(outline).style!.foregroundColor!.resolve({}), const Color(0xFF365A73));
     await _tap(t, '购买 真实公开套餐');
     expect(login, 1);
+    expect(find.ancestor(of: buy, matching: find.byType(FilledButton)), findsOneWidget);
     expect(find.byType(PlanDetailPage), findsNothing);
     expect(find.byType(AlertDialog), findsNothing);
     final auth = c.read(authStateProvider.notifier) as _Auth;

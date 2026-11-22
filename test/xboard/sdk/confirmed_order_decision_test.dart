@@ -267,6 +267,28 @@ void main() {
     h.noWrite();
   });
 
+  for (final credit in <int?>[null, 0, 700]) {
+    test('old order confirmation distinguishes applied value from excess ($credit)', () async {
+      final row = {..._wireOrder(amount: 0), 'surplus_amount': 2000,
+        if (credit != null) 'surplus_credit': credit};
+      final h = _Harness()..existing(row)..accept = (() async => false);
+      await h.submit();
+      expect(h.conflicts.single.existingCreditCents, credit == null ? null : 2000 - credit);
+      h.noWrite();
+    });
+  }
+
+  test('changed excess credit invalidates consent even when old total remains zero', () async {
+    final row = {..._wireOrder(amount: 0, plan: 8), 'surplus_amount': 2000, 'surplus_credit': 700};
+    final h = _Harness()..existing(row);
+    h.accept = () async {
+      h.existing({...row, 'surplus_credit': 800});
+      return true;
+    };
+    expect(await h.submit(), isA<XbFailure<String?>>());
+    h.noWrite();
+  });
+
   for (final invalid in <Map<String, dynamic>>[
     _wireOrder(status: 0.5),
     _wireOrder(status: 42),

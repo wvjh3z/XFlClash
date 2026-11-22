@@ -220,7 +220,7 @@ void main() {
     expect(find.text('购买重置包立即恢复本月流量', findRichText: true), findsNothing);
     expect(find.text('续费当前套餐', findRichText: true), findsNothing);
     expect(find.text('我的订单', findRichText: true), findsOneWidget);
-    expect(find.text('已用 62%'), findsOneWidget);
+    expect(find.text('已用 62.0%'), findsOneWidget);
     expect(find.text('返 17%'), findsOneWidget);
     expect(find.text('在线客服'), findsOneWidget);
     await expectXbGolden(t, find.byKey(const ValueKey('home-golden-window')), 'goldens/page_mine_auth.png');

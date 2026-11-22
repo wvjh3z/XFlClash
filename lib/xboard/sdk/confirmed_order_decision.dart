@@ -19,6 +19,7 @@ class _DecisionOrder {
     this.payableCents,
     this.balanceCents,
     this.surplusCents,
+    this.creditCents,
     this.planName,
   });
 
@@ -29,8 +30,13 @@ class _DecisionOrder {
   final int? payableCents;
   final int? balanceCents;
   final int? surplusCents;
+  final int? creditCents;
   final String? planName;
   int get reservedCreditCents => (balanceCents ?? 0) + (surplusCents ?? 0);
+  int? get appliedCreditCents {
+    final applied = appliedOrderSurplusCents(net: payableCents!, balance: balanceCents ?? 0, surplus: surplusCents ?? 0, credit: creditCents);
+    return applied == null ? null : applied + (balanceCents ?? 0);
+  }
 
   bool get complete =>
       status != null &&
@@ -45,7 +51,8 @@ class _DecisionOrder {
       (period == null || period == fresh.period) &&
       (payableCents == null || payableCents == fresh.payableCents) &&
       (balanceCents == null || balanceCents == fresh.balanceCents) &&
-      (surplusCents == null || surplusCents == fresh.surplusCents);
+      (surplusCents == null || surplusCents == fresh.surplusCents) &&
+      (creditCents == null || creditCents == fresh.creditCents);
 
   bool samePendingQuote(_DecisionOrder other) =>
       status == OrderStatus.pending &&
@@ -55,7 +62,8 @@ class _DecisionOrder {
       period == other.period &&
       payableCents == other.payableCents &&
       (balanceCents ?? 0) == (other.balanceCents ?? 0) &&
-      (surplusCents ?? 0) == (other.surplusCents ?? 0);
+      (surplusCents ?? 0) == (other.surplusCents ?? 0) &&
+      creditCents == other.creditCents;
 
   bool confirmsCancellationOf(_DecisionOrder old) =>
       tradeNo == old.tradeNo &&
@@ -116,12 +124,15 @@ _DecisionOrder _parseDecisionOrder(Object? raw, {bool detail = false}) {
   final balanceCents = _decisionAmount(rawBalance);
   final rawSurplus = raw['surplus_amount'];
   final surplusCents = _decisionAmount(rawSurplus);
+  final rawCredit = raw['surplus_credit'];
+  final creditCents = _decisionAmount(rawCredit);
   if ((detail || !(status?.isFinal ?? false)) &&
       ((rawPlanId != null && planId == null) ||
           (rawPeriod != null && period == null) ||
           (rawPayable != null && payableCents == null) ||
           (rawBalance != null && balanceCents == null) ||
-          (rawSurplus != null && surplusCents == null))) {
+          (rawSurplus != null && surplusCents == null) ||
+          (rawCredit != null && creditCents == null))) {
     _unknownOrderResponse();
   }
   final rawPlan = raw['plan'];
@@ -134,6 +145,7 @@ _DecisionOrder _parseDecisionOrder(Object? raw, {bool detail = false}) {
     payableCents: payableCents,
     balanceCents: balanceCents,
     surplusCents: surplusCents,
+    creditCents: creditCents,
     planName: name is String && name.trim().isNotEmpty ? name : null,
   );
 }
@@ -207,6 +219,7 @@ extension _ConfirmedOrderDecision on XboardServiceImpl {
       summary: _mapOrderSummary(m),
       balanceAmountYuan: _centsToYuan(m.balanceAmount),
       surplusAmountYuan: _centsToYuan(m.surplusAmount),
+      surplusCreditYuan: _centsToYuan(m.refundAmount),
       discountAmountYuan: _centsToYuan(m.discountAmount),
       handlingAmountYuan: _centsToYuan(m.handlingAmount),
     );
@@ -391,6 +404,7 @@ extension _ConfirmedOrderDecision on XboardServiceImpl {
           existing.planId == quote.planId && existing.period == period;
       if (sameProduct &&
           existing.reservedCreditCents == 0 &&
+          (existing.creditCents ?? 0) == 0 &&
           existing.payableCents == quote.estimatedCents) {
         return XbSuccess(existing.tradeNo);
       }
@@ -404,7 +418,7 @@ extension _ConfirmedOrderDecision on XboardServiceImpl {
           existingPlanName: existing.planName ?? '套餐 #${existing.planId}',
           existingPeriod: _toXbPeriod(existing.period!),
           existingPayableCents: existing.payableCents!,
-          existingCreditCents: existing.reservedCreditCents,
+          existingCreditCents: existing.appliedCreditCents,
         ),
       );
       if (!current() || !consent) return stopped;

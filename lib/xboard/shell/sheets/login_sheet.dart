@@ -20,6 +20,7 @@ import 'package:fl_clash/xboard/widgets/xb_submit_guard.dart';
 
 import 'forgot_pwd_sheet.dart';
 import 'register_sheet.dart';
+import '../../widgets/xb_ui_kit.dart' show XbGradientAction;
 import 'sheet_scaffold.dart';
 
 /// 弹出登录 sheet。
@@ -204,25 +205,10 @@ class _LoginSheetState extends ConsumerState<LoginSheet>
       title: '登录 ${XboardConfig.current.appName}',
       subtitle: '登录后同步你的专属节点',
       banner: _canRecheck ? null : _banner,
-      footer: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          TextButton(
-            onPressed: () {
-              Navigator.of(context).pop();
-              showRegisterSheet(context);
-            },
-            child: const Text('注册账号'),
-          ),
-          TextButton(
-            onPressed: () {
-              Navigator.of(context).pop();
-              showForgotPwdSheet(context);
-            },
-            child: const Text('忘记密码？'),
-          ),
-        ],
-      ),
+      footer: XbAuthLinks(prompt: '还没有账号？', links: [
+        ('立即注册', submitting ? null : () => switchXbAuthSheet(context, showRegisterSheet)),
+        ('忘记密码？', submitting ? null : () => switchXbAuthSheet(context, showForgotPwdSheet)),
+      ]),
       children: [
         if (_canRecheck && _banner != null) ...[
           Container(
@@ -268,7 +254,7 @@ class _LoginSheetState extends ConsumerState<LoginSheet>
           controller: _emailCtrl,
           keyboardType: TextInputType.emailAddress,
           autofillHints: const [AutofillHints.email],
-          decoration: const InputDecoration(labelText: '邮箱账号'),
+          decoration: const InputDecoration(labelText: '邮箱地址'),
         ),
         const SizedBox(height: 12),
         TextField(
@@ -286,7 +272,8 @@ class _LoginSheetState extends ConsumerState<LoginSheet>
         const SizedBox(height: 20),
         SizedBox(
           width: double.infinity,
-          child: FilledButton(
+          child: XbGradientAction(
+            height: 50,
             onPressed: (!ready || submitting || _checking) ? null : _submit,
             child: submitting
                 ? const SizedBox(

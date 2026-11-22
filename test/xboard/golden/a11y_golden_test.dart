@@ -107,7 +107,8 @@ void main() {
     void checkPlanDetails(WidgetTester tester) {
       final details = find.byType(XbPlanDetails);
       final submit = find.widgetWithText(FilledButton, '提交订单');
-      expect(find.text(_plan.name, findRichText: true), findsOneWidget);
+      expect(find.widgetWithText(AppBar, _plan.name), findsOneWidget);
+      expect(find.text(_plan.name, findRichText: true), findsNWidgets(2));
       expect(details, findsOneWidget);
       expect(find.text('订单摘要'), findsNothing);
       expect(

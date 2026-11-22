@@ -212,7 +212,9 @@ void main() {
           expect(find.text('已过期'), findsOneWidget);
         } else {
           expect(find.text('剩余7天'), findsOneWidget);
-          expect(find.textContaining('仅剩 7 天'), findsOneWidget);
+          // The reset dialog shows whole days; the separate home expiry card
+          // only appears at or below seven actual days (this fixture is 7d1h).
+          expect(find.textContaining('仅剩 7 天'), findsNothing);
         }
         if (resetAt != null) {
           expect(find.text(xbDateMinute(resetAt)), findsOneWidget);
@@ -275,7 +277,10 @@ void main() {
                 }),
               ).first,
             ).decoration as BoxDecoration;
-            expect(gradient.gradient, isA<LinearGradient>());
+            final brandColor = Theme.of(dialogContext).colorScheme.primary;
+            expect((gradient.gradient! as LinearGradient).colors, [
+              brand == 'brand_a' ? const Color(0xffff5a44) : Color.lerp(brandColor, Colors.white, 0.16)!, brandColor,
+            ]);
             await _expectPaintedWhite(tester, captureKey, find.text('确认购买'));
             await tester.tap(confirm);
             await tester.pumpAndSettle();

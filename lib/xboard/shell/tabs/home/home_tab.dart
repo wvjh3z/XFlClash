@@ -15,6 +15,7 @@ import 'package:fl_clash/xboard/providers/auth_state_provider.dart';
 import 'package:fl_clash/xboard/providers/xboard_providers.dart';
 import 'package:fl_clash/xboard/util/format.dart' show xbLatencyDisplay;
 import 'package:fl_clash/xboard/widgets/xb_center_toast.dart';
+import 'package:fl_clash/xboard/widgets/xb_components.dart' show XbSyncBanner;
 import 'package:fl_clash/xboard/widgets/xb_theme.dart' show XbTokens;
 import 'package:fl_clash/xboard/widgets/xb_announcement.dart';
 import 'package:fl_clash/xboard/widgets/xb_ui_kit.dart' show XbIconBadge;
@@ -63,6 +64,8 @@ class HomeTab extends ConsumerStatefulWidget {
 }
 
 class _HomeTabState extends ConsumerState<HomeTab> {
+  bool _blockedWithoutNodes = false;
+
   @override
   void initState() {
     super.initState();
@@ -104,6 +107,7 @@ class _HomeTabState extends ConsumerState<HomeTab> {
       );
       return XbConnectBlock.preparing;
     }
+    if (!_blockedWithoutNodes) setState(() => _blockedWithoutNodes = true);
     XbCenterToast.show(
       context,
       '当前无可用线路，请前往「节点」刷新或购买套餐',
@@ -114,6 +118,11 @@ class _HomeTabState extends ConsumerState<HomeTab> {
 
   @override
   Widget build(BuildContext context) {
+    ref.listen(authStateProvider, (old, next) {
+      if (old != next && _blockedWithoutNodes) {
+        setState(() => _blockedWithoutNodes = false);
+      }
+    });
     final isGuest = ref.watch(authStateProvider) != AuthState.authenticated;
     final scheme = Theme.of(context).colorScheme;
     // 首页延迟：读独立的 homeLatencyProvider（仅「连接/切换节点」时由 measureCurrentNodeBest
@@ -150,6 +159,7 @@ class _HomeTabState extends ConsumerState<HomeTab> {
     required int? latencyMs,
     required ColorScheme scheme,
   }) {
+    final preparing = !ref.watch(bootstrapReadyProvider);
     return SingleChildScrollView(
       padding: const EdgeInsets.fromLTRB(18, 0, 18, 16),
       child: Column(
@@ -157,7 +167,10 @@ class _HomeTabState extends ConsumerState<HomeTab> {
         children: [
           // AppBar 标题「MyClient」+ 右侧更新提示（有新版时）。
           const _HomeHeader(),
-          if (isGuest) ...[
+          if (preparing) ...[
+            const XbSyncBanner(text: '正在准备服务，请稍候…'),
+            const SizedBox(height: 12),
+          ] else if (isGuest) ...[
             _GuestBanner(onTapLogin: widget.onTapLogin),
             const SizedBox(height: 12),
           ],
@@ -170,7 +183,9 @@ class _HomeTabState extends ConsumerState<HomeTab> {
               alignment: Alignment.center,
               children: [
                 // 品牌红光晕（原型 `.aura`）：球后径向辉光，未连接也显示（与桌面 hero 一致）。
-                Positioned.fill(
+                if (Theme.of(context).platform != TargetPlatform.android ||
+                    !ref.watch(xbConnectAdapterProvider).isConnected(ref))
+                  Positioned.fill(
                   child: IgnorePointer(
                     child: DecoratedBox(
                       decoration: BoxDecoration(
@@ -186,7 +201,7 @@ class _HomeTabState extends ConsumerState<HomeTab> {
                   ),
                 ),
                 XbConnectOrb(
-                  showLock: isGuest,
+                  showLock: isGuest && !preparing,
                   guest: isGuest,
                   onBlocked: _checkConnectBlock,
                 ),
@@ -195,10 +210,10 @@ class _HomeTabState extends ConsumerState<HomeTab> {
           ),
           const SizedBox(height: 8),
           // 游客态说明行（原型 subline）。
-          if (isGuest) ...[
+          if (preparing || isGuest) ...[
             const SizedBox(height: 15),
             Text(
-              '登录后开启加密保护',
+              preparing ? '首屏无需等待，可先浏览各页面' : '登录后开启加密保护',
               textAlign: TextAlign.center,
               style: TextStyle(
                 fontSize: 13,
@@ -212,7 +227,7 @@ class _HomeTabState extends ConsumerState<HomeTab> {
           // 当前线路卡：仅已登录显示（原型 guest 态无线路卡）。
           if (!isGuest) ...[
             const SizedBox(height: 12),
-            XbLineCard(onTapToNodes: widget.onTapToNodes),
+            XbLineCard(onTapToNodes: widget.onTapToNodes, blockedWithoutNodes: _blockedWithoutNodes),
           ],
           const SizedBox(height: 20),
           const XbModeSegment(),
@@ -310,6 +325,7 @@ class _HomeTabState extends ConsumerState<HomeTab> {
                                   icon: Icons.lan_outlined,
                                   title: '当前线路',
                                   child: XbLineCard(
+                                    blockedWithoutNodes: _blockedWithoutNodes,
                                     embedded: true,
                                     onTapToNodes: widget.onTapToNodes,
                                   ),

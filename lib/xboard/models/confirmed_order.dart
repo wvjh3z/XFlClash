@@ -74,7 +74,7 @@ class ConfirmedOrderConflict {
   final String existingPlanName;
   final XbPlanPeriod existingPeriod;
   final int existingPayableCents;
-  final int existingCreditCents;
+  final int? existingCreditCents;
 }
 
 /// Convert catalog yuan back to integer cents; do not round away sub-cent

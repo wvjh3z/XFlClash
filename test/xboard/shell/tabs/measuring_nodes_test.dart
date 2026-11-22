@@ -73,17 +73,17 @@ void main() {
     testWidgets('节点在测速集合中 → 显示转圈（即便有延迟值）', (t) async {
       final container = await pumpNode(t, 120);
       // 未测速中 → 显示延迟值。
-      expect(find.text('30 ms'), findsOneWidget);
+      expect(find.text('30ms'), findsOneWidget);
       expect(container.read(delayProvider(proxyName: 'HK01', testUrl: null)), 120);
       // 标记测速中 → 显示转圈，不再显示数字。
       container.read(xbMeasuringNodesProvider.notifier).start('HK01');
       await t.pump();
-      expect(find.text('30 ms'), findsNothing);
+      expect(find.text('30ms'), findsNothing);
       expect(find.byType(XbSpinner), findsWidgets);
       // 结束 → 恢复显示数字。
       container.read(xbMeasuringNodesProvider.notifier).finish('HK01');
       await t.pump();
-      expect(find.text('30 ms'), findsOneWidget);
+      expect(find.text('30ms'), findsOneWidget);
       expect(container.read(delayProvider(proxyName: 'HK01', testUrl: null)), 120);
     });
   });
@@ -92,9 +92,9 @@ void main() {
     for (final raw in [1, 121]) {
       testWidgets('奇数原始延迟 $raw 向下取整，测速状态不变', (t) async {
         final container = await pumpNode(t, raw);
-        final text = raw == 1 ? '0 ms' : '30 ms';
+        final text = raw == 1 ? '0ms' : '30ms';
         expect(find.text(text), findsOneWidget);
-        expect(find.text(raw == 1 ? '0.25 ms' : '30.25 ms'), findsNothing);
+        expect(find.text(raw == 1 ? '0.25ms' : '30.25ms'), findsNothing);
         expect(find.byType(XbSpinner), findsNothing);
         expect(container.read(delayProvider(proxyName: 'HK01', testUrl: null)), raw);
       });
@@ -102,7 +102,7 @@ void main() {
 
     testWidgets('显示值低于颜色阈值仍按原始延迟着色', (t) async {
       final container = await pumpNode(t, 700);
-      final text = t.widget<Text>(find.text('175 ms'));
+      final text = t.widget<Text>(find.text('175ms'));
       expect(text.style!.color, const Color(0xFFC57F0A));
       expect(container.read(delayProvider(proxyName: 'HK01', testUrl: null)), 700);
     });
@@ -110,7 +110,7 @@ void main() {
     testWidgets('原始零值继续表示测速中', (t) async {
       await pumpNode(t, 0);
       expect(find.byType(XbSpinner), findsOneWidget);
-      expect(find.text('0 ms'), findsNothing);
+      expect(find.text('0ms'), findsNothing);
     });
 
     testWidgets('原始负值继续表示超时', (t) async {

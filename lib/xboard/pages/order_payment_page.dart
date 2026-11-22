@@ -63,7 +63,9 @@ class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage>
   bool _methodsError = false; // 支付方式加载失败 → 支付方式区显示重试块
   String? _selectedMethodId;
   final _methodsFocus = FocusNode(skipTraversal: true);
-  final _retryFocus = FocusNode();
+  final _retryLabel = GlobalKey();
+  bool _methodsReloading = false;
+  bool _paying = false;
   final _firstMethodFocus = FocusNode();
   Object? _loadError;
   bool _loading = true;
@@ -132,7 +134,6 @@ class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage>
     _authSubscription?.close();
     _serviceSubscription?.close();
     _pollTimer?.cancel();
-    _retryFocus.dispose();
     _firstMethodFocus.dispose();
     _methodsFocus.dispose();
     _dismissFeedback?.call();
@@ -182,6 +183,8 @@ class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage>
       _detail = null;
       _methods = const [];
       _methodsError = false;
+      _methodsReloading = false;
+      _paying = false;
       _selectedMethodId = null;
       _loadError = error;
       _loading = false;
@@ -324,27 +327,36 @@ class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage>
   Future<void> _reloadMethods() async {
     if (_actionsBusy) return;
     final owner = _contextVersion;
-    final restoreFocus = _retryFocus.hasPrimaryFocus;
+    final label = _retryLabel.currentContext;
+    final restoreFocus = label != null && Focus.of(label).hasPrimaryFocus;
     if (restoreFocus) _methodsFocus.requestFocus();
     await runSubmit(() async {
-      final mRes = await ref.read(xboardServiceProvider).getPaymentMethods();
-      if (!mounted || owner != _contextVersion) return;
-      setState(() {
-        switch (mRes) {
-          case XbSuccess(:final data):
-            _methods = data;
-            _methodsError = false;
-            _selectedMethodId = data.isNotEmpty ? data.first.id : null;
-          case XbFailure():
-            _methodsError = true;
-        }
-      });
+      setState(() => _methodsReloading = true);
+      try {
+        final mRes = await ref.read(xboardServiceProvider).getPaymentMethods();
+        if (!mounted || owner != _contextVersion) return;
+        setState(() {
+          switch (mRes) {
+            case XbSuccess(:final data):
+              _methods = data;
+              _methodsError = false;
+              _selectedMethodId = data.isNotEmpty ? data.first.id : null;
+            case XbFailure():
+              _methodsError = true;
+          }
+        });
+      } catch (_) {
+        if (mounted && owner == _contextVersion) setState(() => _methodsError = true);
+      } finally {
+        if (mounted && owner == _contextVersion) setState(() => _methodsReloading = false);
+      }
     });
     if (restoreFocus && mounted && owner == _contextVersion) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted || owner != _contextVersion || !_methodsFocus.hasPrimaryFocus) return;
-        final target = _methodsError ? _retryFocus : _firstMethodFocus;
-        if (target.context != null && target.canRequestFocus) target.requestFocus();
+        final label = _retryLabel.currentContext;
+        final target = _methodsError ? (label == null ? null : Focus.of(label)) : _firstMethodFocus;
+        if (target != null && target.context != null && target.canRequestFocus) target.requestFocus();
       });
     }
   }
@@ -529,22 +541,22 @@ class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage>
     final isPending = s.status == XbOrderStatus.pending;
     final canCheck = !_isTerminal(s.status);
     final netCents = (s.totalAmountYuan! * 100).round();
-    final statusCard = _StatusCard(status: s.status!);
+    final statusCard = _StatusCard(status: s.status!, compact: !wide);
     final productCard = _SectionCard(
+      compact: !wide,
       title: '产品信息',
       children: [
-        _row('套餐名称', s.planName ?? '套餐订单'),
-        _row('周期', planPeriodLabel(s.period)),
+        _InfoRow(label: '套餐名称', value: s.planName ?? '套餐订单', compact: !wide),
+        _InfoRow(label: '周期', value: planPeriodLabel(s.period), compact: !wide),
       ],
     );
     final orderCard = _SectionCard(
+      compact: !wide,
       title: '订单信息',
       children: [
-        _copyableRow('订单号', s.tradeNo),
-        _row('创建时间', _fmtDateTime(s.createdAt)),
-        if (wide && (detail.discountAmountYuan ?? 0) > 0)
-          _row('优惠券', xbYuanMinus(detail.discountAmountYuan!)),
-        ..._amountRows(detail, netCents),
+        _CopyableRow(label: '订单号', value: s.tradeNo, compact: !wide),
+        _InfoRow(label: '创建时间', value: _fmtDateTime(s.createdAt), compact: !wide),
+        ..._amountRows(detail, netCents, compact: !wide),
       ],
     );
 
@@ -594,37 +606,51 @@ class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage>
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
       children: [
         statusCard,
-        const SizedBox(height: 16),
+        const SizedBox(height: 9),
         productCard,
-        const SizedBox(height: 16),
+        const SizedBox(height: 9),
         orderCard,
         if (isPending) ...[
-          const SizedBox(height: 16),
+          const SizedBox(height: 9),
           _SectionCard(
+            compact: true,
             title: '支付方式',
-            children: [_paymentMethods(context, netCents: netCents)],
+            children: [_paymentMethods(context, netCents: netCents, compact: true)],
           ),
         ],
-        if (canCheck) ...[const SizedBox(height: 20), _actions(context)],
+        if (canCheck) ...[const SizedBox(height: 9), _actions(context, compact: true)],
       ],
     );
   }
 
-  List<Widget> _amountRows(OrderDetail detail, int netCents) {
-    // SDK 总额已扣余额和优惠，但不含渠道费。只加回余额来展示扣余额前的订单金额。
+  List<Widget> _amountRows(OrderDetail detail, int netCents, {required bool compact}) {
+    final discount = ((detail.discountAmountYuan ?? 0) * 100).round();
     final balanceCents = ((detail.balanceAmountYuan ?? 0) * 100).round();
     final balance = balanceCents > 0 ? balanceCents : 0;
+    final surplus = ((detail.surplusAmountYuan ?? 0) * 100).round();
+    final creditYuan = detail.surplusCreditYuan;
+    final credit = creditYuan == null ? null : (creditYuan * 100).round();
+    final applied = appliedOrderSurplusCents(net: netCents, balance: balance, surplus: surplus, credit: credit);
     final selected = _methods.where((m) => m.id == _selectedMethodId).firstOrNull;
     // 待付订单以当前渠道配置为准，不复用此前支付尝试留下的手续费。
     final feeCents = detail.summary.status == XbOrderStatus.pending
         ? _channelFeeCents(netCents, selected)
         : ((detail.handlingAmountYuan ?? 0) * 100).round();
     final fee = feeCents;
+    Widget row(String label, String value) => _InfoRow(label: label, value: value, compact: compact);
     return [
-      _row('订单金额', xbYuan((netCents + balance) / 100)),
-      if (balance > 0) _row('余额抵扣', xbYuanMinus(balance / 100)),
-      if (fee != 0) _row('支付手续费', fee < 0 ? xbYuanMinus(fee / 100) : xbYuan(fee / 100)),
-      _totalRow('应付金额', (netCents + fee) / 100),
+      if (applied != null)
+        row(discount > 0 || surplus > 0 ? '抵扣前订单金额' : '订单金额',
+            xbYuan((netCents + balance + discount + applied) / 100)),
+      if (discount > 0) row('订单优惠（已抵扣）', xbYuanMinus(discount / 100)),
+      if (applied != null && applied > 0) row('旧套餐结余抵扣', xbYuanMinus(applied / 100)),
+      if (applied == null && surplus > 0) row('旧套餐结余（抵扣额待核实）', xbYuan(surplus / 100)),
+      if (balance > 0) row('余额抵扣', xbYuanMinus(balance / 100)),
+      if (fee != 0) row('支付手续费', fee < 0 ? xbYuanMinus(fee / 100) : xbYuan(fee / 100)),
+      _TotalRow(label: '应付金额', yuan: (netCents + fee) / 100, compact: compact),
+      // A separate credit recorded for this order, not a second deduction or
+      // evidence that a pending/cancelled order already credited the account.
+      if (credit != null && credit > 0) row('结余返还金额', xbYuan(credit / 100)),
     ];
   }
 
@@ -652,42 +678,43 @@ class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage>
     return '手续费 $configuration$fixedDiscount';
   }
 
-  Widget _paymentMethods(BuildContext context, {required int netCents}) {
+  Widget _paymentMethods(BuildContext context, {required int netCents, bool compact = false}) {
     return Focus(
       focusNode: _methodsFocus,
-      child: _methodChoices(context, netCents: netCents),
+      child: _methodChoices(context, netCents: netCents, compact: compact),
     );
   }
 
-  Widget _methodChoices(BuildContext context, {required int netCents}) {
+  Widget _methodChoices(BuildContext context, {required int netCents, required bool compact}) {
     final scheme = Theme.of(context).colorScheme;
     // 加载失败 → 小重试块（替代「暂无支付方式」死胡同，原型 17b）。仅重拉支付方式，不动订单。
     if (_methodsError) {
-      return Padding(
-        padding: const EdgeInsets.symmetric(vertical: 14),
-        child: Column(
-          children: [
-            Text(
-              '支付方式加载失败',
-              style: TextStyle(fontSize: 13, color: scheme.onSurfaceVariant),
-            ),
-            const SizedBox(height: 8),
-            OutlinedButton.icon(
-              focusNode: _retryFocus,
-              onPressed: _actionsBusy ? null : _reloadMethods,
-              icon: const Icon(Icons.refresh_rounded, size: 16),
-              label: const Text('重新加载'),
-              style: OutlinedButton.styleFrom(
-                foregroundColor: scheme.primary,
-                side: BorderSide(
-                  color: scheme.primary.withValues(alpha: 0.40),
-                  width: 1.6,
-                ),
-                minimumSize: const Size(0, 38),
-                padding: const EdgeInsets.symmetric(horizontal: 18),
+      return SizedBox(
+        width: double.infinity,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 14),
+          child: Column(
+            children: [
+              Text(
+                _methodsReloading ? '正在加载支付方式…' : '支付方式加载失败',
+                style: TextStyle(fontSize: 13, color: scheme.onSurfaceVariant),
               ),
-            ),
-          ],
+              const SizedBox(height: 8),
+              XbGradientAction(
+                height: 48,
+                onPressed: _actionsBusy ? null : _reloadMethods,
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: Row(mainAxisSize: MainAxisSize.min, children: [
+                  if (_methodsReloading)
+                    SizedBox.square(dimension: 16, child: CircularProgressIndicator(strokeWidth: 2, color: XbTokens.of(context).onv))
+                  else
+                    const Icon(Icons.refresh_rounded, size: 18),
+                  const SizedBox(width: 7),
+                  Text('重新加载', key: _retryLabel),
+                ]),
+              ),
+            ],
+          ),
         ),
       );
     }
@@ -703,16 +730,19 @@ class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage>
         final selected = m.id == _selectedMethodId;
         final feeText = _channelFeeText(netCents, m);
         return Padding(
-          padding: const EdgeInsets.only(bottom: 8),
-          child: InkWell(
+          padding: EdgeInsets.only(bottom: compact ? 0 : 8),
+          child: Semantics(selected: selected, child: InkWell(
             focusNode: identical(m, _methods.first) ? _firstMethodFocus : null,
             onTap: _actionsBusy
                 ? null
                 : () => setState(() => _selectedMethodId = m.id),
             borderRadius: BorderRadius.circular(12),
             child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-              decoration: BoxDecoration(
+              constraints: compact ? const BoxConstraints(minHeight: 44) : null,
+              padding: compact
+                  ? const EdgeInsets.symmetric(vertical: 6)
+                  : const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              decoration: compact ? null : BoxDecoration(
                 color: selected
                     ? scheme.primary.withValues(alpha: 0.08)
                     : scheme.surfaceContainerHighest,
@@ -733,6 +763,8 @@ class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage>
                         Text(
                           m.name,
                           style: text.titleSmall?.copyWith(
+                            fontSize: compact ? 16 : null,
+                            height: compact ? 1.5 : null,
                             fontWeight: FontWeight.w600,
                           ),
                         ),
@@ -742,6 +774,7 @@ class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage>
                             feeText,
                             style: text.bodySmall?.copyWith(
                               color: scheme.onSurfaceVariant,
+                              fontSize: compact ? 10.5 : null,
                             ),
                           ),
                         ],
@@ -750,69 +783,83 @@ class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage>
                   ),
                   Icon(
                     selected
-                        ? Icons.check_circle_rounded
+                        ? Icons.check_circle_outline
                         : Icons.radio_button_unchecked,
+                    size: compact ? 20 : null,
                     color: selected ? scheme.primary : scheme.onSurfaceVariant,
                   ),
                 ],
               ),
             ),
-          ),
+          )),
         );
       }).toList(),
     );
   }
 
-  Widget _actions(BuildContext context) {
+  Widget _actions(BuildContext context, {bool compact = false}) {
     final scheme = Theme.of(context).colorScheme;
+    final t = XbTokens.of(context);
     final pending = _detail?.summary.status == XbOrderStatus.pending;
     return Column(
       children: [
         if (pending) ...[
-          FilledButton.icon(
+          SizedBox(width: double.infinity, child: XbGradientAction(
+            height: 48,
+            tintWhenDisabled: true,
             onPressed: _canPay ? _pay : null,
-            icon: submitting
-                ? const SizedBox(
+            child: Row(mainAxisSize: MainAxisSize.min, children: [
+              if (_paying)
+                SizedBox(
                     width: 18,
                     height: 18,
                     child: CircularProgressIndicator(
                       strokeWidth: 2.2,
-                      color: Colors.white,
+                      color: Color.lerp(t.onv, t.on, .25),
                     ),
-                  )
-                : const Icon(Icons.payment_rounded),
-            style: FilledButton.styleFrom(
-              backgroundColor: scheme.primary,
-              minimumSize: const Size.fromHeight(XbTokens.hButton),
-            ),
-            label: const Text('立即支付'),
-          ),
-          const SizedBox(height: 10),
+                )
+              else
+                const Icon(Icons.payment_rounded, size: 19),
+              const SizedBox(width: 8),
+              const Flexible(child: Text('立即支付')),
+            ]),
+          )),
+          SizedBox(height: compact ? 6 : 10),
           OutlinedButton.icon(
             onPressed: _canMutate ? _cancel : null,
-            icon: const Icon(Icons.close_rounded, size: 18),
+            icon: Icon(Icons.close_rounded, size: 18, color: _canMutate ? null : t.onv),
             style: OutlinedButton.styleFrom(
-              minimumSize: const Size.fromHeight(XbTokens.hButton),
+              minimumSize: Size.fromHeight(compact ? 40 : XbTokens.hButton),
+              disabledForegroundColor: t.onv,
+              disabledIconColor: t.onv,
+              disabledBackgroundColor: t.sfc,
+              side: BorderSide(color: _canMutate ? Color.lerp(t.line, scheme.primary, .40)! : t.line, width: 1.5),
             ),
-            label: const Text('取消订单'),
+            label: Text('取消订单', style: TextStyle(color: _canMutate ? null : t.onv)),
           ),
           const SizedBox(height: 4),
         ],
         TextButton.icon(
           onPressed: _actionsBusy ? null : _checkStatus,
+          style: TextButton.styleFrom(
+            disabledForegroundColor: t.onv,
+            disabledIconColor: t.onv,
+            disabledBackgroundColor: t.sfc,
+          ),
           icon: _checking
-              ? const SizedBox(
+              ? SizedBox(
                   width: 16,
                   height: 16,
-                  child: CircularProgressIndicator(strokeWidth: 2),
+                  child: CircularProgressIndicator(strokeWidth: 2, color: t.onv),
                 )
-              : const Icon(Icons.refresh_rounded, size: 18),
+              : Icon(Icons.refresh_rounded, size: 18, color: _actionsBusy ? t.onv : null),
           label: Text(
             _checking
                 ? '正在检测…'
                 : _checkFailed
                 ? '重新检测'
                 : '检测支付状态',
+            style: TextStyle(color: _actionsBusy ? t.onv : null),
           ),
         ),
         const SizedBox(height: 4),
@@ -835,21 +882,25 @@ class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage>
     final owner = _contextVersion;
     final method = _selectedMethodId!;
     await runSubmit(() async {
-      final result = await ref
-          .read(xboardServiceProvider)
-          .checkout(widget.tradeNo, method);
-      if (!mounted || owner != _contextVersion) return;
-      if (result case XbFailure(:final error)) {
-        xbToastSafe(
-          error is XbUnconfirmed
-              ? resolveErrorText(error)
-              : '支付失败：${resolveErrorText(error, fallback: '请稍后重试')}',
-        );
-        if (error is XbUnconfirmed) await _refreshAfterMutation();
-        return;
+      setState(() => _paying = true);
+      try {
+        final result = await ref
+            .read(xboardServiceProvider)
+            .checkout(widget.tradeNo, method);
+        if (!mounted || owner != _contextVersion) return;
+        if (result case XbFailure(:final error)) {
+          xbToastSafe(
+            error is XbUnconfirmed
+                ? resolveErrorText(error)
+                : '支付失败：${resolveErrorText(error, fallback: '请稍后重试')}',
+          );
+          if (error is XbUnconfirmed) await _refreshAfterMutation();
+          return;
+        }
+        await _handleOutcome((result as XbSuccess<CheckoutOutcomeUi>).data);
+      } finally {
+        if (mounted && owner == _contextVersion) setState(() => _paying = false);
       }
-      if (!mounted) return;
-      await _handleOutcome((result as XbSuccess<CheckoutOutcomeUi>).data);
     });
   }
 
@@ -990,20 +1041,14 @@ class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage>
 
   // ── helpers ──
 
-  Widget _row(String label, String value) =>
-      _InfoRow(label: label, value: value);
-  Widget _copyableRow(String label, String value) =>
-      _CopyableRow(label: label, value: value);
-  Widget _totalRow(String label, double yuan) =>
-      _TotalRow(label: label, yuan: yuan);
-
   String _fmtDateTime(DateTime d) => xbDateTime(d);
 }
 
 /// 订单状态卡（顶部，按状态变色 + 文案）。
 class _StatusCard extends StatelessWidget {
-  const _StatusCard({required this.status});
+  const _StatusCard({required this.status, required this.compact});
   final XbOrderStatus status;
+  final bool compact;
 
   @override
   Widget build(BuildContext context) {
@@ -1014,7 +1059,7 @@ class _StatusCard extends StatelessWidget {
       XbOrderStatus.pending => (
         Icons.schedule_rounded,
         '待支付',
-        '请选择您的支付方式完成订单',
+        '请选择支付方式完成订单',
         XbTokens.warn,
       ),
       XbOrderStatus.processing => (
@@ -1053,7 +1098,7 @@ class _StatusCard extends StatelessWidget {
       XbOrderStatus.cancelled => color,
     };
     return Container(
-      padding: const EdgeInsets.all(15),
+      padding: compact ? const EdgeInsets.symmetric(horizontal: 13, vertical: 11) : const EdgeInsets.all(15),
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.10),
         borderRadius: BorderRadius.circular(16),
@@ -1063,8 +1108,8 @@ class _StatusCard extends StatelessWidget {
         children: [
           // 圆形柔色徽标包住状态图标（与订单卡/账号失败卡统一，不裸放大图标）。
           Container(
-            width: 46,
-            height: 46,
+            width: compact ? 36 : 46,
+            height: compact ? 36 : 46,
             alignment: Alignment.center,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
@@ -1076,7 +1121,7 @@ class _StatusCard extends StatelessWidget {
               status: status,
             ),
           ),
-          const SizedBox(width: 14),
+          SizedBox(width: compact ? 12 : 14),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -1137,9 +1182,10 @@ class _StatusIcon extends StatelessWidget {
 
 /// 信息分区卡（标题 + 子行）。
 class _SectionCard extends StatelessWidget {
-  const _SectionCard({required this.title, required this.children});
+  const _SectionCard({required this.title, required this.children, this.compact = false});
   final String title;
   final List<Widget> children;
+  final bool compact;
 
   @override
   Widget build(BuildContext context) {
@@ -1155,15 +1201,15 @@ class _SectionCard extends StatelessWidget {
         boxShadow: t.shadow1,
       ),
       child: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: compact ? const EdgeInsets.symmetric(horizontal: 13, vertical: 11) : const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
               title,
-              style: text.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+              style: text.titleMedium?.copyWith(fontSize: compact ? 13 : null, color: compact ? t.onv : null, fontWeight: compact ? FontWeight.w600 : FontWeight.w700),
             ),
-            const SizedBox(height: 12),
+            SizedBox(height: compact ? 6 : 12),
             ...children,
           ],
         ),
@@ -1173,7 +1219,8 @@ class _SectionCard extends StatelessWidget {
 }
 
 class _InfoRow extends StatelessWidget {
-  const _InfoRow({required this.label, required this.value});
+  const _InfoRow({required this.label, required this.value, this.compact = false});
+  final bool compact;
   final String label;
   final String value;
 
@@ -1182,7 +1229,7 @@ class _InfoRow extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     final text = Theme.of(context).textTheme;
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6),
+      padding: EdgeInsets.symmetric(vertical: compact ? 3 : 6),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -1208,7 +1255,8 @@ class _InfoRow extends StatelessWidget {
 }
 
 class _CopyableRow extends StatelessWidget {
-  const _CopyableRow({required this.label, required this.value});
+  const _CopyableRow({required this.label, required this.value, required this.compact});
+  final bool compact;
   final String label;
   final String value;
 
@@ -1217,7 +1265,7 @@ class _CopyableRow extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     final text = Theme.of(context).textTheme;
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6),
+      padding: EdgeInsets.symmetric(vertical: compact ? 3 : 6),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -1268,7 +1316,8 @@ class _CopyableRow extends StatelessWidget {
 }
 
 class _TotalRow extends StatelessWidget {
-  const _TotalRow({required this.label, required this.yuan});
+  const _TotalRow({required this.label, required this.yuan, required this.compact});
+  final bool compact;
   final String label;
   final double yuan;
 
@@ -1282,7 +1331,7 @@ class _TotalRow extends StatelessWidget {
       children: [
         Container(
           height: 1,
-          margin: const EdgeInsets.only(top: 10),
+          margin: EdgeInsets.only(top: compact ? 5 : 10),
           color: t.line,
         ),
         Padding(
@@ -1304,7 +1353,7 @@ class _TotalRow extends StatelessWidget {
               Text(
                 xbYuan(yuan),
                 style: TextStyle(
-                  fontSize: 21,
+                  fontSize: compact ? 19 : 21,
                   fontWeight: FontWeight.w700,
                   color: scheme.primary,
                   fontFeatures: const [FontFeature.tabularFigures()],

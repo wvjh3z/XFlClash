@@ -85,7 +85,7 @@ void main() {
           await tester.pump();
           // The submit spinner intentionally stays active behind this dialog.
           await tester.pump(const Duration(milliseconds: 400));
-          expect(find.text('确认更换套餐？'), findsOneWidget);
+          expect(find.text('确认更换套餐'), findsOneWidget);
 
           void changeContext() {
             if (mode.contains('session') || mode.contains('both')) {

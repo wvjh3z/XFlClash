@@ -10,7 +10,6 @@ library;
 
 import 'package:material_ui/material_ui.dart';
 
-import '../widgets/xb_components.dart' show XbInfoCard;
 import '../widgets/xb_theme.dart' show XbTokens;
 import '../widgets/xb_ui_kit.dart' show XbBrandScaffold;
 
@@ -97,7 +96,12 @@ Widget _h(BuildContext context, String text) {
 }
 
 /// 无序列表（圆点 + 文本）。
-Widget _bullets(BuildContext context, List<String> items) {
+Widget _bullets(BuildContext context, List<String> items) =>
+    _richBullets(context, [for (final item in items) TextSpan(text: item)]);
+
+const _strong = TextStyle(fontWeight: FontWeight.w700);
+
+Widget _richBullets(BuildContext context, List<TextSpan> items) {
   final t = XbTokens.of(context);
   return Padding(
     padding: const EdgeInsets.only(bottom: 14),
@@ -120,7 +124,7 @@ Widget _bullets(BuildContext context, List<String> items) {
                   ),
                 ),
                 Expanded(
-                  child: Text(it,
+                  child: Text.rich(it,
                       style: TextStyle(
                           fontSize: 14, height: 1.7, color: t.on)),
                 ),
@@ -132,11 +136,28 @@ Widget _bullets(BuildContext context, List<String> items) {
   );
 }
 
-/// 底部品牌色提示框（复用 [XbInfoCard]）。
-Widget _tip(String text) => Padding(
-      padding: const EdgeInsets.only(top: 2),
-      child: XbInfoCard(icon: Icons.info_outline, text: text),
-    );
+/// 法律文档的页末注释：小图标与说明并排，不套操作卡的徽标。
+Widget _tip(IconData icon, String text) => Builder(builder: (context) {
+  final t = XbTokens.of(context);
+  final brand = Theme.of(context).colorScheme.primary;
+  return Container(
+    margin: const EdgeInsets.only(top: 6, bottom: 14),
+    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+    decoration: BoxDecoration(
+      color: Color.alphaBlend(brand.withValues(alpha: .07), t.card),
+      border: Border.all(color: Color.alphaBlend(brand.withValues(alpha: .20), t.line)),
+      borderRadius: BorderRadius.circular(XbTokens.rMd),
+    ),
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(icon, size: 18, color: brand),
+        const SizedBox(width: 9),
+        Expanded(child: Text(text, style: TextStyle(fontSize: 12.5, height: 1.6, color: t.onv))),
+      ],
+    ),
+  );
+});
 
 // ───────── 免责声明 ─────────
 
@@ -175,7 +196,7 @@ class DisclaimerPage extends StatelessWidget {
           '本应用基于开源核心 FlClash（GPL-3.0）二次开发，遵循其开源协议',
           '第三方品牌名称、商标、Logo 归各自权利人所有',
         ]),
-        _tip('本声明的最终解释权归服务提供方所有，并可能随服务调整而更新。'),
+        _tip(Icons.gavel, '本声明的最终解释权归服务提供方所有，并可能随服务调整而更新。'),
       ],
     );
   }
@@ -238,11 +259,15 @@ class TermsPage extends StatelessWidget {
           '您继续使用服务即视为同意更新后的协议',
         ]),
         _h(context, '七、争议解决'),
-        _bullets(context, const [
-          '本协议的解释与执行适用新加坡法律',
-          '协商不成的争议可提交服务提供方所在地有管辖权的法院诉讼',
+        _richBullets(context, const [
+          TextSpan(children: [
+            TextSpan(text: '本协议的解释与执行适用'),
+            TextSpan(text: '新加坡', style: _strong),
+            TextSpan(text: '法律'),
+          ]),
+          TextSpan(text: '协商不成的争议可提交服务提供方所在地有管辖权的法院诉讼'),
         ]),
-        _tip('如对协议条款有疑问，请通过应用内「在线客服」联系我们。'),
+        _tip(Icons.support_agent, '如对协议条款有疑问，请通过应用内「在线客服」联系我们。'),
       ],
     );
   }
@@ -275,9 +300,13 @@ class PrivacyPage extends StatelessWidget {
           '套餐流量使用情况、到期时间',
         ]),
         _p(context, '3. 连接信息', bold: true),
-        _bullets(context, const [
-          '出口 IP（用于防止账号滥用、异常登录检测）',
-          '我们不记录您具体访问的网站、应用、内容',
+        _richBullets(context, const [
+          TextSpan(text: '出口 IP（用于防止账号滥用、异常登录检测）'),
+          TextSpan(children: [
+            TextSpan(text: '我们'),
+            TextSpan(text: '不记录', style: _strong),
+            TextSpan(text: '您具体访问的网站、应用、内容'),
+          ]),
         ]),
         _p(context, '4. 设备与崩溃信息', bold: true),
         _bullets(context, const [
@@ -293,15 +322,24 @@ class PrivacyPage extends StatelessWidget {
           '处理客服咨询与售后请求',
         ]),
         _h(context, '三、数据存储位置'),
-        _bullets(context, const [
-          '账号、订阅、订单数据存储于：新加坡',
-          '数据控制方：本服务的运营方',
+        _richBullets(context, const [
+          TextSpan(children: [
+            TextSpan(text: '账号、订阅、订单数据存储于：'),
+            TextSpan(text: '新加坡', style: _strong),
+          ]),
+          TextSpan(text: '数据控制方：本服务的运营方'),
         ]),
         _h(context, '四、第三方服务'),
         _p(context, '我们使用以下第三方服务，仅传递必要信息：'),
-        _bullets(context, const [
-          'Sentry：崩溃与故障诊断信息上报，保留原始错误内容；可在设置中关闭，修改后需完全退出并重新打开应用',
-          '支付服务商（支付宝 / 微信等）：仅获取订单状态，不接触您的支付凭证',
+        _richBullets(context, const [
+          TextSpan(children: [
+            TextSpan(text: 'Sentry', style: _strong),
+            TextSpan(text: '：崩溃与故障诊断信息上报，保留原始错误内容；可在设置中关闭，修改后需完全退出并重新打开应用'),
+          ]),
+          TextSpan(children: [
+            TextSpan(text: '支付服务商', style: _strong),
+            TextSpan(text: '（支付宝 / 微信等）：仅获取订单状态，不接触您的支付凭证'),
+          ]),
         ]),
         _h(context, '五、数据保留'),
         _bullets(context, const [
@@ -315,7 +353,7 @@ class PrivacyPage extends StatelessWidget {
         _p(context, '本政策可能随服务调整而更新，重大变更将通过应用内通知或邮件告知。'),
         _h(context, '八、联系我们'),
         _p(context, '如对本政策有疑问，请通过应用内「在线客服」联系我们。'),
-        _tip('我们承诺：除法律强制要求外，不会出售、出租、转让您的个人信息。'),
+        _tip(Icons.shield_outlined, '我们承诺：除法律强制要求外，不会出售、出租、转让您的个人信息。'),
       ],
     );
   }

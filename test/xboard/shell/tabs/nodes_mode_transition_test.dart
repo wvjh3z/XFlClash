@@ -118,7 +118,8 @@ void main() {
           final capsule = find.byKey(const ValueKey('nodes-action-capsule'));
           expect(capsule, desktop ? findsNothing : findsOneWidget);
           if (!desktop) {
-            expect(tester.getSize(capsule), const Size(157, 48));
+            expect(tester.getSize(capsule), const Size(157, 44));
+            expect(tester.getSize(find.byKey(const ValueKey('nodes-action-capsule-face'))), const Size(157, 36));
             final delaySurface = find.byKey(const ValueKey('node-delay-press-surface'));
             final refreshSurface = find.byKey(const ValueKey('node-refresh-press-surface'));
             final divider = find.byKey(const ValueKey('nodes-action-divider'));

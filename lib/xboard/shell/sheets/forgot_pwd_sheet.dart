@@ -15,6 +15,8 @@ import 'package:fl_clash/xboard/util/error_text.dart';
 import 'package:fl_clash/xboard/widgets/xb_cooldown_guard.dart';
 import 'package:fl_clash/xboard/widgets/xb_submit_guard.dart';
 
+import '../../widgets/xb_ui_kit.dart' show XbGradientAction;
+import 'login_sheet.dart' show showLoginSheet;
 import 'sheet_scaffold.dart';
 import '../../util/email_address.dart';
 
@@ -136,6 +138,9 @@ class _ForgotPwdSheetState extends ConsumerState<ForgotPwdSheet>
       title: '重置密码',
       subtitle: '通过注册邮箱验证身份并设置新密码',
       banner: _banner,
+      footer: XbAuthLinks(prompt: '想起来了？', links: [
+        ('返回登录', submitting ? null : () => switchXbAuthSheet(context, showLoginSheet)),
+      ]),
       children: [
         XbEmailAccountField(
           prefixController: _prefixCtrl,
@@ -143,6 +148,7 @@ class _ForgotPwdSheetState extends ConsumerState<ForgotPwdSheet>
           selectedSuffix: _suffix,
           onSuffixChanged: (v) => setState(() => _suffix = v),
         ),
+        if (suffixes.isNotEmpty) Text('请选择注册时使用的邮箱后缀', style: Theme.of(context).textTheme.bodySmall),
         const SizedBox(height: 12),
         XbVerifyCodeField(
           controller: _codeCtrl,
@@ -154,7 +160,7 @@ class _ForgotPwdSheetState extends ConsumerState<ForgotPwdSheet>
           controller: _pwCtrl,
           obscureText: _obscure,
           decoration: InputDecoration(
-            labelText: '新密码',
+            labelText: '设置新密码',
             suffixIcon: IconButton(
               icon: Icon(_obscure ? Icons.visibility_off : Icons.visibility),
               onPressed: () => setState(() => _obscure = !_obscure),
@@ -164,7 +170,8 @@ class _ForgotPwdSheetState extends ConsumerState<ForgotPwdSheet>
         const SizedBox(height: 20),
         SizedBox(
           width: double.infinity,
-          child: FilledButton(
+          child: XbGradientAction(
+            height: 50,
             onPressed: (!ready || submitting) ? null : () => _submit(suffixes),
             child: submitting
                 ? const SizedBox(

@@ -26,6 +26,7 @@ import '../shell/widgets/xb_responsive.dart';
 import '../util/error_text.dart';
 import '../util/format.dart';
 import '../widgets/xb_ui_kit.dart';
+import '../widgets/xb_purchase_confirmation.dart';
 import 'order_payment_page.dart';
 
 final _resetDialogs = Expando<DialogRoute<Widget>>();
@@ -366,27 +367,6 @@ class _ResetTrafficPageState extends ConsumerState<ResetTrafficPage> {
         : days == 0
         ? '今天'
         : '剩余 $days 天';
-    final brand = theme.colorScheme.primary;
-    // Keep the light end vivid without putting white on a low-contrast tint.
-    var gradientStart = Color.lerp(brand, Colors.white, 0.16)!;
-    while (gradientStart.computeLuminance() > 0.175) {
-      gradientStart = Color.lerp(gradientStart, Colors.black, 0.05)!;
-    }
-    final shape = RoundedRectangleBorder(
-      borderRadius: BorderRadius.circular(XbTokens.rButton),
-    );
-    ButtonStyle actionStyle(Color fill, Color foreground) =>
-        FilledButton.styleFrom(
-          backgroundColor: fill,
-          disabledBackgroundColor: t.sfc,
-          foregroundColor: foreground,
-          disabledForegroundColor: t.onv,
-          minimumSize: const Size(0, 46),
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-          shape: shape,
-          textStyle: text.titleSmall,
-          elevation: 0,
-        );
     return AlertDialog(
       backgroundColor: t.sf2,
       insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
@@ -527,48 +507,10 @@ class _ResetTrafficPageState extends ConsumerState<ResetTrafficPage> {
             onPressed: _loading ? null : () => _load(retry: true),
             child: const Text('重试'),
           ),
-        IntrinsicHeight(
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Expanded(
-                child: FilledButton(
-                  onPressed: _submitting && ownerCurrent ? null : _close,
-                  style: actionStyle(inset, t.on),
-                  child: const Text('再想想', textAlign: TextAlign.center),
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    borderRadius: shape.borderRadius,
-                    gradient: canSubmit
-                        ? LinearGradient(
-                            begin: Alignment.topLeft,
-                            end: Alignment.bottomRight,
-                            colors: [
-                              gradientStart,
-                              Color.lerp(gradientStart, Colors.black, 0.24)!,
-                            ],
-                          )
-                        : null,
-                  ),
-                  child: FilledButton(
-                    style: actionStyle(Colors.transparent, Colors.white),
-                    onPressed: canSubmit
-                        ? () => _submitOrder(subscription)
-                        : null,
-                    child: Text(
-                      _submitting ? '正在核对订单…' : '确认购买',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(color: canSubmit ? Colors.white : t.onv),
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
+        XbPurchaseActions(
+          confirmLabel: _submitting ? '正在核对订单…' : '确认购买',
+          onCancel: _submitting && ownerCurrent ? null : _close,
+          onConfirm: canSubmit ? () => _submitOrder(subscription) : null,
         ),
       ],
     );

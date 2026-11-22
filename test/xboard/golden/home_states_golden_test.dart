@@ -21,9 +21,10 @@ Future<void> pumpHome(
   required bool isStart,
   XbDomainSubscription? sub,
   XboardService? service,
+  DateTime? expiryNow,
 }) async {
   await pumpShell(tester, core: core, auth: auth, mobile: true, size: const Size(390,844),
-      subscription: sub, service: service, unselected: !isStart);
+      subscription: sub, service: service, expiryNow: expiryNow, unselected: !isStart);
   expect(find.text('节点').hitTestable(), findsOneWidget);
   expect(find.text('商店').hitTestable(), findsOneWidget);
   expect(find.byType(XbLineCard), auth == AuthState.authenticated ? findsOneWidget : findsNothing);
@@ -62,12 +63,14 @@ void main() {
   });
 
   testWidgets('首页 · 套餐到期提醒（剩7天）golden', (t) async {
-    final now = DateTime.now();
+    final now = DateTime.utc(2026, 6, 1, 12);
     await pumpHome(t,
         auth: AuthState.authenticated,
         core: CoreStatus.connected,
         isStart: true,
-        sub: _subExpiring(now.add(const Duration(days: 7, hours: 12))));
+        expiryNow: now,
+        sub: _subExpiring(now.add(const Duration(days: 7))));
+    expect(find.textContaining('仅剩 7 天'), findsOneWidget);
     expect(t.takeException(), isNull);
     await expectXbGolden(t, find.byKey(const ValueKey('home-golden-window')), 'goldens/home_expiry_7d.png');
   });

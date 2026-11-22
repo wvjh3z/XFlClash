@@ -17,7 +17,9 @@ import '../../adapters/xb_nodes_adapter.dart';
 
 /// 当前线路卡。
 class XbLineCard extends ConsumerWidget {
-  const XbLineCard({super.key, this.onTapToNodes, this.embedded = false});
+  const XbLineCard({super.key, this.onTapToNodes, this.embedded = false, this.blockedWithoutNodes = false});
+
+  final bool blockedWithoutNodes;
 
   /// 点击切到节点 Tab 的回调（shell 注入）。带上当前生效节点的所属分组名 +
   /// 节点名，供节点页打开时定位到该分组并把该节点滚动到尽量居中。无选中则传 (null, null)。
@@ -32,7 +34,10 @@ class XbLineCard extends ConsumerWidget {
     final nodesAdapter = ref.watch(xbNodesAdapterProvider);
     final scheme = Theme.of(context).colorScheme;
 
-    final selection = nodesAdapter.currentSelection(ref);
+    final unavailable = blockedWithoutNodes && nodesAdapter.nodesView(ref).isEmpty;
+    final selection = unavailable
+        ? (group: null, node: null)
+        : nodesAdapter.currentSelection(ref);
     // 只要有生效节点就显示它（不依赖连接态）：上行节点名，下行「当前分组：X」。
     // 无任何选中（全空链）→ 占位引导。
     final hasSelection = selection.node != null && selection.node!.isNotEmpty;
@@ -44,7 +49,9 @@ class XbLineCard extends ConsumerWidget {
           selection.group != null ? '当前分组：${selection.group}' : '当前线路';
     } else {
       title = '未选择线路';
-      subtitle = '连接后自动优选';
+      subtitle = unavailable
+          ? '当前套餐无可用线路'
+          : '连接后自动优选';
     }
 
     if (embedded) {

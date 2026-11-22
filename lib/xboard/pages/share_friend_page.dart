@@ -6,7 +6,7 @@
 /// **三态**（原型 ok / loading / empty）：
 /// - 加载中 → [XbAsyncView] 骨架（list）；
 /// - 正常（enabled）→ 分享链接卡（主/备地址复制，复用 [XbShareLinksCard]）+ 多平台下载说明；
-/// - 未配置（enabled=false）/ 拉取失败 → [XbEmptyState] link_off「暂无分享地址」。
+/// - 未配置（enabled=false）→「暂无分享地址」；拉取失败单独提供重试。
 ///
 /// **数据**：`shareLinkProvider`（autoDispose）。永不抛（XbResult → AsyncError 由 XbAsyncView 分流）。
 library;
@@ -20,7 +20,7 @@ import '../widgets/xb_async_view.dart';
 import '../widgets/xb_components.dart';
 import '../widgets/xb_share_links.dart';
 import '../widgets/xb_theme.dart' show XbTokens;
-import '../widgets/xb_ui_kit.dart' show XbBrandScaffold;
+import '../widgets/xb_ui_kit.dart' show XbBrandScaffold, XbIconBadge;
 
 class ShareFriendPage extends ConsumerWidget {
   const ShareFriendPage({super.key});
@@ -63,10 +63,41 @@ class _ShareBody extends ConsumerWidget {
   Widget _content(BuildContext context, XbShareLink link) {
     // 未配置 / 后台关闭 → 空态（非错误，原型 empty 态）。
     if (!link.enabled) {
-      return const XbEmptyState(
-        icon: Icons.link_off,
-        title: '暂无分享地址',
-        description: '管理员尚未配置分享落地页，请稍后再试。',
+      if (MediaQuery.sizeOf(context).width >= 600) {
+        return const XbEmptyState(
+          icon: Icons.link_off,
+          title: '暂无分享地址',
+          description: '管理员尚未配置分享落地页，请稍后再试。',
+        );
+      }
+      final t = XbTokens.of(context);
+      return ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.fromLTRB(24, 44, 24, 16),
+        children: [
+          Center(
+            child: XbIconBadge(
+              icon: Icons.link_off,
+              size: 64,
+              radius: 18,
+              iconSize: 24,
+              background: t.sfc,
+              iconColor: t.on,
+            ),
+          ),
+          const SizedBox(height: 16),
+          Text(
+            '暂无分享地址',
+            textAlign: TextAlign.center,
+            style: TextStyle(color: t.on, fontSize: 15, fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            '管理员尚未配置分享落地页，\n请稍后再试。',
+            textAlign: TextAlign.center,
+            style: TextStyle(color: t.onv, fontSize: 12.5, height: 1.65),
+          ),
+        ],
       );
     }
     return ListView(

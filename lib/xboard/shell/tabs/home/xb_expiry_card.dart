@@ -17,6 +17,8 @@ import 'package:fl_clash/xboard/providers/user_profile_provider.dart';
 import '../../../widgets/xb_plan_notice_card.dart';
 import '../../../navigation/plan_navigation.dart';
 
+final expiryClockProvider = Provider<DateTime Function()>((_) => DateTime.now);
+
 /// 到期提醒卡。
 class XbExpiryCard extends ConsumerWidget {
   const XbExpiryCard({super.key, this.onTapRenew, this.centered = false});
@@ -41,12 +43,11 @@ class XbExpiryCard extends ConsumerWidget {
     final expiredAt = sub.expiredAt;
     if (expiredAt == null) return const SizedBox.shrink(); // 长期有效
 
-    final now = DateTime.now();
+    final now = ref.watch(expiryClockProvider)();
     final diff = expiredAt.difference(now);
     final expired = !expiredAt.isAfter(now);
 
-    // 未过期且剩余 >7 天（按下取整天数）→ 不显示。剩 7 天 12 小时 → inDays=7 → 显示。
-    if (!expired && diff.inDays > 7) return const SizedBox.shrink();
+    if (diff > const Duration(days: 7)) return const SizedBox.shrink();
 
     final urgent = expired || diff <= const Duration(days: 3);
 
@@ -70,7 +71,7 @@ class XbExpiryCard extends ConsumerWidget {
     }
     final String dayTxt;
     if (diff < const Duration(days: 1)) {
-      final hrs = (diff.inMinutes + 59) ~/ 60; // 向上取整
+      final hrs = (diff.inMicroseconds / Duration.microsecondsPerHour).ceil();
       dayTxt = '仅剩 ${hrs < 1 ? 1 : hrs} 小时';
     } else {
       dayTxt = '仅剩 ${diff.inDays} 天';

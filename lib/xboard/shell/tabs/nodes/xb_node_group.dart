@@ -216,6 +216,7 @@ class _NodeRow extends ConsumerWidget {
     final scheme = Theme.of(context).colorScheme;
     final adapter = ref.watch(xbNodesAdapterProvider);
 
+    final mobile = !large && Theme.of(context).platform == TargetPlatform.android;
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: DecoratedBox(
@@ -261,12 +262,13 @@ class _NodeRow extends ConsumerWidget {
                     ),
                     if (isAutoHit) ...[
                       const SizedBox(width: 8),
-                      const XbTag('自动'),
+                      if (mobile) const _AutoBadge() else const XbTag('自动'),
                     ],
                     const SizedBox(width: 10),
                     // 延迟按自然宽度紧跟名字（不再定宽右对齐 —— 那样会在名字与延迟间留空白、
                     // 把名字过早挤成省略号；名字优先完整展示）。
                     _DelayText(
+                      compactUnit: mobile,
                       proxyName: node.name,
                       type: node.type,
                       testUrl: node.testUrl,
@@ -286,9 +288,36 @@ class _NodeRow extends ConsumerWidget {
   }
 }
 
+class _AutoBadge extends StatelessWidget {
+  const _AutoBadge();
+
+  @override
+  Widget build(BuildContext context) {
+    final brand = Theme.of(context).colorScheme.primary;
+    final light = brand == const Color(0xffd92e1a)
+        ? const Color(0xffff5a44)
+        : Color.lerp(brand, Colors.white, 0.16)!;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(XbTokens.rSm),
+        gradient: LinearGradient(
+          begin: Alignment.topLeft, end: Alignment.bottomRight, colors: [light, brand],
+        ),
+      ),
+      child: const Padding(
+        padding: EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+        child: Text('自动', style: TextStyle(
+          color: Colors.white, fontSize: 10.5, fontWeight: FontWeight.w600, height: 15 / 10.5,
+        )),
+      ),
+    );
+  }
+}
+
 /// 延迟数字（着色 + 等宽）；未测显示「测速」闪电按钮，测速中转圈，有值显示「N ms」/「超时」。
 class _DelayText extends ConsumerWidget {
   const _DelayText({
+    required this.compactUnit,
     required this.proxyName,
     required this.type,
     required this.testUrl,
@@ -296,6 +325,7 @@ class _DelayText extends ConsumerWidget {
   });
 
   final String proxyName;
+  final bool compactUnit;
   final String type;
   final String? testUrl;
   final XbNodesAdapter adapter;
@@ -329,7 +359,7 @@ class _DelayText extends ConsumerWidget {
     return GestureDetector(
       onTap: test,
       child: Text(
-        delay > 0 ? '${xbLatencyDisplay(delay)} ms' : '超时',
+        delay > 0 ? '${xbLatencyDisplay(delay)}${compactUnit ? 'ms' : ' ms'}' : '超时',
         style: TextStyle(
           fontSize: 13.5,
           fontWeight: FontWeight.w500,

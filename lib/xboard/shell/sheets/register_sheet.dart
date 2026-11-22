@@ -18,6 +18,9 @@ import 'package:fl_clash/xboard/util/error_text.dart';
 import 'package:fl_clash/xboard/widgets/xb_cooldown_guard.dart';
 import 'package:fl_clash/xboard/widgets/xb_submit_guard.dart';
 
+import '../../config/xboard_config.dart';
+import '../../widgets/xb_ui_kit.dart' show XbGradientAction;
+import 'login_sheet.dart' show showLoginSheet;
 import 'sheet_scaffold.dart';
 import '../../util/email_address.dart';
 
@@ -179,8 +182,12 @@ class _RegisterSheetState extends ConsumerState<RegisterSheet>
         ref.watch(emailSuffixesProvider).asData?.value ?? const <String>[];
 
     return XbSheetScaffold(
-      title: '注册',
+      title: '注册 ${XboardConfig.current.appName}',
+      subtitle: '创建账号，开启加密保护',
       banner: _banner,
+      footer: XbAuthLinks(prompt: '已有账号？', links: [
+        ('返回登录', submitting ? null : () => switchXbAuthSheet(context, showLoginSheet)),
+      ]),
       children: [
         // 邮箱账号（前缀 + 后缀下拉，R5.5/R5.6/R5.7）。
         XbEmailAccountField(
@@ -189,6 +196,7 @@ class _RegisterSheetState extends ConsumerState<RegisterSheet>
           selectedSuffix: _suffix,
           onSuffixChanged: (v) => setState(() => _suffix = v),
         ),
+        if (suffixes.isNotEmpty) Text('邮箱后缀由服务端提供，请从列表中选择', style: Theme.of(context).textTheme.bodySmall),
         const SizedBox(height: 12),
         // 验证码在密码上方（R5.7），短框 + 获取按钮（R5.8）。
         XbVerifyCodeField(
@@ -201,7 +209,7 @@ class _RegisterSheetState extends ConsumerState<RegisterSheet>
           controller: _pwCtrl,
           obscureText: _obscure,
           decoration: InputDecoration(
-            labelText: '密码',
+            labelText: '设置密码',
             suffixIcon: IconButton(
               icon: Icon(_obscure ? Icons.visibility_off : Icons.visibility),
               onPressed: () => setState(() => _obscure = !_obscure),
@@ -211,7 +219,8 @@ class _RegisterSheetState extends ConsumerState<RegisterSheet>
         const SizedBox(height: 20),
         SizedBox(
           width: double.infinity,
-          child: FilledButton(
+          child: XbGradientAction(
+            height: 50,
             onPressed: (!ready || submitting) ? null : () => _submit(suffixes),
             child: submitting
                 ? const SizedBox(

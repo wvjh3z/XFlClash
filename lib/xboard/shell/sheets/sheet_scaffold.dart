@@ -109,8 +109,6 @@ class XbSheetScaffold extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final bottomInset = MediaQuery.of(context).viewInsets.bottom;
-    // 标题/副标题：有徽标时整体居中（原型登录/注册风格）。
-    final centered = badge != null;
     return Padding(
       padding: EdgeInsets.only(bottom: bottomInset),
       child: SingleChildScrollView(
@@ -126,7 +124,7 @@ class XbSheetScaffold extends StatelessWidget {
               ],
               Text(
                 title,
-                textAlign: centered ? TextAlign.center : TextAlign.start,
+                textAlign: TextAlign.center,
                 style: Theme.of(context).textTheme.titleLarge?.copyWith(
                       fontWeight: FontWeight.w800,
                     ),
@@ -135,7 +133,7 @@ class XbSheetScaffold extends StatelessWidget {
                 const SizedBox(height: 5),
                 Text(
                   subtitle!,
-                  textAlign: centered ? TextAlign.center : TextAlign.start,
+                  textAlign: TextAlign.center,
                   style: TextStyle(
                     fontSize: 13.5,
                     color: scheme.onSurfaceVariant,
@@ -230,6 +228,34 @@ class XbSheetBadge extends StatelessWidget {
   }
 }
 
+/// Navigate between auth forms without leaving a stale form under the new one.
+void switchXbAuthSheet(BuildContext context, Future<void> Function(BuildContext) open) {
+  if (ModalRoute.of(context)?.isCurrent != true) return;
+  final navigator = Navigator.of(context);
+  navigator.pop();
+  open(navigator.context);
+}
+
+class XbAuthLinks extends StatelessWidget {
+  const XbAuthLinks({super.key, required this.prompt, required this.links});
+  final String prompt;
+  final List<(String, VoidCallback?)> links;
+
+  @override
+  Widget build(BuildContext context) => Wrap(
+    alignment: WrapAlignment.center, crossAxisAlignment: WrapCrossAlignment.center,
+    children: [
+      Text(prompt),
+      for (final (index, link) in links.indexed)
+        if (index == 0) TextButton(onPressed: link.$2, child: Text(link.$1))
+        else Row(mainAxisSize: MainAxisSize.min, children: [
+          const Text('·'),
+          Flexible(child: TextButton(onPressed: link.$2, child: Text(link.$1))),
+        ]),
+    ],
+  );
+}
+
 /// 邮箱账号输入（前缀输入 2/3 + 后缀下拉 1/3，spec 原型布局，R5.5/R5.7）。
 ///
 /// 后缀来自 Xboard 白名单（W0.2 emailSuffixesProvider）；空列表 = 白名单禁用 → 允许任意后缀
@@ -264,43 +290,34 @@ class XbEmailAccountField extends StatelessWidget {
     final selected = xbSelectedEmailSuffix(choices, selectedSuffix);
     // Keep the editable subtree stable when config arrives or a full address is typed.
     final showSuffix = choices.isNotEmpty && !text.contains('@');
-    // 前缀输入框占满剩余宽 + 后缀下拉按内容宽（去前导图标，最大化可输入区）。
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Expanded(
-          child: TextField(
-            controller: prefixController,
+    return LayoutBuilder(builder: (context, constraints) {
+      final style = Theme.of(context).textTheme.titleMedium!;
+      final scaler = MediaQuery.textScalerOf(context);
+      final measure = TextPainter(
+        text: TextSpan(text: '@${selected ?? ''}', style: style),
+        textScaler: scaler, textDirection: Directionality.of(context),
+      )..layout();
+      final suffixWidth = measure.width.ceilToDouble() + 64;
+      measure.dispose();
+      final stacked = suffixWidth + 8 + scaler.scale(112) > constraints.maxWidth;
+      Widget suffix() => DropdownButtonFormField<String>(
+        key: ValueKey('${choices.join(',')}|$selected'),
+        initialValue: selected, isExpanded: true, itemHeight: null,
+        decoration: const InputDecoration(contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 16)),
+        items: [for (final s in choices) DropdownMenuItem(value: s, child: Text('@$s'))],
+        onChanged: onSuffixChanged,
+      );
+      // Keep the prefix in the same subtree even when typing @ hides the picker.
+      return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        Row(children: [
+          Expanded(child: TextField(controller: prefixController,
             keyboardType: TextInputType.emailAddress,
-            decoration: const InputDecoration(labelText: '邮箱账号'),
-          ),
-        ),
-        if (showSuffix) ...[
-        const SizedBox(width: 8),
-        // 后缀下拉：按内容宽度（不再固定 1/3），约束最大宽避免超长后缀挤压输入框。
-        ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 150),
-          child: IntrinsicWidth(
-            child: DropdownButtonFormField<String>(
-              key: ValueKey('${choices.join(',')}|$selected'),
-              initialValue: selected,
-              isExpanded: true,
-              decoration: const InputDecoration(
-                  contentPadding:
-                      EdgeInsets.symmetric(horizontal: 12, vertical: 16)),
-              items: [
-                for (final s in choices)
-                  DropdownMenuItem(
-                      value: s,
-                      child: Text('@$s', overflow: TextOverflow.ellipsis)),
-              ],
-              onChanged: onSuffixChanged,
-            ),
-          ),
-        ),
-        ],
-      ],
-    );
+            decoration: const InputDecoration(labelText: '邮箱账号'))),
+          if (showSuffix && !stacked) ...[const SizedBox(width: 8), SizedBox(width: suffixWidth, child: suffix())],
+        ]),
+        if (showSuffix && stacked) ...[const SizedBox(height: 8), suffix()],
+      ]);
+    });
   }
 }
 
@@ -322,30 +339,22 @@ class XbVerifyCodeField extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.center,
-      children: [
-        Expanded(
-          child: TextField(
-            controller: controller,
-            keyboardType: TextInputType.number,
-            maxLength: 6,
-            decoration: const InputDecoration(
-              labelText: '验证码',
-              counterText: '',
-            ),
-          ),
-        ),
-        const SizedBox(width: 8),
-        OutlinedButton(
-          onPressed: cooldownSeconds > 0 ? null : onSend,
-          child: Text(
-            cooldownSeconds > 0 ? '${cooldownSeconds}s' : '获取验证码',
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-          ),
-        ),
-      ],
+    final input = TextField(
+      controller: controller, keyboardType: TextInputType.number, maxLength: 6,
+      decoration: const InputDecoration(labelText: '邮箱验证码', counterText: ''),
     );
+    final send = OutlinedButton(
+      onPressed: cooldownSeconds > 0 ? null : onSend,
+      child: Text(cooldownSeconds > 0 ? '${cooldownSeconds}s' : '获取验证码'),
+    );
+    return LayoutBuilder(builder: (context, c) {
+      final scale = MediaQuery.textScalerOf(context);
+      if (c.maxWidth < scale.scale(180) + 56) {
+        return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          input, const SizedBox(height: 4), Align(alignment: Alignment.centerRight, child: send),
+        ]);
+      }
+      return Row(children: [Expanded(child: input), const SizedBox(width: 8), send]);
+    });
   }
 }

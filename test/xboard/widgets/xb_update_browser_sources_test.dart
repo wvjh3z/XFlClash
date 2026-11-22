@@ -52,6 +52,7 @@ void main() {
   Future<void> pump(WidgetTester tester, _Probe probe, {
     bool inApp = false, int count = 3, void Function()? lookupStarted,
     void Function(List<String>)? downloaded,
+    Future<DownloadResult> Function(DownloadProgress)? holdDownload,
     Brightness brightness = Brightness.light,
     ValueNotifier<double>? textScale,
     List<String>? urls,
@@ -62,6 +63,7 @@ void main() {
       xbInAppUpdateSupportedProvider.overrideWithValue(inApp),
       xbUpdateDownloadProvider.overrideWithValue(({required urls, required onProgress, cancelToken, requestLinuxExit}) async {
         downloaded?.call(urls);
+        if (holdDownload != null) return holdDownload(onProgress);
         return DownloadResult.networkError;
       }),
     ], child: MaterialApp(theme: ThemeData(brightness: brightness),
@@ -139,7 +141,7 @@ void main() {
     final release = Completer<bool>(); launcher.answer = (_) => release.future;
     await pump(tester, _Probe()); await tester.pump();
     expect(launcher.urls.length, 1);
-    expect(tester.widget<OutlinedButton>(find.ancestor(of: find.text('重新打开'), matching: find.byType(OutlinedButton))).onPressed, isNull);
+    expect(tester.widget<FilledButton>(find.widgetWithText(FilledButton, '重新打开')).onPressed, isNull);
     expect(tester.widget<FilledButton>(find.ancestor(of: find.text('换下一条'), matching: find.byType(FilledButton))).onPressed, isNull);
     release.complete(true); await tester.pumpAndSettle();
     expect(launcher.urls.length, 1);
@@ -164,6 +166,55 @@ void main() {
     expect(find.text('重新打开'), findsOneWidget);
     await tester.pumpWidget(const SizedBox());
   });
+
+  for (final brightness in Brightness.values) {
+    testWidgets('download progress stays legible at 320dp and large text ($brightness)', (tester) async {
+      tester.view.physicalSize = const Size(320, 480);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final scale = ValueNotifier(1.0);
+      final done = Completer<DownloadResult>();
+      try {
+        // The small percentage leaves the text over the unfilled track.
+        // The larger sample puts it over the gradient.
+        final pct = brightness == Brightness.light ? 5 : 65;
+        await pump(tester, _Probe(), inApp: true, brightness: brightness,
+          textScale: scale, holdDownload: (onProgress) {
+            onProgress(pct * 1024 * 1024, 100 * 1024 * 1024);
+            return done.future;
+          },
+        );
+        await tester.pumpAndSettle();
+        final labels = find.text('$pct%');
+        expect(labels, findsNWidgets(2));
+        final fill = find.byWidgetPredicate((w) => w is FractionallySizedBox &&
+            w.widthFactor == pct / 100 && w.child is DecoratedBox);
+        final fillWidget = tester.widget<FractionallySizedBox>(fill);
+        final decoration = (fillWidget.child! as DecoratedBox).decoration as BoxDecoration;
+        final gradient = decoration.gradient! as LinearGradient;
+        expect(decoration.borderRadius, BorderRadius.circular(18));
+        expect(gradient.begin, Alignment.centerLeft);
+        expect(gradient.end, Alignment.centerRight);
+        final track = find.ancestor(of: fill, matching: find.byWidgetPredicate(
+          (w) => w is Container && w.constraints?.minHeight == 36,
+        ));
+        expect(tester.getSize(track).height, 36);
+        final styles = tester.widgetList<Text>(labels).map((w) => w.style!);
+        expect(styles.first.color, Theme.of(tester.element(fill)).colorScheme.onSurface);
+        expect(styles.last.color, Colors.white);
+        expect(styles.last.shadows?.single.blurRadius, 4);
+        scale.value = 2;
+        await tester.pumpAndSettle();
+        expect(tester.getSize(track).height, greaterThanOrEqualTo(tester.getSize(labels.first).height));
+        expect(find.text('正在下载 · $pct.0 / 100.0 MB'), findsOneWidget);
+        expect(tester.takeException(), isNull);
+      } finally {
+        done.complete(DownloadResult.networkError);
+        await tester.pumpWidget(const SizedBox());
+        scale.dispose();
+      }
+    }, variant: const TargetPlatformVariant({TargetPlatform.linux}));
+  }
 
   testWidgets('dispose cancels GET round and late result never opens browser', (tester) async {
     final probe = _Probe()..hold = Completer<List<String>>();

@@ -15,6 +15,7 @@ import 'package:fl_clash/xboard/shell/adapters/xb_ui_compatibility.dart';
 import 'package:prism_ui/prism_ui.dart' as prism;
 import '../../../helpers/test_app.dart';
 import 'package:fl_clash/providers/app.dart';
+import 'package:fl_clash/providers/config.dart' show themeSettingProvider;
 
 class _TestViewSize extends ViewSize {
   @override
@@ -22,6 +23,29 @@ class _TestViewSize extends ViewSize {
 }
 
 void main() {
+  testWidgets('移动设置首先呈现主题，显示当前偏好并保留诊断及隐私入口', (tester) async {
+    tester.view.physicalSize = const Size(390, 1200);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(
+      const ProviderScope(child: MaterialApp(home: XbSettingsPage())),
+    );
+    await tester.pump();
+    expect(find.text('更多'), findsNothing);
+    expect(tester.getCenter(find.text('通用设置')).dy,
+        lessThan(tester.getCenter(find.text('数据与诊断')).dy));
+    expect(find.text('崩溃信息上报'), findsOneWidget);
+    expect(find.text('跟随系统'), findsOneWidget);
+    final scope = ProviderScope.containerOf(tester.element(find.byType(XbSettingsPage)));
+    scope.read(themeSettingProvider.notifier)
+        .update((settings) => settings.copyWith(themeMode: prism.ThemeMode.dark));
+    await tester.pump();
+    expect(find.text('深色'), findsOneWidget);
+    expect(find.text('跟随系统'), findsNothing);
+  });
+
   for (final brand in ['brand_a', 'brand_b']) {
     for (final platform in [
       TargetPlatform.android,

@@ -19,6 +19,7 @@ import 'package:fl_clash/xboard/providers/auth_state_provider.dart';
 import 'package:fl_clash/xboard/providers/user_profile_provider.dart';
 import 'package:fl_clash/xboard/providers/xboard_providers.dart';
 import 'package:fl_clash/xboard/shell/xboard_app_shell.dart';
+import 'package:fl_clash/xboard/shell/tabs/home/xb_expiry_card.dart';
 import 'package:fl_clash/xboard/sdk/xboard_service.dart';
 
 import '../shell/_net_detection_stub.dart';
@@ -85,6 +86,7 @@ Future<void> pumpShell(
   XbDomainSubscription? subscription,
   XboardService? service,
   XboardConfig? config,
+  DateTime? expiryNow,
 }) async {
   tester.view.physicalSize = size;
   tester.view.devicePixelRatio = 1.0;
@@ -106,6 +108,7 @@ Future<void> pumpShell(
   final tab = unselected ? const ProxiesTabState(groups: [],currentGroupName: null,proxyCardType: ProxyCardType.standard) : _tab();
   final container = ProviderContainer(
     overrides: [
+      if (expiryNow != null) expiryClockProvider.overrideWithValue(() => expiryNow),
       isMobileViewProvider.overrideWith((ref) => mobile),
       authStateProvider.overrideWith(() => _FakeAuth(auth)),
       isStartProvider.overrideWith((ref) => core == CoreStatus.connected),
@@ -146,6 +149,10 @@ Future<void> pumpShell(
       child: RepaintBoundary(key: const ValueKey('home-golden-window'), child: MaterialApp(
         theme: ThemeData(fontFamily: 'Roboto'),
         debugShowCheckedModeBanner: false,
+        builder: !mobile || core != CoreStatus.connected ? null : (context, child) => MediaQuery(
+          data: MediaQuery.of(context).copyWith(disableAnimations: true),
+          child: child!,
+        ),
         home: const XboardAppShell(),
       )),
     ),

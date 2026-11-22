@@ -81,7 +81,8 @@ void main() {
       FilledButton,
       renew ? '确认续费' : '提交订单',
     );
-    expect(name, findsOneWidget);
+    expect(find.widgetWithText(AppBar, renew ? '续费当前套餐' : _plan.name), findsOneWidget);
+    expect(name, findsNWidgets(renew ? 1 : 2));
     expect(details, findsOneWidget);
     expect(find.byType(Html), findsOneWidget);
     expect(find.text('订单摘要'), findsNothing);

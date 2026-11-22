@@ -18,7 +18,9 @@ import '../../../widgets/xb_components.dart';
 import '../../../widgets/xb_emoji_text.dart';
 import '../../../widgets/xb_feedback.dart' show xbBrandColor;
 import '../../../widgets/xb_plan_details.dart';
+import '../../../widgets/xb_purchase_confirmation.dart';
 import '../../../widgets/xb_theme.dart';
+import '../../../widgets/xb_ui_kit.dart' show XbGradientAction;
 import '../../widgets/xb_content_header.dart';
 import 'xb_shop_navigation.dart';
 
@@ -79,6 +81,7 @@ class _ShopTabState extends ConsumerState<ShopTab> {
   final _scroll = ScrollController(keepScrollOffset: false);
   final _titleKeys = <int, GlobalKey>{};
   final _selectedPeriods = <int, XbPlanPeriod>{};
+  int? _chosenPlanId;
   XbShopIntent? _scheduled;
   XbShopIntent? _handled;
   (AuthState, int)? _owner;
@@ -99,6 +102,7 @@ class _ShopTabState extends ConsumerState<ShopTab> {
     if (_owner == next) return;
     _owner = next;
     _selectedPeriods.clear();
+    _chosenPlanId = null;
     _titleKeys.clear();
     final dialog = _confirmation;
     if (dialog != null) {
@@ -205,10 +209,10 @@ class _ShopTabState extends ConsumerState<ShopTab> {
         final route = xbDialogRoute<bool>(
           context: context,
           brandColor: xbBrandColor(),
-          builder: (_) => _PlanConfirmation(
-            currentName: profile.asData?.value.planName ?? '当前套餐',
-            selectedName: plan.name,
-            renew: renew,
+          builder: (_) => XbPlanConfirmation(
+            planName: profile.asData?.value.planName ?? '当前套餐',
+            targetName: renew ? null : plan.name,
+            confirmLabel: renew ? '继续续费' : '确认更换',
           ),
         );
         _confirmation = route;
@@ -220,6 +224,7 @@ class _ShopTabState extends ConsumerState<ShopTab> {
         if (accepted != true || !current()) return;
       }
       if (!mounted) return;
+      setState(() => _chosenPlanId = plan.id);
       // Opening checkout is read-only; only the checkout's submit can write.
       await xbPush(
         context,
@@ -399,7 +404,11 @@ class _ShopTabState extends ConsumerState<ShopTab> {
       selected: selected,
       renew: id == activeId,
       blocked: blocked,
-      onSelectPeriod: (period) => _selectedPeriods[id] = period,
+      chosen: id == _chosenPlanId && !blocked,
+      onSelectPeriod: (period) => setState(() {
+        _selectedPeriods[id] = period;
+        if (_chosenPlanId == id) _chosenPlanId = null;
+      }),
       onCheckout: blocked || !canCheckout
           ? null
           : authenticated
@@ -407,6 +416,7 @@ class _ShopTabState extends ConsumerState<ShopTab> {
           : (_) {
               if (widget.active &&
                   ref.read(authStateProvider) == AuthState.unauthenticated) {
+                setState(() => _chosenPlanId = _chosenPlanId == id ? null : id);
                 widget.onTapLogin();
               }
             },
@@ -448,6 +458,7 @@ class _PlanCard extends ConsumerStatefulWidget {
     required this.selected,
     required this.renew,
     required this.blocked,
+    required this.chosen,
     required this.onSelectPeriod,
     required this.onCheckout,
   });
@@ -457,6 +468,7 @@ class _PlanCard extends ConsumerStatefulWidget {
   final _ShopPrice selected;
   final bool renew;
   final bool blocked;
+  final bool chosen;
   final ValueChanged<XbPlanPeriod> onSelectPeriod;
   final ValueChanged<XbPlanPeriod>? onCheckout;
 
@@ -486,7 +498,11 @@ class _PlanCardState extends ConsumerState<_PlanCard> {
       XbPlanPeriod.yearly => dark ? const Color(0xFF9BBDED) : const Color(0xFF255B9B),
       _ => dark ? const Color(0xFFA8C1B7) : const Color(0xFF4C665E),
     };
-    final outline = Color.lerp(t.onv, t.line, 0.45)!;
+    const mistBlue = Color(0xFF365A73);
+    final buttonInk = dark ? Color.lerp(mistBlue, Colors.white, .42)! : mistBlue;
+    final outline = Color.lerp(t.sf2, buttonInk, .42)!;
+    final buyLabel = XbEmojiText(widget.blocked ? '当前套餐不可续费' : '${widget.renew ? '续费' : '购买'} ${plan.name}');
+    final buy = widget.onCheckout == null ? null : () => widget.onCheckout!(_selected.period);
     final whole = selected.cents ~/ 100;
     final fraction = (selected.cents % 100).toString().padLeft(2, '0');
     final unit = selected.period == XbPlanPeriod.onetime
@@ -494,7 +510,7 @@ class _PlanCardState extends ConsumerState<_PlanCard> {
         : '/ ${planPeriodUnit(selected.period)}';
     return XbCard(
       radius: XbTokens.rLg,
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -513,7 +529,7 @@ class _PlanCardState extends ConsumerState<_PlanCard> {
                     borderRadius: BorderRadius.circular(XbTokens.rSm),
                   ),
                   child: Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 2),
+                    padding: const EdgeInsets.symmetric(vertical: 1),
                     child: XbEmojiText(
                       plan.name,
                       style: theme.textTheme.titleLarge?.copyWith(
@@ -526,7 +542,7 @@ class _PlanCardState extends ConsumerState<_PlanCard> {
               ),
             ),
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 2),
           SingleChildScrollView(
             scrollDirection: Axis.horizontal,
             primary: false,
@@ -534,16 +550,17 @@ class _PlanCardState extends ConsumerState<_PlanCard> {
               children: [
                 for (final price in widget.offer.prices)
                   Padding(
-                    padding: const EdgeInsetsDirectional.only(end: 6),
+                    padding: const EdgeInsetsDirectional.only(end: 3),
                     child: Semantics(
                       key: ValueKey(('shop-period', plan.id, price.period)),
                       selected: price.period == selected.period,
                       child: OutlinedButton(
                         style: OutlinedButton.styleFrom(
-                          minimumSize: const Size(0, 26),
+                          minimumSize: const Size(0, 22),
+                          visualDensity: const VisualDensity(horizontal: -4),
                           tapTargetSize: MaterialTapTargetSize.padded,
-                          textStyle: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w600),
-                          padding: const EdgeInsets.symmetric(horizontal: 9),
+                          textStyle: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600),
+                          padding: const EdgeInsets.symmetric(horizontal: 4),
                           foregroundColor: tone(price.period),
                           backgroundColor: tone(price.period).withValues(alpha: price.period == selected.period ? 0.14 : 0.08),
                           side: BorderSide(color: tone(price.period).withValues(alpha: price.period == selected.period ? 0.64 : 0.22)),
@@ -563,7 +580,6 @@ class _PlanCardState extends ConsumerState<_PlanCard> {
               ],
             ),
           ),
-          const SizedBox(height: 8),
           Semantics(
             liveRegion: true,
             child: Text.rich(
@@ -571,6 +587,7 @@ class _PlanCardState extends ConsumerState<_PlanCard> {
                 text: '¥$whole.$fraction',
                 style: theme.textTheme.headlineSmall?.copyWith(
                   fontSize: 32,
+                  height: 1.12,
                   fontFeatures: const [FontFeature.tabularFigures()],
                   fontWeight: FontWeight.w700,
                   color: t.on,
@@ -584,80 +601,21 @@ class _PlanCardState extends ConsumerState<_PlanCard> {
               ),
             ),
           ),
-          const SizedBox(height: 10),
-          OutlinedButton(
-            onPressed: widget.onCheckout == null
-                ? null
-                : () => widget.onCheckout?.call(_selected.period),
+          const SizedBox(height: 5),
+          if (widget.chosen)
+            XbGradientAction(height: 44, onPressed: buy, child: buyLabel)
+          else OutlinedButton(
+            onPressed: buy,
             style: OutlinedButton.styleFrom(
               minimumSize: const Size(0, 44),
-              foregroundColor: t.onv,
+              foregroundColor: buttonInk,
               side: BorderSide(color: outline),
             ),
-            child: XbEmojiText(widget.blocked ? '当前套餐不可续费' : '${widget.renew ? '续费' : '购买'} ${plan.name}'),
+            child: buyLabel,
           ),
-          XbPlanDetails(plan: plan),
+          XbPlanDetails(plan: plan, showQuota: false, compact: true),
         ],
       ),
-    );
-  }
-}
-
-class _PlanConfirmation extends StatelessWidget {
-  const _PlanConfirmation({
-    required this.currentName,
-    required this.selectedName,
-    required this.renew,
-  });
-
-  final String currentName;
-  final String selectedName;
-  final bool renew;
-
-  @override
-  Widget build(BuildContext context) {
-    final brand = Theme.of(context).colorScheme.primary;
-    final gradientStart = brand == const Color(0xFFD92E1A)
-        ? const Color(0xFFFF5A44)
-        : Color.lerp(brand, Colors.white, 0.16)!;
-    return AlertDialog(
-      title: Text(renew ? '确认续费？' : '确认更换套餐？'),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            renew
-                ? '续费会增加套餐时长，已用流量和下次重置日期不变。'
-                : '新套餐会覆盖当前套餐，已用流量清零，有效期按新周期计算。',
-          ),
-          const SizedBox(height: 12),
-          if (renew)
-            XbEmojiText(currentName)
-          else
-            XbPlanComparison(current: currentName, target: selectedName),
-        ],
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(false),
-          child: const Text('再想想'),
-        ),
-        DecoratedBox(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(colors: [gradientStart, brand]),
-            borderRadius: BorderRadius.circular(XbTokens.rButton),
-          ),
-          child: FilledButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            style: FilledButton.styleFrom(
-              backgroundColor: Colors.transparent,
-              foregroundColor: Colors.white,
-            ),
-            child: Text(renew ? '继续续费' : '确认更换'),
-          ),
-        ),
-      ],
     );
   }
 }

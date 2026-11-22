@@ -32,6 +32,7 @@ import '../util/period_label.dart';
 import '../widgets/xb_ui_kit.dart';
 import '../widgets/xb_emoji_text.dart';
 import '../widgets/xb_plan_details.dart';
+import '../widgets/xb_purchase_confirmation.dart';
 import 'order_payment_page.dart';
 import 'plan_list_page.dart';
 
@@ -295,7 +296,8 @@ class _PlanDetailPageState extends ConsumerState<PlanDetailPage> {
     if (_ownerService != null && auth == AuthState.authenticated) {
       ref.watch(xboardServiceProvider);
     }
-    final title = widget.renew ? '续费当前套餐' : '购买套餐';
+    final wide = xbIsDesktopWidth(MediaQuery.sizeOf(context).width);
+    final title = widget.renew ? '续费当前套餐' : wide ? '购买套餐' : plan.name;
     if (_ownerService != null && !_ownerCurrent) {
       return XbBrandScaffold(
         title: title,
@@ -314,7 +316,6 @@ class _PlanDetailPageState extends ConsumerState<PlanDetailPage> {
         ),
       );
     }
-    final wide = xbIsDesktopWidth(MediaQuery.sizeOf(context).width);
     return XbBrandScaffold(
       title: title,
       maxContentWidth: wide ? 1000 : null,
@@ -989,117 +990,12 @@ class _PlanDetailPageState extends ConsumerState<PlanDetailPage> {
     final ok = await xbShowDialog<bool>(
       context: context,
       brandColor: xbBrandColor(),
-      builder: (ctx) => same
-          ? AlertDialog(
-              title: const Text('确认续费当前套餐？'),
-              content: const Text('续费将延长有效期，已用流量和重置日不变。'),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.of(ctx).pop(false),
-                  child: const Text('再想想'),
-                ),
-                FilledButton(
-                  onPressed: () => Navigator.of(ctx).pop(true),
-                  child: const Text('确认续费'),
-                ),
-              ],
-            )
-          : _SwitchPlanDialog(
-              currentName: sub.planName ?? '当前套餐',
-              newName: plan.name,
-            ),
+      builder: (ctx) => XbPlanConfirmation(
+        planName: sub.planName ?? (same ? plan.name : '当前套餐'),
+        targetName: same ? null : plan.name,
+        confirmLabel: same ? '确认续费' : '确认更换',
+      ),
     );
     return ok ?? false;
-  }
-}
-
-/// 更换套餐确认弹窗（原型 16b）：顶部琥珀警示圆徽标 + 覆盖说明 + 「当前 → 新套餐」对比条 +
-/// 再想想/确认更换。确认键品牌色（非破坏性 —— 正常购买操作，只提醒会覆盖）。
-class _SwitchPlanDialog extends StatelessWidget {
-  const _SwitchPlanDialog({required this.currentName, required this.newName});
-
-  final String currentName;
-  final String newName;
-
-  @override
-  Widget build(BuildContext context) {
-    final t = XbTokens.of(context);
-    return AlertDialog(
-      title: const Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            '确认更换套餐？',
-            textAlign: TextAlign.center,
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
-          ),
-        ],
-      ),
-      content: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 320),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text.rich(
-              TextSpan(
-                style: TextStyle(fontSize: 13, height: 1.5, color: t.onv),
-                children: [
-                  const TextSpan(text: '你当前有正在使用的套餐，购买不同套餐将'),
-                  TextSpan(
-                    text: '覆盖现有套餐',
-                    style: TextStyle(color: t.on, fontWeight: FontWeight.w600),
-                  ),
-                  const TextSpan(text: '，原套餐的剩余流量与有效期不再保留。'),
-                ],
-              ),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 16),
-            XbPlanComparison(current: currentName, target: newName),
-          ],
-        ),
-      ),
-      // 两按钮等宽对称：「再想想」用浅灰填充按钮（明显可点，不再是低对比纯文字），
-      // 「确认更换」品牌实心。避免纯 TextButton 挨着实心按钮时显得很弱。
-      actionsPadding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
-      actions: [
-        Row(
-          children: [
-            Expanded(
-              child: SizedBox(
-                height: 46,
-                child: FilledButton(
-                  onPressed: () => Navigator.of(context).pop(false),
-                  style: FilledButton.styleFrom(
-                    backgroundColor: t.sfc,
-                    foregroundColor: t.on,
-                    elevation: 0,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(XbTokens.rMd),
-                    ),
-                  ),
-                  child: const Text('再想想'),
-                ),
-              ),
-            ),
-            const SizedBox(width: 11),
-            Expanded(
-              child: SizedBox(
-                height: 46,
-                child: FilledButton(
-                  onPressed: () => Navigator.of(context).pop(true),
-                  style: FilledButton.styleFrom(
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(XbTokens.rMd),
-                    ),
-                  ),
-                  child: const Text('确认更换'),
-                ),
-              ),
-            ),
-          ],
-        ),
-      ],
-    );
   }
 }

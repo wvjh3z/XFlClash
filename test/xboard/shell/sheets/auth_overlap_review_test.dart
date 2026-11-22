@@ -201,8 +201,14 @@ void main() {
       await f.pump(tester);
       await f.open(tester);
       await f.submit(tester, 'a@example.invalid');
-      // Production footer pops LoginSheet and immediately opens RegisterSheet.
-      await tester.tap(find.text('注册账号'));
+      // While a login write is pending neither footer link may replace the form.
+      for (final label in ['立即注册', '忘记密码？']) {
+        expect(tester.widget<TextButton>(find.widgetWithText(TextButton, label)).onPressed, isNull);
+      }
+      // A route can still be replaced externally. Keep the stale-completion guard covered.
+      final context = tester.element(find.byType(LoginSheet));
+      Navigator.of(context).pop();
+      unawaited(showRegisterSheet(context));
       await tester.pump();
       expect(find.byType(LoginSheet, skipOffstage: false), findsOneWidget,
           reason: 'the test must resolve while the outgoing sheet is still mounted');
@@ -227,7 +233,7 @@ void main() {
     try {
       await f.pump(tester);
       await f.open(tester);
-      await tester.tap(find.text('注册账号'));
+      await tester.tap(find.text('立即注册'));
       await tester.pumpAndSettle();
       await f.submit(tester, 'a@example.invalid');
       expect(f.requests, ['a@example.invalid']);

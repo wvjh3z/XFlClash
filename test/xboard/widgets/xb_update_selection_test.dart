@@ -115,6 +115,12 @@ void main() {
         final text = tester.widget<Text>(find.text('选择线路中…'));
         expect(text.maxLines, 1);
         expect(text.overflow, TextOverflow.ellipsis);
+        final spinner = find.byType(CircularProgressIndicator);
+        expect(tester.getSize(spinner), const Size.square(24));
+        expect(tester.widget<CircularProgressIndicator>(spinner).color,
+            Theme.of(tester.element(spinner)).colorScheme.primary);
+        expect(tester.getBottomLeft(spinner).dy,
+            lessThan(tester.getTopLeft(find.text('选择线路中…')).dy));
         expect(tester.takeException(), isNull);
         probes.single.result.complete('CN');
         await tester.pumpAndSettle();

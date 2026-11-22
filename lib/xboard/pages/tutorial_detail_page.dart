@@ -94,6 +94,7 @@ class _DetailBody extends ConsumerWidget {
     final async = ref.watch(tutorialDetailProvider(id));
     return XbAsyncView(
       loading: async.isLoading,
+      loadingWidget: const _ArticleSkeleton(),
       error: async.hasError ? async.error : null,
       errorFallback: '加载教程失败',
       onRetry: () => ref.invalidate(tutorialDetailProvider(id)),
@@ -143,6 +144,40 @@ class _DetailBody extends ConsumerWidget {
           child: ref.watch(tutorialReaderBuilderProvider)(context, content),
         );
       },
+    );
+  }
+}
+
+/// 只在等待正文时使用；收到正文后由阅读器显示文章自己的标题和排版。
+class _ArticleSkeleton extends StatelessWidget {
+  const _ArticleSkeleton();
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      label: '正在加载教程正文',
+      child: ListView(
+        padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
+        children: const [
+          XbSkeletonBar(widthFactor: 0.68, height: 22),
+          SizedBox(height: 12),
+          XbSkeletonBar(widthFactor: 0.42, height: 12),
+          Divider(height: 33, thickness: 1),
+          XbSkeletonBar(),
+          SizedBox(height: 10),
+          XbSkeletonBar(widthFactor: 0.96),
+          SizedBox(height: 22),
+          XbSkeletonBar(widthFactor: 0.38, height: 15),
+          SizedBox(height: 12),
+          XbSkeletonBar(),
+          SizedBox(height: 10),
+          XbSkeletonBar(widthFactor: 0.92),
+          SizedBox(height: 10),
+          XbSkeletonBar(widthFactor: 0.97),
+          SizedBox(height: 10),
+          XbSkeletonBar(widthFactor: 0.60),
+        ],
+      ),
     );
   }
 }

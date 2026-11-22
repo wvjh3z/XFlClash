@@ -66,6 +66,7 @@ Future<void> pumpHome(
   ProxiesTabState? tab,
   SetupAction? setup,
   bool running = false,
+  bool ready = true,
 }) async {
   final container = ProviderContainer(
     overrides: [
@@ -92,7 +93,7 @@ Future<void> pumpHome(
     ],
   );
   addTearDown(container.dispose);
-  container.read(bootstrapReadyProvider.notifier).set(true);
+  container.read(bootstrapReadyProvider.notifier).set(ready);
   container.read(coreStatusProvider.notifier).value = CoreStatus.disconnected;
   await tester.pumpWidget(
     UncontrolledProviderScope(
@@ -116,6 +117,22 @@ class _RecordingSetup extends SetupAction {
 }
 
 void main() {
+  testWidgets('移动首页准备阶段不显示可操作的游客登录邀请', (tester) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await pumpHome(tester, auth: AuthState.unauthenticated, ready: false);
+    expect(find.text('正在准备服务，请稍候…'), findsOneWidget);
+    expect(find.text('首屏无需等待，可先浏览各页面'), findsOneWidget);
+    expect(find.text('登录解锁全部功能'), findsNothing);
+    expect(tester.widget<XbConnectOrb>(find.byType(XbConnectOrb)).showLock, isFalse);
+    final container = ProviderScope.containerOf(tester.element(find.byType(HomeTab)), listen: false);
+    container.read(bootstrapReadyProvider.notifier).set(true);
+    await tester.pump();
+    expect(find.text('登录解锁全部功能'), findsOneWidget);
+    expect(find.text('首屏无需等待，可先浏览各页面'), findsNothing);
+  });
+
   for (final brand in ['brand_a', 'brand_b']) {
     for (final width in [450.0, 1200.0]) {
       for (final scenario in [
@@ -183,6 +200,8 @@ void main() {
           );
           if (scenario == 'login-empty') {
             expect(find.text('当前无可用线路，请前往「节点」刷新或购买套餐'), findsOneWidget);
+            expect(find.text('当前套餐无可用线路', findRichText: true), findsOneWidget);
+            expect(find.text('连接后自动优选', findRichText: true), findsNothing);
           }
           await tester.pump(const Duration(seconds: 3));
           await tester.pumpWidget(const SizedBox.shrink());
