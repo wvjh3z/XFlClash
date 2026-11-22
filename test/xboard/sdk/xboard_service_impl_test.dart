@@ -92,7 +92,7 @@ void main() {
     when(() => sdk.httpService).thenReturn(http);
     for (final credit in <Object?>[null, 0, 725, -1, 0.5, '725']) {
       final wire = orderWireDetail(amount: 0);
-      (wire['data'] as Map).addAll({
+      (wire['data'] as Map<String, Object?>).addAll({
         'surplus_amount': 2000, 'discount_amount': 1000,
         'refund_amount': 1900, if (credit != null) 'surplus_credit': credit,
       });
