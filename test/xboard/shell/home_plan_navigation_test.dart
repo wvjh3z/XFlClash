@@ -1,14 +1,14 @@
 import 'dart:async';
 import 'package:mocktail/mocktail.dart';
 import 'package:fl_clash/xboard/models/plan_item.dart';
+import 'package:fl_clash/xboard/models/xb_domain_types.dart';
 import 'package:fl_clash/xboard/models/xb_result.dart';
 import 'package:fl_clash/xboard/sdk/xboard_service.dart';
 import 'package:fl_clash/xboard/pages/plan_detail_page.dart';
 import 'package:fl_clash/xboard/pages/reset_traffic_page.dart';
 import 'package:fl_clash/xboard/shell/tabs/home/xb_traffic_notice.dart';
 
-/// 真实首页套餐入口：两品牌窄/宽布局直达续费与重置页，
-/// 左侧 NavRail **仍可见**（不再全屏跳转盖掉 NavRail）；返回后回到「我的」。
+/// 真实壳层：两品牌窄/宽布局都经商店处理首页和节点购买意图。
 
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -29,6 +29,8 @@ import 'package:fl_clash/xboard/providers/user_profile_provider.dart';
 import 'package:fl_clash/xboard/providers/xboard_providers.dart'
     show bootstrapReadyProvider, xboardServiceProvider;
 import 'package:fl_clash/xboard/shell/xboard_app_shell.dart';
+import 'package:fl_clash/xboard/shell/tabs/shop/shop_tab.dart';
+import 'package:fl_clash/xboard/shell/widgets/xb_bottom_bar.dart';
 import 'package:fl_clash/xboard/shell/widgets/xb_nav_rail.dart';
 
 import '_net_detection_stub.dart';
@@ -42,11 +44,21 @@ class _FakeAuth extends AuthStateNotifier {
 
 class _Service extends Mock implements XboardService {}
 
+final _mobileProvider = NotifierProvider<_Mobile, bool>(_Mobile.new);
+
+class _Mobile extends Notifier<bool> {
+  @override
+  bool build() => true;
+
+  void set(bool mobile) => state = mobile;
+}
+
 void main() {
+  setUpAll(() => registerFallbackValue(XbPlanPeriod.monthly));
   setUp(() => Future<void>.delayed(const Duration(milliseconds: 550)));
   for (final brand in ['brand_a', 'brand_b']) {
     for (final mobile in [true, false]) {
-      for (final action in ['去续费', '重置流量']) {
+      for (final action in ['去续费', '前往续费 / 购买', '重置流量']) {
         testWidgets('$brand mobile=$mobile actual shell $action', (t) async {
           t.view.physicalSize = Size(mobile ? 390 : 1280, 1000);
           t.view.devicePixelRatio = 1.0;
@@ -76,13 +88,14 @@ void main() {
             ),
           ];
           final service = _Service();
-          when(
-            () => service.getPlans(),
-          ).thenAnswer((_) => Completer<XbResult<List<PlanItem>>>().future);
+          final catalog = Completer<XbResult<List<PlanItem>>>();
+          when(service.getPlans).thenAnswer((_) => catalog.future);
           final container = ProviderContainer(
             overrides: [
               xboardServiceProvider.overrideWithValue(service),
-              isMobileViewProvider.overrideWith((ref) => mobile),
+              isMobileViewProvider.overrideWith(
+                (ref) => ref.watch(_mobileProvider),
+              ),
               authStateProvider.overrideWith(
                 () => _FakeAuth(AuthState.authenticated),
               ),
@@ -103,8 +116,8 @@ void main() {
                     planName: '标准套餐 · VIP',
                     totalBytes: 250 * 1024 * 1024 * 1024,
                     usedBytes: 240 * 1024 * 1024 * 1024,
-                    expiredAt: DateTime(2026, 7, 1),
-                    planId: 1,
+                    expiredAt: DateTime.now().subtract(const Duration(days: 1)),
+                    planId: 6,
                   ),
                 ),
               ),
@@ -117,11 +130,13 @@ void main() {
             ],
           );
           addTearDown(container.dispose);
+          container.read(_mobileProvider.notifier).set(mobile);
           container.read(bootstrapReadyProvider.notifier).set(true);
           container.read(coreStatusProvider.notifier).value =
               CoreStatus.connected;
 
           final eb = ErrorWidget.builder;
+          try {
           await t.pumpWidget(
             UncontrolledProviderScope(
               container: container,
@@ -132,24 +147,88 @@ void main() {
           await t.pump(const Duration(milliseconds: 400));
           expect(find.byType(XbTrafficNotice), findsOneWidget);
           expect(find.textContaining('已用 96.0%'), findsOneWidget);
+          if (action == '前往续费 / 购买') {
+            await t.tap(find.text('节点'));
+            await t.pump();
+            await t.pump(const Duration(milliseconds: 400));
+          }
           await t.tap(find.text(action));
           await t.pump();
           await t.pump(const Duration(milliseconds: 400));
-          if (action == '去续费') {
-            expect(find.byType(PlanRenewLoader), findsOneWidget);
-            expect(
-              t.widget<PlanRenewLoader>(find.byType(PlanRenewLoader)).planId,
-              1,
+          if (action != '重置流量') {
+            expect(find.byType(ShopTab), findsOneWidget);
+            final currentIndex = mobile
+                ? t.widget<XbBottomBar>(find.byType(XbBottomBar)).currentIndex
+                : t.widget<XbNavRail>(find.byType(XbNavRail)).currentIndex;
+            expect(currentIndex, 2);
+            final title = find.byKey(const ValueKey('shop-plan-title-6'));
+            expect(title, findsNothing);
+            catalog.complete(
+              XbSuccess([
+                for (var id = 1; id <= 6; id++)
+                  PlanItem(
+                    id: id,
+                    name: '目录套餐 $id',
+                     transferEnableGb: 250,
+                     description: List.filled(4, '<p>服务说明</p>').join(),
+                     prices: const [
+                       PricePlan(period: XbPlanPeriod.monthly, amountYuan: 25),
+                       PricePlan(period: XbPlanPeriod.yearly, amountYuan: 270),
+                     ],
+                  ),
+              ]),
             );
+            await t.pumpAndSettle();
+            expect(title.hitTestable(), findsOneWidget);
+             expect(
+               FocusManager.instance.primaryFocus?.context?.widget.key,
+               const ValueKey('shop-plan-title-6'),
+             );
+             expect(
+               find.text('购买 目录套餐 6', findRichText: true),
+               findsOneWidget,
+             );
+             expect(find.byType(PlanDetailPage), findsNothing);
+             expect(find.byType(AlertDialog), findsNothing);
+             if (action == '去续费') {
+               final year = find.byKey(
+                 const ValueKey(('shop-period', 6, XbPlanPeriod.yearly)),
+               );
+               await t.ensureVisible(year);
+               await t.tap(year);
+               await t.pumpAndSettle();
+               final before = t.state(find.byType(ShopTab));
+               t.view.physicalSize = Size(mobile ? 1280 : 390, 1000);
+               container.read(_mobileProvider.notifier).set(!mobile);
+               await t.pumpAndSettle();
+               expect(t.state(find.byType(ShopTab)), same(before));
+               expect(t.widget<Semantics>(year).properties.selected, isTrue);
+               expect(find.byType(PlanDetailPage), findsNothing);
+               expect(find.byType(AlertDialog), findsNothing);
+             }
+             verify(service.getPlans).called(1);
+             verifyNever(
+               () => service.createOrder(
+                 any(),
+                 any(),
+                 couponCode: any(named: 'couponCode'),
+               ),
+             );
           } else {
             expect(find.byType(ResetTrafficPage), findsOneWidget);
             expect(
               t.widget<ResetTrafficPage>(find.byType(ResetTrafficPage)).planId,
-              1,
+              6,
             );
           }
-          if (!mobile) expect(find.byType(XbNavRail), findsOneWidget);
-          ErrorWidget.builder = eb;
+           final wideNow = action == '去续费' ? mobile : !mobile;
+           expect(
+             find.byType(XbNavRail),
+             wideNow ? findsOneWidget : findsNothing,
+           );
+          } finally {
+            ErrorWidget.builder = eb;
+          }
         });
       }
     }

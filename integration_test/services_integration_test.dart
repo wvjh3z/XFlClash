@@ -1,6 +1,6 @@
 /// W5.8/W6.9/W7.10 — Bootstrap/endpoint/订阅同步/结算 服务层端到端（真机/模拟器）。
 ///
-/// 在目标平台 Flutter 运行时跑核心服务（解密 / 竞速 / single-flight 同步 / retryableCheckout），
+/// 在目标平台 Flutter 运行时跑核心服务（解密 / 竞速 / single-flight 同步 / 下单能力边界），
 /// 验证 crypto / drift 内存索引与受控服务流程；SharedPreferences 和 Profile 端口为测试替身。
 library;
 
@@ -8,6 +8,7 @@ import 'package:drift/native.dart';
 import 'package:dio/dio.dart';
 import '../test/xboard/services/_bootstrap_crypto_helper.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_xboard_sdk/flutter_xboard_sdk.dart' show TokenStorage;
 import 'package:integration_test/integration_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -15,12 +16,11 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:fl_clash/xboard/config/bootstrap_constants.dart';
 import 'package:fl_clash/xboard/data/xboard_database.dart';
 import 'package:fl_clash/xboard/models/bootstrap_envelope.dart';
-import 'package:fl_clash/xboard/models/checkout_outcome_ui.dart';
 import 'package:fl_clash/xboard/models/xb_result.dart';
 import 'package:fl_clash/xboard/models/xb_domain_types.dart';
 import 'package:fl_clash/xboard/services/bootstrap_decryptor.dart';
 import 'package:fl_clash/xboard/services/bootstrap_local_loader.dart';
-import 'package:fl_clash/xboard/services/checkout_service.dart';
+import 'package:fl_clash/xboard/services/confirmed_order.dart';
 import 'dart:typed_data';
 
 import 'package:fl_clash/xboard/models/bootstrap_payload.dart';
@@ -188,20 +188,26 @@ void main() {
   });
 
   group('W7.10 结算 on-device', () {
-    testWidgets('retryableCheckout 复用 pending（completed 不算 pending → 新建）', (
+    testWidgets('旧服务缺少严格预检能力时不回退创建或支付', (
       t,
     ) async {
       final fake = FakeIntegrationService();
-      final checkout = CheckoutService(service: fake);
-      final r = await checkout.retryableCheckout(
-        planId: 1,
-        period: XbPlanPeriod.monthly,
-        method: 'pm1',
+      final anchor = GlobalKey();
+      await t.pumpWidget(MaterialApp(home: SizedBox(key: anchor)));
+      final r = await submitConfirmedOrder(
+        context: anchor.currentContext!,
+        service: fake,
+        isActive: () => true,
+        quote: const ConfirmedOrderQuote(
+          planId: 1,
+          planName: '测试套餐',
+          period: XbPlanPeriod.monthly,
+          estimatedCents: 1200,
+        ),
       );
-      expect((r as XbSuccess).data, isA<CheckoutPaid>());
-      // getOrders 返 completed（非 pending）→ 走新建 createOrder。
-      expect(fake.createOrderCalls, 1);
-      expect(fake.checkoutCalls, 1);
+      expect(r, isA<XbFailure<String?>>());
+      expect(fake.createOrderCalls, 0);
+      expect(fake.checkoutCalls, 0);
     });
   });
 }

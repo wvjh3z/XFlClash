@@ -48,6 +48,7 @@ class LinkManager {
 
   /// Linux argv: the gtk plugin hooks GApplication too late to see it.
   void seedInitialLink(List<String> args) {
+    if (protocolSchemes.isEmpty) return;
     for (final arg in args) {
       final uri = Uri.tryParse(arg);
       if (uri != null && protocolSchemes.contains(uri.scheme)) {
@@ -61,6 +62,10 @@ class LinkManager {
     Function(String url) installConfigCallBack,
   ) async {
     destroy();
+    if (protocolSchemes.isEmpty) {
+      _pendingUri = null;
+      return;
+    }
     subscription = uriLinkStream().listen((uri) {
       _handle(uri, installConfigCallBack);
     });

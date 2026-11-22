@@ -338,8 +338,8 @@ ThemeData buildXbTheme({required Color brandColor, required Brightness brightnes
 ///
 /// 页面挂根 Navigator（FlClash MaterialApp 下），不在 shell 子树内 → 不包则拿不到品牌主题。
 /// 用法：`xbPush(context, const PlanListPage())` 代替手写 `Navigator.push(MaterialPageRoute(...))`。
-/// 上次 xbPush 时间戳（全局导航节流：极短时间内的重复 push 视为连点，忽略）。
-DateTime? _lastPushAt;
+/// 同一 Navigator 的连点才共享节流；独立窗口或新建的导航栈不继承旧时间戳。
+final _lastPushAt = Expando<DateTime>();
 
 Future<T?> xbPush<T>(
   BuildContext context,
@@ -350,17 +350,18 @@ Future<T?> xbPush<T>(
   // 全局导航节流：500ms 内的连续 push 视为连点（双击/多点），只放行第一次，避免叠跳多层页面。
   // replace 不节流（程序内主动替换，非用户连点）。
   final now = DateTime.now();
+  final nav = Navigator.of(context);
   if (!replace) {
-    if (_lastPushAt != null &&
-        now.difference(_lastPushAt!) < const Duration(milliseconds: 500)) {
+    final previous = _lastPushAt[nav];
+    if (previous != null &&
+        now.difference(previous) < const Duration(milliseconds: 500)) {
       return Future<T?>.value(null);
     }
-    _lastPushAt = now;
+    _lastPushAt[nav] = now;
   }
   final route = _xbFadeThroughRoute<T>(
     _XbBrandThemeHost(brandColor: brandColor, child: page),
   );
-  final nav = Navigator.of(context);
   return replace ? nav.pushReplacement(route) : nav.push(route);
 }
 

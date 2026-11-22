@@ -175,10 +175,10 @@ void _expectGuestMine(WidgetTester tester, {required bool mobile}) {
   if (mobile) {
     expect(
       tester.widget<XbBottomBar>(find.byType(XbBottomBar)).currentIndex,
-      2,
+      3,
     );
   } else {
-    expect(tester.widget<XbNavRail>(find.byType(XbNavRail)).currentIndex, 2);
+    expect(tester.widget<XbNavRail>(find.byType(XbNavRail)).currentIndex, 3);
   }
 }
 

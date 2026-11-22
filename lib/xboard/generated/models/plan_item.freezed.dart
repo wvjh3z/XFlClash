@@ -282,7 +282,7 @@ as double,
 /// @nodoc
 mixin _$PlanItem {
 
- int get id; String get name; String? get description; int get transferEnableGb; List<PricePlan> get prices;
+ int get id; String get name; bool get renewable; String? get description; int get transferEnableGb; List<PricePlan> get prices;
 /// Create a copy of PlanItem
 /// with the given fields replaced by the non-null parameter values.
 @JsonKey(includeFromJson: false, includeToJson: false)
@@ -294,20 +294,20 @@ $PlanItemCopyWith<PlanItem> get copyWith => _$PlanItemCopyWithImpl<PlanItem>(thi
 @override
 bool operator ==(Object other) {
   final _this = this as PlanItem;
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is PlanItem&&(identical(other.id, _this.id) || other.id == _this.id)&&(identical(other.name, _this.name) || other.name == _this.name)&&(identical(other.description, _this.description) || other.description == _this.description)&&(identical(other.transferEnableGb, _this.transferEnableGb) || other.transferEnableGb == _this.transferEnableGb)&&const DeepCollectionEquality().equals(other.prices, _this.prices));
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is PlanItem&&(identical(other.id, _this.id) || other.id == _this.id)&&(identical(other.name, _this.name) || other.name == _this.name)&&(identical(other.renewable, _this.renewable) || other.renewable == _this.renewable)&&(identical(other.description, _this.description) || other.description == _this.description)&&(identical(other.transferEnableGb, _this.transferEnableGb) || other.transferEnableGb == _this.transferEnableGb)&&const DeepCollectionEquality().equals(other.prices, _this.prices));
 }
 
 
 @override
 int get hashCode {
   final _this = this as PlanItem;
-  return Object.hash(runtimeType,_this.id,_this.name,_this.description,_this.transferEnableGb,const DeepCollectionEquality().hash(_this.prices));
+  return Object.hash(runtimeType,_this.id,_this.name,_this.renewable,_this.description,_this.transferEnableGb,const DeepCollectionEquality().hash(_this.prices));
 }
 
 @override
 String toString() {
   final _this = this as PlanItem;
-  return 'PlanItem(id: ${_this.id}, name: ${_this.name}, description: ${_this.description}, transferEnableGb: ${_this.transferEnableGb}, prices: ${_this.prices})';
+  return 'PlanItem(id: ${_this.id}, name: ${_this.name}, renewable: ${_this.renewable}, description: ${_this.description}, transferEnableGb: ${_this.transferEnableGb}, prices: ${_this.prices})';
 }
 
 
@@ -318,7 +318,7 @@ abstract mixin class $PlanItemCopyWith<$Res>  {
   factory $PlanItemCopyWith(PlanItem value, $Res Function(PlanItem) _then) = _$PlanItemCopyWithImpl;
 @useResult
 $Res call({
- int id, String name, String? description, int transferEnableGb, List<PricePlan> prices
+ int id, String name, bool renewable, String? description, int transferEnableGb, List<PricePlan> prices
 });
 
 
@@ -335,11 +335,12 @@ class _$PlanItemCopyWithImpl<$Res>
 
 /// Create a copy of PlanItem
 /// with the given fields replaced by the non-null parameter values.
-@pragma('vm:prefer-inline') @override $Res call({Object? id = null,Object? name = null,Object? description = freezed,Object? transferEnableGb = null,Object? prices = null,}) {
+@pragma('vm:prefer-inline') @override $Res call({Object? id = null,Object? name = null,Object? renewable = null,Object? description = freezed,Object? transferEnableGb = null,Object? prices = null,}) {
   return _then(PlanItem(
 id: null == id ? _self.id : id // ignore: cast_nullable_to_non_nullable
 as int,name: null == name ? _self.name : name // ignore: cast_nullable_to_non_nullable
-as String,description: freezed == description ? _self.description : description // ignore: cast_nullable_to_non_nullable
+as String,renewable: null == renewable ? _self.renewable : renewable // ignore: cast_nullable_to_non_nullable
+as bool,description: freezed == description ? _self.description : description // ignore: cast_nullable_to_non_nullable
 as String?,transferEnableGb: null == transferEnableGb ? _self.transferEnableGb : transferEnableGb // ignore: cast_nullable_to_non_nullable
 as int,prices: null == prices ? _self.prices : prices // ignore: cast_nullable_to_non_nullable
 as List<PricePlan>,
@@ -427,10 +428,10 @@ return $default(_that);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult maybeWhen<TResult extends Object?>(TResult Function( int id,  String name,  String? description,  int transferEnableGb,  List<PricePlan> prices)?  $default,{required TResult orElse(),}) {final _that = this;
+@optionalTypeArgs TResult maybeWhen<TResult extends Object?>(TResult Function( int id,  String name,  bool renewable,  String? description,  int transferEnableGb,  List<PricePlan> prices)?  $default,{required TResult orElse(),}) {final _that = this;
 switch (_that) {
 case _PlanItem() when $default != null:
-return $default(_that.id,_that.name,_that.description,_that.transferEnableGb,_that.prices);case _:
+return $default(_that.id,_that.name,_that.renewable,_that.description,_that.transferEnableGb,_that.prices);case _:
   return orElse();
 
 }
@@ -448,10 +449,10 @@ return $default(_that.id,_that.name,_that.description,_that.transferEnableGb,_th
 /// }
 /// ```
 
-@optionalTypeArgs TResult when<TResult extends Object?>(TResult Function( int id,  String name,  String? description,  int transferEnableGb,  List<PricePlan> prices)  $default,) {final _that = this;
+@optionalTypeArgs TResult when<TResult extends Object?>(TResult Function( int id,  String name,  bool renewable,  String? description,  int transferEnableGb,  List<PricePlan> prices)  $default,) {final _that = this;
 switch (_that) {
 case _PlanItem():
-return $default(_that.id,_that.name,_that.description,_that.transferEnableGb,_that.prices);case _:
+return $default(_that.id,_that.name,_that.renewable,_that.description,_that.transferEnableGb,_that.prices);case _:
   throw StateError('Unexpected subclass');
 
 }
@@ -468,10 +469,10 @@ return $default(_that.id,_that.name,_that.description,_that.transferEnableGb,_th
 /// }
 /// ```
 
-@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>(TResult? Function( int id,  String name,  String? description,  int transferEnableGb,  List<PricePlan> prices)?  $default,) {final _that = this;
+@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>(TResult? Function( int id,  String name,  bool renewable,  String? description,  int transferEnableGb,  List<PricePlan> prices)?  $default,) {final _that = this;
 switch (_that) {
 case _PlanItem() when $default != null:
-return $default(_that.id,_that.name,_that.description,_that.transferEnableGb,_that.prices);case _:
+return $default(_that.id,_that.name,_that.renewable,_that.description,_that.transferEnableGb,_that.prices);case _:
   return null;
 
 }
@@ -483,11 +484,12 @@ return $default(_that.id,_that.name,_that.description,_that.transferEnableGb,_th
 
 
 class _PlanItem implements PlanItem {
-  const _PlanItem({required this.id, required this.name, this.description, required this.transferEnableGb, required  List<PricePlan> prices}): _prices = prices;
+  const _PlanItem({required this.id, required this.name, this.renewable = true, this.description, required this.transferEnableGb, required  List<PricePlan> prices}): _prices = prices;
   
 
 @override final  int id;
 @override final  String name;
+@override@JsonKey() final  bool renewable;
 @override final  String? description;
 @override final  int transferEnableGb;
  final  List<PricePlan> _prices;
@@ -508,18 +510,18 @@ _$PlanItemCopyWith<_PlanItem> get copyWith => __$PlanItemCopyWithImpl<_PlanItem>
 
 @override
 bool operator ==(Object other) {
-    return identical(this, other) || (other.runtimeType == runtimeType&&other is _PlanItem&&(identical(other.id, id) || other.id == id)&&(identical(other.name, name) || other.name == name)&&(identical(other.description, description) || other.description == description)&&(identical(other.transferEnableGb, transferEnableGb) || other.transferEnableGb == transferEnableGb)&&const DeepCollectionEquality().equals(other.prices, _prices));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is _PlanItem&&(identical(other.id, id) || other.id == id)&&(identical(other.name, name) || other.name == name)&&(identical(other.renewable, renewable) || other.renewable == renewable)&&(identical(other.description, description) || other.description == description)&&(identical(other.transferEnableGb, transferEnableGb) || other.transferEnableGb == transferEnableGb)&&const DeepCollectionEquality().equals(other.prices, _prices));
 }
 
 
 @override
 int get hashCode {
-    return Object.hash(runtimeType,id,name,description,transferEnableGb,const DeepCollectionEquality().hash(_prices));
+    return Object.hash(runtimeType,id,name,renewable,description,transferEnableGb,const DeepCollectionEquality().hash(_prices));
 }
 
 @override
 String toString() {
-    return 'PlanItem(id: $id, name: $name, description: $description, transferEnableGb: $transferEnableGb, prices: $prices)';
+    return 'PlanItem(id: $id, name: $name, renewable: $renewable, description: $description, transferEnableGb: $transferEnableGb, prices: $prices)';
 }
 
 
@@ -530,7 +532,7 @@ abstract mixin class _$PlanItemCopyWith<$Res> implements $PlanItemCopyWith<$Res>
   factory _$PlanItemCopyWith(_PlanItem value, $Res Function(_PlanItem) _then) = __$PlanItemCopyWithImpl;
 @override @useResult
 $Res call({
- int id, String name, String? description, int transferEnableGb, List<PricePlan> prices
+ int id, String name, bool renewable, String? description, int transferEnableGb, List<PricePlan> prices
 });
 
 
@@ -547,11 +549,12 @@ class __$PlanItemCopyWithImpl<$Res>
 
 /// Create a copy of PlanItem
 /// with the given fields replaced by the non-null parameter values.
-@override @pragma('vm:prefer-inline') $Res call({Object? id = null,Object? name = null,Object? description = freezed,Object? transferEnableGb = null,Object? prices = null,}) {
+@override @pragma('vm:prefer-inline') $Res call({Object? id = null,Object? name = null,Object? renewable = null,Object? description = freezed,Object? transferEnableGb = null,Object? prices = null,}) {
   return _then(_PlanItem(
 id: null == id ? _self.id : id // ignore: cast_nullable_to_non_nullable
 as int,name: null == name ? _self.name : name // ignore: cast_nullable_to_non_nullable
-as String,description: freezed == description ? _self.description : description // ignore: cast_nullable_to_non_nullable
+as String,renewable: null == renewable ? _self.renewable : renewable // ignore: cast_nullable_to_non_nullable
+as bool,description: freezed == description ? _self.description : description // ignore: cast_nullable_to_non_nullable
 as String?,transferEnableGb: null == transferEnableGb ? _self.transferEnableGb : transferEnableGb // ignore: cast_nullable_to_non_nullable
 as int,prices: null == prices ? _self._prices : prices // ignore: cast_nullable_to_non_nullable
 as List<PricePlan>,

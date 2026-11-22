@@ -1,6 +1,6 @@
 /// 形态 A 节点页 golden 核对（优选 url-test / 选择器 selector / 空态）。
 ///
-/// 对照原型 nodes(kind)：顶部分组 tab + 类型标签(?) + 测延迟 + 节点行（名/延迟/选中勾）。
+/// 对照移动原型 nodes(kind)：标题操作胶囊、分组标签、节点行和游客登录引导。
 /// 用 ProxiesTabState + adapter provider override 注入假数据，不触真实内核 DB。
 library;
 
@@ -59,6 +59,7 @@ Future<void> pumpNodes(
   required AuthState auth,
   ProxiesTabState? tab,
   XbDomainSubscription? sub,
+  VoidCallback? onLogin,
 }) async {
   tester.view.physicalSize = const Size(390 * 3, 844 * 3);
   tester.view.devicePixelRatio = 3.0;
@@ -94,8 +95,8 @@ Future<void> pumpNodes(
       child: MaterialApp(
         debugShowCheckedModeBanner: false,
         theme: ThemeData(useMaterial3: true, brightness: Brightness.light),
-        home: const Scaffold(
-          body: XbBrandTheme(brandColor: Color(0xFFD92E1A), child: NodesTab()),
+        home: Scaffold(
+          body: XbBrandTheme(brandColor: const Color(0xFFD92E1A), child: NodesTab(onTapLogin: onLogin)),
         ),
       ),
     ),
@@ -110,15 +111,16 @@ void main() {
   testWidgets('节点 · 优选分组(url-test) golden + 结构对照原型', (t) async {
     await pumpNodes(t, auth: AuthState.authenticated);
     expect(t.takeException(), isNull);
-    // 结构对照原型 nodes('recommend')：标题「选择线路」+ 刷新节点 + 顶部分组 tab +
-    // 测延迟 + 首项「自动」+ 节点名；不再显示分组类型说明。
+    // 结构对照原型 nodes('recommend')：标题右侧的测速 / 刷新胶囊，随后是分组标签和节点。
     // 注：分组 tab / 节点名经 EmojiText（=RichText）渲染，find.text 默认不匹配 RichText，
     //     故全部加 findRichText: true（纯增量，仍匹配普通 Text）。
     expect(find.text('选择线路', findRichText: true), findsOneWidget);
-    expect(find.text('刷新节点', findRichText: true), findsOneWidget);
+    final capsule = find.byKey(const ValueKey('nodes-action-capsule'));
+    expect(t.getSize(capsule), const Size(157, 48));
+    expect(find.descendant(of: capsule, matching: find.text('刷新节点')), findsOneWidget);
     expect(find.text('智能优选', findRichText: true), findsWidgets); // 顶部分组 tab
     expect(find.text('香港', findRichText: true), findsWidgets);
-    expect(find.text('测延迟', findRichText: true), findsOneWidget);
+    expect(find.descendant(of: capsule, matching: find.text('测延迟')), findsOneWidget);
     expect(find.text('自动', findRichText: true), findsOneWidget); // url-test 首项「自动」标
     expect(find.textContaining('url-test', findRichText: true),
         findsNothing); // 类型说明已按产品要求移除，PNG基线需另外论证与验收。
@@ -127,9 +129,16 @@ void main() {
   });
 
   testWidgets('节点 · 游客态 golden', (t) async {
-    await pumpNodes(t, auth: AuthState.unauthenticated);
+    var taps = 0;
+    await pumpNodes(t, auth: AuthState.unauthenticated, onLogin: () => taps++);
+    expect(find.text('选择线路'), findsOneWidget);
+    expect(find.byKey(const ValueKey('nodes-action-capsule')), findsNothing);
+    expect(t.getSize(find.byKey(const ValueKey('nodes-guest-badge'))), const Size(80, 80));
+    expect(find.byKey(const ValueKey('nodes-guest-login-gradient')), findsOneWidget);
     expect(t.takeException(), isNull);
     await expectXbGolden(t, find.byType(NodesTab), 'goldens/nodes_guest.png');
+    await t.tap(find.text('立即登录'));
+    expect(taps, 1);
   });
 
   testWidgets('节点 · 空态(无线路) golden', (t) async {

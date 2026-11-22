@@ -65,6 +65,13 @@
             <intent-filter>
                 <action android:name="android.service.quicksettings.action.QS_TILE_PREFERENCES" />
             </intent-filter>
+        </activity>
+        <!-- Optional upstream URL activation; disabled for configured brands. -->
+        <activity-alias
+            android:name=".ExternalLinkActivity"
+            android:targetActivity=".MainActivity"
+            android:enabled="${externalProtocolEnabled}"
+            android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
 
@@ -75,7 +82,7 @@
 
                 <data android:host="install-config" />
             </intent-filter>
-        </activity>
+        </activity-alias>
 
         <activity
             android:name=".QuickActionActivity"

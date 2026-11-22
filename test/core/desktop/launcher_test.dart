@@ -3,9 +3,34 @@ import 'dart:io';
 
 import 'package:fl_clash/core/desktop/launcher.dart';
 import 'package:fl_clash/core/desktop/model.dart';
+import 'package:fl_clash/core/desktop/startup_diagnostic.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test('only records exits observed before lifecycle cleanup', () async {
+    for (final exitedBeforeCleanup in [true, false]) {
+      final exit = Completer<int>();
+      final lease = DirectCoreLease(
+        sessionId: 'test',
+        process: _FakeProcess(pid: 1, exitCode: exit.future),
+      );
+      final attempt = CoreStartupAttempt()
+        ..acquired(lease)
+        ..stage = CoreStartupStage.handshake;
+      if (!exitedBeforeCleanup) attempt.endExitObservation();
+      exit.complete(23);
+      await pumpEventQueue();
+      final diagnostic = attempt.failure(TimeoutException('timeout'));
+      expect(diagnostic.exitCode, exitedBeforeCleanup ? 23 : null);
+      expect(
+        diagnostic.reason,
+        exitedBeforeCleanup
+            ? CoreStartupReason.exitedBeforeHandshake
+            : CoreStartupReason.handshakeTimeout,
+      );
+    }
+  });
+
   test('createCoreSessionId returns lowercase 128-bit hex', () {
     expect(createCoreSessionId(), matches(RegExp(r'^[0-9a-f]{32}$')));
   });

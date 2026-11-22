@@ -24,6 +24,7 @@ import 'package:fl_clash/xboard/models/xb_result.dart';
 import 'package:fl_clash/xboard/sdk/xboard_service_impl.dart';
 
 import '../../_fixtures/fake_xboard_sdk.dart';
+import 'order_http_fixture.dart';
 
 void log(String m) {
   // ignore: avoid_print
@@ -38,6 +39,7 @@ void main() {
 
   late FakeXBoardSDK sdk;
   late FakeSubApis apis;
+  late OrderFixtureHttp http;
   late int failoverCalls;
   late XboardServiceImpl service;
 
@@ -45,6 +47,12 @@ void main() {
     SharedPreferences.setMockInitialValues({});
     sdk = FakeXBoardSDK();
     apis = sdk.setupFor(XbScenario.loggedIn);
+    http = OrderFixtureHttp();
+    when(() => sdk.httpService).thenReturn(http);
+    when(() => http.getRequest(any())).thenAnswer((invocation) async {
+      final uri = Uri.parse(invocation.positionalArguments.single as String);
+      return orderWireDetail(tradeNo: uri.queryParameters['trade_no']);
+    });
     failoverCalls = 0;
     service = XboardServiceImpl(
       sdk: sdk,
@@ -151,7 +159,7 @@ void main() {
       var n = 0;
       await auditRetryable('getOrder', (a, b) {
         when(
-          () => apis.orderApi.getOrder(any()),
+          () => http.getRequest(orderDetailPath('T')),
         ).thenAnswer((_) async => throw (++n == 1 ? a : b));
       }, () => service.getOrder('T'));
       expect(n, 2);

@@ -62,6 +62,9 @@ final class DirectCoreLease implements CoreProcessLease {
   @override
   int get pid => _process.pid;
 
+  /// Observation only: the lifecycle still exclusively owns stopping the child.
+  Future<int> get startupExitCode => _process.exitCode;
+
   @override
   Future<CoreProcessStopResult> stop(Duration timeout) {
     final stopOperation = _stopOperation;

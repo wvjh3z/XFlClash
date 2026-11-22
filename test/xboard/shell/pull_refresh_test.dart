@@ -11,6 +11,7 @@ import 'package:fl_clash/models/models.dart'
     show Group, PatchClashConfig, ProxiesTabState, Proxy;
 import 'package:fl_clash/providers/config.dart';
 import 'package:fl_clash/providers/state.dart';
+import 'package:fl_clash/ui/icons/icons.dart' show AppGlyphs, GlyphIcon;
 import 'package:fl_clash/xboard/config/xboard_config.dart';
 import 'package:fl_clash/xboard/models/xb_domain_error.dart';
 import 'package:fl_clash/xboard/models/xb_domain_subscription.dart';
@@ -22,8 +23,10 @@ import 'package:fl_clash/xboard/providers/user_profile_provider.dart';
 import 'package:fl_clash/xboard/providers/xboard_providers.dart';
 import 'package:fl_clash/xboard/sdk/xboard_service.dart';
 import 'package:fl_clash/xboard/services/xboard_subscription_service.dart';
+import 'package:fl_clash/xboard/shell/adapters/xb_nodes_adapter.dart';
 import 'package:fl_clash/xboard/shell/tabs/mine/mine_tab.dart';
 import 'package:fl_clash/xboard/shell/tabs/nodes/nodes_tab.dart';
+import 'package:fl_clash/xboard/widgets/xb_theme.dart' show XbTokens;
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -32,6 +35,21 @@ import 'package:mocktail/mocktail.dart';
 class _MockService extends Mock implements XboardService {}
 
 class _MockSync extends Mock implements XboardSubscriptionService {}
+
+class _PendingDelay extends XbNodesAdapter {
+  final response = Completer<void>();
+  int calls = 0;
+
+  @override
+  Future<void> testGroupDelay(
+    WidgetRef ref,
+    String groupName, {
+    void Function(int, int)? onProgress,
+  }) {
+    calls++;
+    return response.future;
+  }
+}
 
 class _Auth extends AuthStateNotifier {
   _Auth(this.initial);
@@ -95,6 +113,7 @@ Future<_Fixture> _pump(
   _Nodes nodes = _Nodes.populated,
   _Fixture? fixture,
   GlobalKey? captureKey,
+  XbNodesAdapter? nodesAdapter,
 }) async {
   final originalErrorBuilder = ErrorWidget.builder;
   final f = fixture ?? _Fixture(nodeContent: nodes);
@@ -118,6 +137,8 @@ Future<_Fixture> _pump(
       ),
       xboardServiceProvider.overrideWithValue(f.service),
       subscriptionServiceProvider.overrideWithValue(f.sync),
+      if (nodesAdapter != null)
+        xbNodesAdapterProvider.overrideWithValue(nodesAdapter),
       userProfileProvider.overrideWith((ref) async {
         f.profileLoads++;
         return f.data;
@@ -309,11 +330,18 @@ void main() {
         await _pump(tester, page: _Page.nodes, width: width, fixture: f);
         final capsule = find.byKey(const ValueKey('nodes-action-capsule'));
         final capsuleSize = capsule.evaluate().isEmpty ? null : tester.getSize(capsule);
+        if (width == 390 && nodes == _Nodes.populated) {
+          expect(capsuleSize, const Size(157, 48));
+        }
         expect(f.syncCalls, 0, reason: '渲染节点页面不会自动手动强刷订阅');
         await _pull(tester, nodes: true);
         expect(f.syncCalls, 1);
         _expectBusy(tester, nodes: true);
-        if (capsuleSize != null) expect(tester.getSize(capsule), capsuleSize);
+        if (capsuleSize != null) {
+          expect(tester.getSize(capsule), capsuleSize);
+          expect(find.descendant(of: capsule, matching: find.text('刷新中')), findsOneWidget);
+          expect(find.descendant(of: capsule, matching: find.text('测延迟')), findsOneWidget);
+        }
         await tester.tap(_inside(true, findActionLabel('刷新中…')));
         await tester.pump(const Duration(seconds: 5));
         expect(f.syncCalls, 1);
@@ -324,8 +352,16 @@ void main() {
         expect(_cooldown(true), findsOneWidget);
         if (capsuleSize != null) {
           expect(tester.getSize(capsule), capsuleSize);
-          expect(find.descendant(of: _cooldown(true), matching: find.textContaining(RegExp(r'^\d+s$'))), findsOneWidget);
-          expect(find.byIcon(Icons.bolt), findsWidgets, reason: 'Refresh cooldown does not put the delay action into cooldown');
+          final refreshAction = _cooldown(true);
+          expect(find.descendant(of: refreshAction, matching: find.textContaining(RegExp(r'^\d+s$'))), findsNothing);
+          expect(find.descendant(of: capsule, matching: find.text('刷新节点')), findsOneWidget);
+          final refreshGlyph = tester.widget<GlyphIcon>(
+            find.descendant(of: refreshAction, matching: find.byType(GlyphIcon)),
+          );
+          expect(refreshGlyph.glyph, AppGlyphs.refresh);
+          expect(refreshGlyph.color, XbTokens.light.onv);
+          expect(find.descendant(of: capsule, matching: find.text('测延迟')), findsOneWidget,
+              reason: 'Refresh cooldown does not put the delay action into cooldown');
         }
         await tester.tap(_cooldown(true));
         await _pull(tester, nodes: true);
@@ -337,6 +373,40 @@ void main() {
       });
     }
   }
+
+  testWidgets('移动标题胶囊测速进行中仍可启动刷新，刷新结束不改变测速状态', (
+    tester,
+  ) async {
+    final sync = Completer<XbSyncOutcome>();
+    final f = _Fixture()..syncResponse = sync;
+    final delay = _PendingDelay();
+    await _pump(tester, page: _Page.nodes, fixture: f, nodesAdapter: delay);
+
+    final semantics = tester.ensureSemantics();
+    addTearDown(semantics.dispose);
+    await tester.pump();
+    await tester.tap(find.bySemanticsLabel('手选线路 · 测延迟'));
+    await tester.pump();
+    expect(delay.calls, 1);
+    expect(find.bySemanticsLabel('手选线路 · 测速中'), findsOneWidget);
+
+    await tester.tap(find.bySemanticsLabel('刷新节点'));
+    await tester.pump();
+    expect(f.syncCalls, 1);
+    _expectBusy(tester, nodes: true);
+    expect(find.bySemanticsLabel('手选线路 · 测速中'), findsOneWidget);
+
+    sync.complete(XbSyncOutcome.ok);
+    await tester.pump();
+    expect(find.bySemanticsLabel(RegExp(r'^刷新节点 \d+s$')), findsOneWidget);
+    expect(find.bySemanticsLabel('手选线路 · 测速中'), findsOneWidget);
+
+    delay.response.complete();
+    await tester.pump();
+    expect(find.bySemanticsLabel(RegExp(r'^手选线路 · 测速冷却 \d+ 秒$')), findsOneWidget);
+    expect(find.bySemanticsLabel(RegExp(r'^刷新节点 \d+s$')), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
 
   for (final nodes in [_Nodes.expired, _Nodes.exhausted]) {
     testWidgets('节点 ${nodes.name} 空态：仍能通过下拉进入既有 force 订阅同步', (tester) async {

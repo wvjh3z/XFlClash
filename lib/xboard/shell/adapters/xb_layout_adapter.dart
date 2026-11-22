@@ -4,8 +4,8 @@
 /// xboard 适配层 —— shell / tabs **不直接** import FlClash internal provider（适配层铁律），
 /// 一律改 watch 本 provider。
 ///
-/// - 窄窗口（手机 / 桌面小窗）→ `true` → 移动端 PageView + 底栏外壳。
-/// - 宽窗口（桌面常规）→ `false` → 桌面 NavRail + IndexedStack 外壳（win / mac / linux 通用）。
+/// - 窄窗口（手机 / 桌面小窗）→ `true` → 底栏，Tab 支持横滑。
+/// - 宽窗口（桌面常规）→ `false` → NavRail，切 Tab 不横滑。
 ///
 /// 用响应式宽度而非平台判定：桌面把窗口拖到很窄也能优雅退化成移动端外壳（与 FlClash 自身
 /// 响应式语义一致，desktop_gate_test 即 override 此 provider）。

@@ -15,6 +15,7 @@ import 'package:mocktail/mocktail.dart';
 import 'package:fl_clash/xboard/config/xboard_config.dart';
 import 'package:fl_clash/xboard/models/xb_domain_error.dart';
 import 'package:fl_clash/xboard/models/xb_domain_subscription.dart';
+import 'package:fl_clash/xboard/models/xb_invite.dart';
 import 'package:fl_clash/xboard/models/xb_result.dart';
 import 'package:fl_clash/xboard/providers/auth_state_provider.dart';
 import 'package:fl_clash/xboard/providers/user_profile_provider.dart';
@@ -44,6 +45,16 @@ XbDomainSubscription _sub({required int total, required int used}) =>
       expiredAt: DateTime(2026, 12, 31),
       planId: 1,
     );
+
+XbInviteInfo _inviteInfo(int rate) => XbInviteInfo(
+  code: null,
+  registeredCount: 0,
+  pendingYuan: 0,
+  totalYuan: 0,
+  commissionRate: rate,
+  commissionBalanceYuan: 0,
+  accountBalanceYuan: 0,
+);
 
 Future<void> pumpMine(
   WidgetTester tester, {
@@ -499,14 +510,64 @@ void main() {
     expect(find.textContaining('流量即将用尽'), findsNothing);
   });
 
-  testWidgets('已订阅 → 续费 + 购买/更改套餐双入口（R6.4-R6.6）', (tester) async {
+  testWidgets('已订阅只展示账号资料，购买与续费使用商店', (tester) async {
     await pumpMine(
       tester,
       auth: AuthState.authenticated,
       sub: _sub(total: 100 * gb, used: 10 * gb),
     );
-    expect(find.text('续费当前套餐'), findsOneWidget);
-    expect(find.text('购买 / 更改套餐'), findsOneWidget);
+    expect(find.text('续费当前套餐'), findsNothing);
+    expect(find.text('购买 / 更改套餐'), findsNothing);
+  });
+
+  testWidgets('已登录只展示接口真实返佣比例，不在我的页生成邀请码', (tester) async {
+    final service = _MockService();
+    final response = Completer<XbResult<XbInviteInfo>>();
+    when(service.getInviteInfo).thenAnswer((_) => response.future);
+
+    await pumpMine(
+      tester,
+      auth: AuthState.authenticated,
+      sub: _sub(total: 100 * gb, used: 10 * gb),
+      service: service,
+    );
+    expect(find.text('邀请返佣'), findsOneWidget);
+    expect(find.textContaining(RegExp(r'返 \d+%')), findsNothing);
+
+    response.complete(XbSuccess(_inviteInfo(17)));
+    await tester.pumpAndSettle();
+    expect(find.text('返 17%'), findsOneWidget);
+    expect(find.text('返 20%'), findsNothing);
+    verify(service.getInviteInfo).called(1);
+    verifyNever(service.generateInviteCode);
+  });
+
+  for (final result in <XbResult<XbInviteInfo>>[
+    XbSuccess(_inviteInfo(0)),
+    const XbFailure(XbNetwork(XbNetworkKind.unknown, 'offline')),
+  ]) {
+    testWidgets('无可展示的返佣比例（${result.runtimeType}）只保留邀请入口', (tester) async {
+      final service = _MockService();
+      when(service.getInviteInfo).thenAnswer((_) async => result);
+
+      await pumpMine(
+        tester,
+        auth: AuthState.authenticated,
+        sub: _sub(total: 100 * gb, used: 10 * gb),
+        service: service,
+      );
+      expect(find.text('邀请返佣'), findsOneWidget);
+      expect(find.textContaining(RegExp(r'返 \d+%')), findsNothing);
+      verifyNever(service.generateInviteCode);
+    });
+  }
+
+  testWidgets('游客不请求返佣比例', (tester) async {
+    final service = _MockService();
+    await pumpMine(tester, auth: AuthState.unauthenticated, service: service);
+    expect(find.text('邀请返佣'), findsOneWidget);
+    expect(find.textContaining(RegExp(r'返 \d+%')), findsNothing);
+    verifyNever(service.getInviteInfo);
   });
 
   testWidgets('账号重试保留骨架但不显示黄横幅，失败后恢复重试入口', (tester) async {
@@ -542,13 +603,13 @@ void main() {
     await tester.pump();
     expect(find.text('正在刷新服务，请稍候…'), findsNothing);
     expect(find.byType(XbSyncBanner), findsNothing);
-    // 重试态与首次加载同样保留骨架卡及禁用按钮。
+    // 重试态与首次加载同样保留账号骨架，无重复购买入口。
     expect(
       find.byType(XbSkeletonBar),
       findsWidgets,
       reason: '重试态保留骨架卡占位（卡片不丢，原型 11d）',
     );
-    expect(find.text('续费当前套餐'), findsOneWidget, reason: '重试态显示禁用的续费/购买按钮行');
+    expect(find.text('续费当前套餐'), findsNothing);
 
     // 等 getSubscription 落定 + invalidate + setState(_retrying=false)。
     // _retry等待service结果，失败也必须退出骨架忙态。
@@ -572,7 +633,9 @@ void main() {
       expect(find.text('在线客服'), findsNothing);
     });
 
-    testWidgets('crispWebsiteId 有值 → 入口显示（已登录）', (tester) async {
+    testWidgets('已登录客服使用 flavor 的站点和当前账号资料', (tester) async {
+      CrispSupportService.externalBrowserOverride = false;
+      addTearDown(() => CrispSupportService.externalBrowserOverride = null);
       XboardConfig.bind(
         const XboardConfig(
           subscribeUserAgent: 'x flclash',
@@ -583,12 +646,51 @@ void main() {
           crispWebsiteId: 'ws-abc-123',
         ),
       );
+      final driver = _MockCrispDriver();
+      when(() => driver.open(any())).thenAnswer((_) async {});
+      // timeout 的回调会返回 null，mock 也须保留驱动可空的 Future 类型。
+      when(() => driver.sessionId()).thenAnswer(
+        (_) => Future<String?>.value('ready'),
+      );
+      when(() => driver.setString(any(), any())).thenAnswer((_) async {});
+      await tester.runAsync(() => CrispSupportService.setDriverForTest(driver));
       await pumpMine(
         tester,
         auth: AuthState.authenticated,
         sub: _sub(total: 100 * gb, used: 10 * gb),
       );
       expect(find.text('在线客服'), findsOneWidget);
+      await tester.ensureVisible(find.text('在线客服'));
+      // Crisp 的串行队列以真实异步运行；让点击和会话清理在同一异步区完成。
+      await tester.runAsync(() async {
+        final cancelled = Completer<void>();
+        final sessions = StreamController<void>.broadcast(
+          onCancel: cancelled.complete,
+        );
+        when(() => driver.sessionLoaded).thenAnswer((_) => sessions.stream);
+        try {
+          await tester.tap(find.text('在线客服'));
+          await cancelled.future.timeout(
+            const Duration(seconds: 2),
+            onTimeout: () => throw StateError('客服会话监听未在打开后清理'),
+          );
+        } finally {
+          await sessions.close();
+        }
+        // onCancel 在服务的 finally 内触发；让提交守卫也完成复位。
+        await Future<void>(() {});
+      });
+      expect(tester.takeException(), isNull);
+      await tester.pump();
+      expect(find.byType(AlertDialog, skipOffstage: false), findsNothing);
+      expect(find.text('正在打开客服…'), findsNothing);
+      expect(find.text('在线客服'), findsOneWidget);
+
+      final config =
+          verify(() => driver.open(captureAny())).captured.single as CrispConfig;
+      expect(config.websiteID, 'ws-abc-123');
+      expect(config.user?.email, 'demo@example.com');
+      verify(() => driver.setString('Email', 'demo@example.com')).called(1);
     });
 
     testWidgets('crispWebsiteId 有值 → 游客也显示入口', (tester) async {

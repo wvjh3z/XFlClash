@@ -1,6 +1,7 @@
 import 'package:fl_clash/enum/enum.dart';
 import 'package:fl_clash/models/models.dart';
 import 'package:fl_clash/providers/providers.dart';
+import 'package:fl_clash/ui/icons/icons.dart' show AppGlyphs, GlyphIcon;
 import 'package:fl_clash/xboard/providers/auth_state_provider.dart';
 import 'package:fl_clash/xboard/models/xb_domain_subscription.dart';
 import 'package:fl_clash/xboard/providers/user_profile_provider.dart';
@@ -117,20 +118,35 @@ void main() {
           final capsule = find.byKey(const ValueKey('nodes-action-capsule'));
           expect(capsule, desktop ? findsNothing : findsOneWidget);
           if (!desktop) {
-            expect(tester.getSize(capsule), const Size(97, 44));
-            expect(tester.getSize(find.byKey(const ValueKey('nodes-action-capsule-background'))), const Size(97, 36));
+            expect(tester.getSize(capsule), const Size(157, 48));
             final delaySurface = find.byKey(const ValueKey('node-delay-press-surface'));
             final refreshSurface = find.byKey(const ValueKey('node-refresh-press-surface'));
-            expect(delaySurface, findsOneWidget);
-            expect(refreshSurface, findsOneWidget);
+            final divider = find.byKey(const ValueKey('nodes-action-divider'));
+            expect(tester.getSize(divider), const Size(1, 16));
+            expect(tester.getSize(delaySurface), const Size(76, 44));
+            expect(tester.getSize(refreshSurface), const Size(76, 44));
             expect(tester.widget<Material>(delaySurface).clipBehavior, Clip.antiAlias);
             expect(tester.widget<Material>(refreshSurface).clipBehavior, Clip.antiAlias);
-            expect(tester.widget<Icon>(find.descendant(of: capsule, matching: find.byIcon(Icons.bolt))).size, 22);
-            expect(tester.widget<Icon>(find.descendant(of: capsule, matching: find.byIcon(Icons.refresh))).size, 22);
+            Finder glyphIn(Finder action) =>
+                find.descendant(of: action, matching: find.byType(GlyphIcon));
+            final bolt = tester.widget<GlyphIcon>(glyphIn(delaySurface));
+            final refresh = tester.widget<GlyphIcon>(glyphIn(refreshSurface));
+            expect(bolt.glyph, AppGlyphs.bolt);
+            expect(bolt.size, 15);
+            expect(refresh.glyph, AppGlyphs.refresh);
+            expect(refresh.size, 19);
+            final delayLabel = find.descendant(of: delaySurface, matching: find.text('测延迟'));
+            final refreshLabel = find.descendant(of: refreshSurface, matching: find.text('刷新节点'));
+            for (final (icon, label) in [
+              (glyphIn(delaySurface), delayLabel),
+              (glyphIn(refreshSurface), refreshLabel),
+            ]) {
+              expect(tester.getCenter(icon).dy, closeTo(tester.getCenter(label).dy, 1));
+              expect(tester.getTopRight(icon).dx, lessThan(tester.getTopLeft(label).dx));
+            }
             expect(find.descendant(of: capsule, matching: find.byType(XbGroupDelayAction)), findsOneWidget);
-            expect(find.descendant(of: capsule, matching: find.byTooltip('刷新节点')), findsOneWidget);
+            expect(find.descendant(of: capsule, matching: find.bySemanticsLabel('刷新节点')), findsOneWidget);
             expect(tester.getCenter(capsule).dy, closeTo(tester.getCenter(find.text('选择线路')).dy, 1));
-            expect(find.text('刷新节点'), findsNothing);
           }
           String active() =>
               tester.widget<XbNodeGroup>(find.byType(XbNodeGroup)).group.name;

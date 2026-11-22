@@ -10,9 +10,9 @@ _OrderSummary _$OrderSummaryFromJson(Map<String, dynamic> json) =>
     _OrderSummary(
       tradeNo: json['tradeNo'] as String,
       planName: json['planName'] as String?,
-      period: $enumDecode(_$XbPlanPeriodEnumMap, json['period']),
-      totalAmountYuan: (json['totalAmountYuan'] as num).toDouble(),
-      status: $enumDecode(_$XbOrderStatusEnumMap, json['status']),
+      period: $enumDecodeNullable(_$XbPlanPeriodEnumMap, json['period']),
+      totalAmountYuan: (json['totalAmountYuan'] as num?)?.toDouble(),
+      status: $enumDecodeNullable(_$XbOrderStatusEnumMap, json['status']),
       createdAt: DateTime.parse(json['createdAt'] as String),
     );
 
@@ -20,9 +20,9 @@ Map<String, dynamic> _$OrderSummaryToJson(_OrderSummary instance) =>
     <String, dynamic>{
       'tradeNo': instance.tradeNo,
       'planName': instance.planName,
-      'period': _$XbPlanPeriodEnumMap[instance.period]!,
+      'period': _$XbPlanPeriodEnumMap[instance.period],
       'totalAmountYuan': instance.totalAmountYuan,
-      'status': _$XbOrderStatusEnumMap[instance.status]!,
+      'status': _$XbOrderStatusEnumMap[instance.status],
       'createdAt': instance.createdAt.toIso8601String(),
     };
 

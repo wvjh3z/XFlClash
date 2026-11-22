@@ -22,6 +22,7 @@ abstract class PlanItem with _$PlanItem {
   const factory PlanItem({
     required int id,
     required String name,
+    @Default(true) bool renewable,
     String? description,
     // 🔴 第12轮：PlanModel.transferEnable 是 double 单位 GB（≠ SubscriptionModel bytes）。
     // 映射 transferEnableGb = plan.transferEnable.toInt()，UI 展示用 GB，勿与字节混算。

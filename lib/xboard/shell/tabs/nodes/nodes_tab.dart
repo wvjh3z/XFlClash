@@ -14,18 +14,19 @@ import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:fl_clash/xboard/models/xb_domain_subscription.dart';
+import 'package:fl_clash/xboard/navigation/plan_navigation.dart';
 import 'package:fl_clash/xboard/providers/auth_state_provider.dart';
 import 'package:fl_clash/xboard/providers/user_profile_provider.dart';
 import 'package:fl_clash/xboard/providers/xboard_providers.dart';
-import 'package:fl_clash/xboard/pages/plan_list_page.dart';
-import 'package:fl_clash/xboard/pages/reset_traffic_page.dart';
 import 'package:fl_clash/xboard/services/xboard_subscription_service.dart';
 import 'package:fl_clash/xboard/widgets/xb_components.dart';
-import 'package:fl_clash/xboard/widgets/xb_feedback.dart'
-    show xbToast, xbBrandColor;
+import 'package:fl_clash/xboard/widgets/xb_feedback.dart' show xbToast;
 import 'package:fl_clash/xboard/widgets/xb_refresh_throttle_guard.dart';
-import 'package:fl_clash/xboard/widgets/xb_theme.dart' show XbTokens, xbPush;
+import 'package:fl_clash/xboard/widgets/xb_theme.dart' show XbTokens;
+import 'package:prism_ui/prism_ui.dart' show AppRadius, AppTextStyle;
 
+import '../../../../ui/icons/icons.dart'
+    show AppGlyphs, Glyph, GlyphIcon, GlyphPolyline, GlyphRole, GlyphVertex;
 import '../../adapters/xb_nodes_adapter.dart';
 import '../../adapters/xb_group_tabs.dart';
 import '../../widgets/xb_content_header.dart';
@@ -33,6 +34,7 @@ import '../../widgets/xb_responsive.dart';
 import '../../widgets/xb_tab_refresh_indicator.dart';
 import 'xb_node_group.dart';
 import 'xb_group_delay_action.dart';
+import 'xb_node_capsule_action.dart';
 
 /// 节点页 master-detail：可用宽 ≥ [XbBreakpoints.desktop] 才双栏（策略见 xb_responsive）。
 
@@ -47,7 +49,7 @@ class NodesTab extends ConsumerStatefulWidget {
     this.targetNonce = 0,
   });
 
-  /// 空态点击续费（shell/我的 注入）。
+  /// 空态点击续费（可注入；默认请求所在外壳的商店）。
   final VoidCallback? onTapRenew;
 
   /// 游客点击登录（shell 注入）。
@@ -170,36 +172,27 @@ class _NodesTabState extends ConsumerState<NodesTab>
 
     // 过期（最高优先）：服务端 40304 或本地过期。
     if (o == XbSyncOutcome.subscriptionExpired || localExpired) {
-      return _EmptyNodes(onTapRenew: widget.onTapRenew);
+      return _EmptyNodes(onTapRenew: _openShop);
     }
     // 无套餐：仅采信服务端 40305（本地 hasNoPlan 可能因 totalBytes==0 不限量误判，不据此强制空态）。
     if (o == XbSyncOutcome.noSubscription) {
-      return _EmptyNodes(onTapRenew: widget.onTapRenew);
+      return _EmptyNodes(onTapRenew: _openShop);
     }
     // 流量用尽：服务端 40307 或本地用尽。
     if (o == XbSyncOutcome.trafficExhausted || localExhausted) {
-      return _exhaustedBody(sub);
+      return _exhaustedBody();
     }
     return null;
   }
 
-  /// 流量用尽空态体（购买流量包恢复本周期 / 购买·更改套餐）。planId 取自本地 sub（可能为空）。
-  Widget _exhaustedBody(XbDomainSubscription? sub) {
+  void _openShop() =>
+      (widget.onTapRenew ?? () => openCurrentPlanRenew(context, ref))();
+
+  /// 流量用尽空态体；重置包点击时读取本账户套餐。
+  Widget _exhaustedBody() {
     return _ExhaustedNodes(
-      onBuyResetPack: () {
-        final id = sub?.planId;
-        if (id != null) {
-          xbPush(
-            context,
-            ResetTrafficPage(planId: id, planName: sub?.planName),
-            brandColor: xbBrandColor(),
-          );
-        } else {
-          xbPush(context, const PlanListPage(), brandColor: xbBrandColor());
-        }
-      },
-      onBuyPlan: () =>
-          xbPush(context, const PlanListPage(), brandColor: xbBrandColor()),
+      onBuyResetPack: () => openCurrentTrafficReset(context, ref),
+      onBuyPlan: _openShop,
     );
   }
 
@@ -243,7 +236,33 @@ class _NodesTabState extends ConsumerState<NodesTab>
     });
     final isGuest = ref.watch(authStateProvider) != AuthState.authenticated;
     if (isGuest) {
-      return _GuestNodes(onTapLogin: widget.onTapLogin);
+      final android = Theme.of(context).platform == TargetPlatform.android;
+      return LayoutBuilder(
+        builder: (context, constraints) {
+          final mobile = android && !xbIsDesktopWidth(constraints.maxWidth);
+          return ColoredBox(
+            color: XbTokens.of(context).sf,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                if (mobile)
+                  const _NodesHeader()
+                else
+                  const Padding(
+                    padding: EdgeInsets.fromLTRB(20, 14, 20, 10),
+                    child: XbScreenTitle('选择线路'),
+                  ),
+                Expanded(
+                  child: _GuestNodes(
+                    onTapLogin: widget.onTapLogin,
+                    mobile: mobile,
+                  ),
+                ),
+              ],
+            ),
+          );
+        },
+      );
     }
 
     // 节点可用性以当前会话的共享同步结果为准，辅以本地 userProfile。
@@ -266,7 +285,7 @@ class _NodesTabState extends ConsumerState<NodesTab>
 
     // 无节点时保留空态，刷新状态由顶部按钮表达。
     if (view.isEmpty) {
-      return _emptyShell(_EmptyNodes(onTapRenew: widget.onTapRenew));
+      return _emptyShell(_EmptyNodes(onTapRenew: _openShop));
     }
 
     // Preserve browsing, then use the upstream entry if the selected group disappeared.
@@ -621,16 +640,16 @@ class _CountBadge extends StatelessWidget {
   }
 }
 
-/// 顶部刷新条（R4.5）—— 原型「选择线路」标题 + 「刷新节点」。刷新中按钮禁用 + 文案「刷新中…」。
+/// 「选择线路」标题栏：游客态没有操作，移动有分组时显示双操作胶囊。
 class _NodesHeader extends StatelessWidget {
   const _NodesHeader({
-    required this.onRefresh,
+    this.onRefresh,
     this.refreshing = false,
     this.cooldownSec = 0,
     this.group,
   });
 
-  final VoidCallback onRefresh;
+  final VoidCallback? onRefresh;
   final bool refreshing;
   final int cooldownSec;
   final XbGroupSummary? group;
@@ -638,74 +657,77 @@ class _NodesHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = XbTokens.of(context);
-    // 节点页专属紧凑标题行（不用共享 XbScreenTitle —— 它底部留白 12px 太大，与下方吸顶分组 tab
-    // 间距过宽，和原型不符）。标题 + 右侧刷新，底部仅 2px 间距。
-    return Padding(
-      padding: EdgeInsets.fromLTRB(16, 8, group == null ? 8 : 16, 2),
-      child: Row(
-        children: [
-          Text(
-            '选择线路',
-            style: TextStyle(
-              fontSize: 20,
-              fontWeight: FontWeight.w700,
-              letterSpacing: -0.4,
-              color: t.on,
-            ),
-          ),
-          const Spacer(),
-          if (group != null)
-            Material(
-              key: const ValueKey('nodes-action-capsule'),
-              color: Colors.transparent,
-              borderRadius: BorderRadius.circular(24),
-              clipBehavior: Clip.antiAlias,
-              child: Stack(
-                children: [
-                  Positioned.fill(
-                    top: 4,
-                    bottom: 4,
-                    child: Ink(
-                      key: const ValueKey('nodes-action-capsule-background'),
-                      decoration: BoxDecoration(
-                        color: t.card,
-                        borderRadius: BorderRadius.circular(18),
+    final group = this.group;
+    final onRefresh = this.onRefresh;
+    final mobileHeader = group != null || onRefresh == null;
+    final title = Text(
+      '选择线路',
+      style: TextStyle(
+        fontSize: 20,
+        fontWeight: FontWeight.w700,
+        letterSpacing: -0.4,
+        color: t.on,
+      ),
+    );
+
+    return ConstrainedBox(
+      constraints: BoxConstraints(minHeight: mobileHeader ? 58 : 0),
+      child: Padding(
+        padding: mobileHeader
+            ? const EdgeInsets.symmetric(horizontal: 20)
+            : const EdgeInsets.fromLTRB(16, 8, 8, 2),
+        child: Row(
+          children: [
+            if (mobileHeader)
+              Expanded(child: title)
+            else ...[
+              title,
+              const Spacer(),
+            ],
+            if (group != null && onRefresh != null) ...[
+              const SizedBox(width: 8),
+              Material(
+                key: const ValueKey('nodes-action-capsule'),
+                color: t.card,
+                borderRadius: AppRadius.xl,
+                clipBehavior: Clip.antiAlias,
+                child: Padding(
+                  padding: const EdgeInsets.all(2),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      XbGroupDelayAction(group: group, compact: true),
+                      SizedBox(
+                        key: const ValueKey('nodes-action-divider'),
+                        width: 1,
+                        height: 16,
+                        child: ColoredBox(color: t.line),
                       ),
-                    ),
+                      _NodesRefreshAction(
+                        onRefresh: onRefresh,
+                        refreshing: refreshing,
+                        cooldownSec: cooldownSec,
+                        compact: true,
+                      ),
+                    ],
                   ),
-                  Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 2),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    XbGroupDelayAction(group: group!, compact: true),
-                    SizedBox(width: 1, height: 16, child: ColoredBox(color: t.line)),
-                    _NodesRefreshAction(
-                      onRefresh: onRefresh,
-                      refreshing: refreshing,
-                      cooldownSec: cooldownSec,
-                      compact: true,
-                    ),
-                  ],
                 ),
-                  ),
-                ],
               ),
-            )
-          else
-            _NodesRefreshAction(
-              onRefresh: onRefresh,
-              refreshing: refreshing,
-              cooldownSec: cooldownSec,
-            ),
-        ],
+            ] else if (onRefresh != null)
+              _NodesRefreshAction(
+                onRefresh: onRefresh,
+                refreshing: refreshing,
+                cooldownSec: cooldownSec,
+              ),
+          ],
+        ),
       ),
     );
   }
 }
 
 /// 「刷新节点」操作按钮（移动端标题行 / 桌面 .chd 标题栏共用）。
-/// 刷新中→「刷新中…」转圈禁用；冷却中→「刷新节点 Ns」灰色（仍可点弹冷却提示）。
+/// 刷新中独立转圈禁用，冷却仍可点；移动胶囊仅在读屏和提示中提供冷却秒数。
 class _NodesRefreshAction extends StatelessWidget {
   const _NodesRefreshAction({
     required this.onRefresh,
@@ -723,58 +745,26 @@ class _NodesRefreshAction extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final coolingDown = cooldownSec > 0;
+    const idle = '刷新节点';
+    const busy = '刷新中…';
     final String label;
     if (refreshing) {
-      label = '刷新中…';
+      label = busy;
     } else if (coolingDown) {
-      label = '刷新节点 ${cooldownSec}s';
+      label = '$idle ${cooldownSec}s';
     } else {
-      label = '刷新节点';
+      label = idle;
     }
     if (compact) {
-      final color = coolingDown ? scheme.onSurfaceVariant : scheme.primary;
-      return Tooltip(
-        message: label,
-        child: Semantics(
-          label: label,
-          button: true,
-          enabled: !refreshing,
-          onTap: refreshing ? null : onRefresh,
-          excludeSemantics: true,
-          child: SizedBox(
-            width: 46,
-            height: 44,
-            child: Material(
-              key: const ValueKey('node-refresh-press-surface'),
-              type: MaterialType.transparency,
-              borderRadius: BorderRadius.circular(18),
-              clipBehavior: Clip.antiAlias,
-              child: InkResponse(
-              containedInkWell: true,
-              highlightShape: BoxShape.rectangle,
-              borderRadius: BorderRadius.circular(18),
-              onTap: refreshing ? null : onRefresh,
-              customBorder: const CircleBorder(),
-              child: Center(
-                child: refreshing
-                    ? SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2, color: scheme.primary),
-                      )
-                    : coolingDown
-                        ? Text('${cooldownSec}s',
-                            style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                              color: color,
-                              fontWeight: FontWeight.w600,
-                              fontFeatures: const [FontFeature.tabularFigures()],
-                            ))
-                        : Icon(Icons.refresh, size: 22, color: color),
-              ),
-              ),
-            ),
-          ),
-        ),
+      return XbNodeCapsuleAction(
+        surfaceKey: const ValueKey('node-refresh-press-surface'),
+        glyph: AppGlyphs.refresh,
+        iconSize: 19,
+        label: refreshing ? '刷新中' : idle,
+        description: label,
+        onTap: refreshing ? null : onRefresh,
+        busy: refreshing,
+        cooling: !refreshing && coolingDown,
       );
     }
     return TextButton.icon(
@@ -821,21 +811,176 @@ class _EmptyNodes extends StatelessWidget {
   }
 }
 
-/// 游客态：登录后查看专属线路（R4.7，复用 XbEmptyState）。
+/// 游客态：移动版对照 `.guestcta`，其他空态与桌面照旧。
 class _GuestNodes extends StatelessWidget {
-  const _GuestNodes({this.onTapLogin});
+  const _GuestNodes({required this.mobile, this.onTapLogin});
 
+  final bool mobile;
   final VoidCallback? onTapLogin;
+
+  static const _title = '登录后查看专属线路';
+  static const _description = '高速节点由服务端下发，\n登录账号即可同步全部线路。';
+  static const _login = '立即登录';
 
   @override
   Widget build(BuildContext context) {
-    return XbEmptyState(
-      icon: Icons.public,
-      title: '登录后查看专属线路',
-      description: '高速节点由服务端下发，\n登录账号即可同步全部线路。',
-      actionLabel: '立即登录',
-      actionIcon: Icons.login,
-      onAction: onTapLogin,
+    if (!mobile) {
+      return XbEmptyState(
+        icon: Icons.public,
+        title: _title,
+        description: _description,
+        actionLabel: _login,
+        actionIcon: Icons.login,
+        onAction: onTapLogin,
+      );
+    }
+    final t = XbTokens.of(context);
+    final brand = Theme.of(context).colorScheme.primary;
+    const headline = AppTextStyle.headline;
+
+    return LayoutBuilder(
+      builder: (context, constraints) => SingleChildScrollView(
+        child: ConstrainedBox(
+          // The prototype centers the guest block in the upper 78% of the
+          // body. Let it grow and scroll when fonts are large or space is short.
+          constraints: BoxConstraints(minHeight: constraints.maxHeight * 0.78),
+          child: Center(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 14),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  DecoratedBox(
+                    key: const ValueKey('nodes-guest-badge'),
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(XbTokens.rLg),
+                      gradient: LinearGradient(
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                        colors: [
+                          Color.alphaBlend(brand.withValues(alpha: 0.14), t.sfc),
+                          t.sfc,
+                        ],
+                      ),
+                    ),
+                    child: SizedBox.square(
+                      dimension: 80,
+                      child: Icon(Icons.public, size: 36, color: brand),
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  Text(
+                    _title,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: headline.size,
+                      fontWeight: headline.weight,
+                      color: t.on,
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  Text(
+                    _description,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: AppTextStyle.footnote.size,
+                      height: 1.65,
+                      color: t.onv,
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  _GuestNodeLoginButton(label: _login, onPressed: onTapLogin),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _GuestNodeLoginButton extends StatelessWidget {
+  const _GuestNodeLoginButton({required this.label, required this.onPressed});
+
+  final String label;
+  final VoidCallback? onPressed;
+
+  static const _loginGlyph = Glyph([
+    GlyphPolyline([
+      GlyphVertex(12, 4),
+      GlyphVertex(20, 4, 1.6),
+      GlyphVertex(20, 20, 1.6),
+      GlyphVertex(12, 20),
+    ], role: GlyphRole.line),
+    GlyphPolyline([
+      GlyphVertex(3.5, 12),
+      GlyphVertex(14.5, 12),
+    ], role: GlyphRole.line),
+    GlyphPolyline([
+      GlyphVertex(10.5, 8),
+      GlyphVertex(14.5, 12, 0.4),
+      GlyphVertex(10.5, 16),
+    ], role: GlyphRole.line),
+  ], matchTextDirection: true);
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final brand = theme.colorScheme.primary;
+    final brandLight = brand == const Color(0xFFD92E1A)
+        ? const Color(0xFFFF5A44)
+        : Color.lerp(brand, Colors.white, 0.16)!;
+    const buttonText = AppTextStyle.subheadline;
+
+    return DecoratedBox(
+      key: const ValueKey('nodes-guest-login-gradient'),
+      decoration: onPressed == null
+          ? const BoxDecoration()
+          : BoxDecoration(
+              borderRadius: AppRadius.md,
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [brandLight, brand],
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: brand.withValues(alpha: 0.32),
+                  offset: const Offset(0, 6),
+                  blurRadius: 16,
+                  spreadRadius: -8,
+                ),
+              ],
+            ),
+      child: FilledButton(
+        onPressed: onPressed,
+        style: FilledButton.styleFrom(
+          foregroundColor: Colors.white,
+          backgroundColor: Colors.transparent,
+          minimumSize: const Size(0, 50),
+          padding: const EdgeInsets.symmetric(horizontal: 30, vertical: 12),
+          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          shape: const RoundedRectangleBorder(borderRadius: AppRadius.md),
+          textStyle: theme.textTheme.labelLarge?.copyWith(
+            fontSize: buttonText.size,
+            fontWeight: buttonText.emphasizedWeight,
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            GlyphIcon(
+              _loginGlyph,
+              size: 18,
+              fill: 1,
+              color: onPressed == null ? null : Colors.white,
+            ),
+            const SizedBox(width: 7),
+            Flexible(child: Text(label, textAlign: TextAlign.center)),
+          ],
+        ),
+      ),
     );
   }
 }

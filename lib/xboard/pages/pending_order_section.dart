@@ -57,13 +57,13 @@ class _PendingOrderSectionState extends ConsumerState<PendingOrderSection>
     final async = ref.watch(pendingOrderProvider);
     final order = async.asData?.value;
     // 无订单 / 该单已被本地取消 → 收起。
-    if (order == null || _cancelledTradeNos.contains(order.tradeNo)) {
+    if (order == null || !order.canContinuePayment || _cancelledTradeNos.contains(order.tradeNo)) {
       return const SizedBox.shrink();
     }
 
     final banner = XbPendingOrderBanner(
       subtitle: _subtitle(order),
-      amountText: xbYuan(order.totalAmountYuan),
+      amountText: xbYuan(order.totalAmountYuan!),
       cancelling: submitting,
       onPay: () => _pay(order),
       onCancel: () => _confirmCancel(order),

@@ -7,7 +7,7 @@
 /// **复用框架**：XbBrandScaffold / XbAsyncView(骨架) / XbCard / XbListCard / xbShowDialog / xbToast。
 library;
 
-import '../util/money_input.dart';
+import 'dart:async';
 
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart' show Clipboard, ClipboardData;
@@ -16,24 +16,24 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/xb_invite.dart';
 import '../models/xb_result.dart';
 import '../models/xb_domain_error.dart';
+import '../providers/auth_state_provider.dart';
 import '../providers/invite_provider.dart';
 import '../providers/share_link_provider.dart';
 import '../providers/xboard_providers.dart';
 import '../util/error_text.dart';
 import '../util/format.dart';
+import '../util/money_input.dart';
 import '../widgets/xb_async_view.dart';
 import '../widgets/xb_components.dart';
 import '../widgets/xb_feedback.dart' show xbBrandColor, xbToast;
 import '../widgets/xb_share_links.dart';
-import '../widgets/xb_theme.dart' show xbPush, xbShowDialog, XbTokens;
+import '../widgets/xb_theme.dart'
+    show xbDialogRoute, xbPush, xbShowDialog, XbTokens;
 import '../widgets/xb_ui_kit.dart' show XbBrandScaffold;
 import 'commission_records_page.dart';
+import 'withdraw_commission_dialog.dart';
 
-/// 提现门槛（元，前端写死；后端另按 commission_withdraw_limit 校验）。
-const double kWithdrawMinYuan = 200;
-
-/// 后端提现方式白名单（Dict::WITHDRAW_METHOD_WHITELIST_DEFAULT）。
-const List<String> kWithdrawMethods = ['支付宝', 'USDT', 'Paypal'];
+final _withdrawDialogs = Expando<DialogRoute<void>>();
 
 class InviteCommissionPage extends ConsumerWidget {
   const InviteCommissionPage({super.key});
@@ -189,8 +189,6 @@ class _BalanceCard extends ConsumerWidget {
     final brandLight = hsl
         .withLightness((hsl.lightness * 1.18).clamp(0.0, 1.0))
         .toColor();
-    final canWithdraw = info.commissionBalanceYuan >= kWithdrawMinYuan;
-
     return Container(
       padding: const EdgeInsets.fromLTRB(20, 18, 20, 18),
       decoration: BoxDecoration(
@@ -244,61 +242,28 @@ class _BalanceCard extends ConsumerWidget {
               ],
             ),
           ),
-          // 操作按钮组：划转到余额（白实心）+ 佣金提现（描边）。
-          // 「?」说明角标浮于按钮组上方的留白区（原型 .invbal-info top:-26，浮在按钮上方、
-          // 与按钮不重叠）。把留白纳入 Stack 内，角标落在 Stack 边界内 → 整块可点（不再依赖
-          // Clip.none 渲染到界外的不可点区域，既不重叠也好点）。
-          Stack(
+          const SizedBox(height: 18),
+          Row(
             children: [
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  const SizedBox(height: 26),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: _balanceBtn(
-                          context,
-                          icon: Icons.swap_horiz,
-                          label: '划转到余额',
-                          solid: true,
-                          brand: brand,
-                          onTap: () => _openTransfer(context, ref),
-                        ),
-                      ),
-                      const SizedBox(width: 9),
-                      Expanded(
-                        child: _balanceBtn(
-                          context,
-                          icon: canWithdraw
-                              ? Icons.account_balance
-                              : Icons.lock,
-                          label: canWithdraw
-                              ? '佣金提现'
-                              : '满 ¥${kWithdrawMinYuan.toStringAsFixed(0)} 可提现',
-                          solid: false,
-                          brand: brand,
-                          disabled: !canWithdraw,
-                          onTap: canWithdraw
-                              ? () => _openWithdraw(context, ref)
-                              : null,
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
+              Expanded(
+                child: _balanceBtn(
+                  context,
+                  icon: Icons.swap_horiz,
+                  label: '划转到余额',
+                  solid: true,
+                  brand: brand,
+                  onTap: () => _openTransfer(context),
+                ),
               ),
-              // 「?」说明角标：贴右上角，落在上方 24px 留白内（与按钮齐平但不重叠）。
-              Positioned(
-                top: 0,
-                right: 0,
-                child: GestureDetector(
-                  behavior: HitTestBehavior.opaque,
-                  onTap: () => _openWithdrawRule(context),
-                  child: const Padding(
-                    padding: EdgeInsets.only(left: 14, bottom: 2),
-                    child: _HelpBadge(),
-                  ),
+              const SizedBox(width: 9),
+              Expanded(
+                child: _balanceBtn(
+                  context,
+                  icon: Icons.account_balance,
+                  label: '佣金提现',
+                  solid: false,
+                  brand: brand,
+                  onTap: () => _openWithdraw(context, ref),
                 ),
               ),
             ],
@@ -379,20 +344,12 @@ class _BalanceCard extends ConsumerWidget {
     required String label,
     required bool solid,
     required Color brand,
-    VoidCallback? onTap,
-    bool disabled = false,
+    required VoidCallback onTap,
   }) {
     final Color bg;
     final Color fg;
     BoxBorder? border;
-    if (disabled) {
-      bg = Colors.white.withValues(alpha: 0.10);
-      fg = Colors.white.withValues(alpha: 0.55);
-      border = Border.all(
-        color: Colors.white.withValues(alpha: 0.22),
-        width: 1.5,
-      );
-    } else if (solid) {
+    if (solid) {
       bg = Colors.white.withValues(alpha: 0.94);
       fg = brand;
     } else {
@@ -441,7 +398,7 @@ class _BalanceCard extends ConsumerWidget {
     );
   }
 
-  void _openTransfer(BuildContext context, WidgetRef ref) {
+  void _openTransfer(BuildContext context) {
     xbShowDialog<void>(
       context: context,
       brandColor: xbBrandColor(),
@@ -450,37 +407,24 @@ class _BalanceCard extends ConsumerWidget {
   }
 
   void _openWithdraw(BuildContext context, WidgetRef ref) {
-    xbShowDialog<void>(
+    if (ref.read(authStateProvider) != AuthState.authenticated) return;
+    final navigator = Navigator.of(context, rootNavigator: true);
+    if (_withdrawDialogs[navigator]?.isActive ?? false) return;
+    final owner = ref.read(xboardServiceProvider);
+    final revision = ref.read(authStateProvider.notifier).sessionRevision;
+    final route = xbDialogRoute<void>(
       context: context,
+      barrierDismissible: false,
       brandColor: xbBrandColor(),
-      builder: (_) => _WithdrawDialog(info: info),
+      builder: (_) => WithdrawCommissionDialog(owner: owner, revision: revision),
     );
-  }
-
-  void _openWithdrawRule(BuildContext context) {
-    xbShowDialog<void>(
-      context: context,
-      brandColor: xbBrandColor(),
-      builder: (_) => const _WithdrawRuleDialog(),
-    );
-  }
-}
-
-/// 提现按钮右上角「?」角标（半透明白底 + help 图标）。抽成独立 widget 以便 const 化。
-class _HelpBadge extends StatelessWidget {
-  const _HelpBadge();
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 24,
-      height: 24,
-      alignment: Alignment.center,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        color: Colors.white.withValues(alpha: 0.28),
-      ),
-      child: const Icon(Icons.help_outline, size: 15, color: Colors.white),
+    _withdrawDialogs[navigator] = route;
+    unawaited(
+      navigator.push(route).whenComplete(() {
+        if (identical(_withdrawDialogs[navigator], route)) {
+          _withdrawDialogs[navigator] = null;
+        }
+      }),
     );
   }
 }
@@ -1094,246 +1038,6 @@ class _TransferDialogState extends ConsumerState<_TransferDialog> {
           confirmLabel: '确认划转',
           submitting: _submitting,
           onConfirm: _submit,
-        ),
-      ],
-    );
-  }
-}
-
-/// 佣金提现弹窗：整笔提现（金额不可改）+ 收款方式 + 收款账户。
-class _WithdrawDialog extends ConsumerStatefulWidget {
-  const _WithdrawDialog({required this.info});
-  final XbInviteInfo info;
-
-  @override
-  ConsumerState<_WithdrawDialog> createState() => _WithdrawDialogState();
-}
-
-class _WithdrawDialogState extends ConsumerState<_WithdrawDialog> {
-  String _method = kWithdrawMethods.first;
-  late final TextEditingController _account = TextEditingController();
-  bool _submitting = false;
-
-  /// 可选收款方式列表。默认后端白名单常量；接口可用时由 [withdrawMethodsProvider] 覆盖。
-  List<String> get _methods {
-    final fromApi = ref.watch(withdrawMethodsProvider);
-    return fromApi.isNotEmpty ? fromApi : kWithdrawMethods;
-  }
-
-  @override
-  void dispose() {
-    _account.dispose();
-    super.dispose();
-  }
-
-  Future<void> _submit() async {
-    if (_submitting) return;
-    final account = _account.text.trim();
-    if (account.isEmpty) {
-      xbToast(context, '请输入收款账户');
-      return;
-    }
-    // 收款方式以当前可选列表为准（API 列表可能与本地默认不同，未选中时取首项）。
-    final methods = _methods;
-    final method = methods.contains(_method) ? _method : methods.first;
-    setState(() => _submitting = true);
-    final result = await ref
-        .read(xboardServiceProvider)
-        .withdrawCommission(method: method, account: account);
-    if (!mounted) return;
-    switch (result) {
-      case XbSuccess(data: true):
-        Navigator.of(context).pop();
-        xbToast(context, '提现申请已提交，请等待后台审核');
-      case XbSuccess():
-        setState(() => _submitting = false);
-        xbToast(context, '操作结果尚未确认，请先核对余额和记录。如问题持续，请向客服反馈此问题。');
-      case XbFailure(:final error):
-        if (error is XbUnconfirmed) {
-          ref.invalidate(inviteInfoProvider);
-          ref.invalidate(commissionRecordsProvider);
-        }
-        setState(() => _submitting = false);
-        xbToast(context, resolveErrorText(error, fallback: '提现失败，请重试'));
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final t = XbTokens.of(context);
-    return AlertDialog(
-      backgroundColor: t.sf2,
-      title: const Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [Text('佣金提现', textAlign: TextAlign.center)],
-      ),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Text(
-            '提现须符合提现条件，否则不予受理。经后台审核后 3 个工作日将佣金打款到你的收款账户，如果是支付宝提现，请联系在线客服提供收款码。',
-            textAlign: TextAlign.center,
-            style: TextStyle(fontSize: 12.5, height: 1.5, color: t.onv),
-          ),
-          const SizedBox(height: 16),
-          Container(
-            height: 48,
-            padding: const EdgeInsets.symmetric(horizontal: 15),
-            decoration: BoxDecoration(
-              color: t.sfc,
-              borderRadius: BorderRadius.circular(XbTokens.rMd),
-              border: Border.all(color: t.line),
-            ),
-            child: Row(
-              children: [
-                Text(
-                  '提现金额（整笔佣金）',
-                  style: TextStyle(fontSize: 14, color: t.onv),
-                ),
-                const Spacer(),
-                Text(
-                  xbYuan(widget.info.commissionBalanceYuan),
-                  style: TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w700,
-                    color: t.on,
-                    fontFeatures: const [FontFeature.tabularFigures()],
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 10),
-          // 收款方式：原型 .field — 50px 高、1.5px 描边、sfc 底、r-md 圆角的紧凑行
-          // （而非 Material 浮动标签输入框，后者更高且观感与原型不符 → 之前「框太长」）。
-          _CompactFieldShell(
-            child: DropdownButtonHideUnderline(
-              child: DropdownButton<String>(
-                value: _methods.contains(_method) ? _method : _methods.first,
-                isExpanded: true,
-                isDense: true,
-                hint: Text(
-                  '收款方式',
-                  style: TextStyle(fontSize: 14.5, color: t.onv),
-                ),
-                icon: Icon(Icons.expand_more, size: 20, color: t.onv),
-                style: TextStyle(fontSize: 14.5, color: t.on),
-                dropdownColor: t.sf2,
-                items: [
-                  for (final m in _methods)
-                    DropdownMenuItem(value: m, child: Text(m)),
-                ],
-                onChanged: (v) => setState(() => _method = v ?? _method),
-              ),
-            ),
-          ),
-          const SizedBox(height: 11),
-          // 收款账户：同 .field 紧凑行，内嵌无边框 TextField。
-          _CompactFieldShell(
-            child: TextField(
-              controller: _account,
-              style: TextStyle(fontSize: 14.5, color: t.on),
-              decoration: InputDecoration(
-                isCollapsed: true,
-                contentPadding: EdgeInsets.zero,
-                // 全部边框态置空（同划转金额框）：避免聚焦时全局 focusedBorder(品牌红) 冒红框；
-                // 中性描边由外层 _CompactFieldShell 提供。
-                border: InputBorder.none,
-                enabledBorder: InputBorder.none,
-                focusedBorder: InputBorder.none,
-                errorBorder: InputBorder.none,
-                focusedErrorBorder: InputBorder.none,
-                disabledBorder: InputBorder.none,
-                hintText: '收款账户',
-                hintStyle: TextStyle(fontSize: 14.5, color: t.onv),
-              ),
-            ),
-          ),
-          const SizedBox(height: 8),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Icon(Icons.info_outline, size: 14, color: t.onv),
-              const SizedBox(width: 5),
-              Expanded(
-                child: Text(
-                  '提现为整笔佣金，金额不可拆分；门槛 ¥${kWithdrawMinYuan.toStringAsFixed(0)}，到账时间以后台审核为准',
-                  style: TextStyle(fontSize: 11, height: 1.5, color: t.onv),
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-      actionsPadding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
-      actions: [
-        _DialogActions(
-          confirmLabel: '提交申请',
-          submitting: _submitting,
-          onConfirm: _submit,
-        ),
-      ],
-    );
-  }
-}
-
-/// 佣金提现说明弹窗（点佣金卡右上角「?」）。
-class _WithdrawRuleDialog extends StatelessWidget {
-  const _WithdrawRuleDialog();
-
-  @override
-  Widget build(BuildContext context) {
-    final t = XbTokens.of(context);
-    Widget rule(String text) => Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Icon(Icons.check_circle, size: 17, color: XbTokens.ok),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              text,
-              style: TextStyle(fontSize: 13, height: 1.6, color: t.on),
-            ),
-          ),
-        ],
-      ),
-    );
-    return AlertDialog(
-      backgroundColor: t.sf2,
-      title: const Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [Text('佣金提现说明', textAlign: TextAlign.center)],
-      ),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            '满足以下条件后即可申请佣金提现：',
-            style: TextStyle(fontSize: 13, color: t.onv),
-          ),
-          const SizedBox(height: 4),
-          rule('佣金余额 ≥ ¥${kWithdrawMinYuan.toStringAsFixed(0)}'),
-          rule('已购买用户达到 20 人'),
-          const SizedBox(height: 8),
-          Text(
-            '未达门槛时，可先将佣金「划转到余额」，用于购买 / 续费套餐抵扣（划转无门槛）。',
-            style: TextStyle(fontSize: 12.5, height: 1.6, color: t.onv),
-          ),
-        ],
-      ),
-      actionsPadding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
-      actions: [
-        SizedBox(
-          width: double.infinity,
-          height: 46,
-          child: FilledButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('知道了'),
-          ),
         ),
       ],
     );

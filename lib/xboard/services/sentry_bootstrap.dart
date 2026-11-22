@@ -17,6 +17,7 @@ library;
 
 import 'dart:async';
 
+import 'package:fl_clash/core/desktop/startup_diagnostic.dart';
 import 'package:flutter/foundation.dart'
     show
         FlutterError,
@@ -25,8 +26,11 @@ import 'package:flutter/foundation.dart'
         kIsWeb,
         visibleForTesting;
 import 'package:sentry_flutter/sentry_flutter.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
+import 'core_startup_report_budget.dart';
 import 'sentry_native_storage.dart';
+import 'sentry_process_tags.dart';
 
 /// Sentry tag key（DD-23 8 类）。
 class SentryTagKeys {
@@ -72,8 +76,16 @@ abstract interface class SentryBootstrapRuntimePolicy {
   bool get preferenceChangesRequireRestart;
 }
 
+@visibleForTesting
+abstract interface class SentryCoreStartupRuntime {
+  Future<void> captureCoreStartup(SentryEvent event);
+}
+
 class _SdkRuntime
-    implements SentryBootstrapRuntime, SentryBootstrapRuntimePolicy {
+    implements
+        SentryBootstrapRuntime,
+        SentryBootstrapRuntimePolicy,
+        SentryCoreStartupRuntime {
   const _SdkRuntime();
 
   // Native integration shutdown can swallow errors and some crash handlers
@@ -141,6 +153,22 @@ class _SdkRuntime
   Future<void> captureMessage(String message, SentryLevel level) async {
     await Sentry.captureMessage(message, level: level);
   }
+
+  @override
+  Future<void> captureCoreStartup(SentryEvent event) async {
+    await Sentry.captureEvent(
+      event,
+      // A cloned, event-local scope: don't inherit console breadcrumbs,
+      // business tags, account identity or attachments from another feature.
+      withScope: (scope) async {
+        await scope.clear();
+        // SDK 9.30.1's clear() does not remove custom contexts.
+        for (final key in scope.contexts.keys) {
+          await scope.removeContexts(key);
+        }
+      },
+    );
+  }
 }
 
 class _SentryConfiguration {
@@ -186,6 +214,8 @@ class SentryBootstrap {
   static bool _userOptedOut = false;
   static _SentryConfiguration? _configuration;
   static SentryBootstrapRuntime _runtime = const _SdkRuntime();
+  static const _coreStartupBudgetKey = 'xb_sentry_core_start_budget_v1';
+  static CoreStartupReportBudget _coreStartupBudget = _newCoreStartupBudget();
   static Future<void> _pending = Future.value();
   static Future<void>? _applicationStartup;
   static _StartupPreferenceRead? _initialPreferenceRead;
@@ -305,6 +335,7 @@ class SentryBootstrap {
     }
     if (configuration == null) return;
     try {
+      _tags.addAll(currentSentryProcessTags());
       await _runtime.initialize((options) {
         options.dsn = configuration.dsn;
         options.release = configuration.release;
@@ -325,6 +356,12 @@ class SentryBootstrap {
       _initialized = true;
       await _runtime.configureScope((scope) => _tags.forEach(scope.setTag));
       _enabled = true;
+      if (supportsDesktopCoreStartup(
+        configuration.environment,
+        _tags['xb.platform'],
+      )) {
+        desktopCoreStartupObserver = _recordDesktopCoreStartup;
+      }
     } catch (_) {
       _enabled = false;
       // init can fail after installing integrations; clean them up before a
@@ -340,6 +377,7 @@ class SentryBootstrap {
 
   static Future<void> _stop() async {
     _enabled = false;
+    desktopCoreStartupObserver = null;
     if (identical(FlutterError.onError, _wrapper) && _wrapper != null) {
       FlutterError.onError = _chainedHandler;
     }
@@ -401,6 +439,84 @@ class SentryBootstrap {
     );
   }
 
+  static CoreStartupReportBudget _newCoreStartupBudget() =>
+      CoreStartupReportBudget(
+        read: () async => (await SharedPreferences.getInstance()).getString(
+          _coreStartupBudgetKey,
+        ),
+        write: (value) async => (await SharedPreferences.getInstance()).setString(
+          _coreStartupBudgetKey,
+          value,
+        ),
+      );
+
+  @visibleForTesting
+  static bool supportsDesktopCoreStartup(
+    String? environment,
+    String? platform,
+  ) =>
+      (environment == 'brand_a' || environment == 'brand_b') &&
+      (platform == 'windows' || platform == 'macos');
+
+  static void _recordDesktopCoreStartup(CoreStartupDiagnostic diagnostic) {
+    final Object runtime = _runtime;
+    final configuration = _configuration;
+    if (!_enabled ||
+        !supportsDesktopCoreStartup(
+          configuration?.environment,
+          _tags['xb.platform'],
+        ) ||
+        desktopCoreStartupObserver != _recordDesktopCoreStartup ||
+        runtime is! SentryCoreStartupRuntime) {
+      return;
+    }
+    final reason = diagnostic.reason;
+    _bestEffort(() async {
+      if (!await _coreStartupBudget.reserve(reason.name) ||
+          !_enabled ||
+          !identical(configuration, _configuration) ||
+          desktopCoreStartupObserver != _recordDesktopCoreStartup) {
+        return;
+      }
+      await runtime.captureCoreStartup(
+        desktopCoreStartupEvent(
+          diagnostic,
+          processTags: {
+            'xb.platform': _tags['xb.platform']!,
+            'xb.arch': _tags['xb.arch']!,
+          },
+        ),
+      );
+    });
+  }
+
+  @visibleForTesting
+  static SentryEvent desktopCoreStartupEvent(
+    CoreStartupDiagnostic diagnostic, {
+    Map<String, String> processTags = const {},
+  }) => SentryEvent(
+    message: SentryMessage('Desktop Core startup failed'),
+    level: SentryLevel.error,
+    fingerprint: ['desktop_core_start', diagnostic.reason.name],
+    tags: {
+      ...processTags,
+      'core.event': 'desktop_core_start',
+      'core.reason': diagnostic.reason.name,
+      'core.stage': diagnostic.stage.name,
+      'core.launcher': diagnostic.owner?.name ?? 'unknown',
+    },
+    contexts: Contexts()
+      ..['desktop_core_start'] = {
+        'elapsed_ms': diagnostic.elapsedMs,
+        'lease_acquired': diagnostic.leaseAcquired,
+        'ipc_ready_ms': ?diagnostic.ipcReadyMs,
+        'lease_acquired_ms': ?diagnostic.leaseAcquiredMs,
+        'ipc_peer_seen_ms': ?diagnostic.peerSeenMs,
+        'os_error': ?diagnostic.osError,
+        'exit_code': ?diagnostic.exitCode,
+      },
+  );
+
   /// 设 tag（DD-23）。dsn null 时仅记内存快照（no-op 不发）；启用后同步推 Sentry scope。
   static void setTag(String key, String value) {
     _tags[key] = value;
@@ -448,7 +564,8 @@ class SentryBootstrap {
 
   /// SDK 日志桥接（String 翻译，避免 import SDK LogLevel，第 4 轮 Property 2）。
   /// 已分类的业务拒绝通过 [recordBusinessRejection] 保留上下文。
-  /// warning/error/fatal → Sentry.captureMessage（debug/info 丢弃，减噪）。
+  /// warning/error/fatal → Sentry events. Only the fixed recovery notice
+  /// is kept as an info breadcrumb.
   static void captureFromSdk(
     String levelStr,
     String message, {
@@ -456,6 +573,24 @@ class SentryBootstrap {
     StackTrace? stackTrace,
   }) {
     if (!_enabled) return;
+    if (levelStr == 'info' &&
+        message == '[HttpService] API recovered: retry succeeded') {
+      _bestEffort(
+        () => _runtime.configureScope((scope) {
+          _bestEffort(
+            () => scope.addBreadcrumb(
+              Breadcrumb(
+                category: 'sdk.http.recovered',
+                type: 'http',
+                level: SentryLevel.info,
+                message: 'API recovered after a retry',
+              ),
+            ),
+          );
+        }),
+      );
+      return;
+    }
     final level = switch (levelStr) {
       'fatal' => SentryLevel.fatal,
       'error' => SentryLevel.error,
@@ -566,6 +701,8 @@ class SentryBootstrap {
     _restartRequired = false;
     _userOptedOut = false;
     _runtime = const _SdkRuntime();
+    _coreStartupBudget = _newCoreStartupBudget();
+    desktopCoreStartupObserver = null;
     _pending = Future.value();
     _applicationStartup = null;
     _initialPreferenceRead = null;

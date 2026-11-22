@@ -558,7 +558,7 @@ as int,
 /// @nodoc
 mixin _$PaymentMethodItem {
 
- String get id; String get name; String? get icon; double? get feeFixedYuan; double? get feePercent;
+ String get id; String get name; String? get icon; String? get paymentMethod; double? get feeFixedYuan; double? get feePercent;
 /// Create a copy of PaymentMethodItem
 /// with the given fields replaced by the non-null parameter values.
 @JsonKey(includeFromJson: false, includeToJson: false)
@@ -570,20 +570,20 @@ $PaymentMethodItemCopyWith<PaymentMethodItem> get copyWith => _$PaymentMethodIte
 @override
 bool operator ==(Object other) {
   final _this = this as PaymentMethodItem;
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is PaymentMethodItem&&(identical(other.id, _this.id) || other.id == _this.id)&&(identical(other.name, _this.name) || other.name == _this.name)&&(identical(other.icon, _this.icon) || other.icon == _this.icon)&&(identical(other.feeFixedYuan, _this.feeFixedYuan) || other.feeFixedYuan == _this.feeFixedYuan)&&(identical(other.feePercent, _this.feePercent) || other.feePercent == _this.feePercent));
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is PaymentMethodItem&&(identical(other.id, _this.id) || other.id == _this.id)&&(identical(other.name, _this.name) || other.name == _this.name)&&(identical(other.icon, _this.icon) || other.icon == _this.icon)&&(identical(other.paymentMethod, _this.paymentMethod) || other.paymentMethod == _this.paymentMethod)&&(identical(other.feeFixedYuan, _this.feeFixedYuan) || other.feeFixedYuan == _this.feeFixedYuan)&&(identical(other.feePercent, _this.feePercent) || other.feePercent == _this.feePercent));
 }
 
 
 @override
 int get hashCode {
   final _this = this as PaymentMethodItem;
-  return Object.hash(runtimeType,_this.id,_this.name,_this.icon,_this.feeFixedYuan,_this.feePercent);
+  return Object.hash(runtimeType,_this.id,_this.name,_this.icon,_this.paymentMethod,_this.feeFixedYuan,_this.feePercent);
 }
 
 @override
 String toString() {
   final _this = this as PaymentMethodItem;
-  return 'PaymentMethodItem(id: ${_this.id}, name: ${_this.name}, icon: ${_this.icon}, feeFixedYuan: ${_this.feeFixedYuan}, feePercent: ${_this.feePercent})';
+  return 'PaymentMethodItem(id: ${_this.id}, name: ${_this.name}, icon: ${_this.icon}, paymentMethod: ${_this.paymentMethod}, feeFixedYuan: ${_this.feeFixedYuan}, feePercent: ${_this.feePercent})';
 }
 
 
@@ -594,7 +594,7 @@ abstract mixin class $PaymentMethodItemCopyWith<$Res>  {
   factory $PaymentMethodItemCopyWith(PaymentMethodItem value, $Res Function(PaymentMethodItem) _then) = _$PaymentMethodItemCopyWithImpl;
 @useResult
 $Res call({
- String id, String name, String? icon, double? feeFixedYuan, double? feePercent
+ String id, String name, String? icon, String? paymentMethod, double? feeFixedYuan, double? feePercent
 });
 
 
@@ -611,11 +611,12 @@ class _$PaymentMethodItemCopyWithImpl<$Res>
 
 /// Create a copy of PaymentMethodItem
 /// with the given fields replaced by the non-null parameter values.
-@pragma('vm:prefer-inline') @override $Res call({Object? id = null,Object? name = null,Object? icon = freezed,Object? feeFixedYuan = freezed,Object? feePercent = freezed,}) {
+@pragma('vm:prefer-inline') @override $Res call({Object? id = null,Object? name = null,Object? icon = freezed,Object? paymentMethod = freezed,Object? feeFixedYuan = freezed,Object? feePercent = freezed,}) {
   return _then(PaymentMethodItem(
 id: null == id ? _self.id : id // ignore: cast_nullable_to_non_nullable
 as String,name: null == name ? _self.name : name // ignore: cast_nullable_to_non_nullable
 as String,icon: freezed == icon ? _self.icon : icon // ignore: cast_nullable_to_non_nullable
+as String?,paymentMethod: freezed == paymentMethod ? _self.paymentMethod : paymentMethod // ignore: cast_nullable_to_non_nullable
 as String?,feeFixedYuan: freezed == feeFixedYuan ? _self.feeFixedYuan : feeFixedYuan // ignore: cast_nullable_to_non_nullable
 as double?,feePercent: freezed == feePercent ? _self.feePercent : feePercent // ignore: cast_nullable_to_non_nullable
 as double?,
@@ -703,10 +704,10 @@ return $default(_that);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult maybeWhen<TResult extends Object?>(TResult Function( String id,  String name,  String? icon,  double? feeFixedYuan,  double? feePercent)?  $default,{required TResult orElse(),}) {final _that = this;
+@optionalTypeArgs TResult maybeWhen<TResult extends Object?>(TResult Function( String id,  String name,  String? icon,  String? paymentMethod,  double? feeFixedYuan,  double? feePercent)?  $default,{required TResult orElse(),}) {final _that = this;
 switch (_that) {
 case _PaymentMethodItem() when $default != null:
-return $default(_that.id,_that.name,_that.icon,_that.feeFixedYuan,_that.feePercent);case _:
+return $default(_that.id,_that.name,_that.icon,_that.paymentMethod,_that.feeFixedYuan,_that.feePercent);case _:
   return orElse();
 
 }
@@ -724,10 +725,10 @@ return $default(_that.id,_that.name,_that.icon,_that.feeFixedYuan,_that.feePerce
 /// }
 /// ```
 
-@optionalTypeArgs TResult when<TResult extends Object?>(TResult Function( String id,  String name,  String? icon,  double? feeFixedYuan,  double? feePercent)  $default,) {final _that = this;
+@optionalTypeArgs TResult when<TResult extends Object?>(TResult Function( String id,  String name,  String? icon,  String? paymentMethod,  double? feeFixedYuan,  double? feePercent)  $default,) {final _that = this;
 switch (_that) {
 case _PaymentMethodItem():
-return $default(_that.id,_that.name,_that.icon,_that.feeFixedYuan,_that.feePercent);case _:
+return $default(_that.id,_that.name,_that.icon,_that.paymentMethod,_that.feeFixedYuan,_that.feePercent);case _:
   throw StateError('Unexpected subclass');
 
 }
@@ -744,10 +745,10 @@ return $default(_that.id,_that.name,_that.icon,_that.feeFixedYuan,_that.feePerce
 /// }
 /// ```
 
-@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>(TResult? Function( String id,  String name,  String? icon,  double? feeFixedYuan,  double? feePercent)?  $default,) {final _that = this;
+@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>(TResult? Function( String id,  String name,  String? icon,  String? paymentMethod,  double? feeFixedYuan,  double? feePercent)?  $default,) {final _that = this;
 switch (_that) {
 case _PaymentMethodItem() when $default != null:
-return $default(_that.id,_that.name,_that.icon,_that.feeFixedYuan,_that.feePercent);case _:
+return $default(_that.id,_that.name,_that.icon,_that.paymentMethod,_that.feeFixedYuan,_that.feePercent);case _:
   return null;
 
 }
@@ -759,12 +760,13 @@ return $default(_that.id,_that.name,_that.icon,_that.feeFixedYuan,_that.feePerce
 
 
 class _PaymentMethodItem implements PaymentMethodItem {
-  const _PaymentMethodItem({required this.id, required this.name, this.icon, this.feeFixedYuan, this.feePercent});
+  const _PaymentMethodItem({required this.id, required this.name, this.icon, this.paymentMethod, this.feeFixedYuan, this.feePercent});
   
 
 @override final  String id;
 @override final  String name;
 @override final  String? icon;
+@override final  String? paymentMethod;
 @override final  double? feeFixedYuan;
 @override final  double? feePercent;
 
@@ -778,18 +780,18 @@ _$PaymentMethodItemCopyWith<_PaymentMethodItem> get copyWith => __$PaymentMethod
 
 @override
 bool operator ==(Object other) {
-    return identical(this, other) || (other.runtimeType == runtimeType&&other is _PaymentMethodItem&&(identical(other.id, id) || other.id == id)&&(identical(other.name, name) || other.name == name)&&(identical(other.icon, icon) || other.icon == icon)&&(identical(other.feeFixedYuan, feeFixedYuan) || other.feeFixedYuan == feeFixedYuan)&&(identical(other.feePercent, feePercent) || other.feePercent == feePercent));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is _PaymentMethodItem&&(identical(other.id, id) || other.id == id)&&(identical(other.name, name) || other.name == name)&&(identical(other.icon, icon) || other.icon == icon)&&(identical(other.paymentMethod, paymentMethod) || other.paymentMethod == paymentMethod)&&(identical(other.feeFixedYuan, feeFixedYuan) || other.feeFixedYuan == feeFixedYuan)&&(identical(other.feePercent, feePercent) || other.feePercent == feePercent));
 }
 
 
 @override
 int get hashCode {
-    return Object.hash(runtimeType,id,name,icon,feeFixedYuan,feePercent);
+    return Object.hash(runtimeType,id,name,icon,paymentMethod,feeFixedYuan,feePercent);
 }
 
 @override
 String toString() {
-    return 'PaymentMethodItem(id: $id, name: $name, icon: $icon, feeFixedYuan: $feeFixedYuan, feePercent: $feePercent)';
+    return 'PaymentMethodItem(id: $id, name: $name, icon: $icon, paymentMethod: $paymentMethod, feeFixedYuan: $feeFixedYuan, feePercent: $feePercent)';
 }
 
 
@@ -800,7 +802,7 @@ abstract mixin class _$PaymentMethodItemCopyWith<$Res> implements $PaymentMethod
   factory _$PaymentMethodItemCopyWith(_PaymentMethodItem value, $Res Function(_PaymentMethodItem) _then) = __$PaymentMethodItemCopyWithImpl;
 @override @useResult
 $Res call({
- String id, String name, String? icon, double? feeFixedYuan, double? feePercent
+ String id, String name, String? icon, String? paymentMethod, double? feeFixedYuan, double? feePercent
 });
 
 
@@ -817,11 +819,12 @@ class __$PaymentMethodItemCopyWithImpl<$Res>
 
 /// Create a copy of PaymentMethodItem
 /// with the given fields replaced by the non-null parameter values.
-@override @pragma('vm:prefer-inline') $Res call({Object? id = null,Object? name = null,Object? icon = freezed,Object? feeFixedYuan = freezed,Object? feePercent = freezed,}) {
+@override @pragma('vm:prefer-inline') $Res call({Object? id = null,Object? name = null,Object? icon = freezed,Object? paymentMethod = freezed,Object? feeFixedYuan = freezed,Object? feePercent = freezed,}) {
   return _then(_PaymentMethodItem(
 id: null == id ? _self.id : id // ignore: cast_nullable_to_non_nullable
 as String,name: null == name ? _self.name : name // ignore: cast_nullable_to_non_nullable
 as String,icon: freezed == icon ? _self.icon : icon // ignore: cast_nullable_to_non_nullable
+as String?,paymentMethod: freezed == paymentMethod ? _self.paymentMethod : paymentMethod // ignore: cast_nullable_to_non_nullable
 as String?,feeFixedYuan: freezed == feeFixedYuan ? _self.feeFixedYuan : feeFixedYuan // ignore: cast_nullable_to_non_nullable
 as double?,feePercent: freezed == feePercent ? _self.feePercent : feePercent // ignore: cast_nullable_to_non_nullable
 as double?,

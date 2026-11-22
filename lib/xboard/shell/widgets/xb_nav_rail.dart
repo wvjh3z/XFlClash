@@ -1,6 +1,6 @@
 /// 形态 A 桌面左侧导航栏（spec `xboard-form-a-ui-revamp` / C-分支桌面外壳）。
 ///
-/// 桌面（宽窗口）专用：替代移动端底栏 [XbBottomBar]，提供 4 项纵向导航（首页 / 节点 / 我的 /
+/// 桌面（宽窗口）专用：替代移动端底栏 [XbBottomBar]，提供纵向导航（首页 / 节点 / 商店 / 我的 /
 /// 设置）+ 底部账户身份芯片 + 版本号。win / mac / linux 通用。
 ///
 /// **框架思维**：
@@ -35,7 +35,7 @@ class XbNavRail extends StatelessWidget {
     this.width = 208,
   });
 
-  /// 当前选中 Tab index（0 首页 / 1 节点 / 2 我的 / 3 设置）。
+  /// 当前选中项，对齐移动端顺序并在末尾附加设置。
   final int currentIndex;
 
   /// 导航项点击（传目标 index）。
@@ -47,7 +47,7 @@ class XbNavRail extends StatelessWidget {
   /// 栏宽（默认 208；原型 .side 为 200，留 8px 余量避免账户芯片到期行在长文案下溢出）。
   final double width;
 
-  /// 导航项 = 复用移动端底栏三项（单一数据源）+ 追加「设置」（桌面独立 Tab）。
+  /// 导航项 = 复用移动端底栏 + 追加「设置」（桌面独立 Tab）。
   static const List<XbBottomBarItem> _items = [
     ...XbBottomBar.defaultItems,
     XbBottomBarItem(

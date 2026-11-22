@@ -90,7 +90,7 @@ lib/xboard/util/
 | `buildXbTheme({brandColor, brightness})` | fn | 形态 A 完整 ThemeData：品牌强调 + 中性底 + 全组件子主题。设计真源。 |
 | `XbBrandTheme(brandColor, child)` | widget | 子树注入品牌主题。作用域：shell body / sheet 入口 / 页面 push 入口。 |
 | `XbBrandScaffold(title, body, {bottomNavigationBar, actions})` | widget | 二级页脚手架：BrandTheme + Scaffold + AppBar 一站封装。新建 push 页用它。 |
-| `xbPush<T>(context, page, {brandColor, replace})` | fn | 带品牌主题的页面跳转。 |
+| `xbPush<T>(context, page, {required brandColor, replace = false})` | fn | 带品牌主题的页面跳转；brandColor必须显式提供。 |
 | `xbShowDialog<T>({context, brandColor, builder})` | fn | 带品牌主题的对话框。 |
 | `xbDialogRoute<T>({context, brandColor, builder})` | fn | 返回带品牌主题的根对话框路由，供异步动作保存并精确关闭本次遮罩。 |
 
@@ -212,17 +212,17 @@ XbAsyncView(
 
 ### 6.5 后端富文本 HTML 渲染（套餐/教程正文，flutter_html）
 
-后端知识库/套餐正文是「网页 HTML」，flutter_html 渲染有多处坑，统一沉成框架（§11）：
+标题保留兼容；套餐与教程现已分流，不能把教程恢复成旧TagExtension/_TutorialImage页面链。
 
-| 坑（X→Y） | 框架 | 文件 |
-|---|---|---|
-| `var(--x)` / `linear-gradient` 不支持、整页 `<style>` 不应用 | `htmlRenderableBody()` 清洗（取 body 内层、去 style/head/注释/占位、剥 var()、无背景元素剥 color 随主题） | `util/html_text.dart` |
-| Twemoji 含数字字形 → 全局 fontFamilyFallback 把**正文数字吃成不可见** | `wrapEmojiForHtml()` 只把 emoji 片段包成 `<span class="xbemoji">`，Style map 仅 `.xbemoji` 套 Twemoji；数字/正文走默认字体 | `util/html_text.dart` |
-| **相对链接**（`downloads/x.apk`、`/#/dashboard`）flutter_html 原样回传 → 只认绝对 URL 则不跳转 | **`resolveHtmlLink(raw, base)` / `openHtmlLink(raw, base)`**：归一绝对/相对/mailto/锚点/js → 可打开 Uri 或忽略；`base` = 当前 API endpoint。**img 相对 src 同走 `resolveHtmlLink`**（`_TutorialImage`） | `util/html_link.dart` |
-| flutter_html 无 JS → `<button data-original-onclick="copy('完整值')">` 失效、可见值脱敏 | `TagExtension('button')` 取 `data-original-onclick` 真值 → 可点复制按钮 | `pages/tutorial_detail_page.dart` |
-| 暗色模式正文压暗底不可见 | flutter_html `body` Style `color: t.on`（随主题） | 各详情页 |
+| 消费者 | 当前入口与边界 |
+| --- | --- |
+| 套餐片段 | PlanDetailPage使用flutter_html、wrapEmojiForHtml及openHtmlLink；注册XbHtmlContrastExtension，在解析CSS/继承后的树上按实际纯色背景调整文字，不改原文。规则唯一见[套餐配色契约](https://github.com/wvjh3z/proxy-suite-docs/blob/main/CONTRACTS.md#套餐富文本配色) |
+| Android/Windows/macOS教程 | TutorialDetailPage经buildTutorialHtml交给TutorialWebView。绝对化资源、作者配色与受控copy/jump桥由共同入口维护，不直接把整页套旧htmlRenderableBody |
+| Linux教程 | TutorialHtmlFallback使用flutter_html及独立图片Dio，复用受控导航/复制，不能保证原生WebView等价CSS/JS/图片放大 |
 
-**铁律**：所有用 flutter_html 渲染后端 HTML 的页面，`onLinkTap` **一律走 `openHtmlLink(url, base: ref.read(apiEndpointProvider))`**，**img 相对 src 一律走 `resolveHtmlLink(src, base)`**（`_TutorialImage`），不在各页自行判断 scheme、也不在适配层预转（已移除只覆盖根相对的 `_absolutizeHtmlUrls`，**相对解析单一机制**）。正文 `data` 一律 `wrapEmojiForHtml(htmlRenderableBody(...))`（教程整页）或 `wrapEmojiForHtml(...)`（套餐片段）。契约测试：`test/xboard/util/html_link_test.dart` + `html_text_test.dart`。
+Twemoji仅用于emoji片段，不作为数字/中文全局fallback。普通HTML链接复用html_link工具，教程资源源站和内部文章导航按阅读器契约处理，不一律硬用API endpoint。锁定flutter_html可解析部分style/内联样式，但不执行任意JavaScript、不支持完整flex/grid；不要把旧“style完全不应用”作为现状。
+
+平台、证书、2MiB外部阅读和生命周期边界见[阅读器架构](https://github.com/wvjh3z/proxy-suite-docs/blob/main/ARCHITECTURE.md#教程正文的渲染与网页兼容边界)，回归选择见平台手册；Widget或浏览器检查不替代原生设备。
 
 ### 6.6 `XbFitText`（单行完整展示，xb_components.dart）
 
@@ -270,7 +270,8 @@ XbFitText(xbYuan(p.amountYuan), alignment: Alignment.center, ...);          // �
 | `xbYuanMinus(double)` | `-¥5.00` |
 | `xbGb(int bytes)` | `0.0`（GB，1 位小数） |
 | `xbDate(DateTime)` | `2026-06-05` |
-| `xbDateTime(DateTime)` | `2026-06-05 12:30` |
+| `xbDateTime(DateTime)` | `2026-06-05 12:30:00` |
+| `xbDateMinute(DateTime)` | `2026-06-05 12:30` |
 | `xbPercentInt(double 0~1)` | `98`（整数百分比） |
 | `xbLatencyDisplay(int rawMs)` | 正数原始 ms 除以 4 后向下取整；只供首页和节点文字显示，调用方先处理未知/测速中/超时，不回写原始结果或参与选优、排序、颜色判断 |
 

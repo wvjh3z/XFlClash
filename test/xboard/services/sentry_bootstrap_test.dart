@@ -4,12 +4,64 @@ library;
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:fl_clash/core/desktop/startup_diagnostic.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter/foundation.dart';
 import 'package:sentry_flutter/sentry_flutter.dart';
 import 'package:fl_clash/xboard/services/sentry_bootstrap.dart';
+import 'package:fl_clash/xboard/services/sentry_process_tags.dart';
 
 void main() {
+  test('desktop startup diagnostics cover Windows and macOS for both brands', () {
+    for (final brand in ['brand_a', 'brand_b']) {
+      for (final platform in ['windows', 'macos']) {
+        expect(
+          SentryBootstrap.supportsDesktopCoreStartup(brand, platform),
+          isTrue,
+          reason: '$brand / $platform',
+        );
+      }
+      for (final platform in ['android', 'linux', 'unknown', null]) {
+        expect(
+          SentryBootstrap.supportsDesktopCoreStartup(brand, platform),
+          isFalse,
+          reason: '$brand / $platform',
+        );
+      }
+    }
+    for (final brand in [null, '', 'test']) {
+      for (final platform in ['windows', 'macos']) {
+        expect(
+          SentryBootstrap.supportsDesktopCoreStartup(brand, platform),
+          isFalse,
+          reason: '$brand / $platform',
+        );
+      }
+    }
+  });
+
+  test('desktop startup event exposes only the typed diagnostic', () {
+    final event = SentryBootstrap.desktopCoreStartupEvent(
+      const CoreStartupDiagnostic(
+        stage: CoreStartupStage.startProcess,
+        reason: CoreStartupReason.processCreationFailed,
+        elapsedMs: 18,
+        leaseAcquired: false,
+        osError: 577,
+        ipcReadyMs: 8,
+      ),
+    );
+    expect(event.tags?['core.event'], 'desktop_core_start');
+    expect(event.fingerprint, ['desktop_core_start', 'processCreationFailed']);
+    expect(event.contexts['desktop_core_start'], {
+      'elapsed_ms': 18,
+      'lease_acquired': false,
+      'ipc_ready_ms': 8,
+      'os_error': 577,
+    });
+    expect(event.throwable, isNull);
+  });
+
   late FakeSentryRuntime runtime;
   FlutterExceptionHandler? originalHandler;
 
@@ -46,6 +98,9 @@ void main() {
       );
       expect(SentryBootstrap.isEnabled, isTrue);
       expect(runtime.initializations, 1);
+      for (final tag in currentSentryProcessTags().entries) {
+        expect(runtime.scope.tags[tag.key], tag.value);
+      }
       expect(runtime.options!.beforeSend, isNull);
       expect(runtime.options!.beforeSendFeedback, isNull);
       expect(runtime.options!.beforeBreadcrumb, isNull);
@@ -422,6 +477,30 @@ void main() {
   });
 
   group('SDK bridge', () {
+    test('a recovered API retry leaves context but not an Issue', () async {
+      await SentryBootstrap.installEarly(
+        dsn: 'https://x@sentry.invalid/1',
+        release: 'fixture',
+      );
+      const recovered = '[HttpService] API recovered: retry succeeded';
+      SentryBootstrap.captureFromSdk('info', recovered);
+      SentryBootstrap.captureFromSdk('info', '$recovered extra text');
+      await pumpEventQueue();
+      expect(runtime.scope.breadcrumbs.single.category, 'sdk.http.recovered');
+      expect(runtime.messages, isEmpty);
+      expect(runtime.errors, isEmpty);
+
+      const failure = '[HttpService] API request failed: GET /api/v1/guest/app/version (HTTP 307)';
+      SentryBootstrap.captureFromSdk('warning', failure);
+      expect(runtime.messages, [failure]);
+      await SentryBootstrap.setUserOptOut(true);
+      SentryBootstrap.captureFromSdk('info', recovered);
+      SentryBootstrap.captureFromSdk('warning', failure);
+      await pumpEventQueue();
+      expect(runtime.scope.breadcrumbs, hasLength(1));
+      expect(runtime.messages, [failure]);
+    });
+
     test(
       'business context retains original response without an Issue',
       () async {

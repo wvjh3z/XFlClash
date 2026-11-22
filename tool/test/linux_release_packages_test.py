@@ -106,7 +106,7 @@ Future<void> main(List<String> args) async {
                         entry=next(m for m in archive if m.name.endswith('.desktop'))
                         text=archive.extractfile(entry).read().decode()
                     self.assertIn('StartupWMClass=com.cloud.app.'+app,text)
-                    self.assertIn('x-scheme-handler/com.cloud.app.'+app,text)
+                    self.assertNotIn('x-scheme-handler/',text)
                     if self.has_rpm:
                         rpm=next((case/'dist').glob('*.rpm'))
                         meta=subprocess.check_output(['rpm','-qp','--qf','%{EPOCH}:%{VERSION}-%{RELEASE}',str(rpm)]).decode()

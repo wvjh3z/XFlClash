@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'launcher.dart';
 import 'model.dart';
+import 'startup_diagnostic.dart';
 import 'transport.dart';
 
 abstract interface class DesktopCoreLifecycleController {
@@ -68,13 +69,15 @@ final class _TransportConnectionWaiter {
 
   _TransportConnectionWaiter(
     Stream<DesktopTransportEvent> events,
-    Duration timeout,
-  ) {
+    Duration timeout, {
+    void Function()? onPeerSeen,
+  }) {
     _subscription = events.listen(
       (event) {
         switch (event) {
           case TransportConnected():
             if (!_settled.isCompleted) {
+              onPeerSeen?.call();
               _connection = event;
               _settled.complete();
             }
@@ -380,6 +383,9 @@ final class DesktopCoreLifecycle implements DesktopCoreLifecycleController {
   }
 
   Future<bool> _startSession(int revision) async {
+    final startupObserver = desktopCoreStartupObserver;
+    final attempt = startupObserver == null ? null : CoreStartupAttempt();
+    CoreStartupDiagnostic? diagnostic;
     final sessionId = sessionIdFactory();
     _publish(DesktopCoreStarting(revision: revision, sessionId: sessionId));
     CoreProcessLease? lease;
@@ -392,6 +398,7 @@ final class DesktopCoreLifecycle implements DesktopCoreLifecycleController {
         return;
       }
       leaseReleased = true;
+      attempt?.endExitObservation();
       await _cleanObsoleteLease(ownedLease, revision);
     }
 
@@ -399,6 +406,7 @@ final class DesktopCoreLifecycle implements DesktopCoreLifecycleController {
       if (!await _ensureTransportReady()) {
         return false;
       }
+      attempt?.ipcReady();
       final launcher = await launcherResolver.resolve();
       if (!_wantsRunning) {
         return false;
@@ -406,11 +414,14 @@ final class DesktopCoreLifecycle implements DesktopCoreLifecycleController {
       connectionWaiter = _TransportConnectionWaiter(
         _transport.events,
         timeouts.connection,
+        onPeerSeen: attempt?.peerSeen,
       );
+      attempt?.launching(launcher);
       lease = await launcher.start(
         sessionId: sessionId,
         address: _transport.address,
       );
+      attempt?.acquired(lease);
       if (lease.sessionId != sessionId) {
         await releaseLease();
         throw _failure(
@@ -424,6 +435,7 @@ final class DesktopCoreLifecycle implements DesktopCoreLifecycleController {
         await releaseLease();
         return false;
       }
+      if (attempt != null) attempt.stage = CoreStartupStage.handshake;
       final connected = await _waitForConnectionWhileWanted(
         connectionWaiter.future,
       );
@@ -432,6 +444,7 @@ final class DesktopCoreLifecycle implements DesktopCoreLifecycleController {
         return false;
       }
       if (verifyPeerPid && connected.pid != lease.pid) {
+        if (attempt != null) attempt.stage = CoreStartupStage.verifyPeer;
         await releaseLease();
         throw _failure(
           code: 'peer_pid_mismatch',
@@ -455,6 +468,7 @@ final class DesktopCoreLifecycle implements DesktopCoreLifecycleController {
       _publish(DesktopCoreRunning(session));
       return true;
     } catch (error, stackTrace) {
+      diagnostic = attempt?.failure(error);
       try {
         await releaseLease();
       } on DesktopCoreFailure catch (cleanupFailure) {
@@ -474,7 +488,16 @@ final class DesktopCoreLifecycle implements DesktopCoreLifecycleController {
         stackTrace: stackTrace,
       );
     } finally {
+      attempt?.endExitObservation();
       await connectionWaiter?.cancel();
+      final snapshot = diagnostic;
+      if (snapshot != null && _wantsRunning && _desired.revision == revision) {
+        try {
+          startupObserver?.call(snapshot);
+        } catch (_) {
+          // A telemetry failure must not change the lifecycle outcome.
+        }
+      }
     }
   }
 

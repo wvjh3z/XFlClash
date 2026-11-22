@@ -1,7 +1,6 @@
 # test/_fixtures — 全工程共享测试夹具（μ-4）
 
-> 关联：`.kiro/specs/xboard-mvp-form-b/design.md` §C「测试 fixture 共享方案」+ 决策 #9。
-> 所有反腐层（W2）/ provider / 页面（W3-W9）测试都从这里取 fake，**不各自重复造**。
+共享SDK、存储和网络fake供适配层/provider/页面测试复用，优先按场景注入，不复制另一套实现。当前执行边界见[回归入口](../../docs/maintainers/WORKFLOWS.md#回归入口选择)，历史W/D编号仅追溯来源，旧`.kiro`不是准备前提。
 
 ## 文件清单
 
@@ -11,7 +10,7 @@
 | `fake_token_storage.dart` | 内存 `TokenStorage`（`MemoryTokenStorage` 同款） | D63 / F81 / F277 |
 | `fake_secure_storage.dart` | fake `FlutterSecureStorage` + Linux 降级模拟 | ζ1 / NFR-3 |
 | `fake_connectivity.dart` | fake `connectivity_plus` + 可控网络流 | DD-5 / R11 / R15 |
-| `golden_baseline/` | a11y golden test 基准 PNG（W9.4 产出） | 合规 §D / ι-1 |
+| [../xboard/golden/](../xboard/golden/README.md) | 当前golden、固定环境和批准流程；本目录无golden_baseline产出 | 不自动update基线 |
 
 ## 使用规约
 

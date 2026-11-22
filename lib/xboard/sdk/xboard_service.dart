@@ -10,6 +10,7 @@
 library;
 
 import '../models/checkout_outcome_ui.dart';
+import '../models/confirmed_order.dart';
 import '../models/order_summary.dart';
 import '../models/plan_item.dart';
 import '../models/xb_domain_subscription.dart';
@@ -59,6 +60,16 @@ abstract interface class XboardAuthenticationRequestControl {
     String password, {
     required bool Function() isActive,
     Future<bool> Function(String token)? establish,
+  });
+}
+
+/// Authoritative order preflight and confirmation. Never falls back to the
+/// presentation list or to an unconditional save on older implementations.
+abstract interface class XboardConfirmedOrderControl {
+  Future<XbResult<String?>> confirmOrder(
+    ConfirmedOrderQuote quote, {
+    required bool Function() isActive,
+    required Future<bool> Function(ConfirmedOrderConflict) confirm,
   });
 }
 
@@ -134,7 +145,7 @@ abstract interface class XboardService {
     bool forceRefresh = false,
   });
 
-  /// 订单详情。
+  /// 订单详情。已知订单号、状态与金额是显示和写入的前置，不走列表的展示兜底。
   Future<XbResult<OrderDetail?>> getOrder(String tradeNo);
 
   /// 取消订单。

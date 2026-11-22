@@ -8,7 +8,7 @@ import 'constant.dart' show appName, nativePackageName;
 const _brandScheme = String.fromEnvironment('XB_URL_SCHEME');
 const protocolSchemes = _brandScheme == ''
     ? ['clash', 'clashmeta', 'flclash']
-    : [_brandScheme];
+    : <String>[];
 
 class ProtocolRegistrationPlan {
   final String scheme;
@@ -88,6 +88,9 @@ class Protocol {
   }
 
   void register(String scheme) {
+    // Brand clients do not use external URL activation. Avoid registry writes
+    // during startup; leave existing registrations and unbranded behavior alone.
+    if (_brandScheme.isNotEmpty) return;
     final plan = ProtocolRegistrationPlan(
       scheme: scheme,
       executable: Platform.resolvedExecutable,
@@ -110,6 +113,7 @@ class Protocol {
   }
 
   Future<void> registerLinux(List<String> schemes) async {
+    if (_brandScheme.isNotEmpty) return;
     final env = Platform.environment;
     final home = env['HOME'];
     if (home == null || home.isEmpty) {

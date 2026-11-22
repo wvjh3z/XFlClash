@@ -53,6 +53,7 @@ abstract class PaymentMethodItem with _$PaymentMethodItem {
     required String id,
     required String name,
     String? icon,
+    String? paymentMethod,
     double? feeFixedYuan,
     double? feePercent,
   }) = _PaymentMethodItem;

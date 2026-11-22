@@ -135,6 +135,7 @@ android {
             val identity = androidBrandIdentity("brand_a")
             applicationId = identity?.get("appId") ?: "com.follow.clash"
             manifestPlaceholders["appName"] = identity?.get("appName") ?: "FlClash"
+            manifestPlaceholders["externalProtocolEnabled"] = (identity == null).toString()
             resValue("string", "app_name", identity?.get("appName") ?: "FlClash")
         }
         create("brand_b") {
@@ -142,6 +143,7 @@ android {
             val identity = androidBrandIdentity("brand_b")
             applicationId = identity?.get("appId") ?: "com.follow.clash"
             manifestPlaceholders["appName"] = identity?.get("appName") ?: "FlClash"
+            manifestPlaceholders["externalProtocolEnabled"] = (identity == null).toString()
             resValue("string", "app_name", identity?.get("appName") ?: "FlClash")
         }
     }

@@ -4,7 +4,8 @@ library;
 import '../models/xb_domain_types.dart';
 
 /// 套餐周期中文标签（R8.2）。
-String planPeriodLabel(XbPlanPeriod period) => switch (period) {
+String planPeriodLabel(XbPlanPeriod? period) => switch (period) {
+      null => '周期未知',
       XbPlanPeriod.monthly => '月付',
       XbPlanPeriod.quarterly => '季付',
       XbPlanPeriod.halfYearly => '半年付',
@@ -28,7 +29,8 @@ String planPeriodUnit(XbPlanPeriod period) => switch (period) {
     };
 
 /// 订单状态中文标签（R9）。
-String orderStatusLabel(XbOrderStatus status) => switch (status) {
+String orderStatusLabel(XbOrderStatus? status) => switch (status) {
+      null => '状态待核实',
       XbOrderStatus.pending => '待支付',
       XbOrderStatus.processing => '处理中',
       XbOrderStatus.cancelled => '已取消',

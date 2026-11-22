@@ -1,7 +1,10 @@
 import 'dart:async';
+import 'dart:io';
 
+import 'package:fl_clash/core/desktop/launcher.dart';
 import 'package:fl_clash/core/desktop/lifecycle.dart';
 import 'package:fl_clash/core/desktop/model.dart';
+import 'package:fl_clash/core/desktop/startup_diagnostic.dart';
 import 'package:fl_clash/core/desktop/transport.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -10,9 +13,42 @@ import 'fakes.dart';
 const _sessionId = '0123456789abcdef0123456789abcdef';
 
 void main() {
+  test('reports a direct OS launch error without exposing the original cause', () async {
+    final diagnostics = <CoreStartupDiagnostic>[];
+    desktopCoreStartupObserver = diagnostics.add;
+    addTearDown(() => desktopCoreStartupObserver = null);
+    final transport = FakeDesktopCoreTransport();
+    final lifecycle = DesktopCoreLifecycle(
+      transportFactory: () => transport,
+      launcherResolver: MutableLauncherResolver(
+        DirectCoreLauncher(
+          corePath: 'private-path',
+          startProcess: (_, _) async =>
+              throw ProcessException('private-path', [], 'private', 577),
+        ),
+      ),
+    );
+
+    final start = lifecycle.start();
+    transport.ready();
+    await expectLater(start, throwsA(isA<DesktopCoreFailure>()));
+
+    final diagnostic = diagnostics.single;
+    expect(diagnostic.reason, CoreStartupReason.processCreationFailed);
+    expect(diagnostic.owner, CoreProcessOwner.direct);
+    expect(diagnostic.osError, 577);
+    expect(diagnostic.leaseAcquired, isFalse);
+    expect(diagnostic.ipcReadyMs, isNotNull);
+    expect(diagnostic.peerSeenMs, isNull);
+    await lifecycle.close();
+  });
+
   test(
     'publishes running only after ready, launch, connection, and PID match',
     () async {
+      final diagnostics = <CoreStartupDiagnostic>[];
+      desktopCoreStartupObserver = diagnostics.add;
+      addTearDown(() => desktopCoreStartupObserver = null);
       final transport = FakeDesktopCoreTransport();
       final launcher = FakeLauncher(owner: CoreProcessOwner.direct, pid: 42);
       final lifecycle = _createLifecycle(
@@ -32,6 +68,7 @@ void main() {
       expect(result.session?.connectionGeneration, 1);
       expect(lifecycle.state, isA<DesktopCoreRunning>());
       await _closeRunning(lifecycle, transport, launcher.lease, 1);
+      expect(diagnostics, isEmpty);
     },
   );
 
@@ -97,6 +134,9 @@ void main() {
   });
 
   test('close supersedes an in-flight start and cleans its lease', () async {
+    final diagnostics = <CoreStartupDiagnostic>[];
+    desktopCoreStartupObserver = diagnostics.add;
+    addTearDown(() => desktopCoreStartupObserver = null);
     final transport = FakeDesktopCoreTransport();
     final launcher = FakeLauncher(owner: CoreProcessOwner.direct, pid: 42);
     final lifecycle = _createLifecycle(
@@ -118,6 +158,7 @@ void main() {
     expect(launcher.lease.stopCount, 1);
     expect(states.whereType<DesktopCoreRunning>(), isEmpty);
     expect(lifecycle.state, isA<DesktopCoreClosed>());
+    expect(diagnostics, isEmpty);
     await subscription.cancel();
   });
 
@@ -548,6 +589,9 @@ void main() {
   test(
     'connection timeout cleans the lease returned by the launcher',
     () async {
+      final diagnostics = <CoreStartupDiagnostic>[];
+      desktopCoreStartupObserver = diagnostics.add;
+      addTearDown(() => desktopCoreStartupObserver = null);
       final transport = FakeDesktopCoreTransport();
       final launcher = FakeLauncher(owner: CoreProcessOwner.direct, pid: 42);
       final lifecycle = DesktopCoreLifecycle(
@@ -577,6 +621,10 @@ void main() {
         ),
       );
       expect(launcher.lease.stopCount, 1);
+      final diagnostic = diagnostics.single;
+      expect(diagnostic.reason, CoreStartupReason.handshakeTimeout);
+      expect(diagnostic.leaseAcquired, isTrue);
+      expect(diagnostic.exitCode, isNull);
       await lifecycle.close();
     },
   );

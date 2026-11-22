@@ -7,6 +7,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import xml.etree.ElementTree as ET
 ROOT=Path(__file__).resolve().parents[2]
 sys.path.insert(0,str(ROOT/'tool'))
 from verify_brand_identity import verify
@@ -14,6 +15,18 @@ from distributor_graph import PACKAGES
 from generate_brand_identity import rendered
 
 class CatalogTests(unittest.TestCase):
+    def test_android_external_intent_is_separate_and_disabled_for_configured_brands(self):
+        ns='{http://schemas.android.com/apk/res/android}'
+        app=ET.parse(ROOT/'android/app/src/main/AndroidManifest.xml').getroot().find('application')
+        main=next(x for x in app.findall('activity') if x.get(ns+'name')=='.MainActivity')
+        self.assertTrue(any(x.get(ns+'name')=='android.intent.action.MAIN' for x in main.findall('intent-filter/action')))
+        self.assertFalse(any(x.get(ns+'name')=='android.intent.category.BROWSABLE' for x in main.findall('intent-filter/category')))
+        alias=next(x for x in app.findall('activity-alias') if x.get(ns+'name')=='.ExternalLinkActivity')
+        self.assertEqual(alias.get(ns+'enabled'),'${externalProtocolEnabled}')
+        self.assertEqual(alias.get(ns+'targetActivity'),'.MainActivity')
+        gradle=(ROOT/'android/app/build.gradle.kts').read_text(encoding='utf-8')
+        self.assertEqual(gradle.count('manifestPlaceholders["externalProtocolEnabled"] = (identity == null).toString()'),2)
+
     def test_generated_catalog_and_independent_identities(self):
         self.assertEqual((ROOT/'tool/identity/brands.dart').read_text(encoding='utf-8'),rendered())
         identities=json.loads((ROOT/'tool/identity/brands.json').read_text(encoding='utf-8'))
@@ -61,7 +74,6 @@ class IdentityCliTests(unittest.TestCase):
                     for name, expected, wrong in [
                         ('linux/packaging/deb/make_config.yaml', '/usr/share/'+id['slug']+'/', '/usr/share/FlClash/'),
                         ('linux/packaging/rpm/make_config.yaml', 'unit=/etc/systemd/system/'+id['linuxService']+'.service', 'unit=/etc/systemd/system/flclash-helper.service'),
-                        ('macos/Runner/Info.plist', '<string>'+id['scheme']+'</string>', '<string>flclash</string>'),
                     ]:
                         path=root/name;original=path.read_text(encoding='utf-8')
                         self.assertIn(expected,original)
@@ -71,6 +83,12 @@ class IdentityCliTests(unittest.TestCase):
                         finally:path.write_text(original,encoding='utf-8')
                     self.assertIn('package_name: "'+id['slug']+'"',(root/'linux/packaging/deb/make_config.yaml').read_text(encoding='utf-8'))
                     self.assertNotIn('x-scheme-handler/clash\n',(root/'linux/packaging/rpm/make_config.yaml').read_text(encoding='utf-8'))
+                    self.assertNotIn('CFBundleURLTypes',(root/'macos/Runner/Info.plist').read_text(encoding='utf-8'))
+                    path=root/'linux/packaging/rpm/make_config.yaml';original=path.read_text(encoding='utf-8')
+                    path.write_text(original+'\n# x-scheme-handler/flclash\n',encoding='utf-8')
+                    try:
+                        with self.assertRaises(ValueError):verify(root,brand,platform)
+                    finally:path.write_text(original,encoding='utf-8')
             peer=root/'services/helper/src/service/peer.rs';peer.write_text(peer.read_text(encoding='utf-8').replace('OmoFlyHelperService','FlClashHelperService'), encoding='utf-8')
             with self.assertRaises(ValueError):verify(root,'brand_a','windows')
 

@@ -3,6 +3,8 @@ library;
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_xboard_sdk/flutter_xboard_sdk.dart';
+import 'package:flutter_xboard_sdk/src/adapters/xboard/xboard_plan_adapter.dart';
+import 'package:flutter_xboard_sdk/src/panels/xboard/apis/xboard_plan_api.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -13,10 +15,12 @@ import 'package:fl_clash/xboard/models/xb_domain_error.dart';
 import 'package:fl_clash/xboard/sdk/xboard_service_impl.dart';
 
 import '../../_fixtures/fake_xboard_sdk.dart';
+import 'order_http_fixture.dart';
 
 void main() {
   late FakeXBoardSDK sdk;
   late FakeSubApis apis;
+  late OrderFixtureHttp http;
   late XboardServiceImpl service;
 
   setUpAll(() {
@@ -27,6 +31,10 @@ void main() {
     SharedPreferences.setMockInitialValues({});
     sdk = FakeXBoardSDK();
     apis = sdk.setupFor(XbScenario.loggedIn);
+    http = OrderFixtureHttp();
+    when(() => sdk.httpService).thenReturn(http);
+    when(() => http.getRequest(orderDetailPath('T')))
+        .thenAnswer((_) async => orderWireDetail());
     service = XboardServiceImpl(sdk: sdk);
   });
 
@@ -53,6 +61,49 @@ void main() {
       expect(plan.prices.map((p) => p.period),
           containsAll([XbPlanPeriod.monthly, XbPlanPeriod.yearly]));
       expect(plan.prices.any((p) => p.period == XbPlanPeriod.quarterly), isFalse);
+    });
+
+    test('panel and SDK preserve explicit zero only for reset prices', () async {
+      final payloads = [
+        <String, Object?>{},
+        {'reset_price': null},
+        {'reset_price': 0},
+        {'reset_price': 800},
+        {'reset_price': -1},
+        {'reset_price': 'invalid'},
+        {'reset_price': 'NaN'},
+        {'reset_price': 'Infinity'},
+        {'reset_price': 1.5},
+      ];
+      when(() => sdk.plan)
+          .thenReturn(XBoardPlanAdapter(XBoardPlanApi(http)));
+      when(() => http.getRequest('/api/v1/user/plan/fetch')).thenAnswer(
+        (_) async => {
+          'success': true,
+          'data': [
+            for (final (index, fields) in payloads.indexed)
+              {
+                'id': index + 1,
+                'group_id': 1,
+                'transfer_enable': 100,
+                'name': 'fixture',
+                'show': true,
+                'renew': true,
+                'month_price': 0,
+                ...fields,
+              },
+          ],
+        },
+      );
+      final r = await service.getPlans();
+      final prices = r.dataOrNull!.map((plan) => plan.prices).toList();
+      expect(prices.map((ps) => ps.singleOrNull?.amountYuan), [
+        null, null, 0.0, 8.0, null, null, null, null, null,
+      ]);
+      expect(
+        prices.expand((ps) => ps).map((p) => p.period),
+        everyElement(XbPlanPeriod.resetTraffic),
+      );
     });
   });
 
@@ -102,14 +153,13 @@ void main() {
     test('Failed → unconfirmed after one read-only order check, never checkout twice', () async {
       when(() => apis.orderApi.checkoutOrder('T', 'alipay'))
           .thenAnswer((_) async => const CheckoutFailed(message: 'boom'));
-      when(() => apis.orderApi.getOrder('T')).thenAnswer((_) async => null);
       final r = await service.checkout('T', 'alipay');
       expect(r, isA<XbFailure<ui.CheckoutOutcomeUi>>());
       final error = (r as XbFailure<ui.CheckoutOutcomeUi>).error;
       expect(error, isA<XbUnconfirmed>());
       expect((error as XbUnconfirmed).operation, 'checkout');
       verify(() => apis.orderApi.checkoutOrder('T', 'alipay')).called(1);
-      verify(() => apis.orderApi.getOrder('T')).called(1);
+      verify(() => http.getRequest(orderDetailPath('T'))).called(2);
     });
   });
 
@@ -156,6 +206,50 @@ void main() {
       expect(pm.feeFixedYuan, 1.0);
       expect(pm.feePercent, 0.5);
     });
+
+    test('normalizes optional icons against the actual active API prefix', () async {
+      var endpoint = 'https://brand-a.example.test:8443/panel/a';
+      when(() => sdk.baseUrl).thenAnswer((_) => endpoint);
+      when(() => apis.paymentApi.getPaymentMethods()).thenAnswer((_) async => [
+        for (final raw in [
+          'images/payment.svg?v=2',
+          '/icons/card.png',
+          '/panel/a/icons/card.png',
+          'https://art.example.test/card.webp',
+          'http://art.example.test/card.png',
+          '//art.example.test/card.webp',
+          'https://user:secret@art.example.test/card.png',
+          'https://@art.example.test/card.png',
+          'https://art.example.test:0/card.png',
+          'file:///private/icon.png',
+          'data:image/svg+xml,invalid',
+          'icons\\card.png',
+          '../outside.png',
+          '%2e%2e/outside.png',
+          'a%2f..%2f..%2foutside.png',
+          '',
+        ])
+          PaymentMethodModel(id: raw, name: 'Channel', icon: raw),
+      ]);
+
+      Future<List<String?>> icons() async =>
+          (await service.getPaymentMethods()).dataOrNull!
+              .map((item) => item.icon)
+              .toList();
+      expect(await icons(), [
+        'https://brand-a.example.test:8443/panel/a/images/payment.svg?v=2',
+        'https://brand-a.example.test:8443/panel/a/icons/card.png',
+        'https://brand-a.example.test:8443/panel/a/icons/card.png',
+        'https://art.example.test/card.webp',
+        'http://art.example.test/card.png',
+        ...List<String?>.filled(11, null),
+      ]);
+      endpoint = 'https://brand-b.example.test/alternate/';
+      expect(
+        (await icons()).first,
+        'https://brand-b.example.test/alternate/images/payment.svg?v=2',
+      );
+    });
   });
 
   group('checkCoupon（CouponModel int? 兜底）', () {
@@ -180,10 +274,16 @@ void main() {
     test('cancelOrder → bool', () async {
       when(() => apis.orderApi.cancelOrder(any())).thenAnswer((_) async => true);
       expect(((await service.cancelOrder('T')) as XbSuccess).data, isTrue);
+      verifyInOrder([
+        () => http.getRequest(orderDetailPath('T')),
+        () => apis.orderApi.cancelOrder('T'),
+      ]);
     });
-    test('getOrder null → XbSuccess(null)', () async {
-      when(() => apis.orderApi.getOrder(any())).thenAnswer((_) async => null);
-      expect(((await service.getOrder('T')) as XbSuccess).data, isNull);
+    test('getOrder with null detail fails closed', () async {
+      when(() => http.getRequest(orderDetailPath('T')))
+          .thenAnswer((_) async => {'success': true, 'data': null});
+      expect((await service.getOrder('T')).errorOrNull, isA<XbServer>());
+      verify(() => http.getRequest(orderDetailPath('T'))).called(1);
     });
   });
 

@@ -911,6 +911,7 @@ class XbSelectableOption extends StatelessWidget {
     required this.child,
     this.tag,
     this.tagColor,
+    this.compact = false,
   });
 
   final bool selected;
@@ -918,6 +919,7 @@ class XbSelectableOption extends StatelessWidget {
   final Widget child;
   final String? tag;
   final Color? tagColor;
+  final bool compact;
 
   @override
   Widget build(BuildContext context) {
@@ -926,7 +928,7 @@ class XbSelectableOption extends StatelessWidget {
     final option = AnimatedContainer(
       duration: const Duration(milliseconds: 150),
       width: double.infinity, // 撑满 Expanded 宽（否则 Stack 给 loose 约束 → 卡缩成内容宽、行间宽高不一）。
-      padding: const EdgeInsets.all(16),
+      padding: EdgeInsets.all(compact ? 9 : 16),
       decoration: BoxDecoration(
         color: selected
             ? Color.alphaBlend(scheme.primary.withValues(alpha: 0.07), t.card)
@@ -946,7 +948,7 @@ class XbSelectableOption extends StatelessWidget {
       onTap: onTap,
       behavior: HitTestBehavior.opaque,
       child: Padding(
-        padding: const EdgeInsets.only(top: 11),
+        padding: EdgeInsets.only(top: compact ? 0 : 11),
         child: Stack(
           clipBehavior: Clip.none,
           children: [

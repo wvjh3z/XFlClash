@@ -1,4 +1,5 @@
 import 'package:fl_clash/ui/qr_code.dart';
+import 'package:fl_clash/ui/icons/icons.dart';
 import 'dart:async';
 
 import 'package:material_ui/material_ui.dart';
@@ -24,12 +25,13 @@ OrderDetail order(
   XbOrderStatus status, {
   String tradeNo = 'T1',
   String plan = '标准套餐',
+  double totalAmountYuan = 40,
 }) => OrderDetail(
   summary: OrderSummary(
     tradeNo: tradeNo,
     planName: plan,
     period: XbPlanPeriod.quarterly,
-    totalAmountYuan: 40,
+    totalAmountYuan: totalAmountYuan,
     status: status,
     createdAt: DateTime(2026, 10, 12, 12, 30),
   ),
@@ -42,6 +44,7 @@ class _Service extends Mock implements XboardService {
   int checkouts = 0;
   int cancellations = 0;
   final trades = <String>[];
+  final checkoutMethods = <String>[];
   Future<XbResult<OrderDetail?>> Function(String)? onRead;
   Future<XbResult<List<PaymentMethodItem>>> Function()? onMethods;
   Future<XbResult<CheckoutOutcomeUi>> Function()? onCheckout;
@@ -71,6 +74,7 @@ class _Service extends Mock implements XboardService {
   @override
   Future<XbResult<CheckoutOutcomeUi>> checkout(String tradeNo, String method) {
     ++checkouts;
+    checkoutMethods.add(method);
     return onCheckout?.call() ??
         Future.value(XbResult.success(const CheckoutPaid()));
   }
@@ -210,21 +214,21 @@ void _paymentTest(
 }
 
 Future<void> tap(WidgetTester tester, String label) async {
-  final button = find
+  final buttons = find
       .ancestor(
         of: text(label),
         matching: find.byWidgetPredicate(
           (widget) => widget is ButtonStyleButton,
         ),
-      )
-      .first;
-  if (button.evaluate().isEmpty) {
+      );
+  if (buttons.evaluate().isEmpty) {
     await tester.scrollUntilVisible(
       text(label),
       200,
       scrollable: find.byType(Scrollable).first,
     );
   }
+  final button = buttons.first;
   await tester.ensureVisible(button);
   await tester.pump();
   await tester.tap(button);
@@ -254,6 +258,151 @@ void main() {
     );
   }
 
+  _paymentTest('桌面终态应付金额含已记账手续费，不重复应用优惠', (t, h) async {
+    final detail = order(XbOrderStatus.completed).copyWith(
+      discountAmountYuan: 5,
+      handlingAmountYuan: 1.25,
+    );
+    h.service.onRead = (_) async => XbResult.success(detail);
+    await h.mount(t, size: const Size(1200, 800));
+    expect(text('支付手续费'), findsOneWidget);
+    expect(text('¥41.25'), findsOneWidget);
+    expect(text('应付金额'), findsOneWidget);
+    expect(h.service.checkouts, 0);
+  });
+
+  for (final state in [XbOrderStatus.pending, XbOrderStatus.completed]) {
+    _paymentTest('signed channel adjustment preserved: $state', (t, h) async {
+      final detail = order(state, totalAmountYuan: 10).copyWith(handlingAmountYuan: -1);
+      h.service.onRead = (_) async => XbSuccess(detail);
+      h.service.onMethods = () async => const XbSuccess([PaymentMethodItem(id: 'promo', name: '优惠渠道', feeFixedYuan: -1)]);
+      await h.mount(t, size: const Size(390, 1200));
+      expect(text('-¥1.00'), findsOneWidget);
+      expect(text('¥9.00'), findsOneWidget);
+      if (state == XbOrderStatus.pending) expect(text('手续费 -¥1.00'), findsOneWidget);
+    });
+  }
+  _paymentTest('mobile pending amount follows the selected channel', (t, h) async {
+    final detail = order(XbOrderStatus.pending, totalAmountYuan: 2).copyWith(
+      balanceAmountYuan: 1,
+      discountAmountYuan: 0.5,
+      handlingAmountYuan: 0.9,
+    );
+    h.service.onRead = (_) async => XbResult.success(detail);
+    h.service.onMethods = () async => const XbSuccess([
+      PaymentMethodItem(
+        id: 'paid',
+        name: '混合手续费渠道',
+        feePercent: 6.25,
+        feeFixedYuan: 0.03,
+      ),
+      PaymentMethodItem(id: 'rate', name: '比例手续费渠道', feePercent: 2),
+      PaymentMethodItem(id: 'fixed', name: '固定手续费渠道', feeFixedYuan: 0.8),
+      PaymentMethodItem(id: 'free', name: '免手续费渠道'),
+    ]);
+    await h.mount(t, size: const Size(390, 1200));
+    expect(text('订单金额'), findsOneWidget);
+    expect(text('¥3.00'), findsOneWidget);
+    expect(text('余额抵扣'), findsOneWidget);
+    expect(text('-¥1.00'), findsOneWidget);
+    expect(text('支付手续费'), findsOneWidget);
+    expect(text('¥0.16'), findsOneWidget); // 200 分 × 6.25% + 3 分 → 16 分
+    expect(text('应付金额'), findsOneWidget);
+    expect(text('¥2.16'), findsOneWidget);
+    expect(text('优惠券'), findsNothing);
+    expect(text('手续费 6.25% + ¥0.03'), findsOneWidget);
+    expect(text('手续费 2%'), findsOneWidget);
+    expect(text('手续费 ¥0.80'), findsOneWidget);
+    expect(text('免手续费'), findsOneWidget);
+
+    final rate = text('比例手续费渠道');
+    await t.ensureVisible(rate);
+    await t.pump();
+    await t.tap(rate);
+    await t.pump();
+    expect(text('¥0.04'), findsOneWidget);
+    expect(text('¥2.04'), findsOneWidget);
+
+    final free = text('免手续费渠道');
+    await t.ensureVisible(free);
+    await t.pump();
+    await t.tap(free);
+    await t.pump();
+    expect(text('支付手续费'), findsNothing);
+    expect(text('¥0.16'), findsNothing);
+    expect(text('¥0.90'), findsNothing);
+    expect(text('¥2.00'), findsOneWidget);
+    expect(h.service.checkouts, 0);
+
+    // 切换到已完成后，详情中的已记账手续费覆盖当前渠道的预估。
+    h.service.onRead = (_) async => XbResult.success(
+      detail.copyWith(
+        summary: detail.summary.copyWith(status: XbOrderStatus.completed),
+        handlingAmountYuan: 0.23,
+      ),
+    );
+    await tap(t, '检测支付状态');
+    expect(text('支付手续费'), findsOneWidget);
+    expect(text('¥0.23'), findsOneWidget);
+    expect(text('¥2.23'), findsOneWidget);
+    expect(h.service.checkouts, 0);
+  });
+
+  for (final amount in <double?>[null, 0]) {
+    _paymentTest(
+      'mobile detail hides absent or zero amounts ($amount)',
+      (t, h) async {
+        final detail = order(
+          XbOrderStatus.completed,
+          totalAmountYuan: 2,
+        ).copyWith(balanceAmountYuan: amount, handlingAmountYuan: amount);
+        h.service.onRead = (_) async => XbResult.success(detail);
+        await h.mount(t);
+        expect(text('订单金额'), findsOneWidget);
+        expect(text('应付金额'), findsOneWidget);
+        expect(text('¥2.00'), findsNWidgets(2));
+        expect(text('余额抵扣'), findsNothing);
+        expect(text('支付手续费'), findsNothing);
+        expect(h.service.methodsReads, 0);
+      },
+    );
+  }
+
+  _paymentTest('mobile pending without channels does not reuse a recorded fee', (
+    t,
+    h,
+  ) async {
+    final detail = order(XbOrderStatus.pending, totalAmountYuan: 2).copyWith(
+      balanceAmountYuan: 1,
+      handlingAmountYuan: 0.9,
+    );
+    h.service.onRead = (_) async => XbResult.success(detail);
+    h.service.onMethods = () async => const XbSuccess(<PaymentMethodItem>[]);
+    await h.mount(t);
+    expect(text('暂无可用支付方式'), findsOneWidget);
+    expect(text('支付手续费'), findsNothing);
+    expect(text('¥2.00'), findsOneWidget);
+  });
+
+  _paymentTest('mobile zero-payable order does not incur a fixed channel fee', (
+    t,
+    h,
+  ) async {
+    final detail = order(XbOrderStatus.pending, totalAmountYuan: 0).copyWith(
+      balanceAmountYuan: 3,
+    );
+    h.service.onRead = (_) async => XbResult.success(detail);
+    h.service.onMethods = () async => const XbSuccess([
+      PaymentMethodItem(id: 'paid', name: '收费渠道', feeFixedYuan: 0.16),
+    ]);
+    await h.mount(t);
+    expect(text('余额抵扣'), findsOneWidget);
+    expect(text('-¥3.00'), findsOneWidget);
+    expect(text('支付手续费'), findsNothing);
+    expect(text('免手续费'), findsOneWidget);
+    expect(text('¥0.00'), findsOneWidget);
+  });
+
   _paymentTest('discounted status refreshes once and stops polling', (
     t,
     h,
@@ -268,6 +417,74 @@ void main() {
     expect(h.service.reads, 2);
     expect(h.subscription.calls, 1);
   });
+
+  for (final failure in ['unavailable', 'denied', 'launch-error', 'probe-error']) {
+    _paymentTest('external launch failure: $failure', (t, h) async {
+      const channel = MethodChannel('plugins.flutter.io/url_launcher');
+      final messenger = TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      final attempts = <String>[];
+      messenger.setMockMethodCallHandler(channel, (call) async {
+        attempts.add(call.method);
+        if (call.method == 'canLaunch') {
+          if (failure == 'probe-error') throw PlatformException(code: 'query_failed');
+          return failure != 'unavailable';
+        }
+        if (failure == 'launch-error') throw PlatformException(code: 'activity_gone');
+        return false;
+      });
+      addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+      await h.mount(t);
+      h.service.onCheckout = () async => const XbSuccess(CheckoutRedirect('https://example.invalid/pay'));
+      await tap(t, '立即支付');
+      expect(text('无法打开支付页面'), findsOneWidget);
+      expect(text('已打开支付页面，完成后返回点「检测支付状态」'), findsNothing);
+      expect(h.service.checkouts, 1);
+      expect(attempts.where((m) => m == 'launch'), hasLength(['denied','launch-error'].contains(failure) ? 1 : 0));
+      expect(t.takeException(), isNull);
+      await t.pump(const Duration(seconds: 4));
+    });
+  }
+
+  for (final early in [true, false]) {
+    for (final result in ['pending', 'completed', 'failed']) {
+      _paymentTest('return check before unlocking payment (early=$early, result=$result)', (t, h) async {
+        const channel = MethodChannel('plugins.flutter.io/url_launcher');
+        final messenger = TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+        final launched = Completer<bool>();
+        messenger.setMockMethodCallHandler(channel, (call) async => call.method == 'launch' ? launched.future : true);
+        addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+        await h.mount(t);
+        h.service.onCheckout = () async => const XbSuccess(CheckoutRedirect('https://example.invalid/pay'));
+        await tap(t, '立即支付');
+        final response = Completer<XbResult<OrderDetail?>>();
+        h.service.onRead = (_) => response.future;
+        t.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+        if (early) t.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+        launched.complete(true);
+        await t.pump();
+        if (!early) t.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+        await t.pump();
+        expect(h.service.reads, 2, reason: 'return check must not wait for the poll timer');
+        final pay = find.widgetWithText(FilledButton, '立即支付');
+        final cancel = find.widgetWithText(OutlinedButton, '取消订单');
+        expect(t.widget<FilledButton>(pay).onPressed, isNull);
+        expect(t.widget<OutlinedButton>(cancel).onPressed, isNull);
+        response.complete(result == 'failed' ? const XbFailure(XbServer(503, 'offline')) :
+            XbSuccess(order(result == 'completed' ? XbOrderStatus.completed : XbOrderStatus.pending)));
+        await t.pump();
+        await t.pump(const Duration(milliseconds: 350));
+        if (result == 'completed') {
+          expect(text('已完成'), findsOneWidget);
+          expect(pay, findsNothing);
+        } else {
+          expect(t.widget<FilledButton>(pay).onPressed != null, result == 'pending');
+          if (result == 'failed') expect(text('重新检测'), findsOneWidget);
+        }
+        expect(h.service.checkouts, 1);
+        await t.pump(const Duration(seconds: 4));
+      });
+    }
+  }
 
   _paymentTest(
     'external payment return queries status without inferring payment from launch',
@@ -375,6 +592,8 @@ void main() {
     expect(text('检测失败'), findsOneWidget);
     expect(text('待支付'), findsOneWidget);
     expect(text('重新检测'), findsOneWidget);
+    expect(t.widget<FilledButton>(find.widgetWithText(FilledButton, '立即支付')).onPressed, isNull);
+    expect(t.widget<OutlinedButton>(find.widgetWithText(OutlinedButton, '取消订单')).onPressed, isNull);
     h.service.onRead = (_) async =>
         XbResult.success(order(XbOrderStatus.processing));
     await tap(t, '重新检测');
@@ -500,14 +719,79 @@ void main() {
       await h.mount(t);
       expect(text('标准套餐'), findsOneWidget);
       expect(text('支付方式加载失败'), findsOneWidget);
+      final pay = find.widgetWithText(FilledButton, '立即支付');
+      expect(t.widget<FilledButton>(pay).onPressed, isNull);
+      expect(h.service.checkouts, 0);
       h.service.onMethods = null;
       await tap(t, '重新加载');
       await t.pump(const Duration(milliseconds: 350));
       expect(text('支付方式加载失败'), findsNothing);
       expect(text('支付宝'), findsOneWidget);
+      expect(t.widget<FilledButton>(pay).onPressed, isNotNull);
       expect(h.service.reads, 1);
     },
   );
+
+  for (final leave in [false, true]) {
+    _paymentTest('keyboard channel retry preserves focus intent (leave=$leave)', (t, h) async {
+      h.service.onMethods = () async => XbResult.failure(const XbServer(503, 'offline'));
+      await h.mount(t, size: const Size(1220, 850));
+      final response = Completer<XbResult<List<PaymentMethodItem>>>();
+      h.service.onMethods = () => response.future;
+      final retry = t.widget<OutlinedButton>(find.widgetWithText(OutlinedButton, '重新加载'));
+      retry.focusNode!.requestFocus();
+      await t.pump();
+      await t.sendKeyEvent(LogicalKeyboardKey.enter);
+      await t.pump();
+      expect(h.service.methodsReads, 2);
+      if (leave) FocusManager.instance.primaryFocus!.unfocus();
+      await t.pump();
+      response.complete(const XbSuccess([PaymentMethodItem(id: 'alipay', name: '支付宝')]));
+      await t.pumpAndSettle();
+      final method = t.widget<InkWell>(find.ancestor(of: text('支付宝'), matching: find.byType(InkWell)).first);
+      expect(method.focusNode!.hasPrimaryFocus, !leave);
+      expect(h.service.checkouts, 0);
+    });
+  }
+
+  _paymentTest('empty channel list cannot submit payment', (t, h) async {
+    h.service.onMethods = () async => const XbSuccess([]);
+    await h.mount(t);
+    expect(t.widget<FilledButton>(find.widgetWithText(FilledButton, '立即支付')).onPressed, isNull);
+    expect(h.service.checkouts, 0);
+  });
+
+  _paymentTest('absent and rejected channel icons do not prevent checkout', (
+    t,
+    h,
+  ) async {
+    h.service.onMethods = () async => const XbSuccess([
+      PaymentMethodItem(id: 'first', name: 'First channel'),
+      PaymentMethodItem(
+        id: 'second',
+        name: 'Second channel',
+        icon: 'file:///not-a-network-icon.svg',
+        feePercent: 0.5,
+        feeFixedYuan: 0.1,
+      ),
+    ]);
+    h.service.onCheckout = () async => const XbSuccess(CheckoutCanceled());
+    await h.mount(t, size: const Size(1220, 850));
+    expect(text('First channel'), findsOneWidget);
+    expect(text('Second channel'), findsOneWidget);
+    expect(text('手续费 0.5% + ¥0.10'), findsOneWidget);
+    expect(text('免手续费'), findsOneWidget);
+    expect(
+      find.byWidgetPredicate(
+        (widget) => widget is GlyphIcon && widget.glyph == AppGlyphs.photos,
+      ),
+      findsNWidgets(2),
+    );
+    await t.tap(text('Second channel'));
+    await t.pump();
+    await tap(t, '立即支付');
+    expect(h.service.checkoutMethods, ['second']);
+  });
 
   _paymentTest('missing order stops at empty state without polling', (
     t,
@@ -550,6 +834,7 @@ void main() {
           XbResult.success(order(XbOrderStatus.pending));
       await tap(t, '重新检测');
       expect(h.service.reads, previous + 1);
+      expect(t.widget<FilledButton>(find.widgetWithText(FilledButton, '立即支付')).onPressed, isNotNull);
       expect(t.takeException(), isNull);
     },
   );

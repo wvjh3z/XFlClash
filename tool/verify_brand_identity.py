@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Fail before compilation when brand injection is absent or mixed."""
 import json
+import plistlib
 from pathlib import Path
 
 
@@ -22,7 +23,6 @@ def native_checks(identity, platform):
       'windows/packaging/exe/make_config.yaml':[identity['installerId'],f'executable_name: "{identity["name"]}.exe"'],
       'windows/packaging/exe/inno_setup.iss':[f'#define XbServiceName "{identity["windowsService"]}"'],
       'macos/Runner/Configs/AppInfo.xcconfig':['PRODUCT_BUNDLE_IDENTIFIER = '+identity['id']],
-      'macos/Runner/Info.plist':[f"<string>{identity['scheme']}</string>"],
       'linux/packaging/deb/make_config.yaml':[
           f'package_name: "{identity["slug"]}"',
           f'unit=/etc/systemd/system/{identity["linuxService"]}.service',
@@ -47,6 +47,12 @@ def verify(root, flavor, platform):
     if any(defines.get(k)!=v for k,v in identity_fields(identity).items()):
         raise ValueError('brand_defines_mismatch')
     if platform=='android': return
+    info = plistlib.loads((root/'macos/Runner/Info.plist').read_bytes())
+    if info.get('CFBundleURLTypes'):
+        raise ValueError('brand_external_protocol_enabled:macos')
+    for kind in ('deb', 'rpm', 'appimage'):
+        if 'x-scheme-handler/' in (root/f'linux/packaging/{kind}/make_config.yaml').read_text(encoding='utf-8'):
+            raise ValueError('brand_external_protocol_enabled:linux')
     for name,needles in native_checks(identity,platform).items():
         source=(root/name).read_text(encoding='utf-8')
         if any(source.count(n)!=1 for n in needles):

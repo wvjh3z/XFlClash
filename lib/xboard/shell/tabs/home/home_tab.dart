@@ -54,7 +54,7 @@ class HomeTab extends ConsumerStatefulWidget {
   /// 点击登录 banner → 弹登录 sheet（shell 注入，W5 接线）。
   final VoidCallback? onTapLogin;
 
-  /// 点击到期卡「去续费」→ 直接打开当前套餐续费页。
+  /// 点击到期卡「去续费」时可注入替代回调；默认请求外壳打开商店。
   final VoidCallback? onTapRenew;
 
   @override

@@ -14,6 +14,7 @@
 library;
 
 import 'golden_environment.dart';
+import 'package:fl_clash/xboard/widgets/xb_theme.dart';
 
 import 'package:emoji_regex/emoji_regex.dart';
 import 'package:material_ui/material_ui.dart';
@@ -24,6 +25,7 @@ import 'package:flutter_html/flutter_html.dart';
 import 'package:fl_clash/xboard/models/plan_item.dart';
 import 'package:fl_clash/xboard/models/xb_domain_types.dart';
 import 'package:fl_clash/xboard/pages/plan_detail_page.dart';
+import 'package:fl_clash/xboard/widgets/xb_plan_details.dart';
 
 /// 用户给的真实套餐 content（修复后：去 var()/渐变，正文不写死 color，标题用具体 hex）。
 const _realHtml = '''
@@ -48,6 +50,7 @@ void main() {
     WidgetTester tester, {
     required double textScale,
     required Brightness brightness,
+    bool renew = false,
   }) async {
     tester.view.physicalSize = const Size(390 * 3, 844 * 3);
     tester.view.devicePixelRatio = 3.0;
@@ -58,16 +61,32 @@ void main() {
       ProviderScope(
         child: MaterialApp(
           debugShowCheckedModeBanner: false,
-          theme: ThemeData(useMaterial3: true, brightness: brightness),
+          theme: buildXbTheme(brandColor: const Color(0xFFD92E1A), brightness: brightness),
           home: MediaQuery(
             data: MediaQueryData(textScaler: TextScaler.linear(textScale)),
-            child: const PlanDetailPage(plan: _plan),
+            child: PlanDetailPage(plan: _plan, renew: renew),
           ),
         ),
       ),
     );
     await tester.pumpAndSettle();
     await prepareGoldenFrame(tester);
+  }
+
+  void checkDetails(WidgetTester tester, {bool renew = false}) {
+    final details = find.byType(XbPlanDetails);
+    final name = find.text(_plan.name, findRichText: true);
+    final period = find.text(renew ? '选择续费时长' : '选择计费周期');
+    final submit = find.widgetWithText(
+      FilledButton,
+      renew ? '确认续费' : '提交订单',
+    );
+    expect(name, findsOneWidget);
+    expect(details, findsOneWidget);
+    expect(find.byType(Html), findsOneWidget);
+    expect(find.text('订单摘要'), findsNothing);
+    expect(tester.getBottomLeft(details).dy, lessThan(tester.getTopLeft(period).dy));
+    expect(tester.getBottomLeft(details).dy, lessThan(tester.getTopLeft(submit).dy));
   }
 
   group('套餐 content HTML 渲染（真实后端数据注入）', () {
@@ -81,9 +100,14 @@ void main() {
       expect(find.textContaining('font-weight'), findsNothing);
       // 核心断言：数字 span 不用 Twemoji（否则数字渲染成不可见 COLR 基字）；emoji span 用 Twemoji。
       _checkSpanFonts(t);
-      _checkHtmlContrast(t, const Color(0xFFFFFFFF));
+      _checkHtmlContrast(t, XbTokens.light.card);
+      checkDetails(t);
       await expectXbGolden(t, find.byType(PlanDetailPage),
           'goldens/plan_content_html_light.png', contrast: true);
+      final submit = find.widgetWithText(FilledButton, '提交订单');
+      await t.ensureVisible(submit);
+      await t.pumpAndSettle();
+      expect(submit.hitTestable(), findsOneWidget);
     });
 
     testWidgets('dark 1.0 — 不崩 + 文本可见 + 对比度 + golden', (t) async {
@@ -93,20 +117,28 @@ void main() {
       expect(find.textContaining('新疆'), findsWidgets);
       expect(find.textContaining('font-weight'), findsNothing);
       _checkSpanFonts(t);
-      _checkHtmlContrast(t, const Color(0xFF13161D));
+      _checkHtmlContrast(t, XbTokens.dark.card);
+      checkDetails(t);
       await expectXbGolden(t, find.byType(PlanDetailPage),
           'goldens/plan_content_html_dark.png', contrast: true);
+      final submit = find.widgetWithText(FilledButton, '提交订单');
+      await t.ensureVisible(submit);
+      await t.pumpAndSettle();
+      expect(submit.hitTestable(), findsOneWidget);
     });
 
     testWidgets('2.0 放大无溢出', (t) async {
       await pumpPage(t, textScale: 2.0, brightness: Brightness.light);
       expect(t.takeException(), isNull);
-      _checkHtmlContrast(t, const Color(0xFFFFFFFF));
+      _checkHtmlContrast(t, XbTokens.light.card);
+      checkDetails(t);
     });
     testWidgets('dark 2.0 放大无溢出且正文对比度合格', (t) async {
-      await pumpPage(t, textScale: 2.0, brightness: Brightness.dark);
+      await pumpPage(t, textScale: 2.0, brightness: Brightness.dark, renew: true);
       expect(t.takeException(), isNull);
-      _checkHtmlContrast(t, const Color(0xFF13161D));
+      _checkHtmlContrast(t, XbTokens.dark.card);
+      checkDetails(t, renew: true);
+      _checkSpanFonts(t);
     });
   });
 }
@@ -147,7 +179,7 @@ void _checkSpanFonts(WidgetTester t) {
   final emoji = emojiRegex();
   var sawDigit = false;
   var sawEmoji = false;
-  for (final rt in t.widgetList<RichText>(find.byType(RichText))) {
+  for (final rt in t.widgetList<RichText>(find.descendant(of: find.byType(Html), matching: find.byType(RichText)))) {
     rt.text.visitChildren((span) {
       if (span is TextSpan && span.text != null && span.text!.isNotEmpty) {
         final s = span.text!;

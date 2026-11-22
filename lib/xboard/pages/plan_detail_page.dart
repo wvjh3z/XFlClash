@@ -1,13 +1,12 @@
-/// R8 套餐详情/购买页：HTML 详情 + 周期网格 + 优惠码 + 订单摘要 + 提交订单。
+/// R8 套餐购买/续费页：选周期、看套餐详情、手动提交，可选优惠码。
 ///
-/// **数据源**：`PlanItem`（列表页传入）+ 反腐层 `checkCoupon()` / `createOrder()`。
+/// **数据源**：`PlanItem`（列表页传入）+ 反腐层优惠券与安全下单能力。
 /// 提交订单成功 → 跳 [OrderPaymentPage]（选支付方式 + 立即支付）。
 library;
 
 import 'dart:async';
 
 import 'package:material_ui/material_ui.dart';
-import 'package:flutter_html/flutter_html.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../widgets/xb_async_view.dart';
@@ -20,20 +19,20 @@ import '../models/xb_domain_types.dart';
 import '../models/xb_result.dart';
 import '../models/xb_domain_error.dart';
 import 'order_list_page.dart';
-import '../providers/user_profile_provider.dart';
 import '../providers/auth_state_provider.dart';
 import '../providers/xboard_providers.dart';
+import '../sdk/xboard_service.dart';
+import '../services/confirmed_order.dart';
+import '../services/sentry_bootstrap.dart';
 import '../shell/widgets/xb_responsive.dart';
 import '../util/error_text.dart';
 import '../util/format.dart';
-import '../util/html_link.dart';
-import '../util/html_text.dart' show wrapEmojiForHtml, kXbEmojiClass;
 import '../widgets/xb_html_contrast.dart';
 import '../util/period_label.dart';
 import '../widgets/xb_ui_kit.dart';
 import '../widgets/xb_emoji_text.dart';
+import '../widgets/xb_plan_details.dart';
 import 'order_payment_page.dart';
-import 'pending_order_section.dart';
 import 'plan_list_page.dart';
 
 /// 是否需弹「更换套餐」确认（纯函数，可单测）。同时满足才弹：
@@ -115,7 +114,7 @@ class _PlanRenewLoaderState extends ConsumerState<PlanRenewLoader> {
         if (done && !_retrying && snap.error == null) {
           final plans = snap.data ?? const <PlanItem>[];
           final current = plans.where((p) => p.id == widget.planId).firstOrNull;
-          return current != null
+          return current != null && current.renewable
               ? PlanDetailPage(plan: current, renew: true)
               : const PlanListPage();
         }
@@ -137,12 +136,25 @@ class _PlanRenewLoaderState extends ConsumerState<PlanRenewLoader> {
 }
 
 class PlanDetailPage extends ConsumerStatefulWidget {
-  const PlanDetailPage({super.key, required this.plan, this.renew = false});
+  const PlanDetailPage({
+    super.key,
+    required this.plan,
+    this.renew = false,
+    this.initialPeriod,
+    this.confirmedFor,
+  });
+
   final PlanItem plan;
 
   /// 续费模式（原型图 13）：锁定当前套餐只选周期，标题/文案/按钮换续费语义,
   /// 周期卡显示基于月付单价的折扣（套餐无月付则不显示折扣）。
   final bool renew;
+
+  /// 商店已选的报价。指定周期不可购买时不能悄悄改选其他报价。
+  final XbPlanPeriod? initialPeriod;
+
+  /// 已在商店确认影响的原活动套餐 ID，不是目标套餐 ID。
+  final int? confirmedFor;
 
   @override
   ConsumerState<PlanDetailPage> createState() => _PlanDetailPageState();
@@ -158,26 +170,35 @@ class _PlanDetailPageState extends ConsumerState<PlanDetailPage> {
   String? _couponError;
   bool _checkingCoupon = false;
   bool _submitting = false;
+  XboardService? _ownerService;
+  late final int _ownerRevision;
 
   PlanItem get plan => widget.plan;
 
-  /// 月付单价（元）—— 续费折扣基数；套餐无月付则 null（不计算折扣）。
-  double? get _monthlyUnitPrice {
+  bool get _ownerCurrent =>
+      mounted &&
+      _ownerService != null &&
+      ref.read(authStateProvider) == AuthState.authenticated &&
+      ref.read(authStateProvider.notifier).sessionRevision == _ownerRevision &&
+      identical(ref.read(xboardServiceProvider), _ownerService);
+
+  /// 月付单价（分）—— 套餐无月付则不计算周期折扣。
+  int? get _monthlyUnitCents {
     for (final p in plan.prices) {
-      if (p.period == XbPlanPeriod.monthly) return p.amountYuan;
+      if (p.period == XbPlanPeriod.monthly) return orderQuoteCents(p.amountYuan);
     }
     return null;
   }
 
   /// 某周期相对月付的折扣百分比（省 N%）；无月付基数 / 非按月周期 / 无优惠 → null。
   int? _discountPercent(PricePlan p) {
-    final monthly = _monthlyUnitPrice;
+    final monthly = _monthlyUnitCents;
     if (monthly == null || monthly <= 0) return null;
     final months = planPeriodMonths(p.period);
     if (months == null || months <= 1) return null; // 月付本身不标
     final full = monthly * months;
     if (full <= 0) return null;
-    final save = ((1 - p.amountYuan / full) * 100).round();
+    final save = (100 * (full - orderQuoteCents(p.amountYuan)!) / full).round();
     return save > 0 ? save : null;
   }
 
@@ -187,7 +208,7 @@ class _PlanDetailPageState extends ConsumerState<PlanDetailPage> {
           .where(
             (p) =>
                 p.period != XbPlanPeriod.resetTraffic &&
-                p.amountYuan.isFinite &&
+                orderQuoteCents(p.amountYuan) != null &&
                 p.amountYuan > 0,
           )
           .toList()
@@ -196,16 +217,33 @@ class _PlanDetailPageState extends ConsumerState<PlanDetailPage> {
   @override
   void initState() {
     super.initState();
-    // 默认优先选年付（用户 2026-06-13 决策：有年付则默认年付，引导长周期）；
-    // 无年付 → 退回最小周期（index 最小 = 周期最短）。
-    final prices = _purchasablePrices;
-    _selection = prices.isEmpty
-        ? null
-        : prices.firstWhere(
-            (p) => p.period == XbPlanPeriod.yearly,
-            orElse: () => prices.first,
-          );
+    _ownerRevision = ref.read(authStateProvider.notifier).sessionRevision;
+    if (ref.read(authStateProvider) == AuthState.authenticated) {
+      _ownerService = ref.read(xboardServiceProvider);
+    }
+    _selection = _initialSelection();
     _couponController.addListener(_onCouponTextChanged);
+  }
+
+  PricePlan? _initialSelection() {
+    final prices = _purchasablePrices;
+    final requested = widget.initialPeriod;
+    if (requested != null) {
+      return prices.where((p) => p.period == requested).firstOrNull;
+    }
+    return prices.where((p) => p.period == XbPlanPeriod.yearly).firstOrNull ??
+        prices.firstOrNull;
+  }
+
+  @override
+  void didUpdateWidget(covariant PlanDetailPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.plan != plan ||
+        oldWidget.initialPeriod != widget.initialPeriod ||
+        oldWidget.confirmedFor != widget.confirmedFor) {
+      _selection = _initialSelection();
+      _invalidateCoupon();
+    }
   }
 
   void _onCouponTextChanged() {
@@ -232,127 +270,195 @@ class _PlanDetailPageState extends ConsumerState<PlanDetailPage> {
     super.dispose();
   }
 
-  /// 当前选中周期的小计（元）。
-  double get _subtotal => _selected.amountYuan;
+  int get _subtotalCents => orderQuoteCents(_selected.amountYuan)!;
 
-  /// 估算优惠金额（元）。type=1 金额(value cents) / type=2 百分比(0-100)。
-  /// 仅展示预估，最终金额以后端 checkout 为准。
-  double get _discount {
+  /// Integer-cent estimate only; the panel may apply account credits and
+  /// discounts or round the coupon differently when it creates the order.
+  int get _discountCents {
     final c = _coupon;
     if (c == null) return 0;
-    if (c.discountAmountCents != null) return c.discountAmountCents! / 100;
-    if (c.type == 1) return (c.value / 100).clamp(0, _subtotal);
-    if (c.type == 2) return (_subtotal * c.value / 100).clamp(0, _subtotal);
-    return 0;
+    final estimate =
+        c.discountAmountCents ??
+        switch (c.type) {
+          1 => c.value,
+          2 => _subtotalCents * c.value ~/ 100,
+          _ => 0,
+        };
+    return estimate.clamp(0, _subtotalCents);
   }
 
-  double get _total => (_subtotal - _discount).clamp(0, _subtotal);
+  int get _estimatedCents => _subtotalCents - _discountCents;
 
   @override
   Widget build(BuildContext context) {
-    if (_selection == null) {
+    final auth = ref.watch(authStateProvider);
+    if (_ownerService != null && auth == AuthState.authenticated) {
+      ref.watch(xboardServiceProvider);
+    }
+    final title = widget.renew ? '续费当前套餐' : '购买套餐';
+    if (_ownerService != null && !_ownerCurrent) {
       return XbBrandScaffold(
-        title: widget.renew ? '续费当前套餐' : plan.name,
-        body: const Center(child: Text('暂无可购买周期，请选择其他套餐或联系客服')),
+        title: title,
+        body: const Center(child: Text('账号状态已变化，请返回后重新打开结算。')),
       );
     }
-    // 桌面双栏（原型屏5）：可用宽 ≥ 840 → 左套餐说明+周期网格 / 右优惠码+摘要+提交；
-    // 窄屏维持移动单列 + 底部固定提交栏（原布局）。
+    if (_selection == null) {
+      return XbBrandScaffold(
+        title: title,
+        body: Center(
+          child: Text(
+            widget.initialPeriod == null
+                ? '暂无可购买周期，请选择其他套餐或联系客服'
+                : '所选周期已不可购买，请返回重选。',
+          ),
+        ),
+      );
+    }
     final wide = xbIsDesktopWidth(MediaQuery.sizeOf(context).width);
     return XbBrandScaffold(
-      title: widget.renew ? '续费当前套餐' : plan.name,
+      title: title,
       maxContentWidth: wide ? 1000 : null,
-      bottomNavigationBar: wide
-          ? null
-          : XbBottomActionBar(
-              secondaryLabel: '返回',
-              primaryLabel: widget.renew ? '确认续费' : '提交订单',
-              primaryIcon: Icons.shopping_cart_checkout_rounded,
-              primaryLoading: _submitting,
-              onPrimary: _checkingCoupon ? null : _submitOrder,
-            ),
-      body: wide ? _desktopBody(context) : _mobileBody(context),
+      body: Builder(
+        builder: (context) =>
+            wide ? _desktopBody(context) : _mobileBody(context),
+      ),
     );
   }
 
-  /// 移动端单列（原布局）。
+  List<Widget> _reviewChildren(BuildContext context) => [
+    _checkoutActions(context, showBack: false),
+    const SizedBox(height: 14),
+    XbSectionCard(title: '优惠码', child: _couponSection(context)),
+  ];
+
   Widget _mobileBody(BuildContext context) {
-    return ListView(
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
-      children: [
-        const PendingOrderSection(),
-        _headerCard(context),
-        const SizedBox(height: 14),
-        XbSectionCard(
-          title: widget.renew ? '选择续费时长' : '选择计费周期',
-          child: _periodSection(context),
-        ),
-        const SizedBox(height: 14),
-        XbSectionCard(title: '优惠码', child: _couponSection(context)),
-        const SizedBox(height: 14),
-        XbSectionCard(title: '订单摘要', child: _summarySection(context)),
-      ],
+    return SingleChildScrollView(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _planDetails(context),
+          const SizedBox(height: 11),
+          XbSectionCard(
+            title: widget.renew ? '选择续费时长' : '选择计费周期',
+            child: _periodSection(context, mobile: true),
+          ),
+          const SizedBox(height: 11),
+
+          _checkoutActions(context),
+          const SizedBox(height: 12),
+          XbSectionCard(
+            title: '优惠码',
+            child: _couponSection(context),
+          ),
+        ],
+      ),
     );
   }
 
-  /// 桌面双栏（原型屏5：标准结算布局，提交栏在右栏底部）。
+  Widget _checkoutActions(BuildContext context, {bool showBack = true}) {
+    final theme = Theme.of(context);
+    final t = XbTokens.of(context);
+    final brand = theme.colorScheme.primary;
+    final enabled = !_checkingCoupon && !_submitting;
+    var gradientStart = Color.lerp(brand, Colors.white, 0.16)!;
+    // Preserve at least 4.66:1 against white, including the bright end.
+    while (gradientStart.computeLuminance() > 0.175) {
+      gradientStart = Color.lerp(gradientStart, Colors.black, 0.05)!;
+    }
+    final shape = RoundedRectangleBorder(
+      borderRadius: BorderRadius.circular(XbTokens.rButton),
+    );
+    ButtonStyle actionStyle(Color fill, Color foreground) =>
+        FilledButton.styleFrom(
+          backgroundColor: fill,
+          disabledBackgroundColor: t.sfc,
+          foregroundColor: foreground,
+          disabledForegroundColor: t.onv,
+          minimumSize: const Size(0, 48),
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+          shape: shape,
+          textStyle: theme.textTheme.labelLarge?.copyWith(fontSize: 15, fontWeight: FontWeight.w600),
+          elevation: 0,
+        );
+    return IntrinsicHeight(
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          if (showBack) ...[
+            SizedBox(
+              width: 96,
+              child: FilledButton(
+                onPressed: _submitting ? null : () => Navigator.maybePop(context),
+                style: actionStyle(t.sfc, t.on),
+                child: const Text('返回', textAlign: TextAlign.center),
+              ),
+            ),
+            const SizedBox(width: 12),
+          ],
+          Expanded(
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                borderRadius: shape.borderRadius,
+                gradient: enabled
+                    ? LinearGradient(
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                        colors: [
+                          gradientStart,
+                          Color.lerp(gradientStart, Colors.black, 0.24)!,
+                        ],
+                      )
+                    : null,
+              ),
+              child: FilledButton(
+                onPressed: enabled ? _submitOrder : null,
+                style: actionStyle(Colors.transparent, Colors.white),
+                child: _submitting
+                    ? const SizedBox.square(
+                        dimension: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.shopping_cart_checkout_rounded,
+                            size: 19,
+                            color: enabled ? Colors.white : t.onv,
+                          ),
+                          const SizedBox(width: 6),
+                          Flexible(
+                            child: Text(
+                              widget.renew ? '确认续费' : '提交订单',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                color: enabled ? Colors.white : t.onv,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// 桌面保留双栏：上方完整展示套餐内容，下方左选周期、右侧提交。
   Widget _desktopBody(BuildContext context) {
     final periodCard = XbSectionCard(
       title: widget.renew ? '选择续费时长' : '选择计费周期',
-      // 续费在左栏（宽）→ 3 列；购买移到右栏（窄）→ 2 列，避免拥挤。
-      child: _periodSection(context, columns: widget.renew ? 3 : 2),
+      child: _periodSection(context, columns: 3),
     );
-    final couponCard = XbSectionCard(
-      title: '优惠码',
-      child: _couponSection(context),
-    );
-    final summaryCard = XbSectionCard(
-      title: '订单摘要',
-      child: _summarySection(context),
-    );
-    final submitBtn = XbPrimaryButton(
-      label: widget.renew ? '确认续费' : '提交订单',
-      icon: Icons.shopping_cart_checkout_rounded,
-      loading: _submitting,
-      onPressed: _checkingCoupon ? null : _submitOrder,
-    );
-
-    // 续费：左 头部(锁定套餐)+续费时长 / 右 优惠码+摘要+提交（不变）。
-    // 购买：计费周期移到右栏（用户要求）→ 左 套餐说明 / 右 周期+优惠码+摘要+提交。
-    final List<Widget> leftChildren;
-    final List<Widget> rightChildren;
-    if (widget.renew) {
-      leftChildren = [
-        _headerCard(context),
-        const SizedBox(height: 14),
-        periodCard,
-      ];
-      rightChildren = [
-        couponCard,
-        const SizedBox(height: 14),
-        summaryCard,
-        const SizedBox(height: 16),
-        submitBtn,
-      ];
-    } else {
-      leftChildren = [_headerCard(context)];
-      rightChildren = [
-        periodCard,
-        const SizedBox(height: 14),
-        couponCard,
-        const SizedBox(height: 14),
-        summaryCard,
-        const SizedBox(height: 16),
-        submitBtn,
-      ];
-    }
 
     return SingleChildScrollView(
       padding: const EdgeInsets.fromLTRB(28, 24, 28, 28),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          const PendingOrderSection(),
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -360,7 +466,7 @@ class _PlanDetailPageState extends ConsumerState<PlanDetailPage> {
                 flex: 11,
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: leftChildren,
+                  children: [_planDetails(context), const SizedBox(height: 14), periodCard],
                 ),
               ),
               const SizedBox(width: 18),
@@ -368,7 +474,7 @@ class _PlanDetailPageState extends ConsumerState<PlanDetailPage> {
                 flex: 9,
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: rightChildren,
+                  children: _reviewChildren(context),
                 ),
               ),
             ],
@@ -378,122 +484,45 @@ class _PlanDetailPageState extends ConsumerState<PlanDetailPage> {
     );
   }
 
-  /// 头部卡：购买=套餐名+GB角标+HTML详情；续费=当前套餐条（锁定,只延期不改内容,原型图13）。
-  Widget _headerCard(BuildContext context) {
-    final t = XbTokens.of(context);
-    if (widget.renew) {
-      final scheme = Theme.of(context).colorScheme;
-      return XbCard(
-        child: Row(
-          children: [
-            XbIconBadge(
-              icon: Icons.confirmation_number_outlined,
-              size: 42,
-              radius: XbTokens.rMd,
-              background: scheme.primary.withValues(alpha: 0.14),
-              iconColor: scheme.primary,
-              iconSize: 21,
+  Widget _planDetails(BuildContext context) => XbCard(
+    radius: XbTokens.rLg,
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Semantics(
+          header: true,
+          child: XbEmojiText(
+            plan.name,
+            style: Theme.of(context).textTheme.titleLarge?.copyWith(
+              fontWeight: FontWeight.w700,
             ),
-            const SizedBox(width: 13),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  XbEmojiText(
-                    '${plan.name} · ${plan.transferEnableGb} GB',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w500,
-                      color: t.on,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    '续费不改变套餐内容，仅延长有效期',
-                    style: TextStyle(fontSize: 11, color: t.onv),
-                  ),
-                ],
-              ),
-            ),
-          ],
+          ),
         ),
-      );
-    }
-    final hasHtml = plan.description != null && plan.description!.isNotEmpty;
-    return XbCard(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: XbEmojiText(
-                  plan.name,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: 17,
-                    fontWeight: FontWeight.w700,
-                    color: t.on,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 8),
-              XbTag('${plan.transferEnableGb} GB'),
-            ],
-          ),
-          if (hasHtml) ...[const SizedBox(height: 10), _htmlContent(context)],
-        ],
-      ),
-    );
-  }
-
-  Widget _htmlContent(BuildContext context) {
-    final t = XbTokens.of(context);
-    return Html(
-      // emoji 片段包成 .xbemoji span（只给 emoji 套 Twemoji）；数字/正文走默认字体。
-      // 不能用 body 的 fontFamilyFallback:[Twemoji]——Twemoji 含数字 0-9 字形，会把普通
-      // 数字也吃成不可见的 COLR 基字（详见 wrapEmojiForHtml）。
-      data: wrapEmojiForHtml(plan.description!),
-      extensions: [
-        XbHtmlContrastExtension(background: t.card, foreground: t.on),
+        XbPlanDetails(plan: plan),
       ],
-      style: {
-        // color: t.on —— 正文随主题（浅色=深字 / 深色=浅字）。后端套餐 content 的正文行
-        // 可保留作者内联配色；公共扩展在CSS/继承解析后修正对比度不足的颜色。
-        'body': Style(
-          margin: Margins.zero,
-          padding: HtmlPaddings.zero,
-          color: t.on,
-        ),
-        // emoji-only：仅 emoji span 套 Twemoji（含国旗，跨端一致），不污染数字/文字。
-        '.$kXbEmojiClass': Style(fontFamily: 'Twemoji'),
-      },
-      // 统一链接框架（含相对链接解析）；base = 当前站点根（API endpoint）。
-      onLinkTap: (url, _, _) =>
-          openHtmlLink(url, base: ref.read(apiEndpointProvider)),
-    );
-  }
+    ),
+  );
 
-  Widget _periodSection(BuildContext context, {int columns = 2}) {
+  Widget _periodSection(
+    BuildContext context, {
+    int columns = 2,
+    bool mobile = false,
+  }) {
     final sorted = _purchasablePrices;
     // 显式网格（不用 Wrap——Wrap 行高内容驱动、与原型 grid 难对齐）：每行 [columns] 个
     // Expanded 严格等宽；末行不足补等宽空占位保持卡宽一致。桌面 3 列（原型 .pgrid），移动 2 列。
-    const gap = 10.0;
-    const rowGap = 12.0;
+    final gap = mobile ? 8.0 : 10.0;
+    final rowGap = mobile ? 8.0 : 12.0;
     final rows = <Widget>[];
     for (var i = 0; i < sorted.length; i += columns) {
       final cells = <Widget>[];
       for (var c = 0; c < columns; c++) {
         final idx = i + c;
-        if (c > 0) cells.add(const SizedBox(width: gap));
+        if (c > 0) cells.add(SizedBox(width: gap));
         cells.add(
           Expanded(
             child: idx < sorted.length
-                ? _periodCard(context, sorted[idx])
+                ? _periodCard(context, sorted[idx], mobile: mobile)
                 : const SizedBox.shrink(),
           ),
         );
@@ -501,22 +530,50 @@ class _PlanDetailPageState extends ConsumerState<PlanDetailPage> {
       rows.add(
         Row(crossAxisAlignment: CrossAxisAlignment.start, children: cells),
       );
-      if (i + columns < sorted.length) rows.add(const SizedBox(height: rowGap));
+      if (i + columns < sorted.length) rows.add(SizedBox(height: rowGap));
     }
     return Column(children: rows);
   }
 
-  Widget _periodCard(BuildContext context, PricePlan p) {
+  Widget _periodCard(BuildContext context, PricePlan p, {required bool mobile}) {
     final t = XbTokens.of(context);
     final scheme = Theme.of(context).colorScheme;
     final selected = p.period == _selected.period;
     // 基于月付单价算折扣「省 N%」（套餐无月付/无优惠则不显示）；购买、续费两模式都显示。
     final savePct = _discountPercent(p);
+    final textScaler = MediaQuery.textScalerOf(context);
+    final largeMobileText = mobile && textScaler.scale(14) > 21;
+    final selectedInk = mobile
+        ? _mobileBrandInk(
+            scheme.primary,
+            Color.alphaBlend(scheme.primary.withValues(alpha: 0.07), t.card),
+            t.on,
+          )
+        : scheme.primary;
+    final periodLabel = Text(
+      planPeriodLabel(p.period),
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      style: TextStyle(
+        fontSize: 13.5,
+        color: selected ? selectedInk : t.on,
+        fontWeight: FontWeight.w500,
+      ),
+    );
+    final discount = savePct == null
+        ? null
+        : Text(
+            '省 $savePct%',
+            style: TextStyle(
+              fontSize: 11,
+              color: selected ? selectedInk : t.onv,
+            ),
+          );
     return XbSelectableOption(
       selected: selected,
-      tag: savePct != null ? '省 $savePct%' : null,
+      compact: true,
       onTap: () {
-        if (_submitting) return;
+        if (_submitting || selected) return;
         _invalidateCoupon();
         setState(() {
           _selection = p;
@@ -527,29 +584,37 @@ class _PlanDetailPageState extends ConsumerState<PlanDetailPage> {
       },
       child: Column(
         mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            planPeriodLabel(p.period),
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              fontSize: 13.5,
-              color: selected ? scheme.primary : t.on,
-              fontWeight: FontWeight.w500,
+          if (largeMobileText) ...[
+            periodLabel,
+            Align(
+              alignment: AlignmentDirectional.centerEnd,
+              child: SizedBox(
+                height: textScaler.scale(11) * 1.4,
+                child: discount,
+              ),
             ),
-          ),
+          ] else
+            Row(
+              children: [
+                Expanded(child: periodLabel),
+                if (discount != null) discount,
+              ],
+            ),
           const SizedBox(height: 4),
           // 价格恒为一行（长价格如 ¥142.50 在半宽卡里若换行 → 行高比短价格多 26px、整行变形，
           // 已被 plan_period_grid_test 尺寸断言锁定）。固定行高 26 + XbFitText 仅在放不下时等比缩，
           // 不换行；固定高消除「短价格不缩/长价格缩」的亚像素行高差，所有卡严格等高。
           SizedBox(
-            height: 26,
+            height: largeMobileText ? textScaler.scale(18) * 1.4 : 26,
             child: XbFitText(
               xbYuan(p.amountYuan),
-              alignment: Alignment.center,
-              textAlign: TextAlign.center,
+              alignment: Alignment.centerLeft,
+              textAlign: TextAlign.left,
               style: TextStyle(
                 fontSize: 18,
-                color: selected ? scheme.primary : t.on,
+                color: selected ? selectedInk : t.on,
                 fontWeight: FontWeight.w700,
                 fontFeatures: const [FontFeature.tabularFigures()],
               ),
@@ -563,60 +628,22 @@ class _PlanDetailPageState extends ConsumerState<PlanDetailPage> {
   Widget _couponSection(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final text = Theme.of(context).textTheme;
+    final t = XbTokens.of(context);
+    final appliedInk = _mobileBrandInk(scheme.primary, t.card, t.on);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(
-          children: [
-            Expanded(
-              child: TextField(
-                controller: _couponController,
-                enabled: !_checkingCoupon && !_submitting,
-                decoration: InputDecoration(
-                  hintText: '输入优惠码（如有）',
-                  isDense: true,
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  errorText: _couponError,
-                ),
-              ),
-            ),
-            const SizedBox(width: 10),
-            // 验证按钮：次级（品牌淡底描边），让输入框成为该行主体（主次平衡，原型 .cbtn）。
-            OutlinedButton(
-              onPressed: _checkingCoupon || _submitting ? null : _checkCoupon,
-              style: OutlinedButton.styleFrom(
-                foregroundColor: scheme.primary,
-                backgroundColor: scheme.primary.withValues(alpha: 0.10),
-                side: BorderSide(
-                  color: scheme.primary.withValues(alpha: 0.30),
-                  width: 1.5,
-                ),
-              ),
-              child: _checkingCoupon
-                  ? SizedBox(
-                      width: 16,
-                      height: 16,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: scheme.primary,
-                      ),
-                    )
-                  : const Text('验证'),
-            ),
-          ],
-        ),
+        _couponRow(context),
         if (_coupon != null) ...[
           const SizedBox(height: 8),
           Row(
             children: [
-              Icon(Icons.check_circle_rounded, size: 16, color: scheme.primary),
+              Icon(Icons.check_circle_rounded, size: 16, color: appliedInk),
               const SizedBox(width: 6),
               Expanded(
                 child: Text(
                   '优惠券已应用',
-                  style: text.bodySmall?.copyWith(color: scheme.primary),
+                  style: text.bodySmall?.copyWith(color: appliedInk),
                 ),
               ),
               // 取消已应用的优惠券（清空券 + 输入框 + 错误）。
@@ -644,40 +671,112 @@ class _PlanDetailPageState extends ConsumerState<PlanDetailPage> {
     );
   }
 
-  Widget _summarySection(BuildContext context) {
+  Widget _couponRow(BuildContext context) {
+    final theme = Theme.of(context);
     final t = XbTokens.of(context);
-    final scheme = Theme.of(context).colorScheme;
-    final text = Theme.of(context).textTheme;
+    final scheme = theme.colorScheme;
+    final text = theme.textTheme.bodyMedium;
+    final fontSize = text?.fontSize ?? 14;
+    final height =
+        44 + MediaQuery.textScalerOf(context).scale(fontSize) - fontSize;
+    final enabled = !_checkingCoupon && !_submitting;
+    final verifyFill = Color.alphaBlend(
+      scheme.primary.withValues(alpha: 0.10),
+      t.card,
+    );
+    final verifyInk = _mobileBrandInk(scheme.primary, verifyFill, t.on);
+    OutlineInputBorder border(Color color, double width) => OutlineInputBorder(
+      borderRadius: BorderRadius.circular(XbTokens.rSm),
+      borderSide: BorderSide(color: color, width: width),
+    );
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        XbKeyValueRow(label: '小计', value: xbYuan(_subtotal)),
-        if (_coupon != null)
-          XbKeyValueRow(
-            label: '优惠（预估）',
-            value: xbYuanMinus(_discount),
-            valueColor: scheme.primary,
-          ),
-        // 「总计」上方结构分隔线：用 t.line（明显）而非 XbHairline(hair 过淡，白卡上几乎不可见)，
-        // 与支付页 _TotalRow 同源口径一致。
-        Container(
-          height: 1,
-          margin: const EdgeInsets.symmetric(vertical: 10),
-          color: t.line,
+        Row(
+          children: [
+            Expanded(
+              child: SizedBox(
+                height: height,
+                child: TextField(
+                  controller: _couponController,
+                  enabled: enabled,
+                  textAlignVertical: TextAlignVertical.center,
+                  style: text,
+                  decoration: InputDecoration(
+                    hintText: '输入优惠码（如有）',
+                    isDense: true,
+                    constraints: BoxConstraints.tightFor(height: height),
+                    filled: true,
+                    fillColor: t.sf2,
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 14),
+                    border: border(t.line, 1.5),
+                    disabledBorder: border(t.line, 1.5),
+                    enabledBorder: _couponError == null
+                        ? border(t.line, 1.5)
+                        : border(scheme.error, 1.5),
+                    focusedBorder: _couponError == null
+                        ? border(scheme.primary, 1.8)
+                        : border(scheme.error, 1.8),
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 10),
+            OutlinedButton(
+              onPressed: enabled ? _checkCoupon : null,
+              style: OutlinedButton.styleFrom(
+                foregroundColor: verifyInk,
+                backgroundColor: verifyFill,
+                side: BorderSide(
+                  color: Color.alphaBlend(
+                    scheme.primary.withValues(alpha: 0.30),
+                    t.line,
+                  ),
+                  width: 1.5,
+                ),
+                minimumSize: Size(0, height),
+                padding: const EdgeInsets.symmetric(horizontal: 15),
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(XbTokens.rSm),
+                ),
+              ),
+              child: _checkingCoupon
+                  ? _couponSpinner(verifyInk)
+                  : const Text('验证'),
+            ),
+          ],
         ),
-        XbKeyValueRow(label: '总计', value: xbYuan(_total), total: true),
-        if (_coupon != null) ...[
-          const SizedBox(height: 4),
-          Text(
-            '* 最终金额以提交订单后为准',
-            style: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
+        if (_couponError case final error?)
+          Padding(
+            padding: const EdgeInsets.only(top: 6, left: 2),
+            child: Semantics(
+              liveRegion: true,
+              child: Text(
+                error,
+                style: theme.textTheme.bodySmall?.copyWith(color: scheme.error),
+              ),
+            ),
           ),
-        ],
       ],
     );
   }
 
-  /// 取消已应用的优惠券：清空券 + 输入框 + 错误提示，金额恢复原价。
+  Widget _couponSpinner(Color color) => SizedBox.square(
+    dimension: 16,
+    child: CircularProgressIndicator(strokeWidth: 2, color: color),
+  );
+
+  Color _mobileBrandInk(Color brand, Color background, Color on) {
+    var ink = brand;
+    for (var i = 0; i < 16; i++) {
+      if (xbHtmlContrastRatio(ink, background) >= 4.6) return ink;
+      ink = Color.lerp(ink, on, 0.14)!;
+    }
+    return on;
+  }
+
+  /// 取消已应用的优惠券：清空券、输入框和错误，提交预估恢复原价。
   void _clearCoupon() {
     if (_submitting) return;
     _invalidateCoupon();
@@ -690,6 +789,10 @@ class _PlanDetailPageState extends ConsumerState<PlanDetailPage> {
 
   Future<void> _checkCoupon() async {
     if (_selection == null || _submitting || _checkingCoupon) return;
+    if (!_ownerCurrent) {
+      setState(() => _couponError = '账号状态已变化，请登录后重新进入结算。');
+      return;
+    }
     final generation = ++_couponGeneration;
     final period = _selected.period;
     final planId = plan.id;
@@ -710,10 +813,8 @@ class _PlanDetailPageState extends ConsumerState<PlanDetailPage> {
       _coupon = null;
     });
     try {
-      final result = await ref
-          .read(xboardServiceProvider)
-          .checkCoupon(code, planId, period);
-      if (!mounted ||
+      final result = await _ownerService!.checkCoupon(code, planId, period);
+      if (!_ownerCurrent ||
           generation != _couponGeneration ||
           plan.id != planId ||
           _selection?.period != period ||
@@ -722,7 +823,13 @@ class _PlanDetailPageState extends ConsumerState<PlanDetailPage> {
       }
       switch (result) {
         case XbSuccess(:final data):
-          if (data == null) {
+          if (data == null ||
+              data.code.isEmpty ||
+              (data.type != 1 && data.type != 2) ||
+              data.value < 0 ||
+              (data.type == 2 && data.value > 100) ||
+              (data.endedAt != null &&
+                  !data.endedAt!.isAfter(DateTime.now()))) {
             setState(() => _couponError = '优惠码无效');
           } else {
             setState(() => _coupon = data);
@@ -731,6 +838,15 @@ class _PlanDetailPageState extends ConsumerState<PlanDetailPage> {
           setState(
             () => _couponError = resolveErrorText(error, fallback: '优惠码验证失败'),
           );
+      }
+    } catch (error, stack) {
+      if (_ownerCurrent && generation == _couponGeneration) {
+        SentryBootstrap.captureException(
+          error,
+          stackTrace: stack,
+          where: 'check coupon',
+        );
+        setState(() => _couponError = '优惠码验证失败');
       }
     } finally {
       if (mounted && generation == _couponGeneration) {
@@ -741,32 +857,88 @@ class _PlanDetailPageState extends ConsumerState<PlanDetailPage> {
 
   Future<void> _submitOrder() async {
     if (!mounted || _submitting || _checkingCoupon || _selection == null) return;
-    final service = ref.read(xboardServiceProvider);
-    final revision = ref.read(authStateProvider.notifier).sessionRevision;
-    final planId = plan.id;
-    final period = _selected.period;
-    final couponCode = _coupon?.code;
-    bool current() => mounted &&
-        ref.read(authStateProvider.notifier).sessionRevision == revision &&
-        identical(ref.read(xboardServiceProvider), service) &&
-        plan.id == planId;
+    if (!_ownerCurrent) {
+      xbToastSafe('账号状态已变化，请登录后重新进入结算。');
+      return;
+    }
+    final service = _ownerService!;
+    final submittedPlan = plan;
+    final selection = _selected;
+    final estimate = _estimatedCents;
+    final catalogCents = _subtotalCents;
+    final coupon = _coupon;
+    final couponGeneration = _couponGeneration;
+    final confirmedFor = widget.confirmedFor;
+    final renew = widget.renew;
+    final route = ModalRoute.of(context);
+    bool current() =>
+        _ownerCurrent &&
+        (route?.isActive ?? true) &&
+        plan == submittedPlan &&
+        _selection == selection &&
+        _couponGeneration == couponGeneration &&
+        widget.confirmedFor == confirmedFor &&
+        widget.renew == renew;
+    if (coupon?.endedAt case final expiry?
+        when !expiry.isAfter(DateTime.now())) {
+      _invalidateCoupon();
+      xbToastSafe('优惠码已过期，请重新验证。');
+      return;
+    }
     setState(() => _submitting = true);
     try {
-      // 更换套餐确认（仅购买模式）：当前有「仍生效（未到期）」套餐且所选 ≠ 当前 → 提示会覆盖。
-      // 旧套餐已到期 / 无生效套餐 / 续费 / 选的就是当前套餐 → 视为正常下单，不打扰。
-      if (!widget.renew) {
-        final sub = ref.read(userProfileProvider).value;
-        if (_shouldConfirmSwitch(sub)) {
-          final ok = await _confirmSwitchPlan(sub!);
-          if (!ok || !current()) return;
+      final subscriptionRead = await service.getSubscription();
+      if (!current()) return;
+      if (subscriptionRead case XbFailure<XbDomainSubscription>(:final error)) {
+        xbToastSafe(
+          '无法核对当前套餐：${resolveErrorText(error, fallback: '请稍后重试')}',
+        );
+        return;
+      }
+      final sub = subscriptionRead.dataOrNull!;
+      final subscription = ConfirmedOrderSubscription(
+        planId: sub.planId,
+        totalBytes: sub.totalBytes,
+        expiredAt: sub.expiredAt,
+      );
+      final activeId = subscription.activePlanId;
+      if (activeId != null && activeId != confirmedFor) {
+        final switchPlan = shouldConfirmPlanSwitch(
+          current: sub,
+          newPlanId: submittedPlan.id,
+          isRenew: false,
+          now: DateTime.now(),
+        );
+        // Older renewal callers already enter through a dedicated renewal
+        // route; the store passes its explicit confirmation instead.
+        if (switchPlan || !renew) {
+          final accepted = await _confirmPlanImpact(
+            sub,
+            same: activeId == submittedPlan.id,
+          );
+          if (!accepted || !current()) return;
         }
       }
-      if (!current()) return;
-      final result = await service.createOrder(planId, period, couponCode: couponCode);
-      if (!current()) return;
+      if (!mounted || !current()) return;
+      final result = await submitConfirmedOrder(
+        context: context,
+        service: service,
+        isActive: current,
+        quote: ConfirmedOrderQuote(
+          planId: submittedPlan.id,
+          planName: submittedPlan.name,
+          period: selection.period,
+          estimatedCents: estimate,
+          catalogCents: catalogCents,
+          couponCode: coupon?.code,
+          couponEndsAt: coupon?.endedAt,
+          expectedSubscription: subscription,
+        ),
+      );
+      if (!mounted || !current()) return;
       switch (result) {
         case XbSuccess(:final data):
-          if (!mounted) return;
+          if (data == null) return;
           // 跳支付页（订单号），返回时回退到列表。
           unawaited(
             xbPush(
@@ -791,32 +963,51 @@ class _PlanDetailPageState extends ConsumerState<PlanDetailPage> {
             }
             return;
           }
-          xbToastSafe('提交订单失败：${resolveErrorText(error, fallback: "请稍后重试")}');
+          xbToastSafe(
+            '提交订单失败：${resolveErrorText(error, fallback: "请稍后重试")}',
+          );
+      }
+    } catch (error, stack) {
+      if (current()) {
+        SentryBootstrap.captureException(
+          error,
+          stackTrace: stack,
+          where: 'prepare plan order',
+        );
+        xbToastSafe('无法核对当前套餐，请稍后重试。');
       }
     } finally {
       if (mounted) setState(() => _submitting = false);
     }
   }
 
-  /// 是否需弹「更换套餐」确认：当前有生效（未到期）套餐 + 所选套餐 ≠ 当前套餐。
-  /// expiredAt==null = 长期有效（视为生效）；expiredAt 在未来 = 仍生效；已过去 = 已到期（不提示）。
-  bool _shouldConfirmSwitch(XbDomainSubscription? sub) =>
-      shouldConfirmPlanSwitch(
-        current: sub,
-        newPlanId: plan.id,
-        isRenew: widget.renew,
-        now: DateTime.now(),
-      );
-
-  /// 更换套餐确认弹窗（原型 16b）：警示徽标 + 覆盖说明 + 当前→新套餐对比 + 品牌确认键（非破坏性）。
-  Future<bool> _confirmSwitchPlan(XbDomainSubscription sub) async {
+  /// Backstop for older callers or a subscription that changed after the store.
+  Future<bool> _confirmPlanImpact(
+    XbDomainSubscription sub, {
+    required bool same,
+  }) async {
     final ok = await xbShowDialog<bool>(
       context: context,
       brandColor: xbBrandColor(),
-      builder: (ctx) => _SwitchPlanDialog(
-        currentName: sub.planName ?? '当前套餐',
-        newName: plan.name,
-      ),
+      builder: (ctx) => same
+          ? AlertDialog(
+              title: const Text('确认续费当前套餐？'),
+              content: const Text('续费将延长有效期，已用流量和重置日不变。'),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(ctx).pop(false),
+                  child: const Text('再想想'),
+                ),
+                FilledButton(
+                  onPressed: () => Navigator.of(ctx).pop(true),
+                  child: const Text('确认续费'),
+                ),
+              ],
+            )
+          : _SwitchPlanDialog(
+              currentName: sub.planName ?? '当前套餐',
+              newName: plan.name,
+            ),
     );
     return ok ?? false;
   }
@@ -833,7 +1024,6 @@ class _SwitchPlanDialog extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = XbTokens.of(context);
-    final scheme = Theme.of(context).colorScheme;
     return AlertDialog(
       title: const Column(
         mainAxisSize: MainAxisSize.min,
@@ -865,39 +1055,7 @@ class _SwitchPlanDialog extends StatelessWidget {
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 16),
-            // 当前 → 新套餐对比条。
-            Container(
-              padding: const EdgeInsets.all(13),
-              decoration: BoxDecoration(
-                color: t.sfc,
-                borderRadius: BorderRadius.circular(XbTokens.rMd),
-                border: Border.all(color: t.line),
-              ),
-              child: Row(
-                children: [
-                  _SwapCol(
-                    label: '当前',
-                    name: currentName,
-                    color: t.on,
-                    labelColor: t.onv,
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 10),
-                    child: Icon(
-                      Icons.arrow_forward_rounded,
-                      size: 20,
-                      color: t.onv,
-                    ),
-                  ),
-                  _SwapCol(
-                    label: '更换为',
-                    name: newName,
-                    color: scheme.primary,
-                    labelColor: scheme.primary,
-                  ),
-                ],
-              ),
-            ),
+            XbPlanComparison(current: currentName, target: newName),
           ],
         ),
       ),
@@ -942,45 +1100,6 @@ class _SwitchPlanDialog extends StatelessWidget {
           ],
         ),
       ],
-    );
-  }
-}
-
-/// 对比条单列（标签 + 套餐名，居中，过长省略）。
-class _SwapCol extends StatelessWidget {
-  const _SwapCol({
-    required this.label,
-    required this.name,
-    required this.color,
-    required this.labelColor,
-  });
-
-  final String label;
-  final String name;
-  final Color color;
-  final Color labelColor;
-
-  @override
-  Widget build(BuildContext context) {
-    return Expanded(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(label, style: TextStyle(fontSize: 11, color: labelColor)),
-          const SizedBox(height: 3),
-          XbEmojiText(
-            name,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.w600,
-              color: color,
-            ),
-          ),
-        ],
-      ),
     );
   }
 }

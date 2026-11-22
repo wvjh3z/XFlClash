@@ -376,7 +376,8 @@ void main() {
         final schemes = RegExp(
           r'<key>CFBundleURLSchemes</key>\s*<array>([\s\S]*?)</array>',
         ).firstMatch(info)?.group(1);
-        expect(schemes?.trim(), '<string>${ids[brand]}</string>');
+        expect(schemes, isNull);
+        expect(info.contains('CFBundleURLTypes'), isFalse);
         final projectText = read('macos/Runner.xcodeproj/project.pbxproj');
         final debugIds = RegExp(
           r'PRODUCT_BUNDLE_IDENTIFIER = ([A-Za-z0-9.]+\.debug);',

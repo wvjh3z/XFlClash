@@ -22,6 +22,8 @@
 
 | 事件 | 品牌 / 目标 | 首个失败阶段 | 当前状态 |
 | --- | --- | --- | --- |
+| [双端商店与交易回归](#双端商店与交易回归) | A/B 共用 Flutter 源码，vds-linux-android | 分析发现两处类型错误，另有测试夹具参数及节点可访问性断言问题 | 见下方逐轮证据，非安装包构建 |
+| [B42节点投影探针准备](#b42节点投影探针准备2026-11-18) | A/B共享节点UI；Linux JIT诊断 | 隔离准备树缺发行依赖；探针虚拟时钟未推进 | 均非生产修复；逐轮结果与恢复见专项报告，macOS真机待验 |
 | [Actions #173/#174 Linux APT](#actions-173174-linux-apt依赖失败2026-11-12) | A/build54、B/build42；Linux AMD64/ARM64 | Ubuntu归档DNS失败，update软失败后继续install，15分钟超时 | 严格索引/有界下载备源/离线安装已接线；定向66项通过，完整共享门禁本机缺CMake，正式CI待验 |
 | [Linux build54节点断连](#linux-build54节点断连2026-11-11) | A Android ARM64 / Jenkins #6 | 首个远端sh前Remoting/WebSocket ClosedChannelException | 无工作区/无APK，节点现已恢复在线；底层原因未知，待授权重试 |
 | [Linux build53调度准备](#linux-build53调度准备2026-11-11) | A Android ARM64 / Linux节点 | 维护机缺Paramiko；SSH信任文件相对路径未解析 | 改用现有OpenSSH并按运维仓库根解析原信任文件，未绕过验证；正式构建结果另记 |
@@ -49,7 +51,23 @@
 
 ## v0.9.3升级候选验证（2026-11-08）
 
+### B42节点投影探针准备（2026-11-18）
+
+限定调查 B42 macOS hang 节点候选，没有安装包构建或生产代码修改。指定 Linux 准备工作区首轮 `flutter_check.py --no-pub` 退出1、测试未加载：临时载入 B42 节点页时，原准备树缺 `xb_group_tabs.dart`、`xb_tab_refresh_indicator.dart`、`xb_group_delay_action.dart`。只补入同一发行提交的真实依赖闭包，不用 stub；finally 恢复既有文件，删除本轮新增文件，Git status 与执行前一致。第二轮投影计数通过，但五个页级夹具均在冷却 tick 断言失败：等待真实 Stopwatch 后未推进 Flutter FakeAsync 定时器，预期一次投影、实为零；属于测试时钟前提，不是页面无定时器。修正为等待真实时间并 pump 一秒虚拟时间；计数正控、单 delay/纯 now 变化负控、最终结果和每轮恢复证据统一见 [节点探针报告](https://github.com/wvjh3z/proxy-suite-docs/blob/main/evidence/sentry-device-statistics-20261112/node-projection-probe-20261118.md)。Linux Debug/JIT 不代替 macOS AOT/真机根因验收。
+
 ### Actions #173/#174 Linux APT依赖失败（2026-11-12）
+
+ARM64 GUI验收环境经验：GitHub windows-11-arm初始隐私向导遮挡导致foreground保护停止输入；禁用隐私体验策略/停止OOBE进程不能解除当轮界面。完成已观察的向导后又有WSL更新提示抢前台；将向导操作收敛为两次Next、终止一次性VM中无需的wsl提示进程，并点击客户端标题栏后确认foreground，run43426536361虚构文字正确进入登录框。流程绿但仍在欢迎页的run43426131426不算通过。最终run43426951257真实凭据登录提交、安装/卸载通过，临时Secrets删除；networkTimeout标记true但未阻止最终成功，原日志未导出，不能定因或宣称网络无异常。详见Docs/evidence/sentry-device-statistics-20261112/b42-arm64-login-result.json。
+
+现有B42 GUI登录验证经验：run43422448745安装/卸载成功但未提交登录记录；run43423244705账号框sentinel回读失败后停止，不能当密码错误。run43423625385虚构输入仍空，说明SendKeys/剪贴板与发给主窗口的WM_CHAR不可靠；run43423985648以原生SendInput Unicode成功显示虚构账号后，run43424403938才用同路径真实登录并确认auth记录引用存在，安装/登录/卸载通过。后两次非空输入不导出真实凭据、输入后不截图、客户端原日志仅临时读取固定错误标记再删除；GitHub临时Secrets均已删除。ARM64登录受系统隐私界面遮挡仍未验，禁止由workflow绿推断UI或业务成功。证据Docs/evidence/sentry-device-statistics-20261112/b42-login-result.json；不涉及客户端代码修复。
+
+上述Windows身份注入准备问题最终正控：显式UTF-8和完整夹具后，同一正式命令python -m unittest -v tool.test.brand_identity_cli_test在win11-build独立目录3项全通过，真实注入CLI覆盖A/B/A及三平台重复切换，退出0；不是修改解释器全局编码或跳过测试。Docs/evidence/sentry-device-statistics-20261112/windows-identity-result.json保存最终日志及源码摘要；原生出包不在本轮验证内。
+
+Windows品牌注入回归准备（2026-11-13）：既有win11-build在独立C:/xb/protocol-validation-20261113复制已准备工具源码并dart pub get --offline成功，补齐Linux验证机缺失的distributor依赖图。首轮3项中2项error：新增Android结构测试read_text漏encoding导致中文Windows以GBK解码UTF-8失败；隔离快照漏传services/helper/src/service三份Rust源，CLI夹具创建时FileNotFoundError。分别显式UTF-8、补齐同版本源文件；不通过全局改Python编码掩盖缺陷、不恢复工具链或编译Helper。本轮失败发生在注入前，后续真实CLI结果另记。
+
+2026-11-13品牌外部协议退役验证：指定Linux测试工作区缺build/packaging-tools/flutter_distributor/packages/flutter_distributor/.dart_tool/package_config.json，真实brand_identity_cli_test的CLI项退出254（args/path/yaml等无法解析），属于准备图缺项，未进入注入断言。未用替身冒充完整CLI成功；改以真实injectStableIdentity函数执行A/B/A三平台配置转换验证通过，Android XML/配置结构2项、品牌运行时4项、默认协议5项、原版链接14项，共26项定向通过，分析无问题。完整CLI门禁及原生出包待在具有已激活工具图的正式环境执行。旧源码负控2项预期失败证明注册/监听路径会被测试捕获，不是待修代码失败。
+
+后续独立调度故障：品牌B #176第二次运行的macOS ARM64 job130704141214取消。GitHub check annotations明确报告`The job was not acquired by Runner of type hosted even after multiple attempts`并三次提示macOS arm64容量限制。任务北京时间2026-11-12 01:54:15 CST至02:09:17 CST，约15分2秒；runner_id=0、runner_name为空、steps为空，未执行checkout或编译。属于GitHub托管Runner调度容量问题，不是APT或客户端代码失败；未改代码/Runner标签，也未在本次查询中重跑。A #175七平台成功，B该attempt其余六平台成功；完整证据见Docs/evidence/actions-173-174-20261112/runner-capacity.json。后续重试需授权，不能承诺资源已恢复。
 
 两批均固定源码07fd0f45261aeb5d68f9de7e223463aee06835c9。A [#173](https://github.com/wvjh3z/XFlClash/actions/runs/43050035131)为build54，B [#174](https://github.com/wvjh3z/XFlClash/actions/runs/43050085572)为build42；两品牌均仅Linux AMD64/ARM64失败，Android、Windows双架构及macOS双架构五任务成功，bump跳过。四份失败日志均指向Install Linux package deps：AMD64的azure.archive.ubuntu.com、ARM64的ports.ubuntu.com暂时无法解析。apt-get update警告后返回并沿旧索引继续install，随后步骤15分钟超时。源码中该APT步骤与上次成功#172相同；底层Runner DNS故障原因未知，不认定为UI/SDK编译回归，也不把pub缓存miss当失败。
 
@@ -422,3 +440,23 @@ Windows夹具不再带着整条锚定目录句柄执行路径File.Move：记录�
 Windows测试控制器长时间无返回时，先检查是否已创建本批隔离目录及是否有Dart进程，区分启动前传输和用例执行。此次大JSON夹具传输阶段未进入测试，改压缩文件传输后沿原入口复验；不要一再增加产品或用例超时来掩盖控制器问题，底层传输原因未定则保留该边界。
 
 暂存清理专项：不能用“整个目录权限被拒绝”的负控替代部分删除失败。递归清理可能先删owner.json再在previous.yaml占用处失败；应让本次和历史清理共用明文→标记→空目录的非递归顺序，并用真实publish/commit＋备份句柄占用＋释放后重入验证。归属标记保证持续到明文已删；最后只剩空目录的删除失败单独记录。证据见订阅恢复记录“本次与历史恢复的统一有序清理”。
+
+### 双端商店与交易回归
+
+2026-11-22 在 vds-linux-android 独立工作区 `.shop-validation-20261122-161810` 验证客户端 `39d8c95b` 的未提交候选和同批 SDK。1,963 个文件核对哈希；SDK、客户端依赖和完整 codegen 均成功。首轮 `flutter analyze --no-pub lib` 两处编译错误：`ResetTrafficPage` 将确定为领域错误的字段声明为 `Object?`；确认订单能力检查后仍通过 `XboardService` 静态类型调用 `confirmOrder`。定向 `flutter_check.py --no-pub` 首轮 234 通过、12 失败（包含文件加载失败，不能解释成 12 个业务缺陷）；提现矩阵夹具漏传品牌，节点用 Tooltip 查找器代替显式定义的可访问动作。改为领域错误类型、在能力检查后显式转型、传入当前品牌并检查带组名的语义操作；保留旧服务不支持时拒绝写入和双品牌分别执行。编译与运行失败不能由源码扫描或原型验证替代。首轮日志和精确输入清单在同名维护任务目录，后续结果按实际运行补记。
+
+第二轮无编译错误，1080 通过、16 失败；其中 12 个导航用例因全局 ErrorWidget.builder 在框架检查之后才还原。另有 SemanticsHandle 释放时序、已定义语义改用对应查找器、不同 Navigator 共享节流时间戳的问题。测试在 finally 还原测试状态，导航节流改为按 Navigator 隔离。第三轮同一批 25 文件共 1096 项全部通过。分析默认退出 1，剩余 6 条 info 的对应源码在 HEAD 已存在。只比较三份 golden 测试文件，2 项通过、13 张均实际进入像素比较后不一致；未覆盖基线。机器摘要见 [Docs 验收记录](https://github.com/wvjh3z/proxy-suite-docs/blob/main/evidence/shop-validation-20261122/result.json)，第四轮仅纳入用户逐图批准的 10 张后重比：12 通过、3 张暂缓仍失败（节点游客、套餐 HTML 浅／深），无正式包或真机验收。
+
+后续用户指定第 6、46 屏为设计依据，并纠正第 53 屏须取真实首页重置弹窗。旧重置 fixture 直接构造页，不能证明入口；改为点击真实首页通知、比对整个窗口并取消。结算修复卡内折扣大字号行高、短说明与完整富文本分工、小字对比度；浅深及游客节点使用实际 Flutter 候选。按对应四张重新校准后相关测试 255/255。结果见 Docs 同批 `prototype-aligned.json`，未重跑全平台或出包。
+
+2026-11-23 · v0.9.3 客户端双端样式复验：商店拆出周期配色后，标题聚焦态残留对局部 `scheme` 的引用，授权主机编译 `shop_tab_test.dart` 报未定义。改用当前 `theme.colorScheme.primary`；同一 Flutter 测试入口在最终候选 10 文件 764/764 通过。另由截图发现短目录被居中，目录填满可用区域后增加双端顶部间距回归，重新渲染两张候选截图核对。仅 Flutter 测试引擎，不代表平台出包或真机验收。
+
+2026-11-23 · A56→当前工作区复核（未修复）：授权主机运行 `python3 tool/flutter_check.py --no-pub --plain-name 订单列表页 test/xboard/golden/pages_golden_test.dart`，第192行按 `OutlinedButton` 查找「继续支付」为0，实际控件为 `FilledButton`，未进入图片比较。另以当前 `a11y_golden_test.dart` 原字节在同目录隔离复跑（四张基线摘要与当前仓一致），4通过、4像素失败：套餐浅/深 99.87%/40.55%，支付浅/深 99.54%/5.08%。根因中已明确按钮断言过时；像素原因未逐图裁定，不能由功能用例通过替代，也不得直接覆盖基线。修复后须分别复跑两入口。
+
+续验：订单列表改按实心按钮检查后，真正进入图片比较，旧图仍保留重复历史图标与行内文字按钮（36.31%差异）。用同套固定环境逐图复核四张浅深套餐／支付图及订单列表图：套餐资料上移、提交在优惠码上方、订单金额已还原余额且不重复扣减、列表按钮层级符合既定设计。仅采纳这五张实际候选图，不批量生成；按原入口复跑全部通过，详见 [逐图对照与验证](https://github.com/wvjh3z/proxy-suite-docs/blob/main/evidence/shop-validation-20261122/client-parity-1123/README.md)。新增商店禁续测试首次未识别 `XbEmojiText`，改定位实际富文本标签再检查祖先按钮 disabled；非通过跳过断言修复。
+
+2026-11-23 · 交易弹窗验收：新增“替换已有待付”分支测试时，确认框下的结算页仍显示有意保留的提交中转圈，`pumpAndSettle` 不会收敛。改为推进弹窗入场帧并断言真实两行内容、取消无写入；弹窗关闭后仍等待 settle。SDK 隔离目录初次缺少既有 panel 测试文件，并非接口失败；同步同版夹具及 helper 后复跑。最终 SDK 两文件 48/48，Flutter 五文件 188/188；不代表安装包验收。
+
+2026-11-23 · 会话订单列表专项：初次并行执行早于完整 codegen 结束，旧 Freezed 构造仍要求非空状态与周期，导致测试编译失败。待完整生成成功再同步对应产物并复跑。登录过期用例另硬编码商店加入前的“我的”索引 2；保留返回游客页与登录入口的行为断言，按现布局改为 3。最终七文件 157/157、订单列表 golden 1/1，图片未改，未打包。
+
+2026-11-23 · SDK HTTP 终态日志回归：损坏 JSON 的 HTTP 400 同时走解析 warning 和最终请求 warning，受控用例期望一次、实得两次。请求层负责记录终态时不再额外记录错误响应的解析 warning；正常响应及直接 Dio 消费者保留原诊断。SDK 日志、支付与面板契约 98/98；不代表原生出包验收。

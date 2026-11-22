@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:fl_clash/xboard/config/xboard_config.dart';
+import 'package:fl_clash/xboard/models/confirmed_order.dart';
 import 'package:fl_clash/xboard/models/plan_item.dart';
 import 'package:fl_clash/xboard/models/xb_domain_subscription.dart';
 import 'package:fl_clash/xboard/models/xb_domain_types.dart';
@@ -14,18 +15,35 @@ import 'package:fl_clash/xboard/pages/plan_detail_page.dart';
 import 'package:fl_clash/xboard/pages/order_payment_page.dart';
 import 'package:fl_clash/xboard/pages/order_list_page.dart';
 import 'package:fl_clash/xboard/providers/xboard_providers.dart';
-import 'package:fl_clash/xboard/providers/user_profile_provider.dart';
-import 'package:fl_clash/xboard/providers/pending_order_provider.dart';
 import 'package:fl_clash/xboard/providers/auth_state_provider.dart';
 import 'package:fl_clash/xboard/sdk/xboard_service.dart';
 
-class _Service extends Mock implements XboardService {}
+class _Service extends Mock
+    implements XboardService, XboardConfirmedOrderControl {
+  final quotes = <ConfirmedOrderQuote>[];
+  final response = Completer<XbResult<String?>>();
+
+  @override
+  Future<XbResult<String?>> confirmOrder(
+    ConfirmedOrderQuote quote, {
+    required bool Function() isActive,
+    required Future<bool> Function(ConfirmedOrderConflict) confirm,
+  }) {
+    expect(isActive(), isTrue);
+    quotes.add(quote);
+    return response.future;
+  }
+}
+
+class _Auth extends AuthStateNotifier {
+  @override
+  AuthState build() => AuthState.authenticated;
+}
 
 const _plan = PlanItem(id: 7, name: 'new plan', transferEnableGb: 100,
     prices: [PricePlan(period: XbPlanPeriod.monthly, amountYuan: 10)]);
 
 void main() {
-  setUpAll(() => registerFallbackValue(XbPlanPeriod.monthly));
   for (final brand in ['brand_a', 'brand_b']) {
     for (final platform in [TargetPlatform.android, TargetPlatform.windows,
       TargetPlatform.macOS, TargetPlatform.linux]) {
@@ -46,25 +64,23 @@ void main() {
           XboardService service = a;
           final visible = ValueNotifier(true);
           addTearDown(visible.dispose);
-          final response = Completer<XbResult<String>>();
-          when(() => a.createOrder(any(), any(), couponCode: any(named: 'couponCode')))
-              .thenAnswer((_) => response.future);
-          when(() => b.createOrder(any(), any(), couponCode: any(named: 'couponCode')))
-              .thenAnswer((_) async => const XbFailure(XbUnexpected('createOrder', 'wrong-service')));
+           when(a.getSubscription).thenAnswer((_) async => const XbSuccess(
+             XbDomainSubscription(
+               email: 'fixture@example.test', uuid: 'fixture', planName: 'old plan',
+               planId: 1, totalBytes: 100, usedBytes: 0,
+             ),
+           ));
           when(() => a.getOrder(any())).thenAnswer((_) async => const XbSuccess(null));
           when(() => a.getPaymentMethods()).thenAnswer((_) async => const XbSuccess([]));
           await tester.pumpWidget(ProviderScope(overrides: [
             xboardServiceProvider.overrideWith((ref) => service),
-            userProfileProvider.overrideWith((ref) async => const XbDomainSubscription(
-                email: 'fixture@example.test', uuid: 'fixture', planName: 'old plan',
-                planId: 1, totalBytes: 100, usedBytes: 0)),
-            pendingOrderProvider.overrideWith((ref) async => null),
+             authStateProvider.overrideWith(_Auth.new),
           ], child: MaterialApp(theme: ThemeData(platform: platform),
               home: ValueListenableBuilder<bool>(valueListenable: visible,
                 builder: (_, show, _) => show ? const PlanDetailPage(plan: _plan) : const SizedBox()))));
           await tester.pumpAndSettle();
           final container = ProviderScope.containerOf(tester.element(find.byType(PlanDetailPage)));
-          await container.read(userProfileProvider.future);
+           await tester.ensureVisible(find.text('提交订单'));
           await tester.tap(find.text('提交订单'));
           await tester.pump();
           // The submit spinner intentionally stays active behind this dialog.
@@ -96,12 +112,16 @@ void main() {
           await tester.pump();
           await tester.pump(const Duration(milliseconds: 400));
           if (mode.startsWith('confirmation') || mode == 'cancel') {
-            verifyNever(() => a.createOrder(any(), any(), couponCode: any(named: 'couponCode')));
-          } else {
-            verify(() => a.createOrder(7, XbPlanPeriod.monthly, couponCode: null)).called(1);
-            if (mode.startsWith('late')) changeContext();
-            await tester.pump();
-            response.complete(mode.endsWith('success')
+             expect(a.quotes, isEmpty);
+           } else {
+             final submitted = a.quotes.single;
+             expect(submitted.planId, 7);
+             expect(submitted.period, XbPlanPeriod.monthly);
+             expect(submitted.estimatedCents, 1000);
+             expect(submitted.couponCode, isNull);
+             if (mode.startsWith('late')) changeContext();
+             await tester.pump();
+             a.response.complete(mode.endsWith('success')
                 ? const XbSuccess('fixture-trade')
                 : mode.endsWith('unconfirmed')
                     ? const XbFailure(XbUnconfirmed('createOrder', 'fixture late unconfirmed'))
@@ -109,7 +129,7 @@ void main() {
             await tester.pump();
             await tester.pump(const Duration(milliseconds: 400));
           }
-          verifyNever(() => b.createOrder(any(), any(), couponCode: any(named: 'couponCode')));
+           expect(b.quotes, isEmpty);
           if (mode == 'normal-success') {
             expect(find.byType(OrderPaymentPage), findsOneWidget);
           } else if (mode == 'normal-failure') {

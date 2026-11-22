@@ -16,7 +16,7 @@ on:
         description: 'SDK commit or immutable tag; diagnostic mode requires full SHA'
         type: string
         required: true
-        default: 'a25c33b2696d1a47f147919206e427de7f19b610'
+        default: '075c84ef92f38da32c5aa1b4b3da1f333522065b'
       docs_ref:
         description: 'Current documentation commit'
         type: string

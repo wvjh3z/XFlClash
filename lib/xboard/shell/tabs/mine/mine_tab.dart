@@ -1,6 +1,6 @@
 /// 形态 A 我的 Tab（spec `xboard-form-a-ui-revamp` / W4.3·W4.4·W4.5 / R6.1-R6.11）。
 ///
-/// 组装：账号卡（W4.3，复用形态 B `userProfileProvider`，F14 先 gate authState）+ 续费/购买
+/// 组装：账号卡（W4.3，复用形态 B `userProfileProvider`，F14 先 gate authState）
 /// 分流（W4.4，R6.4-R6.6）（流量预警入口已移至首页）+ 设置入口（W4.5，经
 /// `XbNativePageAdapter` push 原生 ToolsView，R6.8）+ 退出登录（◇ 复用形态 B logout 编排，R6.11）。
 ///
@@ -23,12 +23,9 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:fl_clash/xboard/models/xb_domain_subscription.dart';
 import 'package:fl_clash/xboard/pages/invite_commission_page.dart';
 import 'package:fl_clash/xboard/pages/order_list_page.dart';
-import 'package:fl_clash/xboard/pages/plan_list_page.dart';
-import 'package:fl_clash/xboard/navigation/plan_navigation.dart';
 import 'package:fl_clash/xboard/pages/share_friend_page.dart';
 import 'package:fl_clash/xboard/pages/tutorial_list_page.dart';
 import 'package:fl_clash/xboard/providers/auth_state_provider.dart';
-import 'package:fl_clash/xboard/providers/invite_provider.dart';
 import 'package:fl_clash/xboard/providers/user_profile_provider.dart';
 import 'package:fl_clash/xboard/providers/xboard_providers.dart';
 import 'package:fl_clash/xboard/services/crisp_support_service.dart';
@@ -50,6 +47,13 @@ import 'xb_settings_page.dart';
 
 /// 账号卡用量达到此比例时强调进度；提醒与重置入口位于首页。
 const _resetThreshold = 0.90;
+
+// 我的只读取返佣比例。自动生成邀请码仍由邀请返佣详情页负责。
+final _rebateRateProvider = FutureProvider.autoDispose<int?>((ref) async {
+  if (ref.watch(authStateProvider) != AuthState.authenticated) return null;
+  final result = await ref.watch(xboardServiceProvider).getInviteInfo();
+  return result.dataOrNull?.commissionRate;
+}, retry: (_, _) => null);
 
 /// 「我的」双栏布局：可用宽 ≥ [XbBreakpoints.desktop] 才双栏（策略见 xb_responsive）。
 
@@ -100,6 +104,7 @@ class _MineTabState extends ConsumerState<MineTab> with XbRefreshThrottleGuard {
       return;
     }
     ref.invalidate(userProfileProvider);
+    ref.invalidate(_rebateRateProvider);
     startThrottle();
     setState(() => _refreshing = false);
   }
@@ -310,7 +315,7 @@ class _RefreshButton extends StatelessWidget {
   }
 }
 
-/// 已登录账号区：账号卡（loading 骨架 / data）+ 续费购买分流。
+/// 已登录账号区：账号卡及加载/失败状态。
 class _AccountSection extends ConsumerStatefulWidget {
   const _AccountSection({required this.active, this.now, this.large = false});
 
@@ -320,7 +325,7 @@ class _AccountSection extends ConsumerStatefulWidget {
   /// 测试注入的固定时刻（透传给账号卡算到期/重置剩余）；生产 null → DateTime.now()。
   final DateTime? now;
 
-  /// 桌面放大态（原型 `.dcol .plan` / `.dcol .brow`）：套餐卡 padding/数字、按钮高度放大。
+  /// 桌面放大态（原型 `.dcol .plan`）。
   final bool large;
 
   @override
@@ -345,7 +350,7 @@ class _AccountSectionState extends ConsumerState<_AccountSection> {
 
   @override
   Widget build(BuildContext context) {
-    // 重试与首次加载都保留骨架卡及禁用按钮，不再显示刷新横幅。
+    // 重试与首次加载都保留骨架卡，不显示刷新横幅。
     if (_retrying) {
       return const _AccountSkeleton();
     }
@@ -354,17 +359,11 @@ class _AccountSectionState extends ConsumerState<_AccountSection> {
     return async.when(
       loading: () => const _AccountSkeleton(),
       error: (e, _) => _AccountErrorCard(onRetry: _retry),
-      data: (sub) => Column(
-        children: [
-          _AccountCard(
-            sub: sub,
-            active: widget.active,
-            now: widget.now,
-            large: widget.large,
-          ),
-          SizedBox(height: widget.large ? 13 : 12),
-          _PlanActions(sub: sub, large: widget.large),
-        ],
+      data: (sub) => _AccountCard(
+        sub: sub,
+        active: widget.active,
+        now: widget.now,
+        large: widget.large,
       ),
     );
   }
@@ -661,77 +660,6 @@ class _InfoRow extends StatelessWidget {
   }
 }
 
-/// 续费/购买分流（R6.4/R6.5/R6.6）（流量提醒已移至首页）。
-class _PlanActions extends ConsumerWidget {
-  const _PlanActions({required this.sub, this.large = false});
-
-  final XbDomainSubscription sub;
-
-  /// 桌面放大态（原型 `.dcol .brow .b{height:50px}`）：按钮高度 42→50。
-  final bool large;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final scheme = Theme.of(context).colorScheme;
-
-    return Column(
-      children: [
-        SizedBox(
-          height: large ? 50 : 42,
-          child: Row(
-            children: [
-              // 续费当前套餐（R6.4）：有套餐才显示，实心品牌按钮。
-              if (!sub.hasNoPlan)
-                Expanded(
-                  child: FilledButton(
-                    onPressed: () => openCurrentPlanRenew(context, ref),
-                    style: FilledButton.styleFrom(
-                      textStyle: const TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
-                      ),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(XbTokens.rButton),
-                      ),
-                    ),
-                    child: const Text('续费当前套餐'),
-                  ),
-                ),
-              if (!sub.hasNoPlan) const SizedBox(width: 11),
-              // 购买/更改套餐（R6.5/R6.6），描边品牌按钮。
-              Expanded(
-                child: OutlinedButton(
-                  onPressed: () => _openPlans(context),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: scheme.primary,
-                    textStyle: const TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600,
-                    ),
-                    side: BorderSide(
-                      color: scheme.primary.withValues(alpha: 0.4),
-                      width: 1.6,
-                    ),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(XbTokens.rButton),
-                    ),
-                  ),
-                  child: Text(sub.hasNoPlan ? '购买套餐' : '购买 / 更改套餐'),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-
-  // ◇ 复用形态 B 套餐页（不经 adapter）。
-  void _openPlans(BuildContext context) {
-    xbPush(context, const PlanListPage(), brandColor: xbBrandColor());
-  }
-}
-
 /// 加载骨架（已登录未就绪，R6.9），不附加刷新横幅。
 class _AccountSkeleton extends StatelessWidget {
   const _AccountSkeleton();
@@ -771,66 +699,7 @@ class _AccountSkeleton extends StatelessWidget {
             ],
           ),
         ),
-        // 续费/购买按钮行（加载态禁用，原型 .brow.dis 半透明）。
-        const SizedBox(height: 12),
-        const _DisabledPlanActions(),
       ],
-    );
-  }
-}
-
-/// 加载态禁用按钮行（原型 booting `.brow.dis`：续费/购买都置灰禁用）。
-class _DisabledPlanActions extends StatelessWidget {
-  const _DisabledPlanActions();
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return SizedBox(
-      height: 42,
-      child: Opacity(
-        opacity: 0.5,
-        child: Row(
-          children: [
-            Expanded(
-              child: FilledButton(
-                onPressed: null,
-                style: FilledButton.styleFrom(
-                  textStyle: const TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                  ),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(XbTokens.rButton),
-                  ),
-                ),
-                child: const Text('续费当前套餐'),
-              ),
-            ),
-            const SizedBox(width: 11),
-            Expanded(
-              child: OutlinedButton(
-                onPressed: null,
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: scheme.primary,
-                  textStyle: const TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                  ),
-                  side: BorderSide(
-                    color: scheme.primary.withValues(alpha: 0.4),
-                    width: 1.6,
-                  ),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(XbTokens.rButton),
-                  ),
-                ),
-                child: const Text('购买 / 更改套餐'),
-              ),
-            ),
-          ],
-        ),
-      ),
     );
   }
 }
@@ -1061,6 +930,9 @@ class _SettingsSection extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final rebateRate = showAccount && !isGuest
+        ? ref.watch(_rebateRateProvider).asData?.value
+        : null;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -1083,13 +955,14 @@ class _SettingsSection extends ConsumerWidget {
                         brandColor: xbBrandColor(),
                       ),
               ),
-              // 邀请返佣（form-a 邀请功能）：需登录（佣金/邀请码依赖 token）。游客显示「登录后可见」、
-              // 不可点；登录态尾部品牌色「返佣 X%」teaser（比例读 inviteInfoProvider 后台下发）+ chevron。
+              // 游客不可点；后台下发有效比例时才显示品牌色角标。
               XbListRow(
                 icon: Icons.redeem,
                 label: '邀请返佣',
                 large: large,
-                trailing: isGuest ? null : const _RebateBadge(),
+                trailing: rebateRate != null && rebateRate > 0
+                    ? _RebateBadge(rebateRate)
+                    : null,
                 badge: isGuest ? '登录后可见' : null,
                 showChevron: !isGuest,
                 onTap: isGuest
@@ -1172,31 +1045,28 @@ class _SettingsSection extends ConsumerWidget {
   }
 }
 
-/// 「邀请返佣」行尾部 teaser：品牌色「返佣 X%」+ chevron。
-/// 比例来自接口（[inviteInfoProvider] 的 commissionRate，后台下发）——
-/// 未就绪 / 失败时只显示 chevron，绝不显示写死占位数字。
-class _RebateBadge extends ConsumerWidget {
-  const _RebateBadge();
+/// 「邀请返佣」行尾部展示后台下发的比例。
+class _RebateBadge extends StatelessWidget {
+  const _RebateBadge(this.rate);
+
+  final int rate;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     final t = XbTokens.of(context);
     final brand = Theme.of(context).colorScheme.primary;
-    final rate = ref.watch(inviteInfoProvider).asData?.value.commissionRate;
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        if (rate != null && rate > 0) ...[
-          Text(
-            '返佣 $rate%',
-            style: TextStyle(
-              fontSize: 12.5,
-              fontWeight: FontWeight.w600,
-              color: brand,
-            ),
+        Text(
+          '返 $rate%',
+          style: TextStyle(
+            fontSize: 12.5,
+            fontWeight: FontWeight.w600,
+            color: brand,
           ),
-          const SizedBox(width: 6),
-        ],
+        ),
+        const SizedBox(width: 6),
         Icon(Icons.chevron_right, color: t.onv, size: 20),
       ],
     );
@@ -1260,8 +1130,38 @@ class _AboutRow extends ConsumerWidget {
   }
 }
 
+final _resumeChatProvider = NotifierProvider<_ResumeChat, bool>(_ResumeChat.new);
+
+class _ResumeChat extends Notifier<bool> {
+  @override
+  bool build() {
+    ref.watch(authStateProvider);
+    return false;
+  }
+
+  void setVisible(bool visible) => state = visible;
+}
+
+class AndroidResumeChat extends ConsumerWidget {
+  const AndroidResumeChat({super.key});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    if (!Platform.isAndroid || !CrispSupportService.isEnabled ||
+        !ref.watch(_resumeChatProvider)) {
+      return const SizedBox.shrink();
+    }
+    return _SupportRow(
+      isGuest: ref.watch(authStateProvider) != AuthState.authenticated,
+      large: false,
+      floating: true,
+    );
+  }
+}
+
 class _SupportRow extends ConsumerStatefulWidget {
-  const _SupportRow({required this.isGuest, required this.large});
+  const _SupportRow({required this.isGuest, required this.large, this.floating = false});
+  final bool floating;
   final bool isGuest;
   final bool large;
   @override
@@ -1313,7 +1213,11 @@ class _SupportRowState extends ConsumerState<_SupportRow>
           sub: sub,
           isCurrent: current,
         );
-        if (result.opened || !context.mounted || !current()) return;
+        if (!context.mounted || !current()) return;
+        if (result.opened) {
+          if (Platform.isAndroid) ref.read(_resumeChatProvider.notifier).setVisible(true);
+          return;
+        }
         if (!await _showSupportFailure(context, result.failure, current)) {
           return;
         }
@@ -1411,7 +1315,29 @@ class _SupportRowState extends ConsumerState<_SupportRow>
   }
 
   @override
-  Widget build(BuildContext context) => XbListRow(
+  Widget build(BuildContext context) {
+    final open = submitting ? null : () => runSubmit(() => _openSupport(context, ref));
+    if (widget.floating) {
+      final brand = xbBrandColor();
+      return Material(
+        elevation: 2,
+        borderRadius: BorderRadius.circular(24),
+        clipBehavior: Clip.antiAlias,
+        child: Ink(
+          decoration: BoxDecoration(gradient: LinearGradient(colors: [
+            Color.lerp(brand, Colors.white, 0.16)!, brand,
+          ])),
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            TextButton(onPressed: open, child: const Text('继续聊天', style: TextStyle(color: Colors.white))),
+            Container(width: 1, height: 16, color: Colors.white38),
+            IconButton(tooltip: '隐藏聊天入口', icon: const Icon(Icons.close, color: Colors.white, size: 18),
+              onPressed: submitting ? null : () =>
+                  ref.read(_resumeChatProvider.notifier).setVisible(false)),
+          ]),
+        ),
+      );
+    }
+    return XbListRow(
     icon: Icons.support_agent,
     label: submitting ? '正在打开客服…' : '在线客服',
     large: widget.large,
@@ -1422,8 +1348,7 @@ class _SupportRowState extends ConsumerState<_SupportRow>
             child: CircularProgressIndicator(strokeWidth: 2),
           )
         : null,
-    onTap: submitting
-        ? null
-        : () => runSubmit(() => _openSupport(context, ref)),
-  );
+    onTap: open,
+    );
+  }
 }

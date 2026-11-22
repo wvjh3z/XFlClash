@@ -141,10 +141,9 @@ String injectStableIdentity(
         'PRODUCT_BUNDLE_IDENTIFIER = ${id['id']}.debug;',
       );
     case 'macos/Runner/Info.plist':
-      s = replaceIdentity(
-        s,
-        RegExp(r'(<key>CFBundleURLSchemes</key>\s*)<array>[\s\S]*?</array>'),
-        '<key>CFBundleURLSchemes</key>\n<array><string>${id['scheme']}</string></array>',
+      s = s.replaceAll(
+        RegExp(r'<key>CFBundleURLTypes</key>\s*<array>[\s\S]*?</dict>\s*</array>'),
+        '',
       );
     case 'linux/CMakeLists.txt':
       s = replaceIdentity(
@@ -157,15 +156,11 @@ String injectStableIdentity(
     case 'linux/packaging/appimage/make_config.yaml':
       if (path.contains('/deb/')) s = set('package_name', id['slug'] as String);
       s = set('startup_wm_class', id['id'] as String);
-      s = s.replaceAllMapped(
-        RegExp(r'x-scheme-handler/[a-z][a-z0-9.+-]*'),
-        (_) => 'x-scheme-handler/${id['scheme']}',
-      );
-      // Deduplicate repeated legacy scheme lines after replacing all of them.
       s = s.replaceAll(
-        RegExp('(  - x-scheme-handler/${id['scheme']}\r?\n){2,}'),
-        '  - x-scheme-handler/${id['scheme']}\n',
+        RegExp(r'^\s*- x-scheme-handler/[^\r\n]+\r?\n', multiLine: true),
+        '',
       );
+      s = s.replaceAll(RegExp(r'^supported_mime_type:\s*\n(?=\S|$)', multiLine: true), 'supported_mime_type: []\n');
       s = s.replaceAll(
         RegExp(r'(?:flclash|omofly|daishu)-helper'),
         id['linuxService'] as String,

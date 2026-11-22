@@ -5,7 +5,6 @@ import 'package:mocktail/mocktail.dart';
 import 'package:fl_clash/xboard/config/xboard_config.dart';
 import 'package:fl_clash/xboard/models/xb_domain_subscription.dart';
 import 'package:fl_clash/xboard/models/plan_item.dart';
-import 'package:fl_clash/xboard/models/xb_domain_types.dart';
 import 'package:fl_clash/xboard/models/xb_result.dart';
 import 'package:fl_clash/xboard/providers/auth_state_provider.dart';
 import 'package:fl_clash/xboard/providers/user_profile_provider.dart';
@@ -13,11 +12,10 @@ import 'package:fl_clash/xboard/providers/xboard_providers.dart';
 import 'package:fl_clash/xboard/sdk/xboard_service.dart';
 import 'package:fl_clash/xboard/shell/tabs/home/xb_expiry_card.dart';
 import 'package:fl_clash/xboard/shell/tabs/home/xb_traffic_notice.dart';
+import 'package:fl_clash/xboard/shell/tabs/shop/xb_shop_navigation.dart';
 import 'package:fl_clash/xboard/widgets/xb_plan_notice_card.dart';
 import 'package:fl_clash/xboard/widgets/xb_ui_kit.dart';
 import 'package:fl_clash/xboard/pages/reset_traffic_page.dart';
-import 'package:fl_clash/xboard/pages/plan_detail_page.dart';
-import 'package:fl_clash/xboard/widgets/xb_components.dart';
 
 class _Auth extends AuthStateNotifier {
   @override
@@ -57,9 +55,11 @@ void main() {
 
   test('exact byte thresholds, exhausted, invalid total and negative use', () {
     for (final row in [
-      (899, 1000, null),
-      (900, 1000, 90),
-      (949, 1000, 90),
+      (799, 1000, null),
+      (800, 1000, 80),
+      (899, 1000, 80),
+      (900, 1000, 80),
+      (949, 1000, 80),
       (950, 1000, 95),
       (999, 1000, 95),
       (1000, 1000, 100),
@@ -79,7 +79,7 @@ void main() {
       TargetPlatform.linux,
     ]) {
       for (final dark in [false, true]) {
-        for (final percent in [90, 94.99, 95, 99.99, 100]) {
+        for (final percent in [80, 90, 94.99, 95, 99.99, 100]) {
           testWidgets(
             '$b $platform dark=$dark used=$percent shared styling and reset',
             (t) async {
@@ -217,10 +217,10 @@ void main() {
           } else {
             fail = scenario == 'error';
             current = scenario == 'changed-plan'
-                ? sub(95, id: 8)
+                 ? sub(80, id: 8)
                 : scenario == 'no-plan'
                 ? sub(95, id: null)
-                : sub(20);
+                 : sub(79.99);
             c.invalidate(userProfileProvider);
             if (scenario != 'loading') {
               try {
@@ -243,66 +243,52 @@ void main() {
           expect(t.takeException(), isNull);
         });
       }
-      for (final periods in [
-        [XbPlanPeriod.monthly, XbPlanPeriod.yearly],
-        [XbPlanPeriod.monthly],
-        [XbPlanPeriod.onetime],
-      ]) {
-        testWidgets('$b $platform direct renewal $periods', (t) async {
-          brand(b);
-          addTearDown(XboardConfig.resetForTest);
-          t.view.devicePixelRatio = 1;
-          t.view.physicalSize = const Size(1000, 1100);
-          addTearDown(t.view.reset);
-          final plan = PlanItem(
-            id: 7,
-            name: '测试套餐',
-            transferEnableGb: 100,
-            prices: [
-              for (final p in periods) PricePlan(period: p, amountYuan: 100),
-            ],
-          );
-          final service = _Service();
-          when(
-            () => service.getPlans(),
-          ).thenAnswer((_) async => XbSuccess([plan]));
-          await t.pumpWidget(
-            ProviderScope(
-              overrides: [
-                authStateProvider.overrideWith(_Auth.new),
-                userProfileProvider.overrideWith((ref) async => sub(95)),
-                xboardServiceProvider.overrideWithValue(service),
-              ],
-              child: MaterialApp(
-                theme: ThemeData(platform: platform),
-                home: const Scaffold(
-                  body: XbBrandTheme(
-                    brandColor: Color(0xffd92e1a),
-                    child: XbExpiryCard(),
+      testWidgets('$b $platform expiry entry issues one shop intent per tap', (
+        t,
+      ) async {
+        brand(b);
+        addTearDown(XboardConfig.resetForTest);
+        t.view.devicePixelRatio = 1;
+        t.view.physicalSize = const Size(1000, 1100);
+        addTearDown(t.view.reset);
+        final service = _Service();
+        final intents = <XbShopIntent>[];
+        final c = ProviderContainer(
+          overrides: [
+            authStateProvider.overrideWith(_Auth.new),
+            userProfileProvider.overrideWith((ref) async => sub(95)),
+            xboardServiceProvider.overrideWithValue(service),
+          ],
+        );
+        addTearDown(c.dispose);
+        c.read(bootstrapReadyProvider.notifier).set(true);
+        await t.pumpWidget(
+          UncontrolledProviderScope(
+            container: c,
+            child: MaterialApp(
+              theme: ThemeData(platform: platform),
+              home: Scaffold(
+                body: XbBrandTheme(
+                  brandColor: const Color(0xffd92e1a),
+                  child: XbShopNavigation(
+                    onOpen: intents.add,
+                    child: const XbExpiryCard(),
                   ),
                 ),
               ),
             ),
-          );
-          await t.pumpAndSettle();
-          await t.tap(find.text('去续费'));
-          await t.pumpAndSettle();
-          expect(find.byType(PlanRenewLoader), findsOneWidget);
-          expect(
-            t.widget<PlanDetailPage>(find.byType(PlanDetailPage)).renew,
-            isTrue,
-          );
-          final options = t
-              .widgetList<XbSelectableOption>(find.byType(XbSelectableOption))
-              .toList();
-          expect(options.where((o) => o.selected).length, 1);
-          expect(
-            options.last.selected,
-            isTrue,
-          ); // monthly+yearly sorted, or sole purchasable period
-          expect(t.takeException(), isNull);
-        });
-      }
+          ),
+        );
+        await t.pumpAndSettle();
+        await t.tap(find.text('去续费'));
+        await t.pumpAndSettle();
+        await t.tap(find.text('去续费'));
+        expect(intents.map((intent) => intent.planId), [7, 7]);
+        expect(identical(intents.first, intents.last), isFalse);
+        expect(intents.every((intent) => intent.authenticated), isTrue);
+        verifyNever(service.getPlans);
+        expect(t.takeException(), isNull);
+      });
     }
   }
 }

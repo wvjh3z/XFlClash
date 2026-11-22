@@ -1,0 +1,496 @@
+import 'dart:async';
+
+import 'package:fl_clash/xboard/models/confirmed_order.dart';
+import 'package:fl_clash/xboard/models/xb_domain_error.dart';
+import 'package:fl_clash/xboard/models/xb_domain_types.dart';
+import 'package:fl_clash/xboard/models/xb_result.dart';
+import 'package:fl_clash/xboard/sdk/xboard_service_impl.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter_xboard_sdk/flutter_xboard_sdk.dart' as sdk;
+import 'package:flutter_xboard_sdk/src/core/http/http_service.dart';
+import 'package:mocktail/mocktail.dart';
+
+import '../../_fixtures/fake_xboard_sdk.dart';
+
+const _quote = ConfirmedOrderQuote(
+  planId: 7,
+  planName: 'current plan',
+  period: XbPlanPeriod.monthly,
+  catalogCents: 1000, estimatedCents: 1000,
+);
+const _fetch = '/api/v1/user/order/fetch';
+String _detail(String no) => '/api/v1/user/order/detail?trade_no=$no';
+
+Map<String, dynamic> _success(Object? data) => {'success': true, 'data': data};
+
+Map<String, dynamic> _wireOrder({
+  Object? no = 'OLD',
+  Object? status = 0,
+  Object? plan = 7,
+  Object? period = 'month_price',
+  Object? amount = 1000,
+  Object? balance,
+}) => {
+  'trade_no': no,
+  'status': status,
+  'plan_id': plan,
+  'period': period,
+  'total_amount': amount,
+  'balance_amount': balance,
+  'plan': {'name': 'previous plan'},
+};
+
+class _Http extends Mock implements HttpService {
+  static final _scope = Object();
+
+  static bool get inActiveScope =>
+      (Zone.current[_scope] as bool Function()?)?.call() ?? false;
+
+  @override
+  Future<T> withRequestValidity<T>(
+    bool Function() current,
+    Future<T> Function() body,
+  ) => runZoned(body, zoneValues: {_scope: current});
+}
+
+class _Harness {
+  _Harness() {
+    apis = instance.setupFor(XbScenario.loggedIn);
+    when(() => instance.authSession).thenAnswer(
+      (_) => sdk.AuthSessionSnapshot(
+        revision: revision,
+        state: sdk.AuthState.authenticated,
+      ),
+    );
+    when(() => instance.httpService).thenReturn(http);
+    when(() => http.getRequest(any())).thenAnswer((invocation) {
+      expect(_Http.inActiveScope, isTrue);
+      final path = invocation.positionalArguments.single as String;
+      if (path == '/api/v1/user/plan/fetch?id=7') {
+        calls.add('quote-check');
+        return Future.value(_success({'id': 7, 'renew': renewable, 'month_price': monthPrice}));
+      }
+      if (path == '/api/v1/user/plan/fetch') {
+        calls.add('reset-check');
+        return Future.value(_success([{'id': 7, 'renew': false, 'reset_price': resetPrice}]));
+      }
+      if (path == _fetch) {
+        calls.add('fetch');
+        return fetch();
+      }
+      calls.add('detail:${Uri.parse(path).queryParameters['trade_no']}');
+      return detail(path);
+    });
+    when(() => apis.orderApi.cancelOrder('OLD')).thenAnswer((_) {
+      expect(_Http.inActiveScope, isTrue);
+      calls.add('cancel:OLD');
+      return cancel();
+    });
+    when(
+      () => apis.orderApi.createOrder(7, any(), couponCode: any(named: 'couponCode')),
+    ).thenAnswer((_) {
+      expect(_Http.inActiveScope, isTrue);
+      calls.add('create');
+      return create();
+    });
+  }
+
+  final instance = FakeXBoardSDK();
+  late final FakeSubApis apis;
+  late final service = XboardServiceImpl(sdk: instance);
+  final http = _Http();
+  final calls = <String>[];
+  final conflicts = <ConfirmedOrderConflict>[];
+  Object? monthPrice = 1000;
+  Object? resetPrice;
+  bool renewable = true;
+  var revision = 1;
+  bool active = true;
+  Future<Map<String, dynamic>> Function() fetch = () async => _success([]);
+  Future<Map<String, dynamic>> Function(String) detail = (path) async =>
+      throw StateError('Unexpected detail request');
+  Future<bool> Function() cancel = () async =>
+      throw StateError('Unexpected cancel request');
+  Future<String> Function() create = () async =>
+      throw StateError('Unexpected create request');
+  Future<bool> Function() accept = () async => true;
+
+  void existing(Map<String, dynamic> row) {
+    fetch = () async => _success([row]);
+    detail = (_) async => _success(row);
+  }
+
+  Future<XbResult<String?>> submit({
+    ConfirmedOrderQuote quote = _quote,
+    XboardServiceImpl? via,
+  }) => (via ?? service).confirmOrder(
+    quote,
+    isActive: () => active,
+    confirm: (conflict) {
+      calls.add('confirm');
+      conflicts.add(conflict);
+      return accept();
+    },
+  );
+
+  void noWrite() {
+    verifyNever(() => apis.orderApi.cancelOrder(any()));
+    verifyNever(
+      () => apis.orderApi.createOrder(
+        any(),
+        any(),
+        couponCode: any(named: 'couponCode'),
+      ),
+    );
+  }
+}
+
+void _expectReview(XbResult<String?> result) {
+  expect(result.errorOrNull, isA<XbUnconfirmed>());
+  expect(result.dataOrNull, isNull);
+}
+
+void main() {
+  for (final price in [null, 1200, 'bad', 1000.25, 1000]) {
+    test('quoted period revalidated before cancel, including coupon: $price', () async {
+      final h = _Harness()..existing(_wireOrder(plan: 8));
+      h.accept = () async { h.monthPrice = price; return true; };
+      h.cancel = () async { h.existing(_wireOrder(plan: 8,status: 2)); return true; };
+      h.create = () async { h.detail = (_) async => _success(_wireOrder(no: 'NEW')); return 'NEW'; };
+      final result = await h.submit(quote: const ConfirmedOrderQuote(planId: 7,
+        planName: 'current', period: XbPlanPeriod.monthly, catalogCents: 1000, estimatedCents: 800, couponCode: 'SALE'));
+      if (price == 1000) { expect(result.dataOrNull, 'NEW'); }
+      else { expect(result.errorOrNull, isA<XbBusiness>()); h.noWrite(); }
+    });
+  }
+  test('catalog change after confirmed cancellation blocks creation', () async {
+    final h = _Harness()..existing(_wireOrder(plan: 8));
+    h.cancel = () async {
+      h.monthPrice = 1100;
+      h.existing(_wireOrder(plan: 8, status: 2));
+      return true;
+    };
+    final result = await h.submit();
+    expect(result.errorOrNull, isA<XbUnconfirmed>());
+    expect(h.calls.where((c) => c == 'cancel:OLD'), hasLength(1));
+    expect(h.calls, isNot(contains('create')));
+  });
+  for (final price in [null, 0]) {
+    test('reset offer distinguishes absent and zero without using renew flag: $price', () async {
+      final h = _Harness()..existing(_wireOrder(plan: 8))..resetPrice = price;
+      when(h.apis.subscriptionApi.getSubscription).thenAnswer((_) async =>
+          sdk.SubscriptionModel(planId: 7, transferEnable: 100));
+      h.cancel = () async { h.existing(_wireOrder(plan: 8, status: 2)); return true; };
+      h.create = () async { h.detail = (_) async => _success(_wireOrder(no: 'NEW', period: 'reset_price', amount: 0)); return 'NEW'; };
+      final result = await h.submit(quote: ConfirmedOrderQuote(planId: 7, planName: 'reset',
+        period: XbPlanPeriod.resetTraffic, catalogCents: 0, estimatedCents: 0,
+        expectedSubscription: ConfirmedOrderSubscription(planId: 7, totalBytes: 100, expiredAt: null)));
+      if (price == null) { h.noWrite(); expect(result.errorOrNull, isA<XbBusiness>()); }
+      else { expect(result.dataOrNull, 'NEW'); }
+    });
+  }
+  for (final enabled in [true, false]) {
+    test('verify renewal after dialog, before replacing old order ($enabled)', () async {
+      final h = _Harness()..existing(_wireOrder(plan: 8));
+      when(h.apis.subscriptionApi.getSubscription).thenAnswer((_) async =>
+          sdk.SubscriptionModel(planId: 7, transferEnable: 100));
+      h.accept = () async { h.renewable = enabled; return true; };
+      h.cancel = () async { h.existing(_wireOrder(plan: 8, status: 2)); return true; };
+      h.create = () async { h.detail = (_) async => _success(_wireOrder(no: 'NEW')); return 'NEW'; };
+      final result = await h.submit(quote: ConfirmedOrderQuote(planId: 7, planName: 'current',
+        period: XbPlanPeriod.monthly, catalogCents: 1000, estimatedCents: 1000,
+        expectedSubscription: ConfirmedOrderSubscription(planId: 7, totalBytes: 100, expiredAt: null)));
+      expect(h.calls, contains('quote-check'));
+      if(enabled) { expect(result.dataOrNull, 'NEW'); } else { h.noWrite(); expect(result.errorOrNull, isA<XbBusiness>()); }
+    });
+  }
+
+  test('empty complete fetch creates once and uses only the returned number', () async {
+    final h = _Harness()
+      ..create = (() async => 'NEW')
+      ..detail = ((path) async {
+        expect(path, _detail('NEW'));
+        return _success(_wireOrder(no: 'NEW', amount: 878));
+      });
+    expect((await h.submit()).dataOrNull, 'NEW');
+    expect(h.calls, ['fetch', 'quote-check', 'create', 'detail:NEW']);
+    verify(
+      () => h.apis.orderApi.createOrder(7, 'month_price', couponCode: null),
+    ).called(1);
+  });
+
+  test('a matching pending order beyond SDK page 1 is reused, including zero', () async {
+    final h = _Harness();
+    final zero = _wireOrder(amount: 0);
+    h.fetch = () async => _success([
+      for (var i = 0; i < 25; i++) _wireOrder(no: 'history-$i', status: 3),
+      zero,
+    ]);
+    h.detail = (path) async {
+      expect(path, _detail('OLD'));
+      return _success(zero);
+    };
+    expect((await h.submit(quote: const ConfirmedOrderQuote(
+      planId: 7,
+      planName: 'fixture',
+      period: XbPlanPeriod.monthly,
+      catalogCents: 0, estimatedCents: 0,
+    ))).dataOrNull, 'OLD');
+    expect(h.calls, ['fetch', 'detail:OLD']);
+    h.noWrite();
+  });
+
+  test('same product at a different price can only use the exact old order', () async {
+    final h = _Harness()..existing(_wireOrder(amount: 2500));
+    final result = await h.submit();
+    expect(result.dataOrNull, 'OLD');
+    expect(h.conflicts.single.choice, ConfirmedOrderChoice.useExisting);
+    expect(h.conflicts.single.existingPayableCents, 2500);
+    expect(h.conflicts.single.quote.estimatedCents, 1000);
+    expect(h.calls, ['fetch', 'detail:OLD', 'confirm', 'fetch', 'detail:OLD']);
+    h.noWrite();
+  });
+
+  test('same total with a balance deduction is not silently reused', () async {
+    final h = _Harness()..existing(_wireOrder(balance: 400));
+    h.accept = () async => false;
+    expect(await h.submit(), isA<XbSuccess<String?>>());
+    expect(h.conflicts.single.choice, ConfirmedOrderChoice.useExisting);
+    h.noWrite();
+  });
+
+  test('missing list fields can be filled by exact detail only', () async {
+    final h = _Harness()
+      ..existing(_wireOrder(status: null, plan: null, period: null, amount: null))
+      ..detail = ((_) async => _success(_wireOrder()));
+    expect((await h.submit()).dataOrNull, 'OLD');
+    h.noWrite();
+  });
+
+  for (final invalid in <Map<String, dynamic>>[
+    _wireOrder(status: 0.5),
+    _wireOrder(status: 42),
+    _wireOrder(status: '0'),
+    _wireOrder(plan: 7.9),
+    _wireOrder(plan: '7'),
+    _wireOrder(plan: 0),
+    _wireOrder(period: 'invented-period'),
+    _wireOrder(amount: 1000.5),
+    _wireOrder(amount: -1),
+    _wireOrder(amount: '1000'),
+    _wireOrder(no: ''),
+    _wireOrder(no: 'OLD&trade_no=OTHER'),
+  ]) {
+    test('malformed evidence fails closed: $invalid', () async {
+      final h = _Harness()..existing(invalid);
+      _expectReview(await h.submit());
+      expect(h.calls, ['fetch']);
+      h.noWrite();
+    });
+  }
+
+  for (final invalid in <Map<String, dynamic>>[
+    {'success': false, 'data': []},
+    {'success': true, 'data': {}},
+    {'success': true, 'data': [], 'total': 1},
+    {'success': true, 'data': [], 'total': '0'},
+    {'success': true, 'data': [], 'current_page': 1},
+    _success([_wireOrder(), _wireOrder(no: 'OTHER')]),
+    _success([_wireOrder(), _wireOrder()]),
+    _success([_wireOrder(status: 1)]),
+  ]) {
+    test('unsafe or incomplete snapshot fails closed: $invalid', () async {
+      final h = _Harness()
+        ..fetch = (() async => invalid)
+        ..detail = ((path) async => _success(
+          _wireOrder(no: Uri.parse(path).queryParameters['trade_no']),
+        ));
+      _expectReview(await h.submit());
+      expect(h.conflicts, isEmpty);
+      h.noWrite();
+    });
+  }
+
+  test('detail with a different trade number is not an existing order', () async {
+    final h = _Harness()
+      ..existing(_wireOrder())
+      ..detail = ((_) async => _success(_wireOrder(no: 'OTHER')));
+    _expectReview(await h.submit());
+    h.noWrite();
+  });
+
+  test('failed fetch never becomes an empty snapshot', () async {
+    final h = _Harness()
+      ..fetch = (() async => throw sdk.NetworkException('read failed'));
+    _expectReview(await h.submit());
+    h.noWrite();
+  });
+
+  test('returning a previously known number does not confirm a save', () async {
+    final h = _Harness()
+      ..existing(_wireOrder(no: 'HISTORY', status: 3))
+      ..create = (() async => 'HISTORY');
+    _expectReview(await h.submit());
+    expect(h.calls, ['fetch', 'quote-check', 'create', 'fetch']);
+  });
+
+  for (final mode in ['decline', 'paid', 'new-price', 'account', 'page']) {
+    test('$mode during replacement confirmation has no writes', () async {
+      final h = _Harness()..existing(_wireOrder(plan: 5));
+      h.accept = () async {
+        switch (mode) {
+          case 'decline':
+            return false;
+          case 'paid':
+            h.existing(_wireOrder(plan: 5, status: 3));
+          case 'new-price':
+            h.existing(_wireOrder(plan: 5, amount: 2000));
+          case 'account':
+            h.revision++;
+          case 'page':
+            h.active = false;
+        }
+        return true;
+      };
+      final result = await h.submit();
+      expect(result.dataOrNull, isNull);
+      if (mode == 'paid' || mode == 'new-price') _expectReview(result);
+      expect(h.conflicts.single.choice, ConfirmedOrderChoice.replaceExisting);
+      h.noWrite();
+    });
+  }
+
+  test('replace requires confirmed cancellation before exactly one save', () async {
+    final h = _Harness()..existing(_wireOrder(plan: 5));
+    h.cancel = () async {
+      h.existing(_wireOrder(plan: 5, status: 2));
+      return true;
+    };
+    h.create = () async {
+      h.detail = (_) async => _success(_wireOrder(no: 'NEW', amount: 900));
+      return 'NEW';
+    };
+    expect((await h.submit()).dataOrNull, 'NEW');
+    expect(h.calls, [
+      'fetch', 'detail:OLD', 'confirm', 'fetch', 'detail:OLD',
+      'quote-check', 'cancel:OLD', 'detail:OLD', 'fetch', 'quote-check', 'create', 'detail:NEW',
+    ]);
+  });
+
+  for (final afterCancel in [false, true]) {
+    test('subscription changed ${afterCancel ? 'after cancel' : 'in dialog'} blocks save', () async {
+      final h = _Harness()..existing(_wireOrder(plan: 5));
+      var plan = 5;
+      when(h.apis.subscriptionApi.getSubscription).thenAnswer(
+        (_) async => sdk.SubscriptionModel(planId: plan, transferEnable: 100),
+      );
+      h.accept = () async {
+        if (!afterCancel) plan = 6;
+        return true;
+      };
+      h.cancel = () async {
+        plan = 6;
+        h.existing(_wireOrder(plan: 5, status: 2));
+        return true;
+      };
+      final result = await h.submit(quote: ConfirmedOrderQuote(
+        planId: _quote.planId,
+        planName: _quote.planName,
+        period: _quote.period,
+        catalogCents: _quote.catalogCents, estimatedCents: _quote.estimatedCents,
+        expectedSubscription: ConfirmedOrderSubscription(
+          planId: 5,
+          totalBytes: 100,
+          expiredAt: null,
+        ),
+      ));
+      expect(result.dataOrNull, isNull);
+      expect(h.calls.where((call) => call == 'cancel:OLD'), hasLength(afterCancel ? 1 : 0));
+      expect(h.calls, isNot(contains('create')));
+    });
+  }
+
+  for (final mode in ['unknown', 'still-pending', 'paid', 'switch-account']) {
+    test('$mode after cancel never creates a replacement', () async {
+      final h = _Harness()..existing(_wireOrder(period: 'quarter_price'));
+      h.cancel = () async {
+        if (mode == 'switch-account') {
+          h.revision++;
+          return true;
+        }
+        if (mode == 'unknown') {
+          h.existing(_wireOrder(period: 'quarter_price', status: 2));
+          throw sdk.NetworkException('lost cancel response');
+        }
+        if (mode == 'paid') {
+          h.existing(_wireOrder(period: 'quarter_price', status: 1));
+        }
+        return true;
+      };
+      final result = await h.submit();
+      if (mode != 'switch-account') _expectReview(result);
+      expect(result.dataOrNull, isNull);
+      expect(h.calls.where((e) => e == 'cancel:OLD'), hasLength(1));
+      expect(h.calls, isNot(contains('create')));
+    });
+  }
+
+  test('lost save after a true cancellation only reads, even after service replacement', () async {
+    final h = _Harness()..existing(_wireOrder(plan: 5));
+    h.cancel = () async {
+      h.existing(_wireOrder(plan: 5, status: 2));
+      return true;
+    };
+    h.create = () async => throw sdk.NetworkException('lost creation response');
+    _expectReview(await h.submit());
+    final before = h.calls.length;
+    // Absence is not proof the previous save failed.
+    h.fetch = () async => _success([]);
+    _expectReview(await h.submit(via: XboardServiceImpl(sdk: h.instance)));
+    expect(h.calls.skip(before), ['fetch']);
+    expect(h.calls.where((e) => e == 'create'), hasLength(1));
+  });
+
+  for (final recoveredStatus in [0, 2, 3]) {
+    test('known save with delayed detail recovers read-only: $recoveredStatus', () async {
+      final h = _Harness()..create = (() async => 'NEW');
+      h.detail = (_) async => throw sdk.NetworkException('not visible yet');
+      _expectReview(await h.submit());
+      h.detail = (_) async => _success(
+        _wireOrder(no: 'NEW', status: recoveredStatus),
+      );
+      final before = h.calls.length;
+      _expectReview(await h.submit());
+      expect(h.calls.skip(before), ['detail:NEW']);
+      final newReads = h.calls.length;
+      h.existing(_wireOrder(no: 'NEW', status: recoveredStatus));
+      if (recoveredStatus == 0) {
+        expect((await h.submit()).dataOrNull, 'NEW');
+        expect(h.calls.skip(newReads), ['fetch', 'detail:NEW']);
+      } else {
+        h.create = () async => throw sdk.ApiException('unavailable', 400);
+        expect((await h.submit()).errorOrNull, isA<XbBusiness>());
+        expect(h.calls.skip(newReads), ['fetch', 'quote-check', 'create']);
+      }
+    });
+  }
+
+  test('shared order lock blocks another submit or legacy cancel while awaiting confirm', () async {
+    final h = _Harness()..existing(_wireOrder(plan: 5));
+    final asked = Completer<void>();
+    final answer = Completer<bool>();
+    h.accept = () {
+      asked.complete();
+      return answer.future;
+    };
+    final first = h.submit();
+    await asked.future;
+    final replacement = XboardServiceImpl(sdk: h.instance);
+    expect((await h.submit(via: replacement)).errorOrNull, isA<XbBusiness>());
+    expect((await replacement.cancelOrder('OLD')).errorOrNull, isA<XbBusiness>());
+    answer.complete(false);
+    expect((await first).dataOrNull, isNull);
+    expect(h.calls, ['fetch', 'detail:OLD', 'confirm']);
+    h.noWrite();
+  });
+}

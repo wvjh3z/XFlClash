@@ -22,7 +22,7 @@ import '../widgets/xb_components.dart';
 import '../widgets/xb_feedback.dart' show xbBrandColor;
 import '../widgets/xb_theme.dart' show xbPush, XbTokens;
 import '../widgets/xb_ui_kit.dart'
-    show XbBrandScaffold, XbIconBadge, XbPrimaryButton;
+    show XbBrandScaffold, XbIconBadge;
 import 'tutorial_detail_page.dart';
 
 class TutorialListPage extends ConsumerWidget {
@@ -181,13 +181,13 @@ class _TutorialListStatus extends StatelessWidget {
                   children: [
                     XbIconBadge(
                       icon: icon,
-                      size: 80,
+                      size: 72,
                       radius: XbTokens.rLg,
                       background: failed
                           ? XbTokens.bad.withValues(alpha: 0.09)
                           : t.sfc,
                       iconColor: failed ? XbTokens.bad : t.onv,
-                      iconSize: 36,
+                      iconSize: 32,
                     ),
                     const SizedBox(height: XbTokens.s4),
                     Text(
@@ -195,7 +195,7 @@ class _TutorialListStatus extends StatelessWidget {
                       textAlign: TextAlign.center,
                       style: TextStyle(
                         fontSize: 17,
-                        fontWeight: FontWeight.w700,
+                        fontWeight: FontWeight.w600,
                         color: t.on,
                       ),
                     ),
@@ -208,10 +208,11 @@ class _TutorialListStatus extends StatelessWidget {
                     if (actionLabel != null) ...[
                       const SizedBox(height: XbTokens.s5),
                       SizedBox(
-                        width: 160,
-                        child: XbPrimaryButton(
-                          label: actionLabel!,
-                          icon: Icons.refresh,
+                        width: 144,
+                        child: FilledButton.icon(
+                          style: FilledButton.styleFrom(minimumSize: const Size(0, 46), elevation: 0, shadowColor: Colors.transparent, textStyle: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+                          label: Text(actionLabel!),
+                          icon: const Icon(Icons.refresh, size: 19),
                           onPressed: onAction,
                         ),
                       ),

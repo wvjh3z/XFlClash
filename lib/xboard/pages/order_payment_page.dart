@@ -35,6 +35,7 @@ import '../widgets/xb_theme.dart' show xbShowDialog, XbTokens;
 import '../widgets/xb_async_view.dart';
 import '../widgets/xb_ui_kit.dart';
 import '../widgets/xb_emoji_text.dart';
+import '../widgets/xb_payment_channel_icon.dart';
 
 /// 轮询间隔（pending/processing 时）。
 const _kPollInterval = Duration(seconds: 5);
@@ -61,6 +62,9 @@ class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage>
   List<PaymentMethodItem> _methods = const [];
   bool _methodsError = false; // 支付方式加载失败 → 支付方式区显示重试块
   String? _selectedMethodId;
+  final _methodsFocus = FocusNode(skipTraversal: true);
+  final _retryFocus = FocusNode();
+  final _firstMethodFocus = FocusNode();
   Object? _loadError;
   bool _loading = true;
   bool _retrying = false; // 重试中 → 顶部「正在刷新服务」黄条
@@ -73,12 +77,23 @@ class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage>
   bool _checkFailed = false;
   bool _completionTriggered = false;
   bool _qrVisible = false;
+  bool _launchingPayment = false;
+  bool _returnedDuringLaunch = false;
+  bool _redirectNeedsCheck = false;
+  bool _checkingReturn = false;
   bool _foreground = true;
   ProviderSubscription<AuthState>? _authSubscription;
   ProviderSubscription<XboardService>? _serviceSubscription;
   VoidCallback? _dismissFeedback;
 
-  bool get _actionsBusy => submitting || _checking || _loading;
+  bool get _actionsBusy => submitting || _checking || _checkingReturn || _loading;
+  bool get _canMutate =>
+      !_actionsBusy && !_redirectNeedsCheck && !_checkFailed &&
+      _detail?.summary.status == XbOrderStatus.pending;
+  bool get _canPay =>
+      _canMutate &&
+      !_methodsError &&
+      _methods.any((m) => m.id.trim().isNotEmpty && m.id == _selectedMethodId);
 
   /// 依赖变化时更新缓存，dispose 时不再查询已 deactivated 的 context。
   late ProviderContainer _container;
@@ -117,6 +132,9 @@ class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage>
     _authSubscription?.close();
     _serviceSubscription?.close();
     _pollTimer?.cancel();
+    _retryFocus.dispose();
+    _firstMethodFocus.dispose();
+    _methodsFocus.dispose();
     _dismissFeedback?.call();
     // 缺口 1 兜底：用户从支付页 pop 回 Tab 时 invalidate userProfileProvider,
     // 确保三张卡(账号卡/到期卡/流量卡)最终刷新。幂等(多一次 getSubscription 无害)。
@@ -142,7 +160,13 @@ class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage>
       return;
     }
     if (_detail != null && !_isTerminal(_detail!.summary.status)) {
-      if (!submitting || _qrVisible) unawaited(_refreshStatus());
+      if (_launchingPayment) {
+        _returnedDuringLaunch = true;
+      } else if (!submitting && !_checking) {
+        unawaited(_checkOnReturn());
+      } else if (_qrVisible) {
+        unawaited(_refreshStatus());
+      }
       _maybeStartPolling();
     }
   }
@@ -166,6 +190,10 @@ class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage>
       _checkFailed = false;
       _completionTriggered = false;
       _qrVisible = false;
+      _launchingPayment = false;
+      _returnedDuringLaunch = false;
+      _redirectNeedsCheck = false;
+      _checkingReturn = false;
     });
   }
 
@@ -192,7 +220,7 @@ class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage>
             result = await service.getOrder(tradeNo);
             if (result case XbSuccess(
               :final data,
-            ) when data != null && data.summary.tradeNo != tradeNo) {
+            ) when data != null && (data.summary.tradeNo != tradeNo || data.summary.needsVerification)) {
               result = XbResult<OrderDetail?>.failure(
                 const XbUnexpected('getOrder', '订单信息不匹配，请重新检测。'),
               );
@@ -296,6 +324,8 @@ class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage>
   Future<void> _reloadMethods() async {
     if (_actionsBusy) return;
     final owner = _contextVersion;
+    final restoreFocus = _retryFocus.hasPrimaryFocus;
+    if (restoreFocus) _methodsFocus.requestFocus();
     await runSubmit(() async {
       final mRes = await ref.read(xboardServiceProvider).getPaymentMethods();
       if (!mounted || owner != _contextVersion) return;
@@ -310,6 +340,13 @@ class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage>
         }
       });
     });
+    if (restoreFocus && mounted && owner == _contextVersion) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted || owner != _contextVersion || !_methodsFocus.hasPrimaryFocus) return;
+        final target = _methodsError ? _retryFocus : _firstMethodFocus;
+        if (target.context != null && target.canRequestFocus) target.requestFocus();
+      });
+    }
   }
 
   /// 静默刷新（轮询 / 检测支付状态用，不显示全屏 loading）。
@@ -322,17 +359,20 @@ class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage>
         setState(() {
           _detail = _acceptedDetail(data);
           _checkFailed = false;
+          _redirectNeedsCheck = false;
         });
         _observeCompletion();
         _maybeStartPolling();
         return XbResult.success(_detail);
       }
+      setState(() => _checkFailed = true);
       if (read.result case XbFailure()) return read.result;
       return XbResult<OrderDetail?>.failure(
         const XbUnexpected('getOrder', '暂未获取到最新订单状态。'),
       );
     } catch (_) {
       if (!mounted || owner != _contextVersion) return null;
+      setState(() => _checkFailed = true);
       return XbResult<OrderDetail?>.failure(
         const XbUnexpected('getOrder', '暂未获取到最新订单状态。'),
       );
@@ -347,6 +387,19 @@ class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage>
     if (previous != null) await previous;
     if (!mounted || owner != _contextVersion) return null;
     return _refreshStatus();
+  }
+
+  Future<void> _checkOnReturn() async {
+    if (_checkingReturn) return;
+    final owner = _contextVersion;
+    setState(() => _checkingReturn = true);
+    try {
+      await _refreshAfterMutation();
+    } finally {
+      if (mounted && owner == _contextVersion) {
+        setState(() => _checkingReturn = false);
+      }
+    }
   }
 
   Future<void> _checkStatus() async {
@@ -379,7 +432,7 @@ class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage>
         XbToastTone.error,
         Icons.cloud_off_rounded,
       ),
-      XbSuccess(:final data) => switch (data!.summary.status) {
+      XbSuccess(:final data) => switch (data!.summary.status!) {
         XbOrderStatus.pending => (
           '订单仍待支付',
           '若已完成付款，请稍后再试。',
@@ -432,7 +485,7 @@ class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage>
       _pollTimer = Timer.periodic(_kPollInterval, (_) {
         if (!_loading &&
             (!submitting || _qrVisible) &&
-            !_checking &&
+            !_checking && !_checkingReturn &&
             _orderRead == null) {
           unawaited(_refreshStatus());
         }
@@ -442,7 +495,7 @@ class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage>
     }
   }
 
-  bool _isTerminal(XbOrderStatus s) =>
+  bool _isTerminal(XbOrderStatus? s) =>
       s == XbOrderStatus.cancelled ||
       s == XbOrderStatus.completed ||
       s == XbOrderStatus.discounted;
@@ -475,7 +528,8 @@ class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage>
     final s = detail.summary;
     final isPending = s.status == XbOrderStatus.pending;
     final canCheck = !_isTerminal(s.status);
-    final statusCard = _StatusCard(status: s.status);
+    final netCents = (s.totalAmountYuan! * 100).round();
+    final statusCard = _StatusCard(status: s.status!);
     final productCard = _SectionCard(
       title: '产品信息',
       children: [
@@ -488,13 +542,9 @@ class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage>
       children: [
         _copyableRow('订单号', s.tradeNo),
         _row('创建时间', _fmtDateTime(s.createdAt)),
-        if (detail.balanceAmountYuan != null)
-          _row('余额抵扣', xbYuan(detail.balanceAmountYuan!)),
-        if (detail.discountAmountYuan != null)
-          _row('优惠券', xbYuan(detail.discountAmountYuan!)),
-        if (detail.handlingAmountYuan != null)
-          _row('手续费', xbYuan(detail.handlingAmountYuan!)),
-        _totalRow('含手续费总额', s.totalAmountYuan),
+        if (wide && (detail.discountAmountYuan ?? 0) > 0)
+          _row('优惠券', xbYuanMinus(detail.discountAmountYuan!)),
+        ..._amountRows(detail, netCents),
       ],
     );
 
@@ -526,7 +576,7 @@ class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage>
                   if (isPending) ...[
                     _SectionCard(
                       title: '支付方式',
-                      children: [_paymentMethods(context)],
+                      children: [_paymentMethods(context, netCents: netCents)],
                     ),
                     const SizedBox(height: 20),
                   ],
@@ -550,14 +600,66 @@ class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage>
         orderCard,
         if (isPending) ...[
           const SizedBox(height: 16),
-          _SectionCard(title: '支付方式', children: [_paymentMethods(context)]),
+          _SectionCard(
+            title: '支付方式',
+            children: [_paymentMethods(context, netCents: netCents)],
+          ),
         ],
         if (canCheck) ...[const SizedBox(height: 20), _actions(context)],
       ],
     );
   }
 
-  Widget _paymentMethods(BuildContext context) {
+  List<Widget> _amountRows(OrderDetail detail, int netCents) {
+    // SDK 总额已扣余额和优惠，但不含渠道费。只加回余额来展示扣余额前的订单金额。
+    final balanceCents = ((detail.balanceAmountYuan ?? 0) * 100).round();
+    final balance = balanceCents > 0 ? balanceCents : 0;
+    final selected = _methods.where((m) => m.id == _selectedMethodId).firstOrNull;
+    // 待付订单以当前渠道配置为准，不复用此前支付尝试留下的手续费。
+    final feeCents = detail.summary.status == XbOrderStatus.pending
+        ? _channelFeeCents(netCents, selected)
+        : ((detail.handlingAmountYuan ?? 0) * 100).round();
+    final fee = feeCents;
+    return [
+      _row('订单金额', xbYuan((netCents + balance) / 100)),
+      if (balance > 0) _row('余额抵扣', xbYuanMinus(balance / 100)),
+      if (fee != 0) _row('支付手续费', fee < 0 ? xbYuanMinus(fee / 100) : xbYuan(fee / 100)),
+      _totalRow('应付金额', (netCents + fee) / 100),
+    ];
+  }
+
+  int _channelFeeCents(int netCents, PaymentMethodItem? method) {
+    // Xboard checkout 对零元订单不计费，否则比例费与固定费合计后舍入到分。
+    if (netCents <= 0 || method == null) return 0;
+    final fixedYuan = method.feeFixedYuan ?? 0;
+    final percent = method.feePercent ?? 0;
+    if (!fixedYuan.isFinite || !percent.isFinite) return 0;
+    final fixedCents = (fixedYuan * 100).round();
+    return (netCents * (percent / 100) + fixedCents).round();
+  }
+
+  String _channelFeeText(int netCents, PaymentMethodItem method) {
+    if (netCents <= 0 || ((method.feePercent ?? 0) == 0 && (method.feeFixedYuan ?? 0) == 0)) return '免手续费';
+
+    final percent = method.feePercent ?? 0;
+    final fixedYuan = method.feeFixedYuan ?? 0;
+    final rate = percent.toString().replaceFirst(RegExp(r'\.0$'), '');
+    final configuration = [
+      if (percent != 0) '$rate%',
+      if (fixedYuan > 0) xbYuan(fixedYuan),
+    ].join(' + ');
+    final fixedDiscount = fixedYuan < 0 ? '${configuration.isEmpty ? '-' : ' - '}${xbYuan(-fixedYuan)}' : '';
+    return '手续费 $configuration$fixedDiscount';
+  }
+
+  Widget _paymentMethods(BuildContext context, {required int netCents}) {
+    return Focus(
+      focusNode: _methodsFocus,
+      child: _methodChoices(context, netCents: netCents),
+    );
+  }
+
+  Widget _methodChoices(BuildContext context, {required int netCents}) {
     final scheme = Theme.of(context).colorScheme;
     // 加载失败 → 小重试块（替代「暂无支付方式」死胡同，原型 17b）。仅重拉支付方式，不动订单。
     if (_methodsError) {
@@ -571,6 +673,7 @@ class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage>
             ),
             const SizedBox(height: 8),
             OutlinedButton.icon(
+              focusNode: _retryFocus,
               onPressed: _actionsBusy ? null : _reloadMethods,
               icon: const Icon(Icons.refresh_rounded, size: 16),
               label: const Text('重新加载'),
@@ -598,14 +701,11 @@ class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage>
     return Column(
       children: _methods.map((m) {
         final selected = m.id == _selectedMethodId;
-        final feeText = (m.feePercent != null && m.feePercent! > 0)
-            ? '手续费: ${m.feePercent!.toStringAsFixed(2)}%'
-            : (m.feeFixedYuan != null && m.feeFixedYuan! > 0)
-            ? '手续费: ${xbYuan(m.feeFixedYuan!)}'
-            : null;
+        final feeText = _channelFeeText(netCents, m);
         return Padding(
           padding: const EdgeInsets.only(bottom: 8),
           child: InkWell(
+            focusNode: identical(m, _methods.first) ? _firstMethodFocus : null,
             onTap: _actionsBusy
                 ? null
                 : () => setState(() => _selectedMethodId = m.id),
@@ -624,6 +724,8 @@ class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage>
               ),
               child: Row(
                 children: [
+                  XbPaymentChannelIcon(url: m.icon),
+                  const SizedBox(width: 10),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -634,7 +736,7 @@ class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage>
                             fontWeight: FontWeight.w600,
                           ),
                         ),
-                        if (feeText != null) ...[
+                        ...[
                           const SizedBox(height: 2),
                           Text(
                             feeText,
@@ -668,7 +770,7 @@ class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage>
       children: [
         if (pending) ...[
           FilledButton.icon(
-            onPressed: _actionsBusy ? null : _pay,
+            onPressed: _canPay ? _pay : null,
             icon: submitting
                 ? const SizedBox(
                     width: 18,
@@ -687,7 +789,7 @@ class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage>
           ),
           const SizedBox(height: 10),
           OutlinedButton.icon(
-            onPressed: _actionsBusy ? null : _cancel,
+            onPressed: _canMutate ? _cancel : null,
             icon: const Icon(Icons.close_rounded, size: 18),
             style: OutlinedButton.styleFrom(
               minimumSize: const Size.fromHeight(XbTokens.hButton),
@@ -715,7 +817,8 @@ class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage>
         ),
         const SizedBox(height: 4),
         Text(
-          pending ? '付款后返回此页，可检测订单状态。' : '订单状态将自动更新，无需重复支付。',
+          _checkFailed ? '订单状态尚未确认，请重新检测。'
+              : pending ? '付款后返回此页，可检测订单状态。' : '订单状态将自动更新，无需重复支付。',
           textAlign: TextAlign.center,
           style: Theme.of(
             context,
@@ -726,11 +829,11 @@ class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage>
   }
 
   Future<void> _pay() async {
-    if (_actionsBusy || _detail?.summary.status != XbOrderStatus.pending) {
+    if (!_canPay) {
       return;
     }
     final owner = _contextVersion;
-    final method = _selectedMethodId ?? '';
+    final method = _selectedMethodId!;
     await runSubmit(() async {
       final result = await ref
           .read(xboardServiceProvider)
@@ -750,20 +853,40 @@ class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage>
     });
   }
 
+  Future<void> _openExternalPayment(String url) async {
+    final owner = _contextVersion;
+    bool current() => mounted && owner == _contextVersion;
+    _launchingPayment = true;
+    _returnedDuringLaunch = false;
+    var opened = false;
+    try {
+      final uri = Uri.tryParse(url);
+      if (uri != null && uri.hasScheme && await canLaunchUrl(uri) && current()) {
+        opened = await launchUrl(uri, mode: LaunchMode.externalApplication);
+      }
+    } on Exception {
+      // Being able to resolve a URL does not guarantee the OS will open it.
+    } finally {
+      if (current()) _launchingPayment = false;
+    }
+    if (!current()) return;
+    final returned = _returnedDuringLaunch;
+    _returnedDuringLaunch = false;
+    if (opened) {
+      ++_readVersion; // A status read from before handoff cannot unlock payment.
+      setState(() => _redirectNeedsCheck = true);
+      if (!returned) xbToastSafe('已打开支付页面，完成后返回点「检测支付状态」');
+    } else {
+      xbToastSafe('无法打开支付页面');
+    }
+    if (returned && _foreground) await _checkOnReturn();
+  }
+
   Future<void> _handleOutcome(CheckoutOutcomeUi outcome) async {
     final owner = _contextVersion;
     switch (outcome) {
       case CheckoutRedirect(:final url):
-        final uri = Uri.tryParse(url);
-        if (uri != null && await canLaunchUrl(uri)) {
-          if (!mounted || owner != _contextVersion) return;
-          await launchUrl(uri, mode: LaunchMode.externalApplication);
-          if (mounted && owner == _contextVersion) {
-            xbToastSafe('已打开支付页面，完成后返回点「检测支付状态」');
-          }
-        } else {
-          xbToastSafe('无法打开支付页面');
-        }
+        await _openExternalPayment(url);
       case CheckoutQrCode(:final qrCodeUrl):
         if (mounted) await _showQrDialog(qrCodeUrl);
       case CheckoutPaid():
@@ -817,7 +940,7 @@ class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage>
   }
 
   Future<void> _cancel() async {
-    if (_actionsBusy || _detail?.summary.status != XbOrderStatus.pending) {
+    if (!_canMutate) {
       return;
     }
     final owner = _contextVersion;
@@ -832,8 +955,7 @@ class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage>
     if (!confirm ||
         !mounted ||
         owner != _contextVersion ||
-        _actionsBusy ||
-        _detail?.summary.status != XbOrderStatus.pending) {
+        !_canMutate) {
       return;
     }
     await runSubmit(() async {

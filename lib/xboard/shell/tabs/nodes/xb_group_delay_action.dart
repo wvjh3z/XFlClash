@@ -3,10 +3,12 @@ import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:material_ui/material_ui.dart';
 
+import '../../../../ui/icons/icons.dart' show AppGlyphs;
 import '../../../widgets/xb_components.dart' show XbSpinner;
 import '../../../widgets/xb_feedback.dart' show xbToast;
 import '../../../widgets/xb_theme.dart' show XbTokens;
 import '../../adapters/xb_nodes_adapter.dart';
+import 'xb_node_capsule_action.dart';
 
 // Shared across groups and tab lifetimes. Use monotonic elapsed time, not wall time.
 final _cooldown = ValueNotifier<Stopwatch?>(null);
@@ -107,11 +109,14 @@ class _XbGroupDelayActionState extends ConsumerState<XbGroupDelayAction> {
     final progress = _running[widget.group.name];
     final testing = progress != null;
     final cooling = !testing && _seconds > 0;
-    final label = testing
-        ? (widget.compact ? '测速中' : '测速中 ${progress.done}/${progress.total}')
-        : cooling ? '测延迟 ${_seconds}s' : '测延迟';
-
+    const idle = '测延迟';
+    const busy = '测速中';
     if (!widget.compact) {
+      final label = testing
+          ? '$busy ${progress.done}/${progress.total}'
+          : cooling
+          ? '$idle ${_seconds}s'
+          : idle;
       final color = cooling
           ? scheme.onSurfaceVariant.withValues(alpha: 0.5)
           : scheme.primary;
@@ -131,75 +136,22 @@ class _XbGroupDelayActionState extends ConsumerState<XbGroupDelayAction> {
       );
     }
 
-    final t = XbTokens.of(context);
-    final color = cooling ? t.onv : scheme.primary;
-    return Tooltip(
-      message: '${widget.group.name} · $label',
-      child: Semantics(
-        label: '${widget.group.name} · $label',
-        button: true,
-        enabled: widget.group.nodes.isNotEmpty,
-        onTap: widget.group.nodes.isEmpty ? null : _test,
-        excludeSemantics: true,
-        child: SizedBox(
-          width: 46,
-          height: 44,
-          child: Material(
-            key: const ValueKey('node-delay-press-surface'),
-            type: MaterialType.transparency,
-            borderRadius: BorderRadius.circular(18),
-            clipBehavior: Clip.antiAlias,
-            child: InkResponse(
-            containedInkWell: true,
-            highlightShape: BoxShape.rectangle,
-            borderRadius: BorderRadius.circular(18),
-            onTap: widget.group.nodes.isEmpty ? null : _test,
-            customBorder: const CircleBorder(),
-            child: Center(
-              child: Container(
-                width: 36,
-                height: 36,
-                decoration: const BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: Colors.transparent,
-                ),
-                child: Stack(
-                  alignment: Alignment.center,
-                  children: [
-                    if (testing)
-                      SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: color,
-                          backgroundColor: t.sfc,
-                        ),
-                      ),
-                    if (cooling)
-                      Padding(
-                        padding: const EdgeInsets.all(5),
-                        child: FittedBox(
-                          fit: BoxFit.scaleDown,
-                          child: Text(
-                            '${_seconds}s',
-                            style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                              color: color,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ),
-                      )
-                    else if (!testing)
-                      Icon(Icons.bolt, size: 22, color: color),
-                  ],
-                ),
-              ),
-            ),
-            ),
-          ),
-        ),
-      ),
+    final label = testing
+        ? busy
+        : cooling
+        ? '冷却'
+        : idle;
+    final description = cooling ? '测速冷却 $_seconds 秒' : label;
+    return XbNodeCapsuleAction(
+      surfaceKey: const ValueKey('node-delay-press-surface'),
+      glyph: AppGlyphs.bolt,
+      iconSize: 15,
+      label: label,
+      description: '${widget.group.name} · $description',
+      onTap: widget.group.nodes.isEmpty ? null : _test,
+      busy: testing,
+      cooling: cooling,
+      countdownSeconds: cooling ? _seconds : null,
     );
   }
 }

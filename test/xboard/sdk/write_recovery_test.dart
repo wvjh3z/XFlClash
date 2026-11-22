@@ -10,15 +10,21 @@ import 'package:fl_clash/xboard/models/xb_domain_types.dart';
 import 'package:fl_clash/xboard/models/checkout_outcome_ui.dart';
 import 'package:fl_clash/xboard/util/error_text.dart';
 import '../../_fixtures/fake_xboard_sdk.dart';
+import 'order_http_fixture.dart';
 
 void main() {
   late FakeXBoardSDK instance;
   late FakeSubApis apis;
   late XboardServiceImpl service;
+  late OrderFixtureHttp http;
   setUp(() {
     SharedPreferences.setMockInitialValues({});
     instance = FakeXBoardSDK();
     apis = instance.setupFor(XbScenario.loggedIn);
+    http = OrderFixtureHttp();
+    when(() => instance.httpService).thenReturn(http);
+    when(() => http.getRequest(orderDetailPath('T')))
+        .thenAnswer((_) async => orderWireDetail());
     service = XboardServiceImpl(sdk: instance);
   });
   for (final status in [0, 1, 2, 3, 4]) {
@@ -32,8 +38,9 @@ void main() {
           when(
             () => apis.orderApi.cancelOrder('T'),
           ).thenThrow(sdk.NetworkException('lost response'));
-          when(() => apis.orderApi.getOrder('T')).thenAnswer(
-            (_) async => sdk.OrderModel(tradeNo: 'T', status: status),
+          var reads = 0;
+          when(() => http.getRequest(orderDetailPath('T'))).thenAnswer(
+            (_) async => orderWireDetail(status: reads++ == 0 ? 0 : status),
           );
           final result = operation == 'checkout'
               ? await service.checkout('T', 'pay')
@@ -55,7 +62,7 @@ void main() {
           } else {
             verify(() => apis.orderApi.cancelOrder('T')).called(1);
           }
-          verify(() => apis.orderApi.getOrder('T')).called(1);
+          verify(() => http.getRequest(orderDetailPath('T'))).called(2);
         },
       );
     }
@@ -96,15 +103,17 @@ void main() {
       (await service.cancelOrder('T') as XbFailure).error,
       isA<XbBusiness>(),
     );
-    verifyNever(() => apis.orderApi.getOrder(any()));
+    verify(() => http.getRequest(orderDetailPath('T'))).called(1);
   });
   test('checkout and cancellation cannot overlap while reconciling', () async {
-    final detail = Completer<sdk.OrderModel?>();
+    final detail = Completer<Map<String, dynamic>>();
     final began = Completer<void>();
     when(
       () => apis.orderApi.checkoutOrder('T', 'pay'),
     ).thenThrow(sdk.NetworkException('lost'));
-    when(() => apis.orderApi.getOrder('T')).thenAnswer((_) {
+    var reads = 0;
+    when(() => http.getRequest(orderDetailPath('T'))).thenAnswer((_) {
+      if (reads++ == 0) return Future.value(orderWireDetail());
       began.complete();
       return detail.future;
     });
@@ -115,18 +124,20 @@ void main() {
       isA<XbBusiness>(),
     );
     verifyNever(() => apis.orderApi.cancelOrder(any()));
-    detail.complete(const sdk.OrderModel(tradeNo: 'T', status: 3));
+    detail.complete(orderWireDetail(status: 3));
     expect(await first, isA<XbSuccess>());
   });
   test(
     'account switch during reconciliation cannot report old success',
     () async {
-      final detail = Completer<sdk.OrderModel?>();
+      final detail = Completer<Map<String, dynamic>>();
       final began = Completer<void>();
       when(
         () => apis.orderApi.cancelOrder('T'),
       ).thenThrow(sdk.NetworkException('lost'));
-      when(() => apis.orderApi.getOrder('T')).thenAnswer((_) {
+      var reads = 0;
+      when(() => http.getRequest(orderDetailPath('T'))).thenAnswer((_) {
+        if (reads++ == 0) return Future.value(orderWireDetail());
         began.complete();
         return detail.future;
       });
@@ -138,7 +149,7 @@ void main() {
           state: sdk.AuthState.authenticated,
         ),
       );
-      detail.complete(const sdk.OrderModel(tradeNo: 'T', status: 2));
+      detail.complete(orderWireDetail(status: 2));
       expect(
         (await pending as XbFailure).error,
         isA<XbNetwork>().having(
@@ -149,18 +160,30 @@ void main() {
       );
     },
   );
-  test('wrong order response never confirms payment', () async {
-    when(
-      () => apis.orderApi.checkoutOrder('T', 'pay'),
-    ).thenThrow(sdk.NetworkException('lost'));
-    when(() => apis.orderApi.getOrder('T')).thenAnswer(
-      (_) async => const sdk.OrderModel(tradeNo: 'OTHER', status: 3),
-    );
-    expect(
-      (await service.checkout('T', 'pay') as XbFailure).error,
-      isA<XbUnconfirmed>(),
-    );
-  });
+  for (final invalid in [
+    orderWireDetail(tradeNo: 'OTHER', status: 3),
+    orderWireDetail(status: 3.5),
+    orderWireDetail(status: 2.5),
+    orderWireDetail(status: 3, amount: null),
+  ]) {
+    test('malformed recovery evidence never confirms a lost write: $invalid', () async {
+      when(
+        () => apis.orderApi.checkoutOrder('T', 'pay'),
+      ).thenThrow(sdk.NetworkException('lost'));
+      when(
+        () => apis.orderApi.cancelOrder('T'),
+      ).thenThrow(sdk.NetworkException('lost'));
+      var reads = 0;
+      when(() => http.getRequest(orderDetailPath('T'))).thenAnswer(
+        (_) async => reads++ % 2 == 0 ? orderWireDetail() : invalid,
+      );
+      expect((await service.checkout('T', 'pay')).errorOrNull, isA<XbUnconfirmed>());
+      expect((await service.cancelOrder('T')).errorOrNull, isA<XbUnconfirmed>());
+      verify(() => apis.orderApi.checkoutOrder('T', 'pay')).called(1);
+      verify(() => apis.orderApi.cancelOrder('T')).called(1);
+      verify(() => http.getRequest(orderDetailPath('T'))).called(4);
+    });
+  }
   test(
     'unknown invite creation is queried on later calls, never saved twice',
     () async {
@@ -206,7 +229,7 @@ void main() {
       ).thenThrow(sdk.ApiException('rejected', status));
       final result = await service.cancelOrder('T');
       expect((result as XbFailure).error, isNot(isA<XbUnconfirmed>()));
-      verifyNever(() => apis.orderApi.getOrder(any()));
+      verify(() => http.getRequest(orderDetailPath('T'))).called(1);
     });
   }
   for (final transfer in [false, true]) {

@@ -11,12 +11,18 @@ import 'package:fl_clash/xboard/pages/plan_detail_page.dart';
 import 'package:fl_clash/xboard/pages/plan_list_page.dart';
 import 'package:fl_clash/xboard/providers/pending_order_provider.dart';
 import 'package:fl_clash/xboard/providers/xboard_providers.dart';
+import 'package:fl_clash/xboard/providers/auth_state_provider.dart';
 import 'package:fl_clash/xboard/sdk/xboard_service.dart';
 import 'package:fl_clash/xboard/widgets/xb_async_view.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
+
+class _SignedIn extends AuthStateNotifier {
+  @override
+  AuthState build() => AuthState.authenticated;
+}
 
 class _Service extends Mock implements XboardService {}
 
@@ -75,6 +81,7 @@ class _Harness {
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
+          authStateProvider.overrideWith(_SignedIn.new),
           xboardServiceProvider.overrideWithValue(service),
           pendingOrderProvider.overrideWith((ref) async => null),
         ],

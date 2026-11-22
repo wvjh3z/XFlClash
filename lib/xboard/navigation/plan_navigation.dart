@@ -2,24 +2,32 @@ import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/auth_state_provider.dart';
 import '../providers/user_profile_provider.dart';
-import '../pages/plan_detail_page.dart';
-import '../pages/plan_list_page.dart';
+import '../providers/xboard_providers.dart' show bootstrapReadyProvider;
 import '../pages/reset_traffic_page.dart';
-import '../widgets/xb_feedback.dart' show xbBrandColor;
-import '../widgets/xb_theme.dart' show xbPush;
+import '../shell/tabs/shop/xb_shop_navigation.dart';
 
-/// Read authentication and the account at click time, not the last painted frame.
+/// App entry policy, not a purchase restriction imposed by the panel.
+const trafficResetEntryPercent = 80;
+
+bool meetsTrafficResetThreshold(int usedBytes, int totalBytes) =>
+    totalBytes > 0 &&
+    usedBytes >= 0 &&
+    usedBytes * 100 >= totalBytes * trafficResetEntryPercent;
+
+/// Browse the shop without opening a purchase confirmation or a checkout.
 void openCurrentPlanRenew(BuildContext context, WidgetRef ref) {
-  if (ref.read(authStateProvider) != AuthState.authenticated) return;
-  final profile = ref.read(userProfileProvider);
-  if (profile.isLoading || profile.hasError) return;
-  final sub = profile.asData?.value;
-  if (sub == null) return;
-  final id = sub.planId;
-  xbPush(
-    context,
-    id == null ? const PlanListPage() : PlanRenewLoader(planId: id),
-    brandColor: xbBrandColor(),
+  final navigation = XbShopNavigation.maybeOf(context);
+  if (navigation == null) return;
+  final authenticated = ref.read(authStateProvider) == AuthState.authenticated;
+  final ready = authenticated && ref.read(bootstrapReadyProvider);
+  final profile = ready ? ref.read(userProfileProvider) : null;
+  navigation.onOpen(
+    XbShopIntent(
+      revision: ref.read(authStateProvider.notifier).sessionRevision,
+      authenticated: authenticated,
+      planId: profile?.asData?.value.planId,
+      waitForProfile: authenticated && (profile == null || profile.isLoading),
+    ),
   );
 }
 
@@ -30,14 +38,14 @@ void openCurrentTrafficReset(BuildContext context, WidgetRef ref) {
   final sub = profile.asData?.value;
   if (sub == null ||
       sub.planId == null ||
-      sub.totalBytes <= 0 ||
-      sub.usedBytes < 0 ||
-      sub.usedBytes * 100 < sub.totalBytes * 90) {
+      !meetsTrafficResetThreshold(sub.usedBytes, sub.totalBytes)) {
     return;
   }
-  xbPush(
+  showTrafficResetDialog(
     context,
-    ResetTrafficPage(planId: sub.planId!, planName: sub.planName),
-    brandColor: xbBrandColor(),
+    ref,
+    sub,
+    isEligible: (profile) =>
+        meetsTrafficResetThreshold(profile.usedBytes, profile.totalBytes),
   );
 }

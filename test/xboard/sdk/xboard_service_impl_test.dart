@@ -22,6 +22,7 @@ import 'package:fl_clash/xboard/models/xb_domain_types.dart';
 import 'package:fl_clash/xboard/sdk/xboard_service_impl.dart';
 
 import '../../_fixtures/fake_xboard_sdk.dart';
+import 'order_http_fixture.dart';
 
 void main() {
   late FakeXBoardSDK sdk;
@@ -35,18 +36,70 @@ void main() {
     service = XboardServiceImpl(sdk: sdk);
   });
 
-  test('G11 unknown SDK order values become pending and monthly', () async {
-    final model = OrderModel.fromJson({
-      'trade_no': 'synthetic-unknown', 'plan_id': 1,
-      'period': 'future_unknown_period', 'status': 987,
-      'total_amount': 100,
+  for (final invalid in [
+    orderWireDetail(status: 987),
+    orderWireDetail(status: 0.5),
+    orderWireDetail(status: null),
+    orderWireDetail(tradeNo: 'OTHER'),
+    orderWireDetail(planId: 1.5),
+    orderWireDetail(period: 'future_unknown_period'),
+    orderWireDetail(amount: 0.5),
+    orderWireDetail(amount: null),
+  ]) {
+    test('strict detail never displays or submits malformed order: $invalid', () async {
+      final http = OrderFixtureHttp();
+      when(() => sdk.httpService).thenReturn(http);
+      when(() => http.getRequest(orderDetailPath('T')))
+          .thenAnswer((_) async => invalid);
+      expect(await service.getOrder('T'), isA<XbFailure<OrderDetail?>>());
+      expect((await service.checkout('T', 'method')).errorOrNull, isA<XbUnconfirmed>());
+      expect((await service.cancelOrder('T')).errorOrNull, isA<XbUnconfirmed>());
+      verifyNever(() => apis.orderApi.checkoutOrder(any(), any()));
+      verifyNever(() => apis.orderApi.cancelOrder(any()));
     });
-    when(() => apis.orderApi.getOrder('synthetic-unknown')).thenAnswer((_) async => model);
-    final result = await service.getOrder('synthetic-unknown');
-    expect(result, isA<XbSuccess<OrderDetail?>>());
-    final summary = (result as XbSuccess<OrderDetail?>).data!.summary;
-    expect(summary.status, XbOrderStatus.pending);
-    expect(summary.period.name, 'monthly');
+  }
+
+  test('verified order accepts signed integer channel fees only', () async {
+    final http = OrderFixtureHttp();
+    when(() => sdk.httpService).thenReturn(http);
+    for (final fee in [-100, -0.5, '-100']) {
+      final wire = orderWireDetail(amount: 1000, status: 3);
+      (wire['data'] as Map)['handling_amount'] = fee;
+      when(() => http.getRequest(orderDetailPath('T'))).thenAnswer((_) async => wire);
+      final result = await service.getOrder('T');
+      if (fee == -100) {
+        expect(result.dataOrNull?.handlingAmountYuan, -1);
+      } else {
+        expect(result, isA<XbFailure<OrderDetail?>>());
+      }
+    }
+  });
+
+  test('one detail read preserves known zero and exact status', () async {
+    final http = OrderFixtureHttp();
+    when(() => sdk.httpService).thenReturn(http);
+    when(() => http.getRequest(orderDetailPath('T')))
+        .thenAnswer((_) async => orderWireDetail(amount: 0));
+    final result = await service.getOrder('T');
+    expect(result.dataOrNull?.summary.totalAmountYuan, 0);
+    expect(result.dataOrNull?.summary.status, XbOrderStatus.pending);
+    verify(() => http.getRequest(orderDetailPath('T'))).called(1);
+    verifyNever(() => apis.orderApi.getOrder(any()));
+  });
+
+  test('known terminal details render but cannot pay or cancel', () async {
+    final http = OrderFixtureHttp();
+    when(() => sdk.httpService).thenReturn(http);
+    when(() => http.getRequest(orderDetailPath('T')))
+        .thenAnswer((_) async => orderWireDetail(status: 3));
+    expect(
+      (await service.getOrder('T')).dataOrNull?.summary.status,
+      XbOrderStatus.completed,
+    );
+    expect((await service.checkout('T', 'method')).errorOrNull, isA<XbUnconfirmed>());
+    expect((await service.cancelOrder('T')).errorOrNull, isA<XbUnconfirmed>());
+    verifyNever(() => apis.orderApi.checkoutOrder(any(), any()));
+    verifyNever(() => apis.orderApi.cancelOrder(any()));
   });
 
   group('login（SdkResult 形态归一）', () {

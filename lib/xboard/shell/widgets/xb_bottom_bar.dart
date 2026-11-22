@@ -23,7 +23,7 @@ class XbBottomBarItem {
   final String label;
 }
 
-/// 形态 A 三项自定义底栏（首页 / 节点 / 我的）。
+/// 形态 A 自定义底栏（首页 / 节点 / 商店 / 我的）。
 class XbBottomBar extends StatelessWidget {
   const XbBottomBar({
     super.key,
@@ -38,10 +38,10 @@ class XbBottomBar extends StatelessWidget {
   /// 点击切换回调（传入目标 index）。
   final ValueChanged<int> onTap;
 
-  /// 底栏项（默认三项）。
+  /// 底栏项。
   final List<XbBottomBarItem> items;
 
-  /// 形态 A 默认三项（首页 / 节点 / 我的）。
+  /// 移动端顺序，桌面导航复用。
   static const List<XbBottomBarItem> defaultItems = [
     XbBottomBarItem(
       icon: Icons.home_outlined,
@@ -52,6 +52,11 @@ class XbBottomBar extends StatelessWidget {
       icon: Icons.public_outlined,
       selectedIcon: Icons.public,
       label: '节点',
+    ),
+    XbBottomBarItem(
+      icon: Icons.shopping_cart_outlined,
+      selectedIcon: Icons.shopping_cart,
+      label: '商店',
     ),
     XbBottomBarItem(
       icon: Icons.person_outline,

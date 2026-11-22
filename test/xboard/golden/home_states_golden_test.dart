@@ -23,6 +23,7 @@ import 'package:fl_clash/xboard/models/xb_domain_subscription.dart';
 import 'package:fl_clash/xboard/providers/xboard_providers.dart';
 import 'package:fl_clash/xboard/shell/tabs/home/home_tab.dart';
 import '../shell/_net_detection_stub.dart';
+import 'package:fl_clash/xboard/sdk/xboard_service.dart';
 import 'package:fl_clash/xboard/widgets/xb_ui_kit.dart' show XbBrandTheme;
 
 class _FakeAuth extends AuthStateNotifier {
@@ -52,6 +53,7 @@ Future<void> pumpHome(
   required CoreStatus core,
   required bool isStart,
   XbDomainSubscription? sub,
+  XboardService? service,
 }) async {
   tester.view.physicalSize = const Size(390 * 3, 844 * 3);
   tester.view.devicePixelRatio = 3.0;
@@ -64,6 +66,7 @@ Future<void> pumpHome(
       isStartProvider.overrideWith((ref) => isStart),
       proxiesTabStateProvider.overrideWith((ref) => _tab()),
       netDetectionOverride(),
+      if (service != null) xboardServiceProvider.overrideWithValue(service),
       if (sub != null)
         userProfileProvider.overrideWith((ref) => Future.value(sub)),
       groupsProvider.overrideWithValue(const [
@@ -87,7 +90,7 @@ Future<void> pumpHome(
   await tester.pumpWidget(
     UncontrolledProviderScope(
       container: container,
-      child: MaterialApp(
+      child: RepaintBoundary(key: const ValueKey('home-golden-window'), child: MaterialApp(
         debugShowCheckedModeBanner: false,
         theme: ThemeData(useMaterial3: true, brightness: Brightness.light),
         home: const Scaffold(
@@ -96,7 +99,7 @@ Future<void> pumpHome(
             child: HomeTab(),
           ),
         ),
-      ),
+      )),
     ),
   );
   await tester.pump();

@@ -133,7 +133,7 @@
 <a id="f07"></a>
 ### F07 套餐、订单和支付
 
-**首页提醒与续费入口（2026-11-04）**：品牌自有[流量提醒](../../lib/xboard/shell/tabs/home/xb_traffic_notice.dart)、[共享卡片](../../lib/xboard/widgets/xb_plan_notice_card.dart)及[套餐导航](../../lib/xboard/navigation/plan_navigation.dart)复用F24账号资料；首页90/95/100提醒，“我的”旧提醒移除，首页续费直达；点击重读当前账号；重置目标页另绑定原会话/服务并过滤迟到加载及下单结果，源码预检见[重置页记录](https://github.com/wvjh3z/proxy-suite-docs/blob/main/evidence/reset-traffic-session-20261104/README.md)，回归见[reset_traffic_session_test](../../test/xboard/pages/reset_traffic_session_test.dart)。契约见[首页套餐与流量提醒](https://github.com/wvjh3z/proxy-suite-docs/blob/main/CONTRACTS.md#首页套餐与流量提醒)。新增回归[提醒与周期](../../test/xboard/shell/tabs/xb_traffic_notice_test.dart)、[真实Shell导航](../../test/xboard/shell/home_plan_navigation_test.dart)，无底座接缝；实际预检和待出包边界统一见STATUS。
+**首页提醒与续费入口（2026-11-04 接入，2026-11-22 下调入口阈值）**：品牌自有[流量提醒](../../lib/xboard/shell/tabs/home/xb_traffic_notice.dart)、[共享卡片](../../lib/xboard/widgets/xb_plan_notice_card.dart)及[套餐导航](../../lib/xboard/navigation/plan_navigation.dart)复用F24账号资料；首页80/95/100提醒，显示和点击共用80%的重置流量入口阈值。“我的”旧提醒移除，首页续费直达；点击重读当前账号；重置目标页另绑定原会话/服务并过滤迟到加载及下单结果，源码预检见[重置页记录](https://github.com/wvjh3z/proxy-suite-docs/blob/main/evidence/reset-traffic-session-20261104/README.md)，回归见[reset_traffic_session_test](../../test/xboard/pages/reset_traffic_session_test.dart)。契约见[首页套餐与流量提醒](https://github.com/wvjh3z/proxy-suite-docs/blob/main/CONTRACTS.md#首页套餐与流量提醒)。回归见[提醒与周期](../../test/xboard/shell/tabs/xb_traffic_notice_test.dart)、[真实Shell导航](../../test/xboard/shell/home_plan_navigation_test.dart)，无底座接缝；实际预检和待出包边界统一见STATUS。
 
 **缺口关联**：UB-GAP-06，当前进度和关闭条件见本文缺口索引所指STATUS。
 
@@ -142,7 +142,7 @@
 - **当前品牌实现**：[lib/xboard/sdk/xboard_service_impl.dart](../../lib/xboard/sdk/xboard_service_impl.dart)对接SDK；套餐确认捕获会话和服务，订单刷新处理异步失败；[支付页order_payment_page.dart](../../lib/xboard/pages/order_payment_page.dart)实际使用共享QrCodeView；[XBoardOrderApi](https://github.com/wvjh3z/Xboard_sdk/blob/main/lib/src/panels/xboard/apis/xboard_order_api.dart)与订单adapter解析响应。
 - **依赖／平台／接缝**：直接依赖F03请求恢复、F05会话、F14网络及共享UI；联查F21主题/F22异常分类。无订单专用底座接缝。两品牌业务页面共用，服务端配置/实际订单独立；所有平台的外部支付打开后都需查订单终态。
 - **回归入口与必测分支**：确认期间换号/换服务、旧结果迟到、非法优惠券、支付打开失败、订单写响应不明。[test/xboard/pages/plan_confirmation_lifecycle_test.dart](../../test/xboard/pages/plan_confirmation_lifecycle_test.dart)、[test/xboard/pages/async_reload_error_test.dart](../../test/xboard/pages/async_reload_error_test.dart)、[SDK订单并发](https://github.com/wvjh3z/Xboard_sdk/blob/main/test/adapters/xboard/order_cache_concurrency_test.dart)。
-- **限制／状态**：Docs/CONTRACTS登记retryableCheckout未接入且不能保证同套餐复用；不将该辅助工具当已上线保障，也不在本轮接线。
+- **限制／状态**：旧版 retryableCheckout 未接入且不能保证同套餐复用；后续工作区已移除该辅助写入口，新实现与未验范围见当前 Docs/CONTRACTS 与 STATUS，不作为本次升级实机验收证据。
 
 <a id="f08"></a>
 ### F08 连接、断开、暂停和恢复

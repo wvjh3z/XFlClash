@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import 'package:flutter/semantics.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
@@ -54,14 +56,41 @@ void main() {
         })),
       ),
     ));
+    final semantics = tester.ensureSemantics();
+    try {
     final action = find.byType(XbGroupDelayAction).first;
+    Finder visibleLabel(String text) => find.descendant(
+      of: action,
+      matching: find.text(text),
+    );
+    bool advertisesAction(String label) => tester
+        .getSemantics(find.bySemanticsLabel(label))
+        .getSemanticsData()
+        .hasAction(SemanticsAction.tap);
     final originalSize = tester.getSize(action);
-    expect(originalSize, const Size(46, 44));
-    expect(find.text('测延迟'), findsOneWidget); // Desktop remains a text action.
-    await tester.tap(action);
+    expect(originalSize, const Size(76, 44));
+    expect(visibleLabel('测延迟'), findsOneWidget);
+    expect(find.text('测延迟'), findsNWidgets(2)); // Desktop stays text too.
+    expect(advertisesAction('A · 测延迟'), isTrue);
+    await tester.sendKeyEvent(LogicalKeyboardKey.tab);
     await tester.pump();
+    final focusOutline = find.descendant(
+      of: action,
+      matching: find.byWidgetPredicate(
+        (widget) =>
+            widget is DecoratedBox &&
+            widget.position == DecorationPosition.foreground &&
+            (widget.decoration as BoxDecoration).border != null,
+      ),
+    );
+    expect(focusOutline, findsOneWidget);
+    await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+    await tester.pump();
+    expect(adapter.calls, 1);
     adapter.progress['A']!(2, 3);
     await tester.pump();
+    expect(visibleLabel('测速中'), findsOneWidget);
+    expect(advertisesAction('A · 测速中'), isTrue); // Tap reports progress.
     expect(find.text('2/3'), findsNothing);
     expect(tester.widget<CircularProgressIndicator>(find.byType(CircularProgressIndicator)).value, isNull);
     await tester.tap(action);
@@ -75,16 +104,20 @@ void main() {
     adapter.progress['B']!(60, 120);
     await tester.pump();
     expect(find.text('50%'), findsNothing);
-    expect(find.byTooltip('B · 测速中'), findsOneWidget);
+    expect(advertisesAction('B · 测速中'), isTrue);
     expect(find.byType(CircularProgressIndicator), findsOneWidget);
     update(() => selected = a);
     await tester.pump();
-    expect(find.byTooltip('A · 测速中'), findsOneWidget);
+    expect(advertisesAction('A · 测速中'), isTrue);
     expect(tester.getSize(action), originalSize);
 
     adapter.pending['A']!.complete();
     await tester.pump();
     expect(find.text('60s'), findsOneWidget);
+    expect(visibleLabel('冷却'), findsOneWidget);
+    expect(visibleLabel('测延迟'), findsNothing);
+    expect(advertisesAction('A · 测速冷却 60 秒'), isTrue);
+    expect(tester.getSize(action), originalSize);
     expect(find.text('测延迟 60s'), findsOneWidget); // Already-mounted desktop observes cooldown.
     await tester.tap(action);
     await tester.pump();
@@ -103,5 +136,8 @@ void main() {
     await tester.pumpWidget(const SizedBox()); // No live timer/listener after disposal.
     await tester.pump(const Duration(seconds: 2));
     expect(tester.takeException(), isNull);
+    } finally {
+      semantics.dispose();
+    }
   });
 }

@@ -6,13 +6,12 @@ import '../../../navigation/plan_navigation.dart';
 import '../../../widgets/xb_plan_notice_card.dart';
 import '../../../util/format.dart';
 
-/// Use exact byte ratios for thresholds; never round 89.9% into an alert.
+/// Use exact byte ratios for thresholds; never round up into a notice.
 int? trafficNoticeLevel(int used, int total) {
-  if (total <= 0 || used < 0) return null;
+  if (!meetsTrafficResetThreshold(used, total)) return null;
   if (used >= total) return 100;
   if (used * 100 >= total * 95) return 95;
-  if (used * 100 >= total * 90) return 90;
-  return null;
+  return trafficResetEntryPercent;
 }
 
 class XbTrafficNotice extends ConsumerWidget {

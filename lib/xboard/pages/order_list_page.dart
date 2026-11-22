@@ -4,8 +4,8 @@
 library;
 
 import 'package:fl_clash/xboard/widgets/xb_emoji_text.dart';
-import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:material_ui/material_ui.dart';
 
 import '../widgets/xb_async_view.dart';
 import '../widgets/xb_components.dart';
@@ -14,24 +14,46 @@ import '../widgets/xb_theme.dart' show xbPush, XbTokens;
 import '../models/order_summary.dart';
 import '../models/xb_domain_types.dart';
 import '../models/xb_result.dart';
+import '../providers/auth_state_provider.dart';
+import '../providers/pending_order_provider.dart';
 import '../providers/xboard_providers.dart';
+import '../sdk/xboard_service.dart';
 import '../util/format.dart';
 import '../util/period_label.dart';
 import '../widgets/xb_ui_kit.dart';
 import 'order_payment_page.dart';
 
-class OrderListPage extends ConsumerStatefulWidget {
+class OrderListPage extends ConsumerWidget {
   const OrderListPage({super.key});
 
   @override
-  ConsumerState<OrderListPage> createState() => _OrderListPageState();
+  Widget build(BuildContext context, WidgetRef ref) {
+    if (ref.watch(authStateProvider) != AuthState.authenticated) {
+      return const XbBrandScaffold(title: '我的订单', body: Center(child: Text('请先登录后查看订单')));
+    }
+    final service = ref.watch(xboardServiceProvider);
+    final revision = ref.watch(authStateProvider.notifier).sessionRevision;
+    return _OwnedOrderList(key: ValueKey((service, revision)), service: service, revision: revision);
+  }
 }
 
-class _OrderListPageState extends ConsumerState<OrderListPage> {
+class _OwnedOrderList extends ConsumerStatefulWidget {
+  const _OwnedOrderList({super.key, required this.service, required this.revision});
+  final XboardService service;
+  final int revision;
+  @override
+  ConsumerState<_OwnedOrderList> createState() => _OrderListPageState();
+}
+
+class _OrderListPageState extends ConsumerState<_OwnedOrderList> {
+  bool get _current => mounted && ref.read(authStateProvider) == AuthState.authenticated &&
+      ref.read(authStateProvider.notifier).sessionRevision == widget.revision &&
+      identical(ref.read(xboardServiceProvider), widget.service);
   late Future<List<OrderSummary>> _ordersFuture;
 
   /// 重试中：顶部「正在刷新服务」黄条（后台切域名重拉）。
   bool _retrying = false;
+  bool _openingOrder = false;
 
   @override
   void initState() {
@@ -40,18 +62,34 @@ class _OrderListPageState extends ConsumerState<OrderListPage> {
   }
 
   Future<List<OrderSummary>> _loadOrders() async {
-    // 强制实时拉服务端（绕过 SDK _cachedAllOrders 缓存）：否则新建的待支付订单不在缓存里、
-    // 进页面看不到，且缓存命中会让转圈一闪而过（用户报告「没转圈、没显示」的根因）。
-    final result =
-        await ref.read(xboardServiceProvider).getOrders(forceRefresh: true);
-    return switch (result) {
-      XbSuccess(:final data) => data.items,
-      XbFailure(:final error) => throw error, // 抛领域错误，error 分支还原文案
-    };
+    if (!_current) return const [];
+    final service = widget.service;
+    final orders = <OrderSummary>[];
+    // SDK 对同一个全量快照本地分页。仅首批强刷，不能遗漏后一页的待付订单。
+    for (var page = 1; ; page++) {
+      final result = await service.getOrders(
+        page: page,
+        pageSize: 50,
+        forceRefresh: page == 1,
+      );
+      if (!_current) {
+        return const [];
+      }
+      switch (result) {
+        case XbFailure(:final error):
+          throw error;
+        case XbSuccess(:final data):
+          orders.addAll(data.items);
+          if (orders.length >= data.total) return orders;
+          if (data.items.isEmpty || data.page != page) {
+            throw StateError('订单列表未加载完整');
+          }
+      }
+    }
   }
 
   Future<void> _reload() async {
-    if (!mounted) return;
+    if (!_current) return;
     final request = _loadOrders();
     setState(() {
       _retrying = true;
@@ -92,47 +130,16 @@ class _OrderListPageState extends ConsumerState<OrderListPage> {
                 final orders = snap.data ?? const <OrderSummary>[];
                 if (orders.isEmpty) {
                   return ListView(
+                    physics: const AlwaysScrollableScrollPhysics(),
                     children: const [
                       SizedBox(height: 120),
                       Center(child: Text('暂无订单记录')),
                     ],
                   );
                 }
-                return LayoutBuilder(
-                  builder: (context, c) {
-                    // 宽内容区（桌面，原型屏7）→ 双列网格；窄（移动）→ 单列列表。
-                    final twoCol = c.maxWidth >= 700;
-                    if (!twoCol) {
-                      return ListView.separated(
-                        padding: const EdgeInsets.all(16),
-                        itemCount: orders.length,
-                        separatorBuilder: (_, _) => const SizedBox(height: 8),
-                        itemBuilder: (_, i) => _OrderTile(
-                          order: orders[i],
-                          onTap: () => _openOrder(context, orders[i]),
-                        ),
-                      );
-                    }
-                    const gap = 12.0;
-                    final w = (c.maxWidth - 32 - gap) / 2;
-                    return SingleChildScrollView(
-                      padding: const EdgeInsets.all(16),
-                      child: Wrap(
-                        spacing: gap,
-                        runSpacing: gap,
-                        children: [
-                          for (final o in orders)
-                            SizedBox(
-                              width: w,
-                              child: _OrderTile(
-                                order: o,
-                                onTap: () => _openOrder(context, o),
-                              ),
-                            ),
-                        ],
-                      ),
-                    );
-                  },
+                return _OrderGroups(
+                  orders: orders,
+                  onOpen: (order) => _openOrder(context, order),
                 );
               },
             );
@@ -142,109 +149,307 @@ class _OrderListPageState extends ConsumerState<OrderListPage> {
     );
   }
 
-  void _openOrder(BuildContext context, OrderSummary order) {
-    xbPush(
-      context,
-      OrderPaymentPage(tradeNo: order.tradeNo),
-      brandColor: xbBrandColor(),
+  Future<void> _openOrder(BuildContext context, OrderSummary order) async {
+    if (!_current || _openingOrder || order.needsVerification) return;
+    _openingOrder = true;
+    try {
+      await xbPush<void>(
+        context,
+        OrderPaymentPage(tradeNo: order.tradeNo),
+        brandColor: xbBrandColor(),
+      );
+      if (!_current) {
+        return;
+      }
+      ref.invalidate(pendingOrderProvider);
+      await _reload();
+    } finally {
+      _openingOrder = false;
+    }
+  }
+}
+
+class _OrderGroups extends StatelessWidget {
+  const _OrderGroups({required this.orders, required this.onOpen});
+
+  final List<OrderSummary> orders;
+  final ValueChanged<OrderSummary> onOpen;
+
+  VoidCallback? _action(OrderSummary order) =>
+      order.needsVerification ? null : () => onOpen(order);
+
+  @override
+  Widget build(BuildContext context) {
+    final pending = <OrderSummary>[];
+    final history = <OrderSummary>[];
+    final unverified = <OrderSummary>[];
+    for (final order in orders) {
+      (order.needsVerification ? unverified : order.canContinuePayment ? pending : history).add(order);
+    }
+    final t = XbTokens.of(context);
+    const corner = Radius.circular(XbTokens.rLg);
+    const radius = BorderRadius.all(corner);
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final twoCol = constraints.maxWidth >= 700;
+
+        Widget desktopTile(OrderSummary order) => XbCard(
+          padding: EdgeInsets.zero,
+          radius: XbTokens.rLg,
+          onTap: _action(order),
+          child: _OrderSummaryRow(order: order),
+        );
+
+        return CustomScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          slivers: [
+            SliverPadding(
+              padding: const EdgeInsets.fromLTRB(16, 6, 16, 24),
+              sliver: SliverMainAxisGroup(
+                slivers: [
+                  if (pending.isNotEmpty) ...[
+                    const SliverToBoxAdapter(child: _OrderGroupLabel('需要处理')),
+                    SliverList.separated(
+                      itemCount: pending.length,
+                      separatorBuilder: (_, _) => const SizedBox(height: 8),
+                      itemBuilder: (_, index) => _PendingOrderCard(
+                        order: pending[index],
+                        onContinue: _action(pending[index]),
+                      ),
+                    ),
+                  ],
+                  if (unverified.isNotEmpty) ...[
+                    const SliverToBoxAdapter(child: _OrderGroupLabel('待核实订单')),
+                    SliverList.builder(itemCount: unverified.length,
+                      itemBuilder: (_, index) => desktopTile(unverified[index])),
+                  ],
+                  if (history.isNotEmpty) ...[
+                    if (pending.isNotEmpty)
+                      const SliverToBoxAdapter(child: SizedBox(height: 12)),
+                    const SliverToBoxAdapter(child: _OrderGroupLabel('历史订单')),
+                    if (twoCol)
+                      SliverList.separated(
+                        itemCount: (history.length + 1) ~/ 2,
+                        separatorBuilder: (_, _) => const SizedBox(height: 8),
+                        itemBuilder: (_, index) {
+                          final start = index * 2;
+                          return Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Expanded(child: desktopTile(history[start])),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: start + 1 < history.length
+                                    ? desktopTile(history[start + 1])
+                                    : const SizedBox.shrink(),
+                              ),
+                            ],
+                          );
+                        },
+                      )
+                    else
+                      DecoratedSliver(
+                        decoration: BoxDecoration(
+                          color: t.card,
+                          border: Border.all(color: t.line),
+                          borderRadius: radius,
+                        ),
+                        sliver: SliverList.separated(
+                          itemCount: history.length,
+                          separatorBuilder: (_, _) => Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 1),
+                            child: Divider(
+                              height: 1,
+                              thickness: 1,
+                              color: t.hair,
+                            ),
+                          ),
+                          itemBuilder: (_, index) {
+                            final order = history[index];
+                            final row = _OrderSummaryRow(order: order);
+                            final onTap = _action(order);
+                            if (onTap == null) return row;
+                            return Material(
+                              type: MaterialType.transparency,
+                              child: InkWell(
+                                onTap: onTap,
+                                borderRadius: BorderRadius.vertical(
+                                  top: index == 0 ? corner : Radius.zero,
+                                  bottom: index == history.length - 1
+                                      ? corner
+                                      : Radius.zero,
+                                ),
+                                child: row,
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+                  ],
+                ],
+              ),
+            ),
+          ],
+        );
+      },
     );
   }
 }
 
-class _OrderTile extends StatelessWidget {
-  const _OrderTile({required this.order, required this.onTap});
+class _OrderGroupLabel extends StatelessWidget {
+  const _OrderGroupLabel(this.label);
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(3, 5, 3, 8),
+      child: Semantics(
+        header: true,
+        child: Text(
+          label,
+          style: Theme.of(context).textTheme.titleSmall?.copyWith(
+            color: XbTokens.of(context).on,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _PendingOrderCard extends StatelessWidget {
+  const _PendingOrderCard({required this.order, required this.onContinue});
+
   final OrderSummary order;
-  final VoidCallback onTap;
+  final VoidCallback? onContinue;
+
+  @override
+  Widget build(BuildContext context) {
+    return XbCard(
+      padding: EdgeInsets.zero,
+      radius: XbTokens.rLg,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _OrderSummaryRow(order: order),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(13, 0, 13, 12),
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(XbTokens.rMd),
+                gradient: onContinue == null ? null : LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [
+                    Color.lerp(Theme.of(context).colorScheme.primary, Colors.white, 0.16)!,
+                    Theme.of(context).colorScheme.primary,
+                  ],
+                ),
+              ),
+              child: FilledButton(
+                onPressed: onContinue,
+                style: FilledButton.styleFrom(
+                  foregroundColor: Colors.white,
+                  backgroundColor: Colors.transparent,
+                  minimumSize: const Size(0, 44),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(XbTokens.rMd)),
+                ),
+                child: const Text('继续支付'),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _OrderSummaryRow extends StatelessWidget {
+  const _OrderSummaryRow({required this.order});
+
+  final OrderSummary order;
 
   @override
   Widget build(BuildContext context) {
     final t = XbTokens.of(context);
-    final dateStr = xbDate(order.createdAt);
-
-    // 状态 → 图标 + 语义色（原型 .ocard 左侧圆角图标方块）。
-    final (statusColor, statusIcon) = switch (order.status) {
+    final pending = order.canContinuePayment;
+    final period = order.period == XbPlanPeriod.resetTraffic
+        ? XbPlanPeriod.onetime
+        : order.period;
+    final statusColor = switch (order.status) {
+      null => t.onv,
       XbOrderStatus.completed ||
-      XbOrderStatus.discounted =>
-        (XbTokens.ok, Icons.check_circle),
-      XbOrderStatus.cancelled => (XbTokens.bad, Icons.cancel),
+      XbOrderStatus.discounted => XbTokens.ok,
+      XbOrderStatus.cancelled => XbTokens.bad,
       XbOrderStatus.pending ||
-      XbOrderStatus.processing =>
-        (XbTokens.warn, Icons.schedule),
+      XbOrderStatus.processing => XbTokens.warn,
     };
 
-    return Material(
-      color: t.card,
-      borderRadius: BorderRadius.circular(XbTokens.rMd),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(XbTokens.rMd),
-        child: Ink(
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(XbTokens.rMd),
-            border: Border.all(color: t.line),
-            boxShadow: t.shadow1,
-          ),
-          padding: const EdgeInsets.all(14),
-          child: Row(
-            children: [
-              // 左侧状态图标方块（柔色底）。
-              Container(
-                width: 38,
-                height: 38,
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  color: statusColor.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(XbTokens.rSm),
-                ),
-                child: Icon(statusIcon, size: 21, color: statusColor),
-              ),
-              const SizedBox(width: 12),
-              // 中间：套餐名（加粗，过长省略）+ 周期 · 日期。
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    XbEmojiText(
-                      order.planName ?? '套餐订单',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontSize: 14.5,
-                        fontWeight: FontWeight.w600,
-                        color: t.on,
-                      ),
-                    ),
-                    const SizedBox(height: 3),
-                    Text(
-                      '${planPeriodLabel(order.period)} · $dateStr',
-                      style: TextStyle(fontSize: 11.5, color: t.onv),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 10),
-              // 右侧：金额（上）+ 状态 chip（下），右对齐成列。
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    xbYuan(order.totalAmountYuan),
-                    style: TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w700,
-                      color: t.on,
-                      fontFeatures: const [FontFeature.tabularFigures()],
-                    ),
+    return Padding(
+      padding: EdgeInsets.symmetric(horizontal: 14, vertical: pending ? 14 : 12),
+      child: Row(
+        children: [
+          if (pending) ...[
+            XbIconBadge(
+              icon: Icons.schedule,
+              size: 38,
+              radius: XbTokens.rMd,
+              background: statusColor.withValues(alpha: 0.14),
+              iconColor: statusColor,
+              iconSize: 21,
+            ),
+            const SizedBox(width: 12),
+          ],
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                XbEmojiText(
+                  order.planName ?? '套餐订单',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 14.5,
+                    fontWeight: FontWeight.w600,
+                    color: t.on,
                   ),
-                  const SizedBox(height: 6),
-                  XbTag(orderStatusLabel(order.status), color: statusColor),
-                ],
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  '${planPeriodLabel(period)} · ${xbDate(order.createdAt)}',
+                  style: TextStyle(fontSize: 11.5, color: t.onv),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 12),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                order.totalAmountYuan == null ? '金额待核实' : xbYuan(order.totalAmountYuan!),
+                style: TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w700,
+                  color: t.on,
+                  fontFeatures: const [FontFeature.tabularFigures()],
+                ),
               ),
+              const SizedBox(height: 6),
+              if (pending)
+                DecoratedBox(
+                  decoration: BoxDecoration(color: statusColor.withValues(alpha: 0.16), borderRadius: BorderRadius.circular(XbTokens.rSm)),
+                  child: Padding(padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3), child: Text(orderStatusLabel(order.status), style: TextStyle(color: statusColor, fontSize: 11, height: 15 / 11, fontWeight: FontWeight.w600))),
+                )
+              else XbTag(order.needsVerification ? '状态待核实' : orderStatusLabel(order.status), color: order.needsVerification ? t.onv : statusColor),
             ],
           ),
-        ),
+        ],
       ),
     );
   }

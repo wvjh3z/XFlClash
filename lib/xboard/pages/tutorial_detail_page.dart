@@ -55,7 +55,8 @@ class TutorialDetailPage extends ConsumerWidget {
         ref.watch(authStateProvider) == AuthState.authenticated;
     return XbBrandScaffold(
       title: '教程详情',
-      maxContentWidth: 960,
+      // Tutorial content manages its own spacing and should fill the reader.
+      maxContentWidth: double.infinity,
       actions: [
         if (authenticated)
           IconButton(

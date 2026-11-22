@@ -31,6 +31,7 @@ import 'package:fl_clash/xboard/pages/order_payment_page.dart';
 import 'package:fl_clash/xboard/pages/plan_detail_page.dart';
 import 'package:fl_clash/xboard/providers/xboard_providers.dart';
 import 'package:fl_clash/xboard/sdk/xboard_service.dart';
+import 'package:fl_clash/xboard/widgets/xb_plan_details.dart';
 
 class _MockService extends Mock implements XboardService {}
 
@@ -103,10 +104,24 @@ void main() {
 
   // ── R8 套餐详情页 ──
   group('R8 套餐详情页 a11y golden', () {
+    void checkPlanDetails(WidgetTester tester) {
+      final details = find.byType(XbPlanDetails);
+      final submit = find.widgetWithText(FilledButton, '提交订单');
+      expect(find.text(_plan.name, findRichText: true), findsOneWidget);
+      expect(details, findsOneWidget);
+      expect(find.text('订单摘要'), findsNothing);
+      expect(
+        tester.getBottomLeft(details).dy,
+        lessThan(tester.getTopLeft(find.text('选择计费周期')).dy),
+      );
+      expect(tester.getTopLeft(submit).dy, greaterThan(tester.getBottomLeft(details).dy));
+    }
+
     testWidgets('light 1.0 + golden + contrast', (t) async {
       await pumpPage(t, const PlanDetailPage(plan: _plan),
           textScale: 1.0, brightness: Brightness.light);
       expect(t.takeException(), isNull);
+      checkPlanDetails(t);
       await expectXbGolden(t, find.byType(PlanDetailPage),
           'goldens/a11y_plan_light_1.0.png', contrast: true);
     });
@@ -114,6 +129,7 @@ void main() {
       await pumpPage(t, const PlanDetailPage(plan: _plan),
           textScale: 1.0, brightness: Brightness.dark);
       expect(t.takeException(), isNull);
+      checkPlanDetails(t);
       await expectXbGolden(t, find.byType(PlanDetailPage),
           'goldens/a11y_plan_dark_1.0.png', contrast: true);
     });
@@ -121,11 +137,13 @@ void main() {
       await pumpPage(t, const PlanDetailPage(plan: _plan),
           textScale: 1.5, brightness: Brightness.light);
       expect(t.takeException(), isNull);
+      checkPlanDetails(t);
     });
     testWidgets('2.0 无溢出', (t) async {
       await pumpPage(t, const PlanDetailPage(plan: _plan),
           textScale: 2.0, brightness: Brightness.light);
       expect(t.takeException(), isNull);
+      checkPlanDetails(t);
     });
   });
 

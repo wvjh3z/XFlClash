@@ -14,15 +14,20 @@ abstract class OrderSummary with _$OrderSummary {
   const factory OrderSummary({
     required String tradeNo,
     String? planName, // OrderModel.orderPlan.name
-    required XbPlanPeriod period, // 旧版 *_price 命名解析自 OrderModel.period（F338）
-    required double totalAmountYuan, // SDK totalAmountInYuan getter（D38）
-    required XbOrderStatus status, // 客户端自有副本（零 SDK 穿透 Property 2）
+    required XbPlanPeriod? period, // 旧版 *_price 命名解析自 OrderModel.period（F338）
+    required double? totalAmountYuan, // SDK totalAmountInYuan getter（D38）
+    required XbOrderStatus? status, // 客户端自有副本（零 SDK 穿透 Property 2）
     required DateTime createdAt,
   }) = _OrderSummary;
 
   // D11：R11.4 订单首页离线缓存需 json（freezed 默认不生成 fromJson）。
   factory OrderSummary.fromJson(Map<String, dynamic> json) =>
       _$OrderSummaryFromJson(json);
+}
+
+extension OrderListReadiness on OrderSummary {
+  bool get needsVerification => status == null || period == null || totalAmountYuan == null || tradeNo.trim().isEmpty;
+  bool get canContinuePayment => !needsVerification && status == XbOrderStatus.pending;
 }
 
 /// 订单详情（OrderSummary + 支付方式 + 全金额字段；**无 paidAt**，第 12 轮）。

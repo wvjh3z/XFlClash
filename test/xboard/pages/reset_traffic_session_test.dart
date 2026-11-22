@@ -4,20 +4,38 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:fl_clash/xboard/config/xboard_config.dart';
+import 'package:fl_clash/xboard/models/confirmed_order.dart';
 import 'package:fl_clash/xboard/models/plan_item.dart';
 import 'package:fl_clash/xboard/models/order_summary.dart';
+import 'package:fl_clash/xboard/models/xb_domain_subscription.dart';
 import 'package:fl_clash/xboard/models/xb_domain_types.dart';
 import 'package:fl_clash/xboard/models/xb_domain_error.dart';
 import 'package:fl_clash/xboard/models/xb_result.dart';
 import 'package:fl_clash/xboard/providers/auth_state_provider.dart';
-import 'package:fl_clash/xboard/providers/pending_order_provider.dart';
+import 'package:fl_clash/xboard/providers/user_profile_provider.dart';
 import 'package:fl_clash/xboard/providers/xboard_providers.dart';
 import 'package:fl_clash/xboard/sdk/xboard_service.dart';
 import 'package:fl_clash/xboard/pages/reset_traffic_page.dart';
 import 'package:fl_clash/xboard/pages/order_payment_page.dart';
 import 'package:fl_clash/xboard/pages/order_list_page.dart';
 
-class _Service extends Mock implements XboardService {}
+class _Service extends Mock implements XboardService, XboardConfirmedOrderControl {
+  final quotes = <ConfirmedOrderQuote>[];
+  Future<XbResult<String?>>? orderResponse;
+  bool Function()? requestActive;
+
+  @override
+  Future<XbResult<String?>> confirmOrder(
+    ConfirmedOrderQuote quote, {
+    required bool Function() isActive,
+    required Future<bool> Function(ConfirmedOrderConflict) confirm,
+  }) {
+    expect(isActive(), isTrue);
+    quotes.add(quote);
+    requestActive = isActive;
+    return orderResponse!;
+  }
+}
 
 class _Auth extends AuthStateNotifier {
   @override
@@ -31,6 +49,14 @@ const _plan = PlanItem(
   transferEnableGb: 100,
   prices: [PricePlan(period: XbPlanPeriod.resetTraffic, amountYuan: 10)],
 );
+const _subscription = XbDomainSubscription(
+  email: 'fixture@example.invalid',
+  uuid: 'fixture',
+  planId: 7,
+  usedBytes: 100,
+  totalBytes: 100,
+);
+
 void main() {
   for (final brand in ['brand_a', 'brand_b']) {
     for (final platform in [
@@ -43,7 +69,13 @@ void main() {
         for (final change
             in phase == 'normal'
                 ? ['none']
-                : ['logout', 'account', 'service', 'dispose']) {
+                : [
+                    'logout',
+                    'account',
+                    'service',
+                    'dispose',
+                    if (phase != 'loading') 'snapshot',
+                  ]) {
           for (final outcome
               in phase == 'before'
                   ? ['success']
@@ -70,16 +102,15 @@ void main() {
               addTearDown(t.view.reset);
               final a = _Service(), b = _Service();
               XboardService service = a;
-              final response = Completer<XbResult<String>>(),
+              var subscription = _subscription;
+              final response = Completer<XbResult<String?>>(),
                   plans = Completer<XbResult<List<PlanItem>>>();
+              a.orderResponse = response.future;
               when(() => a.getPlans()).thenAnswer(
                 (_) => phase == 'loading'
                     ? plans.future
                     : Future.value(const XbSuccess([_plan])),
               );
-              when(
-                () => a.createOrder(7, XbPlanPeriod.resetTraffic),
-              ).thenAnswer((_) => response.future);
               for (final s in [a, b]) {
                 when(
                   () => s.getOrder('fixture-order'),
@@ -104,7 +135,7 @@ void main() {
               final c = ProviderContainer(
                 overrides: [
                   authStateProvider.overrideWith(_Auth.new),
-                  pendingOrderProvider.overrideWith((ref) async => null),
+                  userProfileProvider.overrideWith((ref) async => subscription),
                   xboardServiceProvider.overrideWith((ref) => service),
                 ],
               );
@@ -135,6 +166,14 @@ void main() {
                   c.invalidate(xboardServiceProvider);
                 }
                 if (change == 'dispose') await t.pumpWidget(const SizedBox());
+                if (change == 'snapshot') {
+                  subscription = subscription.copyWith(
+                    expiredAt: DateTime.now().add(const Duration(days: 7)),
+                  );
+                  c.invalidate(userProfileProvider);
+                  await t.pump();
+                  await t.pump();
+                }
               }
 
               VoidCallback? submit;
@@ -175,7 +214,10 @@ void main() {
                 await t.pump();
                 // Repeated taps while pending must not issue another write.
                 submit!();
-                if (phase == 'pending') await changeContext();
+                if (phase == 'pending') {
+                  await changeContext();
+                  expect(a.requestActive!(), isFalse);
+                }
                 if (outcome == 'throw') {
                   response.completeError(StateError('fixture throw'));
                 } else {
@@ -217,17 +259,21 @@ void main() {
                 );
                 expect(find.textContaining('订单结果暂未确认'), findsNothing);
                 verifyNever(() => b.getOrder('fixture-order'));
-                if (change != 'dispose') {
+                if (change != 'dispose' && change != 'snapshot') {
                   expect(find.text('账号状态已变化'), findsOneWidget);
                 }
               }
               if (phase == 'before' || phase == 'loading') {
-                verifyNever(() => a.createOrder(7, XbPlanPeriod.resetTraffic));
+                expect(a.quotes, isEmpty);
               } else {
-                verify(
-                  () => a.createOrder(7, XbPlanPeriod.resetTraffic),
-                ).called(1);
+                final quote = a.quotes.single;
+                expect(quote.planId, 7);
+                expect(quote.period, XbPlanPeriod.resetTraffic);
+                expect(quote.estimatedCents, 1000);
+                expect(quote.expectedSubscription?.totalBytes, 100);
               }
+              expect(b.quotes, isEmpty);
+              verifyNever(() => a.createOrder(7, XbPlanPeriod.resetTraffic));
               verifyNever(() => b.createOrder(7, XbPlanPeriod.resetTraffic));
               expect(t.takeException(), isNull);
               await t.pump(const Duration(seconds: 3));

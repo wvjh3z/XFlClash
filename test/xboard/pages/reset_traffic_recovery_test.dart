@@ -5,13 +5,14 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:fl_clash/xboard/config/xboard_config.dart';
 import 'package:fl_clash/xboard/models/plan_item.dart';
+import 'package:fl_clash/xboard/models/xb_domain_subscription.dart';
 import 'package:fl_clash/xboard/models/xb_domain_types.dart';
 import 'package:fl_clash/xboard/models/xb_domain_error.dart';
 import 'package:fl_clash/xboard/models/xb_result.dart';
 import 'package:fl_clash/xboard/pages/reset_traffic_page.dart';
 import 'package:fl_clash/xboard/providers/xboard_providers.dart';
 import 'package:fl_clash/xboard/providers/auth_state_provider.dart';
-import 'package:fl_clash/xboard/providers/pending_order_provider.dart';
+import 'package:fl_clash/xboard/providers/user_profile_provider.dart';
 import 'package:fl_clash/xboard/sdk/xboard_service.dart';
 import 'package:fl_clash/xboard/widgets/xb_async_view.dart';
 
@@ -80,7 +81,15 @@ void main() {
               overrides: [
                 authStateProvider.overrideWith(_Auth.new),
                 xboardServiceProvider.overrideWithValue(service),
-                pendingOrderProvider.overrideWith((ref) async => null),
+                userProfileProvider.overrideWith(
+                  (ref) async => const XbDomainSubscription(
+                    email: 'fixture@example.invalid',
+                    uuid: 'fixture',
+                    planId: 7,
+                    usedBytes: 10,
+                    totalBytes: 10,
+                  ),
+                ),
               ],
               child: MaterialApp(
                 theme: ThemeData(platform: platform),

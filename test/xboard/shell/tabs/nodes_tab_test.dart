@@ -2,6 +2,7 @@
 library;
 
 import 'package:material_ui/material_ui.dart';
+import 'package:flutter/services.dart' show LogicalKeyboardKey;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/legacy.dart' show StateProvider;
 import 'package:riverpod_annotation/riverpod_annotation.dart' show Override;
@@ -16,6 +17,7 @@ import 'package:fl_clash/xboard/models/xb_domain_subscription.dart';
 import 'package:fl_clash/xboard/providers/user_profile_provider.dart';
 import 'package:fl_clash/xboard/shell/tabs/nodes/nodes_tab.dart';
 import 'package:fl_clash/xboard/shell/tabs/nodes/xb_node_group.dart';
+import 'package:fl_clash/xboard/widgets/xb_theme.dart';
 
 class _FakeAuth extends AuthStateNotifier {
   _FakeAuth(this._initial);
@@ -61,6 +63,8 @@ Future<void> pumpNodes(
   String? targetNode,
   int targetNonce = 0,
   List<Override> extraOverrides = const [],
+  ThemeData? theme,
+  VoidCallback? onTapLogin,
 }) async {
   final state = tab ?? _emptyTab();
   // 隔离 FlClash 内核 provider：给每组选中态 + 每节点延迟固定值，避免触达真实 DB。
@@ -85,8 +89,10 @@ Future<void> pumpNodes(
     ProviderScope(
       overrides: overrides,
       child: MaterialApp(
+        theme: theme,
         home: Scaffold(
           body: NodesTab(
+            onTapLogin: onTapLogin,
             targetGroup: targetGroup,
             targetNode: targetNode,
             targetNonce: targetNonce,
@@ -105,6 +111,79 @@ void main() {
     expect(find.text('立即登录', findRichText: true), findsOneWidget);
   });
 
+  testWidgets('Android 游客使用淡品牌底徽标与白字渐变登录按钮，键盘可进入', (
+    tester,
+  ) async {
+    const brand = Color(0xFFD92E1A);
+    var logins = 0;
+    await pumpNodes(
+      tester,
+      auth: AuthState.unauthenticated,
+      theme: buildXbTheme(
+        brandColor: brand,
+        brightness: Brightness.light,
+      ).copyWith(platform: TargetPlatform.android),
+      onTapLogin: () => logins++,
+    );
+    final badge = find.byKey(const ValueKey('nodes-guest-badge'));
+    expect(tester.getSize(badge), const Size(80, 80));
+    final globe = find.descendant(of: badge, matching: find.byIcon(Icons.public));
+    expect(tester.widget<Icon>(globe).size, 36);
+    final badgeDecoration = tester.widget<DecoratedBox>(badge).decoration as BoxDecoration;
+    expect((badgeDecoration.gradient! as LinearGradient).colors, [
+      Color.alphaBlend(brand.withValues(alpha: 0.14), XbTokens.light.sfc),
+      XbTokens.light.sfc,
+    ]);
+
+    final gradient = find.byKey(const ValueKey('nodes-guest-login-gradient'));
+    final loginDecoration = tester.widget<DecoratedBox>(gradient).decoration as BoxDecoration;
+    expect((loginDecoration.gradient! as LinearGradient).colors, [
+      const Color(0xFFFF5A44),
+      brand,
+    ]);
+    final login = find.descendant(of: gradient, matching: find.byType(FilledButton));
+    expect(tester.getSize(login).height, 50);
+    expect(tester.widget<FilledButton>(login).style?.foregroundColor?.resolve({}), Colors.white);
+    expect(find.text('刷新节点'), findsNothing);
+    expect(find.text('测延迟'), findsNothing);
+    final semantics = tester.ensureSemantics();
+    addTearDown(semantics.dispose);
+    await tester.pump();
+    expect(find.bySemanticsLabel('立即登录'), findsOneWidget);
+    await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+    await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+    await tester.pump();
+    expect(logins, 1);
+  });
+
+  testWidgets('低高度访客布局可滚到登录按钮，桌面仍用原空态', (tester) async {
+    tester.view.physicalSize = const Size(320, 180);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    var logins = 0;
+    await pumpNodes(
+      tester,
+      auth: AuthState.unauthenticated,
+      theme: ThemeData(platform: TargetPlatform.android),
+      onTapLogin: () => logins++,
+    );
+    final login = find.text('立即登录');
+    expect(login.hitTestable(), findsNothing);
+    await tester.ensureVisible(login);
+    await tester.tap(login);
+    expect(logins, 1);
+    expect(tester.takeException(), isNull);
+
+    await pumpNodes(
+      tester,
+      auth: AuthState.unauthenticated,
+      theme: ThemeData(platform: TargetPlatform.windows),
+    );
+    expect(find.byKey(const ValueKey('nodes-guest-badge')), findsNothing);
+    expect(find.byKey(const ValueKey('nodes-guest-login-gradient')), findsNothing);
+    expect(login, findsOneWidget);
+  });
+
   testWidgets('已登录 + 无分组 → 空态引导续费（R4.6）', (tester) async {
     await pumpNodes(tester, auth: AuthState.authenticated);
     expect(find.text('当前无可用线路', findRichText: true), findsOneWidget);
@@ -114,6 +193,8 @@ void main() {
     expect(find.text('刷新重试', findRichText: true), findsNothing);
     // 空态顶部保留「刷新节点」按钮（原型 nodes('empty') abar 一致，触发重拉订阅）。
     expect(find.text('刷新节点', findRichText: true), findsOneWidget);
+    expect(find.byKey(const ValueKey('nodes-guest-badge')), findsNothing);
+    expect(find.byKey(const ValueKey('nodes-guest-login-gradient')), findsNothing);
   });
 
   testWidgets('多分组 → 顶部 tab 列全部分组名，只显示选中组节点', (tester) async {

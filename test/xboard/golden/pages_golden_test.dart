@@ -5,20 +5,23 @@
 library;
 
 import 'golden_environment.dart';
+import 'home_states_golden_test.dart' show pumpHome;
+import 'package:fl_clash/enum/enum.dart' show CoreStatus;
 
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
+import 'package:fl_clash/xboard/config/xboard_config.dart';
 import 'package:fl_clash/xboard/models/order_summary.dart';
 import 'package:fl_clash/xboard/models/plan_item.dart';
 import 'package:fl_clash/xboard/models/xb_domain_subscription.dart';
 import 'package:fl_clash/xboard/models/xb_domain_types.dart';
+import 'package:fl_clash/xboard/models/xb_invite.dart';
 import 'package:fl_clash/xboard/models/xb_result.dart';
 import 'package:fl_clash/xboard/pages/order_list_page.dart';
 import 'package:fl_clash/xboard/pages/plan_list_page.dart';
-import 'package:fl_clash/xboard/pages/reset_traffic_page.dart';
 import 'package:fl_clash/xboard/providers/auth_state_provider.dart';
 import 'package:fl_clash/xboard/providers/user_profile_provider.dart';
 import 'package:fl_clash/xboard/providers/xboard_providers.dart';
@@ -165,7 +168,7 @@ void main() {
     await expectXbGolden(t, find.byType(PlanListPage), 'goldens/page_plan_list.png');
   });
 
-  testWidgets('订单列表页 golden（状态色：完成=绿/取消=红/待付=琥珀）', (t) async {
+  testWidgets('订单列表页 golden（独立待付按钮和历史分组）', (t) async {
     final svc = _MockService();
     when(() => svc.getOrders(
               page: any(named: 'page'),
@@ -181,21 +184,51 @@ void main() {
     await pump(
       t,
       ProviderScope(
-        overrides: [xboardServiceProvider.overrideWithValue(svc)],
+        overrides: [authStateProvider.overrideWith(_FakeAuth.new), xboardServiceProvider.overrideWithValue(svc)],
         child: app(const OrderListPage()),
       ),
     );
     expect(t.takeException(), isNull);
+    expect(find.widgetWithText(FilledButton, '继续支付'), findsOneWidget);
+    expect(find.text('历史订单'), findsOneWidget);
     await expectXbGolden(t, find.byType(OrderListPage), 'goldens/page_order_list.png');
   });
 
-  testWidgets('我的（已登录 98%，旧告警卡已移至首页）golden', (t) async {
+  testWidgets('我的（已登录、返佣与客服均已配置）golden', (t) async {
+    XboardConfig.bind(
+      const XboardConfig(
+        subscribeUserAgent: 'golden',
+        devApiEndpoint: 'https://example.invalid',
+        devSubscriptionEndpoint: 'https://example.invalid',
+        debug: false,
+        kIsTest: true,
+        crispWebsiteId: 'fixture-website-id',
+      ),
+    );
+    addTearDown(XboardConfig.resetForTest);
+    final service = _MockService();
+    when(service.getInviteInfo).thenAnswer(
+      (_) async => const XbSuccess(
+        XbInviteInfo(
+          code: 'FIXTURE',
+          registeredCount: 3,
+          pendingYuan: 12,
+          totalYuan: 48,
+          commissionRate: 17,
+          commissionBalanceYuan: 36,
+          accountBalanceYuan: 0,
+        ),
+      ),
+    );
     await pump(
       t,
       ProviderScope(
         overrides: [
           authStateProvider.overrideWith(_FakeAuth.new),
-          userProfileProvider.overrideWith((ref) async => _sub),
+          userProfileProvider.overrideWith(
+            (ref) async => _sub.copyWith(usedBytes: _sub.totalBytes * 62 ~/ 100),
+          ),
+          xboardServiceProvider.overrideWithValue(service),
         ],
         child: app(XbBrandTheme(
           brandColor: const Color(0xFFD92E1A),
@@ -207,7 +240,11 @@ void main() {
     );
     expect(t.takeException(), isNull);
     expect(find.text('购买重置包立即恢复本月流量', findRichText: true), findsNothing);
-    expect(find.text('续费当前套餐', findRichText: true), findsOneWidget);
+    expect(find.text('续费当前套餐', findRichText: true), findsNothing);
+    expect(find.text('我的订单', findRichText: true), findsOneWidget);
+    expect(find.text('已用 62%'), findsOneWidget);
+    expect(find.text('返 17%'), findsOneWidget);
+    expect(find.text('在线客服'), findsOneWidget);
     await expectXbGolden(t, find.byType(MineTab), 'goldens/page_mine_auth.png');
   });
 
@@ -231,18 +268,26 @@ void main() {
     await expectXbGolden(t, find.byType(MineTab), 'goldens/page_mine_error.png');
   });
 
-  testWidgets('流量重置包页 golden', (t) async {
+  testWidgets('首页点击重置流量只打开购买须知，取消返回首页', (t) async {
     final svc = _MockService();
-    when(svc.getPlans).thenAnswer((_) async => XbResult.success([_resetPlan]));
-    await pump(
-      t,
-      ProviderScope(
-        overrides: [authStateProvider.overrideWith(_FakeAuth.new), xboardServiceProvider.overrideWithValue(svc)],
-        child: app(const ResetTrafficPage(planId: 1, planName: '标准套餐')),
-      ),
-    );
-    expect(t.takeException(), isNull);
-    await expectXbGolden(t, find.byType(ResetTrafficPage), 'goldens/page_reset_traffic.png');
+    when(svc.getPlans).thenAnswer((_) async => XbSuccess([_resetPlan]));
+    await pumpHome(t, auth: AuthState.authenticated, core: CoreStatus.connected,
+      isStart: true, service: svc,
+      sub: _sub.copyWith(usedBytes: _sub.totalBytes * 9 ~/ 10, expiredAt: null, nextResetAt: null, resetDay: 6));
+    await t.tap(find.text('重置流量'));
+    await t.pump();
+    await t.pump(const Duration(milliseconds: 400));
+    expect(find.byType(AlertDialog), findsOneWidget);
+    expect(find.text('流量重置包购买须知'), findsOneWidget);
+    expect(find.text('确认购买'), findsOneWidget);
+    expect(find.text('购买流量重置包'), findsNothing);
+    await expectXbGolden(t, find.byKey(const ValueKey('home-golden-window')), 'goldens/page_reset_traffic.png');
+    await t.tap(find.text('再想想'));
+    await t.pumpAndSettle();
+    expect(find.byType(AlertDialog), findsNothing);
+    expect(find.text('重置流量'), findsOneWidget);
+    verify(svc.getPlans).called(1);
+    verifyNever(() => svc.createOrder(1, XbPlanPeriod.resetTraffic));
   });
 
   testWidgets('我的（游客态）golden', (t) async {

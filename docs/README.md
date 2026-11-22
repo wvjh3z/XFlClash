@@ -23,7 +23,7 @@
 | 教程、客服、安装器和原生专项回归 | [平台回归手册](https://github.com/wvjh3z/proxy-suite-docs/blob/main/runbooks/PLATFORM_REGRESSION.md) |
 | 构建失败 | [版本化失败经验](build-failures/README.md) |
 | 查已找到的成品、符号证据及恢复缺口 | [实际材料索引](https://github.com/wvjh3z/proxy-suite-docs/blob/main/evidence/material-inventory-20261029/README.md) |
-| 查当前未关闭问题、成品及设备验收 | [Docs/STATUS当前快照](https://github.com/wvjh3z/proxy-suite-docs/blob/main/STATUS.md#当前接手快照2026-10-29) |
+| 查当前未关闭问题、成品及设备验收 | [当前交付表](https://github.com/wvjh3z/proxy-suite-docs/blob/main/STATUS.md#当前交付与设备验收概览)及[缺口索引](https://github.com/wvjh3z/proxy-suite-docs/blob/main/STATUS.md#当前缺口索引) |
 
 ## 谁维护哪类事实
 

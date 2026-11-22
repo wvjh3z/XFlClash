@@ -11,7 +11,7 @@
 //   - macOS PRODUCT_NAME（Dock/菜单名）/ Info.plist 定位权限文案 / dmg .app 名
 //   - 各打包 make_config 显示名（appimage/exe/rpm/deb/dmg）统一到 appName
 //   - Windows publisher_name、自有 Inno 模板可选网址、产品版本与实际构建号
-//   **不动**：CFBundleURLSchemes 的 `flclash`（功能性深链）、CMake BINARY_NAME / 可执行名
+//   品牌稳定身份注入会移除外部 URL 协议声明；各平台身份修改由 brand_identity 统一处理。
 //   （内部，改名风险高）、FlClashCore 等同名标识。
 //
 // **图标（Phase 2）**：committed 图标是上游 FlClash 的（windows app_icon.ico / macos appiconset /

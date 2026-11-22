@@ -6,7 +6,7 @@
 /// - 剩余 >7 天 / 长期有效（expiredAt==null）/ 游客 → 不显示
 ///
 /// 数据源：复用 `userProfileProvider`（订阅同步已在冷启动 + 24h 节流刷新，无需额外网络检测）。
-/// 点击「去续费」→ 调 [onTapRenew]（可注入测试回调；生产默认直接打开当前套餐续费页）。
+/// 点击「去续费」→ 请求外壳打开商店并定位当前套餐。
 library;
 
 import 'package:material_ui/material_ui.dart';
@@ -21,7 +21,7 @@ import '../../../navigation/plan_navigation.dart';
 class XbExpiryCard extends ConsumerWidget {
   const XbExpiryCard({super.key, this.onTapRenew, this.centered = false});
 
-  /// 点「去续费」→ 直接打开续费页（可注入回调）。
+  /// 点「去续费」时可注入替代回调。
   final VoidCallback? onTapRenew;
 
   /// 桌面态（原型 `.expirecard{width:fit-content;margin:0 auto}`）：按内容宽度收窄并居中，

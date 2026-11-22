@@ -55,6 +55,21 @@ void main() {
     expect(find.text('立即支付'), findsOneWidget);
   });
 
+  for (final validZero in [false, true]) {
+    testWidgets('pending banner skips incomplete orders; valid zero=$validZero', (tester) async {
+      final svc = _MockService();
+      final base = _order(XbOrderStatus.pending);
+      final orders = [base.copyWith(status: null), base.copyWith(totalAmountYuan: null),
+        if (validZero) base.copyWith(tradeNo: 'Z', totalAmountYuan: 0)];
+      when(() => svc.getOrders(forceRefresh:true)).thenAnswer((_) async => XbSuccess(
+        XbPagedList(items: orders, page: 1, pageSize: 20, total: orders.length)));
+      await pump(tester, svc);
+      expect(find.text('立即支付'), validZero ? findsOneWidget : findsNothing);
+      expect(find.text('取消订单'), validZero ? findsOneWidget : findsNothing);
+      expect(find.text('¥0.00'), validZero ? findsOneWidget : findsNothing);
+    });
+  }
+
   testWidgets('无 pending 订单 → 横幅收起', (tester) async {
     final svc = _MockService();
     when(() => svc.getOrders(

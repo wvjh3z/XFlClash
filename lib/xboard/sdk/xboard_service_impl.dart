@@ -19,6 +19,7 @@ import 'package:flutter_xboard_sdk/flutter_xboard_sdk.dart';
 
 import '../config/xboard_config.dart';
 import '../models/checkout_outcome_ui.dart' as ui;
+import '../models/confirmed_order.dart';
 import '../models/order_summary.dart';
 import '../models/plan_item.dart';
 import '../models/xb_domain_error.dart';
@@ -32,8 +33,11 @@ import '../services/sentry_bootstrap.dart';
 import '../util/pii_mask.dart';
 import '../util/subscription_cache.dart';
 import '../util/tutorial_resource_base.dart';
+import 'guest_catalog.dart';
 import 'xboard_service.dart';
 import '../util/money_input.dart';
+
+part 'confirmed_order_decision.dart';
 
 /// 使用教程取自知识库的「官方客户端」分类（用户确认的确切分类名）。
 const String _kTutorialCategory = '官方客户端';
@@ -44,7 +48,9 @@ class XboardServiceImpl
         XboardSessionLifecycle,
         XboardTutorialRequestControl,
         XboardInviteRequestControl,
-        XboardAuthenticationRequestControl {
+        XboardAuthenticationRequestControl,
+        XboardGuestCatalogControl,
+        XboardConfirmedOrderControl {
   XboardServiceImpl({
     required XBoardSDK sdk,
     SubscriptionCache? subscriptionCache,
@@ -200,6 +206,19 @@ class XboardServiceImpl
   final Set<String> _writesInFlight = {};
   bool _inviteCreationUnconfirmed = false;
 
+  // Service instances can be rebuilt without a new authenticated session.
+  // Keep the order lock and uncertainty across those replacements, not across
+  // SDK auth revisions. Never persist an order number or guess a missing one.
+  static final _orderSessions = Expando<_OrderDecisionSession>();
+
+  _OrderDecisionSession _orderSession(int? revision) {
+    final existing = _orderSessions[_sdk];
+    if (existing != null && existing.revision == revision) return existing;
+    final next = _OrderDecisionSession(revision);
+    _orderSessions[_sdk] = next;
+    return next;
+  }
+
   bool _uncertain(XbDomainError error) =>
       error is XbServer ||
       error is XbUnexpected ||
@@ -209,6 +228,7 @@ class XboardServiceImpl
     String operation,
     Future<XbResult<T>> Function() body, {
     String? tradeNo,
+    Future<XbResult<void>> Function()? preflight,
   }) async {
     final epoch = _operationEpoch;
     final revision = _sdkRevision;
@@ -220,12 +240,20 @@ class XboardServiceImpl
       'withdrawCommission' || 'transferCommissionToBalance' => 'commission',
       _ => operation,
     };
-    if (!_writesInFlight.add(key)) {
+    final locks = key == 'orders'
+        ? _orderSession(revision).writes
+        : _writesInFlight;
+    if (!locks.add(key)) {
       return const XbFailure(
         XbBusiness(BusinessErrorKind.generic, '上一项操作仍在处理或核对，请勿重复提交。', null),
       );
     }
     try {
+      if (preflight != null) {
+        final ready = await preflight();
+        if (!current()) return _stale<T>();
+        if (ready case XbFailure<void>(:final error)) return XbFailure(error);
+      }
       var result =
           operation == 'generateInviteCode' && _inviteCreationUnconfirmed
           ? XbResult<T>.failure(
@@ -299,7 +327,7 @@ class XboardServiceImpl
         XbUnconfirmed(operation, '操作结果尚未确认。$advice 如问题持续，请向客服反馈此问题。'),
       );
     } finally {
-      _writesInFlight.remove(key);
+      locks.remove(key);
     }
   }
 
@@ -307,12 +335,10 @@ class XboardServiceImpl
     String operation,
     Future<T> Function() body, {
     bool Function()? isActive,
-    String? tradeNo,
   }) => _writeOperations.contains(operation)
       ? _write(
           operation,
           () => _guardOnce(operation, body, isActive: isActive),
-          tradeNo: tradeNo,
         )
       : _guardOnce(operation, body, isActive: isActive);
 
@@ -708,11 +734,45 @@ class XboardServiceImpl
       });
 
   @override
+  Future<XbResult<List<PlanItem>>> getGuestCatalog() =>
+      loadGuestCatalog(_sdk.baseUrl, _mapPlan);
+
+  @override
   Future<XbResult<List<PlanItem>>> getPlans() async =>
       _guard('getPlans', () async {
         final plans = await _sdk.plan.getPlans();
         return plans.map(_mapPlan).toList();
       });
+
+  @override
+  Future<XbResult<String?>> confirmOrder(
+    ConfirmedOrderQuote quote, {
+    required bool Function() isActive,
+    required Future<bool> Function(ConfirmedOrderConflict) confirm,
+  }) async {
+    final epoch = _operationEpoch;
+    final revision = _sdkRevision;
+    bool current() =>
+        revision != null &&
+        _isCurrent(epoch, revision) &&
+        _sdk.authSession.state == AuthState.authenticated &&
+        isActive();
+    if (!current()) return const XbSuccess(null);
+    final session = _orderSession(revision);
+    if (!session.writes.add('orders')) {
+      return const XbFailure(
+        XbBusiness(BusinessErrorKind.generic, '订单正在处理，请勿重复提交。', null),
+      );
+    }
+    try {
+      return await _sdk.httpService.withRequestValidity(
+        current,
+        () => _decideConfirmedOrder(session, quote, current, confirm),
+      );
+    } finally {
+      session.writes.remove('orders');
+    }
+  }
 
   @override
   Future<XbResult<String>> createOrder(
@@ -734,16 +794,21 @@ class XboardServiceImpl
   Future<XbResult<ui.CheckoutOutcomeUi>> checkout(
     String tradeNo,
     String method,
-  ) async =>
-      // SDK checkoutOrder（零金额 method=''）→ CheckoutOutcome sealed 5 分支 → UI 副本。
-      _guard('checkout', () async {
-        final outcome = await _sdk.order.checkoutOrder(tradeNo, method);
-        final mapped = _mapCheckout(outcome);
-        if (mapped is ui.CheckoutFailed) {
-          throw EndpointException('结算响应无法确认', 200);
-        }
-        return mapped;
-      }, tradeNo: tradeNo);
+  ) => _write(
+    'checkout',
+    () => _guardOnce('checkout', () async {
+      final outcome = await _withKnownWriteRejection(
+        () => _sdk.order.checkoutOrder(tradeNo, method),
+      );
+      final mapped = _mapCheckout(outcome);
+      if (mapped is ui.CheckoutFailed) {
+        throw EndpointException('结算响应无法确认', 200);
+      }
+      return mapped;
+    }),
+    tradeNo: tradeNo,
+    preflight: () => _preflightOrderWrite(tradeNo, 'checkout'),
+  );
 
   @override
   Future<XbResult<XbPagedList<OrderSummary>>> getOrders({
@@ -767,24 +832,18 @@ class XboardServiceImpl
   });
 
   @override
-  Future<XbResult<OrderDetail?>> getOrder(String tradeNo) async =>
-      _guard('getOrder', () async {
-        final m = await _sdk.order.getOrder(tradeNo);
-        if (m == null) return null;
-        return OrderDetail(
-          summary: _mapOrderSummary(m),
-          balanceAmountYuan: _centsToYuan(m.balanceAmount),
-          surplusAmountYuan: _centsToYuan(m.surplusAmount),
-          discountAmountYuan: _centsToYuan(m.discountAmount),
-          handlingAmountYuan: _centsToYuan(m.handlingAmount),
-        );
-      });
+  Future<XbResult<OrderDetail?>> getOrder(String tradeNo) =>
+      _guardOnce('getOrder', () => _verifiedOrderDetail(tradeNo));
 
   @override
-  Future<XbResult<bool>> cancelOrder(String tradeNo) async => _guard(
+  Future<XbResult<bool>> cancelOrder(String tradeNo) => _write(
     'cancelOrder',
-    () => _sdk.order.cancelOrder(tradeNo),
+    () => _guardOnce(
+      'cancelOrder',
+      () => _withKnownWriteRejection(() => _sdk.order.cancelOrder(tradeNo)),
+    ),
     tradeNo: tradeNo,
+    preflight: () => _preflightOrderWrite(tradeNo, 'cancelOrder'),
   );
 
   @override
@@ -814,7 +873,7 @@ class XboardServiceImpl
       // payment adapter 无参 getPaymentMethods（非 order.getPaymentMethods(tradeNo)，第12轮）。
       _guard('getPaymentMethods', () async {
         final methods = await _sdk.payment.getPaymentMethods();
-        return methods.map(_mapPaymentMethod).toList();
+        return methods.where((m) => m.isAvailable && m.id.trim().isNotEmpty).map(_mapPaymentMethod).toList();
       });
 
   @override
@@ -1041,7 +1100,9 @@ class XboardServiceImpl
     final prices = <PricePlan>[];
     for (final sdkPeriod in PlanPeriod.values) {
       final yuan = m.priceForPeriod(sdkPeriod);
-      if (yuan != null && yuan > 0) {
+      if (yuan != null &&
+          orderQuoteCents(yuan) != null &&
+          (yuan > 0 || sdkPeriod == PlanPeriod.resetTraffic)) {
         prices.add(PricePlan(period: _toXbPeriod(sdkPeriod), amountYuan: yuan));
       }
     }
@@ -1049,6 +1110,7 @@ class XboardServiceImpl
       id: m.id,
       name: m.name,
       description: m.content,
+      renewable: m.renew,
       transferEnableGb: m.transferEnable.toInt(), // 第12轮：transfer_enable 单位 GB
       prices: prices,
     );
@@ -1057,29 +1119,91 @@ class XboardServiceImpl
   OrderSummary _mapOrderSummary(OrderModel m) => OrderSummary(
     tradeNo: m.tradeNo ?? '',
     planName: m.orderPlan?.name,
-    period: _toXbPeriod(PlanPeriod.fromValue(m.period) ?? PlanPeriod.monthly),
-    totalAmountYuan: m.totalAmountInYuan ?? 0,
+    period: switch (PlanPeriod.fromValue(m.period)) {
+      final period? => _toXbPeriod(period),
+      null => null,
+    },
+    totalAmountYuan: m.totalAmountInYuan,
     status: _mapOrderStatus(OrderStatus.fromRaw(m.status)),
     createdAt: m.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0),
   );
 
-  XbOrderStatus _mapOrderStatus(OrderStatus? s) => switch (s) {
+  XbOrderStatus? _mapOrderStatus(OrderStatus? s) => switch (s) {
     OrderStatus.pending => XbOrderStatus.pending,
     OrderStatus.processing => XbOrderStatus.processing,
     OrderStatus.cancelled => XbOrderStatus.cancelled,
     OrderStatus.completed => XbOrderStatus.completed,
     OrderStatus.discounted => XbOrderStatus.discounted,
-    null => XbOrderStatus.pending,
+    null => null,
   };
 
-  PaymentMethodItem _mapPaymentMethod(PaymentMethodModel m) =>
-      PaymentMethodItem(
-        id: m.id,
-        name: m.name,
-        icon: m.icon,
-        feeFixedYuan: _centsToYuan(m.handlingFeeFixed), // cents/100（第12轮）
-        feePercent: m.handlingFeePercent, // 百分比原值
+  PaymentMethodItem _mapPaymentMethod(PaymentMethodModel m) {
+    bool isNetworkUrl(Uri url) =>
+        (url.isScheme('https') || url.isScheme('http')) &&
+        url.host.isNotEmpty &&
+        !url.authority.contains('@') &&
+        (!url.hasPort || (url.port > 0 && url.port <= 65535));
+
+    String? iconUrl() {
+      final raw = m.icon?.trim();
+      if (raw == null ||
+          raw.isEmpty ||
+          RegExp(r'[\x00-\x1f\x7f\\]').hasMatch(raw) ||
+          RegExp(r'^\w+://[^/?#]*@').hasMatch(raw)) {
+        return null;
+      }
+      final icon = Uri.tryParse(raw);
+      if (icon == null) return null;
+      if (icon.hasScheme) return isNetworkUrl(icon) ? icon.toString() : null;
+      if (icon.hasAuthority ||
+          icon.path.isEmpty ||
+          icon.path == '/' ||
+          icon.pathSegments.any(
+            (segment) =>
+                segment.contains('/') ||
+                segment.contains('\\') ||
+                RegExp(r'%[0-9a-fA-F]{2}').hasMatch(segment),
+          )) {
+        return null;
+      }
+
+      final base = Uri.tryParse(_sdk.baseUrl ?? '');
+      if (base == null || !isNetworkUrl(base)) return null;
+      final prefix = base.path.endsWith('/') ? base.path : '${base.path}/';
+      final directory = Uri(
+        scheme: base.scheme,
+        host: base.host,
+        port: base.hasPort ? base.port : null,
+        path: prefix,
       );
+      // A leading slash from the panel is still relative to the branded API
+      // directory, unless the reference already includes that directory.
+      final relative = raw.startsWith('/') && !icon.path.startsWith(prefix)
+          ? raw.substring(1)
+          : raw;
+      final resolved = directory.resolve(relative);
+      return resolved.origin == directory.origin &&
+              resolved.path.startsWith(prefix) &&
+              !resolved.pathSegments.any((part) => part == '.' || part == '..')
+          ? resolved.toString()
+          : null;
+    }
+
+    String? icon;
+    try {
+      icon = iconUrl();
+    } on FormatException {
+      // Invalid optional artwork must not fail the payment-method response.
+    }
+    return PaymentMethodItem(
+      id: m.id,
+      name: m.name,
+      icon: icon,
+      paymentMethod: m.paymentMethod,
+      feeFixedYuan: _centsToYuan(m.handlingFeeFixed), // cents/100（第12轮）
+      feePercent: m.handlingFeePercent, // 百分比原值
+    );
+  }
 
   /// SDK CheckoutOutcome sealed 5 分支 → UI 副本（零 SDK 类型穿透 Property 2）。
   ui.CheckoutOutcomeUi _mapCheckout(CheckoutOutcome o) => switch (o) {
