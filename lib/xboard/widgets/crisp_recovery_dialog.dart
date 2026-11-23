@@ -2,6 +2,8 @@ import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../services/crisp_chat_driver.dart';
 import 'xb_network_read_recovery.dart';
+import 'xb_ui_kit.dart' show XbGradientAction;
+import 'xb_theme.dart' show XbTokens;
 
 enum CrispRecovery { retry, browser, runtime }
 
@@ -49,7 +51,8 @@ class CrispRecoveryDialog extends StatelessWidget {
         onPressed: () => Navigator.pop(context, CrispRecovery.browser),
         child: const Text('浏览器打开'),
       ),
-      FilledButton(
+      XbGradientAction(
+        height: XbTokens.hButton,
         onPressed: () => Navigator.pop(context, CrispRecovery.retry),
         child: const Text('重试'),
       ),

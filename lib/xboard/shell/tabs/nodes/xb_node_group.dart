@@ -268,6 +268,7 @@ class _NodeRow extends ConsumerWidget {
                     // 延迟按自然宽度紧跟名字（不再定宽右对齐 —— 那样会在名字与延迟间留空白、
                     // 把名字过早挤成省略号；名字优先完整展示）。
                     _DelayText(
+                      key: ValueKey((node.name, node.type, node.testUrl)),
                       compactUnit: mobile,
                       proxyName: node.name,
                       type: node.type,
@@ -314,9 +315,10 @@ class _AutoBadge extends StatelessWidget {
   }
 }
 
-/// 延迟数字（着色 + 等宽）；未测显示「测速」闪电按钮，测速中转圈，有值显示「N ms」/「超时」。
-class _DelayText extends ConsumerWidget {
+/// 手动点击本节点显示文字忙态；外部测速只更新被动指示。
+class _DelayText extends ConsumerStatefulWidget {
   const _DelayText({
+    super.key,
     required this.compactUnit,
     required this.proxyName,
     required this.type,
@@ -331,16 +333,38 @@ class _DelayText extends ConsumerWidget {
   final XbNodesAdapter adapter;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_DelayText> createState() => _DelayTextState();
+}
+
+class _DelayTextState extends ConsumerState<_DelayText> {
+  bool _testing = false;
+
+  Future<void> _test() async {
+    if (_testing) return;
+    setState(() => _testing = true);
+    try {
+      await widget.adapter.testNode(ref, proxyName: widget.proxyName, type: widget.type, testUrl: widget.testUrl);
+    } finally {
+      if (mounted) setState(() => _testing = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    final adapter = widget.adapter;
+    final proxyName = widget.proxyName;
+    final testUrl = widget.testUrl;
     final delay = adapter.nodeDelay(ref, proxyName: proxyName, testUrl: testUrl);
     // 首页多次取最低 / 分组失败重试期间隐藏中间结果，整轮结束后才解除转圈。
     final measuring = ref.watch(xbMeasuringNodesProvider).contains(proxyName) ||
         adapter.nodeTesting(ref, proxyName: proxyName, testUrl: testUrl);
 
-    void test() {
-      // ignore: discarded_futures
-      adapter.testNode(ref, proxyName: proxyName, type: type, testUrl: testUrl);
+    if (_testing) {
+      // Claim taps without advertising an enabled action or selecting the outer row.
+      return GestureDetector(onTap: () {}, excludeFromSemantics: true,
+        child: Semantics(button: true, enabled: false,
+          child: Text('测速中…', style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 12))));
     }
 
     if (measuring || delay == 0) {
@@ -351,15 +375,15 @@ class _DelayText extends ConsumerWidget {
     if (delay == null) {
       // 未测 → 闪电按钮触发单节点测速。
       return InkWell(
-        onTap: test,
+        onTap: _test,
         borderRadius: BorderRadius.circular(8),
         child: Icon(Icons.bolt, size: 18, color: scheme.onSurfaceVariant),
       );
     }
     return GestureDetector(
-      onTap: test,
+      onTap: _test,
       child: Text(
-        delay > 0 ? '${xbLatencyDisplay(delay)}${compactUnit ? 'ms' : ' ms'}' : '超时',
+        delay > 0 ? '${xbLatencyDisplay(delay)}${widget.compactUnit ? 'ms' : ' ms'}' : '超时',
         style: TextStyle(
           fontSize: 13.5,
           fontWeight: FontWeight.w500,

@@ -72,6 +72,7 @@ class _UpdateDialogState extends ConsumerState<_UpdateDialog> {
   List<String> _browserUrls = const [];
   int _browserIndex = 0;
   bool _browserOpening = false;
+  bool _switchingBrowserSource = false;
   bool _transferActive = false;
   bool _mobileAllowed = false;
   String? _interrupted;
@@ -292,11 +293,12 @@ class _UpdateDialogState extends ConsumerState<_UpdateDialog> {
     await _launchBrowser(tryFollowing: true);
   }
 
-  Future<void> _launchBrowser({bool tryFollowing = false}) async {
+  Future<void> _launchBrowser({bool tryFollowing = false, bool switching = false}) async {
     if (_browserOpening || _browserUrls.isEmpty) return;
     setState(() {
       _state = _DialogState.browser;
       _browserOpening = true;
+      _switchingBrowserSource = switching;
       _browserMessage = '正在打开浏览器…';
     });
     var nextIndex = _browserIndex;
@@ -323,7 +325,7 @@ class _UpdateDialogState extends ConsumerState<_UpdateDialog> {
   Future<void> _nextBrowserSource() async {
     if (_busy || _browserUrls.length < 2) return;
     _browserIndex = (_browserIndex + 1) % _browserUrls.length;
-    await _launchBrowser();
+    await _launchBrowser(switching: true);
   }
 
   @override
@@ -501,11 +503,13 @@ class _UpdateDialogState extends ConsumerState<_UpdateDialog> {
           Expanded(child: ConstrainedBox(constraints: const BoxConstraints(minHeight: 46), child: FilledButton(
             style: FilledButton.styleFrom(padding: padding, backgroundColor: XbTokens.of(context).sfc, foregroundColor: XbTokens.of(context).on),
             onPressed: _busy ? null : _launchBrowser,
-            child: const Text('重新打开', textAlign: TextAlign.center, style: labelStyle),
+            child: Text(_browserOpening && !_switchingBrowserSource ? '正在打开…' : '重新打开',
+                textAlign: TextAlign.center, style: labelStyle),
           ))),
           const SizedBox(width: 11),
           Expanded(child: ConstrainedBox(constraints: const BoxConstraints(minHeight: 46), child: XbGradientAction(
             padding: padding,
+            busyLabel: _browserOpening && _switchingBrowserSource ? '正在切换线路…' : null,
             onPressed: _busy || _browserUrls.length < 2 ? null : _nextBrowserSource,
             child: const Text('换下一条', textAlign: TextAlign.center, style: labelStyle),
           ))),

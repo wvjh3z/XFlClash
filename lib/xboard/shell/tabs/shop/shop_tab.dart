@@ -1,7 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:material_ui/material_ui.dart';
 
-import '../../../models/confirmed_order.dart' show activePurchasePlanId;
+import '../../../models/confirmed_order.dart' show activePurchasePlanId, orderQuoteCents;
 import '../../../models/plan_item.dart';
 import '../../../models/xb_domain_error.dart';
 import '../../../models/xb_domain_subscription.dart';
@@ -14,7 +14,7 @@ import '../../../providers/user_profile_provider.dart';
 import '../../../providers/xboard_providers.dart';
 import '../../../sdk/guest_catalog.dart' show XboardGuestCatalogControl;
 import '../../../util/period_label.dart';
-import '../../../widgets/xb_async_view.dart';
+import '../../../widgets/xb_plan_notice_card.dart';
 import '../../../widgets/xb_network_read_recovery.dart';
 import '../../../providers/xboard_connectivity_provider.dart';
 import '../../../widgets/xb_components.dart';
@@ -24,14 +24,15 @@ import '../../../widgets/xb_plan_details.dart';
 import '../../../widgets/xb_purchase_confirmation.dart';
 import '../../../widgets/xb_theme.dart';
 import '../../../widgets/xb_ui_kit.dart' show XbGradientAction;
-import '../../widgets/xb_content_header.dart';
 import 'xb_shop_navigation.dart';
 
 // The authenticated panel endpoint returns plans available to this account.
 // A different login must start a new read, not reuse a previous account's list.
 final _catalogProvider = FutureProvider.autoDispose.family<List<PlanItem>, int>(
   (ref, _) async {
-    if (ref.read(isOfflineProvider)) throw const XbNetwork(XbNetworkKind.connectionFailed, '当前离线');
+    if (ref.read(isOfflineProvider) || ref.read(interfaceUnavailableProvider)) {
+      throw const XbNetwork(XbNetworkKind.connectionFailed, '当前离线');
+    }
     final result = await ref.watch(xboardServiceProvider).getPlans();
     return switch (result) {
       XbSuccess(:final data) => data,
@@ -52,7 +53,9 @@ final _guestCatalogProvider = FutureProvider.autoDispose<List<PlanItem>>((
 ) async {
   // A brand endpoint switch invalidates the prior anonymous response.
   ref.watch(apiEndpointProvider);
-  if (ref.read(isOfflineProvider)) throw const XbNetwork(XbNetworkKind.connectionFailed, '当前离线');
+  if (ref.read(isOfflineProvider) || ref.read(interfaceUnavailableProvider)) {
+    throw const XbNetwork(XbNetworkKind.connectionFailed, '当前离线');
+  }
   final service = ref.watch(xboardServiceProvider);
   final result = service is XboardGuestCatalogControl
       ? await (service as XboardGuestCatalogControl).getGuestCatalog()
@@ -97,6 +100,7 @@ class _ShopTabState extends ConsumerState<ShopTab> {
   XbShopIntent? _handled;
   (AuthState, int)? _owner;
   bool _openingCheckout = false;
+  Object? _manualRefreshOwner;
   Object? _catalogOwner;
   List<PlanItem>? _lastCatalog;
   XbDomainSubscription? _lastProfile;
@@ -184,7 +188,7 @@ class _ShopTabState extends ConsumerState<ShopTab> {
     XbPlanPeriod period,
     int revision,
   ) async {
-    if (!widget.active || ref.read(isOfflineProvider) ||
+    if (!widget.active || ref.read(isOfflineProvider) || ref.read(interfaceUnavailableProvider) ||
         _openingCheckout ||
         ref.read(authStateProvider) != AuthState.authenticated ||
         ref.read(authStateProvider.notifier).sessionRevision != revision) {
@@ -200,7 +204,7 @@ class _ShopTabState extends ConsumerState<ShopTab> {
 
     bool current() {
       if (!mounted ||
-          !widget.active || ref.read(isOfflineProvider) ||
+          !widget.active || ref.read(isOfflineProvider) || ref.read(interfaceUnavailableProvider) ||
           ref.read(authStateProvider) != AuthState.authenticated ||
           ref.read(authStateProvider.notifier).sessionRevision != revision ||
           !identical(ref.read(xboardServiceProvider), service)) {
@@ -261,7 +265,7 @@ class _ShopTabState extends ConsumerState<ShopTab> {
     final auth = ref.watch(authStateProvider);
     final revision = ref.read(authStateProvider.notifier).sessionRevision;
     final authenticated = auth == AuthState.authenticated;
-    final offline = ref.watch(isOfflineProvider);
+    final offline = ref.watch(isOfflineProvider) || ref.watch(interfaceUnavailableProvider);
     final ready = ref.watch(bootstrapReadyProvider);
     final source = (auth, revision, ready && auth != AuthState.authenticating ? ref.watch(_catalogOwnerProvider) : null);
     if (_catalogOwner != source) {
@@ -286,8 +290,33 @@ class _ShopTabState extends ConsumerState<ShopTab> {
       if (profile?.hasError == true && !xbIsRecoverableReadError(profile?.error)) _lastProfile = null;
       final visibleCatalog = _lastCatalog;
       final stale = offline || catalog.isLoading || catalog.hasError;
+      final pricesFailed = !catalog.isLoading && catalog.hasError;
+      final profileFailed = profile != null && !profile.isLoading && profile.hasError;
+      final waiting = catalog.isLoading || profile?.isLoading == true;
+      final failedSource = pricesFailed && profileFailed ? '价格和套餐资料' : pricesFailed ? '价格' : '套餐资料';
+      void refreshFailed() {
+        if (!widget.active || _catalogOwner != source || ref.read(isOfflineProvider) ||
+            ref.read(interfaceUnavailableProvider) || ref.read(authStateProvider.notifier).sessionRevision != revision ||
+            _manualRefreshOwner == source) {
+          return;
+        }
+        final prices = ref.read(provider);
+        final account = authenticated ? ref.read(userProfileProvider) : null;
+        final refreshPrices = prices.hasError && !prices.isLoading;
+        final refreshProfile = account != null && account.hasError && !account.isLoading;
+        if (!refreshPrices && !refreshProfile) return;
+        setState(() => _manualRefreshOwner = source);
+        Future.wait<dynamic>([
+          if (refreshPrices) ref.refresh(provider.future),
+          if (refreshProfile) ref.refresh(userProfileProvider.future),
+        ]).then<void>((_) {}, onError: (Object _, StackTrace _) {}).whenComplete(() {
+          if (mounted && _manualRefreshOwner == source) setState(() => _manualRefreshOwner = null);
+        });
+      }
       xbListenForReadRecovery(context, ref, () {
         bool current() => widget.active && _catalogOwner == source &&
+            _manualRefreshOwner != source &&
+            !ref.read(interfaceUnavailableProvider) && !ref.read(isOfflineProvider) &&
             ref.read(authStateProvider.notifier).sessionRevision == revision;
         if (!current()) return;
         final latest = ref.read(provider);
@@ -302,16 +331,7 @@ class _ShopTabState extends ConsumerState<ShopTab> {
           if (!account.isLoading && xbIsRecoverableReadError(account.error)) ref.invalidate(userProfileProvider);
         }
       }, active: widget.active);
-      body = XbAsyncView(
-        // Do not animate an outgoing account's catalog into the next state.
-        key: ValueKey((auth, revision, catalog.isLoading, catalog.hasError)),
-        loading: catalog.isLoading && visibleCatalog == null,
-        error: visibleCatalog == null ? catalog.asError?.error : null,
-        errorFallback: '加载套餐失败',
-        onRetry: () {
-          if (!ref.read(isOfflineProvider) && !ref.read(provider).isLoading) ref.invalidate(provider);
-        },
-        builder: (_) {
+      body = Builder(builder: (_) {
           final offers = <_PlanOffer>[];
           final ids = <int>{};
           for (final plan in visibleCatalog ?? const <PlanItem>[]) {
@@ -325,7 +345,7 @@ class _ShopTabState extends ConsumerState<ShopTab> {
           _scheduleLocation(
             authenticated: authenticated,
             revision: revision,
-            ready: !(intent?.waitForProfile == true &&
+            ready: visibleCatalog != null && !catalog.isLoading && !catalog.hasError && !(intent?.waitForProfile == true &&
                 profile?.isLoading == true),
             planId: !authenticated
                 ? null
@@ -333,17 +353,13 @@ class _ShopTabState extends ConsumerState<ShopTab> {
                 ? sub?.planId
                 : intent?.planId,
           );
-          if (offers.isEmpty) {
-            if (stale) {
-              return Center(child: Column(mainAxisSize: MainAxisSize.min, children: [
-                const Text('目录未更新，上次没有可购买套餐'),
-                if (!offline && catalog.hasError) TextButton(onPressed: () {
-                  if (!ref.read(provider).isLoading) ref.invalidate(provider);
-                }, child: const Text('重新加载套餐')),
-              ]));
-            }
+          if (offers.isEmpty && !waiting && !offline && !pricesFailed && !profileFailed) {
             return const Center(child: Text('暂无可购买套餐'));
           }
+          final manualRefresh = _manualRefreshOwner == source;
+          final showNotice = manualRefresh || pricesFailed || profileFailed || offline && !waiting;
+          final previous = visibleCatalog == null || !stale ? '' :
+              offers.isEmpty ? '上次目录没有可购买套餐。' : '当前显示上次价格。';
           return SizedBox.expand(child: _catalog(
             offers,
             revision: revision,
@@ -351,32 +367,24 @@ class _ShopTabState extends ConsumerState<ShopTab> {
             activeId: _activeId(sub),
             ownedId: sub?.planId,
             canCheckout: !stale && (!authenticated || sub != null && profile?.isLoading == false && profile?.hasError == false && !_openingCheckout),
-            catalogNotice: stale ? '套餐目录未更新，显示上次记录' : profile?.isLoading == true ? '正在读取当前套餐' : null,
-            retryCatalog: !offline && catalog.hasError && !catalog.isLoading ? () => ref.invalidate(provider) : null,
-            profileFailed: profile != null &&
-                profile.hasError &&
-                !profile.isLoading,
+            header: showNotice ? XbPlanNoticeCard(
+              title: manualRefresh ? '正在同步商店' : offline ? '商店未同步' : '$failedSource同步失败',
+              desc: manualRefresh ? '同步完成后可核对最新套餐。' : offline ? '$previous请检查网络连接后刷新。' : '$previous刷新后再选购套餐。',
+              urgent: false,
+              icon: Icons.access_time,
+              actionLabel: manualRefresh ? '正在刷新…' : '刷新',
+              centered: !widget.mobile,
+              onTap: manualRefresh || offline || source.$3 == null ? null : refreshFailed,
+            ) : waiting ? Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: Text(catalog.isLoading ? '正在读取套餐价格…' : '正在读取套餐资料…'),
+            ) : null,
           ));
         },
       );
     }
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        if (widget.mobile)
-          const Padding(
-            padding: EdgeInsets.fromLTRB(16, 14, 16, 10),
-            child: Text(
-              '商店',
-              style: TextStyle(fontSize: 22, fontWeight: FontWeight.w700),
-            ),
-          )
-        else
-          const XbContentHeader(title: '商店', maxContentWidth: _maxContentWidth),
-        Expanded(child: body),
-      ],
-    );
+    return body;
   }
 
   Widget _catalog(
@@ -386,9 +394,7 @@ class _ShopTabState extends ConsumerState<ShopTab> {
     required int? activeId,
     required int? ownedId,
     required bool canCheckout,
-    required bool profileFailed,
-    required String? catalogNotice,
-    required VoidCallback? retryCatalog,
+    required Widget? header,
   }) {
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -409,15 +415,7 @@ class _ShopTabState extends ConsumerState<ShopTab> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  if (catalogNotice != null) Text(catalogNotice),
-                  if (retryCatalog != null) TextButton(onPressed: retryCatalog, child: const Text('重新加载套餐')),
-                  if (profileFailed) ...[
-                    XbErrorRetry(
-                      message: '无法读取当前套餐，请重试后继续',
-                      onRetry: () => ref.invalidate(userProfileProvider),
-                    ),
-                    const SizedBox(height: gap),
-                  ],
+                  ?header,
                   Wrap(
                     spacing: gap,
                     runSpacing: gap,
@@ -455,10 +453,11 @@ class _ShopTabState extends ConsumerState<ShopTab> {
     required bool canCheckout,
   }) {
     final id = offer.plan.id;
-    final selected = offer.prices.firstWhere(
-      (p) => p.period == _selectedPeriods[id],
-      orElse: () => offer.prices.first,
-    );
+    final annual = activeId != null && id != activeId
+        ? offer.prices.where((p) => p.period == XbPlanPeriod.yearly).firstOrNull
+        : null;
+    final selected = offer.prices.where((p) => p.period == _selectedPeriods[id]).firstOrNull ??
+        annual ?? offer.prices.first;
     return _PlanCard(
       offer: offer,
       titleKey: _titleKeys.putIfAbsent(id, () => GlobalKey()),
@@ -468,7 +467,7 @@ class _ShopTabState extends ConsumerState<ShopTab> {
       chosen: id == _chosenPlanId && !blocked,
       onSelectPeriod: (period) => setState(() {
         _selectedPeriods[id] = period;
-        if (_chosenPlanId == id) _chosenPlanId = null;
+        if (period != selected.period && _chosenPlanId == id) _chosenPlanId = null;
       }),
       onCheckout: blocked || !canCheckout
           ? null
@@ -497,14 +496,13 @@ class _PlanOffer {
     final prices = <_ShopPrice>[];
     final seen = <XbPlanPeriod>{};
     for (final price in plan.prices) {
-      final centValue = price.amountYuan * 100;
+      final cents = orderQuoteCents(price.amountYuan);
       if (price.period == XbPlanPeriod.resetTraffic ||
-          !centValue.isFinite ||
-          centValue.round() <= 0 ||
+          cents == null || cents <= 0 ||
           !seen.add(price.period)) {
         continue;
       }
-      prices.add((period: price.period, cents: centValue.round()));
+      prices.add((period: price.period, cents: cents));
     }
     if (prices.isEmpty) return null;
     prices.sort((a, b) => a.period.index.compareTo(b.period.index));
@@ -512,7 +510,7 @@ class _PlanOffer {
   }
 }
 
-class _PlanCard extends ConsumerStatefulWidget {
+class _PlanCard extends StatelessWidget {
   const _PlanCard({
     required this.offer,
     required this.titleKey,
@@ -534,22 +532,8 @@ class _PlanCard extends ConsumerStatefulWidget {
   final ValueChanged<XbPlanPeriod>? onCheckout;
 
   @override
-  ConsumerState<_PlanCard> createState() => _PlanCardState();
-}
-
-class _PlanCardState extends ConsumerState<_PlanCard> {
-  late _ShopPrice _selected = widget.selected;
-
-  @override
-  void didUpdateWidget(_PlanCard oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    _selected = widget.selected;
-  }
-
-  @override
   Widget build(BuildContext context) {
-    final plan = widget.offer.plan;
-    final selected = _selected;
+    final plan = offer.plan;
     final t = XbTokens.of(context);
     final theme = Theme.of(context);
     final dark = theme.brightness == Brightness.dark;
@@ -562,8 +546,8 @@ class _PlanCardState extends ConsumerState<_PlanCard> {
     const mistBlue = Color(0xFF365A73);
     final buttonInk = dark ? Color.lerp(mistBlue, Colors.white, .42)! : mistBlue;
     final outline = Color.lerp(t.sf2, buttonInk, .42)!;
-    final buyLabel = XbEmojiText(widget.blocked ? '当前套餐不可续费' : '${widget.renew ? '续费' : '购买'} ${plan.name}');
-    final buy = widget.onCheckout == null ? null : () => widget.onCheckout!(_selected.period);
+    final buyLabel = XbEmojiText(blocked ? '当前套餐不可续费' : '${renew ? '续费' : '购买'} ${plan.name}');
+    final buy = onCheckout == null ? null : () => onCheckout!(selected.period);
     final whole = selected.cents ~/ 100;
     final fraction = (selected.cents % 100).toString().padLeft(2, '0');
     final unit = selected.period == XbPlanPeriod.onetime
@@ -579,7 +563,7 @@ class _PlanCardState extends ConsumerState<_PlanCard> {
             key: ValueKey('shop-plan-title-${plan.id}'),
             skipTraversal: true,
             child: Builder(
-              key: widget.titleKey,
+              key: titleKey,
               builder: (context) => Semantics(
                 header: true,
                 child: DecoratedBox(
@@ -609,7 +593,7 @@ class _PlanCardState extends ConsumerState<_PlanCard> {
             primary: false,
             child: Row(
               children: [
-                for (final price in widget.offer.prices)
+                for (final price in offer.prices)
                   Padding(
                     padding: const EdgeInsetsDirectional.only(end: 3),
                     child: Semantics(
@@ -629,11 +613,7 @@ class _PlanCardState extends ConsumerState<_PlanCard> {
                             borderRadius: BorderRadius.circular(XbTokens.rLg),
                           ),
                         ),
-                        onPressed: () {
-                          if (price == _selected) return;
-                          widget.onSelectPeriod(price.period);
-                          setState(() => _selected = price);
-                        },
+                        onPressed: () => onSelectPeriod(price.period),
                         child: Text(planPeriodLabel(price.period)),
                       ),
                     ),
@@ -663,7 +643,7 @@ class _PlanCardState extends ConsumerState<_PlanCard> {
             ),
           ),
           const SizedBox(height: 5),
-          if (widget.chosen)
+          if (chosen)
             XbGradientAction(height: 44, onPressed: buy, child: buyLabel)
           else OutlinedButton(
             onPressed: buy,

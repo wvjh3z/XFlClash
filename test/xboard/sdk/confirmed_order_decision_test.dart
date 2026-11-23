@@ -64,11 +64,11 @@ class _Harness {
     );
     when(() => instance.httpService).thenReturn(http);
     when(() => http.getRequest(any())).thenAnswer((invocation) {
-      expect(_Http.inActiveScope, isTrue);
+      if (!_Http.inActiveScope) throw StateError('request outside active order scope');
       final path = invocation.positionalArguments.single as String;
       if (path == '/api/v1/user/plan/fetch?id=7') {
         calls.add('quote-check');
-        return Future.value(_success({'id': 7, 'renew': renewable, 'month_price': monthPrice}));
+        return catalogRead(_success({'id': 7, 'renew': renewable, 'month_price': monthPrice}));
       }
       if (path == '/api/v1/user/plan/fetch') {
         calls.add('reset-check');
@@ -82,14 +82,14 @@ class _Harness {
       return detail(path);
     });
     when(() => apis.orderApi.cancelOrder('OLD')).thenAnswer((_) {
-      expect(_Http.inActiveScope, isTrue);
+      if (!_Http.inActiveScope) throw StateError('request outside active order scope');
       calls.add('cancel:OLD');
       return cancel();
     });
     when(
       () => apis.orderApi.createOrder(7, any(), couponCode: any(named: 'couponCode')),
     ).thenAnswer((_) {
-      expect(_Http.inActiveScope, isTrue);
+      if (!_Http.inActiveScope) throw StateError('request outside active order scope');
       calls.add('create');
       return create();
     });
@@ -106,6 +106,8 @@ class _Harness {
   bool renewable = true;
   var revision = 1;
   bool active = true;
+  Future<Map<String, dynamic>> Function(Map<String, dynamic>) catalogRead =
+      (value) async => value;
   Future<Map<String, dynamic>> Function() fetch = () async => _success([]);
   Future<Map<String, dynamic>> Function(String) detail = (path) async =>
       throw StateError('Unexpected detail request');
@@ -123,9 +125,11 @@ class _Harness {
   Future<XbResult<String?>> submit({
     ConfirmedOrderQuote quote = _quote,
     XboardServiceImpl? via,
+    void Function(ConfirmedOrderStage stage)? onStage,
   }) => (via ?? service).confirmOrder(
     quote,
     isActive: () => active,
+    onStage: onStage,
     confirm: (conflict) {
       calls.add('confirm');
       conflicts.add(conflict);
@@ -151,6 +155,99 @@ void _expectReview(XbResult<String?> result) {
 }
 
 void main() {
+  ConfirmedOrderQuote subscriptionQuote() => ConfirmedOrderQuote(
+    planId: 7, planName: 'current', period: XbPlanPeriod.monthly,
+    catalogCents: 1000, estimatedCents: 1000,
+    expectedSubscription: ConfirmedOrderSubscription(planId: 5, totalBytes: 100, expiredAt: null),
+  );
+
+  for (final replace in [false, true]) {
+    testWidgets('controlled service latency: ${replace ? 'replace' : 'empty'}', (t) async {
+      const hop = Duration(milliseconds: 100);
+      final h = _Harness();
+      var operations = 0;
+      var cancelled = false;
+      var subscriptions = 0;
+      final stages = <ConfirmedOrderStage>[];
+      Future<T> readOrWrite<T>(T result) {
+        operations++;
+        return Future.delayed(hop, () => result);
+      }
+      when(h.apis.subscriptionApi.getSubscription).thenAnswer((_) {
+        subscriptions++;
+        return readOrWrite(sdk.SubscriptionModel(planId: 5, transferEnable: 100));
+      });
+      h.catalogRead = (raw) => readOrWrite(raw);
+      h.fetch = () => readOrWrite(_success([
+        if (replace) _wireOrder(plan: 5, status: cancelled ? 2 : 0),
+      ]));
+      h.detail = (path) => readOrWrite(_success(path == _detail('NEW')
+          ? _wireOrder(no: 'NEW')
+          : _wireOrder(plan: 5, status: cancelled ? 2 : 0)));
+      h.cancel = () async {
+        if (stages.last != ConfirmedOrderStage.cancelling) throw StateError('missing cancel stage');
+        await readOrWrite(true);
+        cancelled = true;
+        return true;
+      };
+      h.create = () {
+        if (stages.last != ConfirmedOrderStage.creating) throw StateError('missing creation stage');
+        return readOrWrite('NEW');
+      };
+      final start = t.binding.clock.now();
+      Duration? elapsed;
+      final result = h.submit(quote: subscriptionQuote(), onStage: stages.add).then((value) {
+        elapsed = t.binding.clock.now().difference(start);
+        return value;
+      });
+      await t.pump();
+      expect(subscriptions, 1);
+      expect(h.calls, ['fetch']); // Both started, neither has returned.
+      for (var i = 0; i < 15 && elapsed == null; i++) {
+        await t.pump(hop);
+      }
+      expect(elapsed, hop * (replace ? 11 : 4));
+      expect(operations, replace ? 14 : 5); // All original wire operations retained.
+      expect((await result).dataOrNull, 'NEW');
+      expect(stages, [
+        ConfirmedOrderStage.checking,
+        if (replace) ...[
+          ConfirmedOrderStage.awaitingConfirmation, ConfirmedOrderStage.checking,
+          ConfirmedOrderStage.cancelling, ConfirmedOrderStage.checkingCancellation,
+          ConfirmedOrderStage.checking,
+        ],
+        ConfirmedOrderStage.creating, ConfirmedOrderStage.verifying,
+      ]);
+      expect(h.calls.where((call) => call == 'create'), hasLength(1));
+      expect(h.calls.where((call) => call == 'cancel:OLD'), hasLength(replace ? 1 : 0));
+    });
+  }
+
+  for (final stop in ['subscription', 'session', 'orders']) {
+    test('completed sibling read cannot authorize a write: $stop', () async {
+      final h = _Harness();
+      final list = Completer<Map<String, dynamic>>();
+      final sub = Completer<sdk.SubscriptionModel>();
+      when(h.apis.subscriptionApi.getSubscription).thenAnswer((_) => sub.future);
+      h.fetch = () => list.future;
+      final stages = <ConfirmedOrderStage>[];
+      final pending = h.submit(quote: subscriptionQuote(), onStage: stages.add);
+      await Future<void>.delayed(Duration.zero);
+      verify(h.apis.subscriptionApi.getSubscription).called(1);
+      expect(h.calls, ['fetch']);
+      list.complete(stop == 'orders' ? {'success': false} : _success([]));
+      await Future<void>.delayed(Duration.zero);
+      h.noWrite();
+      if (stop == 'session') h.revision++;
+      sub.complete(sdk.SubscriptionModel(planId: stop == 'subscription' ? 6 : 5, transferEnable: 100));
+      final result = await pending;
+      expect(result.dataOrNull, isNull);
+      if (stop != 'session') expect(result.isSuccess, isFalse);
+      expect(stages, [ConfirmedOrderStage.checking]);
+      h.noWrite();
+    });
+  }
+
   for (final price in [null, 1200, 'bad', 1000.25, 1000]) {
     test('quoted period revalidated before cancel, including coupon: $price', () async {
       final h = _Harness()..existing(_wireOrder(plan: 8));
@@ -259,6 +356,29 @@ void main() {
     h.noWrite();
   });
 
+  test('balance 600 and no plan surplus: never infer credit from a price difference', () async {
+    final h = _Harness()..existing({..._wireOrder(amount: 2400, balance: 600), 'surplus_amount': 0});
+    h.accept = () async => false;
+    await h.submit();
+    final conflict = h.conflicts.single;
+    expect(conflict.existingPayableCents, 2400);
+    expect(conflict.quote.estimatedCents, 1000);
+    expect(conflict.existingBalanceCents, 600);
+    expect(conflict.existingAppliedSurplusCents, 0);
+    expect(conflict.existingCreditCents, 600);
+    h.noWrite();
+  });
+
+  test('same combined credits but changed source invalidates replacement consent', () async {
+    final h = _Harness()..existing({..._wireOrder(plan: 5, balance: 600), 'surplus_amount': 0});
+    h.accept = () async {
+      h.existing({..._wireOrder(plan: 5, balance: 0), 'surplus_amount': 600});
+      return true;
+    };
+    _expectReview(await h.submit());
+    h.noWrite();
+  });
+
   test('missing list fields can be filled by exact detail only', () async {
     final h = _Harness()
       ..existing(_wireOrder(status: null, plan: null, period: null, amount: null))
@@ -273,6 +393,8 @@ void main() {
         if (credit != null) 'surplus_credit': credit};
       final h = _Harness()..existing(row)..accept = (() async => false);
       await h.submit();
+      expect(h.conflicts.single.existingBalanceCents, 0);
+      expect(h.conflicts.single.existingAppliedSurplusCents, credit == null ? null : 2000 - credit);
       expect(h.conflicts.single.existingCreditCents, credit == null ? null : 2000 - credit);
       h.noWrite();
     });

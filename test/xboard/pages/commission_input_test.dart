@@ -121,9 +121,15 @@ void main() {
         ));
         expect(painted, findsOneWidget);
         String? copied;
+        final release = Completer<void>();
+        var writes = 0;
         final messenger = tester.binding.defaultBinaryMessenger;
         messenger.setMockMethodCallHandler(SystemChannels.platform, (call) async {
-          if (call.method == 'Clipboard.setData') copied = call.arguments['text'] as String?;
+          if (call.method == 'Clipboard.setData') {
+            writes++;
+            copied = call.arguments['text'] as String?;
+            await release.future;
+          }
           return null;
         });
         addTearDown(() => messenger.setMockMethodCallHandler(SystemChannels.platform, null));
@@ -131,6 +137,13 @@ void main() {
         await tester.tap(copy);
         await tester.pump();
         expect(copied, 'fixture');
+        final busy = find.text('正在复制…');
+        expect(tester.widget<FilledButton>(find.widgetWithText(FilledButton, '正在复制…')).onPressed, isNull);
+        await tester.tap(busy);
+        expect(writes, 1);
+        release.complete();
+        await tester.pumpAndSettle();
+        expect(copy, findsOneWidget);
       }
       await tester.scrollUntilVisible(find.text('查看返佣记录'), 320);
       await tester.pumpAndSettle();

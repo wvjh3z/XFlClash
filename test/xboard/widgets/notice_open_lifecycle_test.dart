@@ -14,6 +14,9 @@ import 'package:fl_clash/xboard/sdk/xboard_service.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:fl_clash/xboard/util/notice_read_store.dart';
 import 'package:fl_clash/xboard/widgets/xb_announcement.dart';
+import 'package:fl_clash/xboard/shell/tabs/home/home_tab.dart' show XbHomeSyncNotice;
+import 'package:fl_clash/xboard/providers/user_profile_provider.dart';
+import 'package:fl_clash/xboard/models/xb_domain_subscription.dart';
 
 class _Service extends Mock implements XboardService {}
 
@@ -29,23 +32,43 @@ class _Store extends NoticeReadStore {
   }
 }
 void main() {
+  testWidgets('API 恢复先于公告首读失败，只补读一次且无需手点', (tester) async {
+    final service = _Service();
+    final slow = Completer<XbResult<List<XbNotice>>>();
+    var calls = 0;
+    when(service.getNotices).thenAnswer((_) async => ++calls == 1
+        ? slow.future : const XbSuccess(<XbNotice>[]));
+    final c = ProviderContainer(overrides: [xboardServiceProvider.overrideWithValue(service)]);
+    addTearDown(c.dispose);
+    c.read(bootstrapReadyProvider.notifier).set(true);
+    c.read(authStateProvider.notifier).markAuthenticated();
+    await tester.pumpWidget(UncontrolledProviderScope(container: c,
+      child: const MaterialApp(home: Scaffold(body: XbNoticePill()))));
+    c.read(networkRecoveryProvider.notifier).publish();
+    expect(calls, 1);
+    slow.complete(const XbFailure(XbNetwork(XbNetworkKind.cancelled, 'network changed')));
+    await tester.pumpAndSettle();
+    expect(find.text('公告重试'), findsNothing);
+    expect(calls, 2);
+  });
   testWidgets('公告读取失败显示重试，恢复后的成功空列表才隐藏提示', (tester) async {
     final service = _Service();
     var calls = 0;
     when(service.getNotices).thenAnswer((_) async => ++calls == 1
         ? const XbFailure<List<XbNotice>>(XbNetwork(XbNetworkKind.connectionFailed, 'offline'))
         : const XbSuccess(<XbNotice>[]));
-    final container = ProviderContainer(overrides: [xboardServiceProvider.overrideWithValue(service)]);
+    final container = ProviderContainer(overrides: [xboardServiceProvider.overrideWithValue(service),
+      userProfileProvider.overrideWith((_) async => const XbDomainSubscription(email: 'test', uuid: 'fixture', totalBytes: 0, usedBytes: 0))]);
     addTearDown(container.dispose);
     container.read(bootstrapReadyProvider.notifier).set(true);
     container.read(authStateProvider.notifier).markAuthenticated();
     await tester.pumpWidget(UncontrolledProviderScope(container: container,
-        child: const MaterialApp(home: Scaffold(body: XbNoticePill()))));
+        child: const MaterialApp(home: Scaffold(body: Column(children: [XbNoticePill(), XbHomeSyncNotice()])))));
     await tester.pumpAndSettle();
-    expect(find.text('公告重试'), findsOneWidget);
+    expect(find.text('公告暂未更新'), findsOneWidget);
     container.read(networkRecoveryProvider.notifier).publish();
     await tester.pumpAndSettle();
-    expect(find.text('公告重试'), findsNothing);
+    expect(find.text('公告暂未更新'), findsNothing);
     expect(find.text('有新公告'), findsNothing);
     container.read(networkRecoveryProvider.notifier).publish();
     await tester.pumpAndSettle();

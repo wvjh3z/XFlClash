@@ -7,6 +7,9 @@ import 'package:fl_clash/xboard/models/xb_result.dart';
 import 'package:fl_clash/xboard/pages/plan_detail_page.dart';
 import 'package:fl_clash/xboard/providers/auth_state_provider.dart';
 import 'package:fl_clash/xboard/providers/network_recovery_provider.dart';
+import 'package:fl_clash/xboard/providers/xboard_connectivity_provider.dart';
+import 'package:fl_clash/xboard/widgets/xb_plan_notice_card.dart';
+import 'package:fl_clash/xboard/widgets/xb_components.dart' show XbSelectableOption;
 import 'package:fl_clash/xboard/models/xb_domain_error.dart';
 import 'package:fl_clash/xboard/providers/user_profile_provider.dart';
 import 'package:fl_clash/xboard/providers/xboard_providers.dart';
@@ -122,6 +125,105 @@ void _noWrites(_Service service) {
 void main() {
   setUpAll(() => registerFallbackValue(XbPlanPeriod.monthly));
 
+  for (final scenario in ['price', 'profile', 'both']) {
+    testWidgets('one refresh strip for $scenario, retries only failed sources', (t) async {
+      final service = _Service();
+      final nextCatalog = Completer<XbResult<List<PlanItem>>>();
+      final nextProfile = Completer<XbDomainSubscription>();
+      var prices = 0, profiles = 0;
+      const error = XbNetwork(XbNetworkKind.timeout, 'fixture');
+      when(service.getPlans).thenAnswer((_) async {
+        if (++prices == 1) return scenario == 'profile' ? const XbSuccess(_plans) : const XbFailure(error);
+        return nextCatalog.future;
+      });
+      final c = _container(service, profile: () async {
+        if (++profiles == 1) {
+          if (scenario != 'price') throw error;
+          return _profile();
+        }
+        return nextProfile.future;
+      });
+      await t.pumpWidget(_app(c));
+      await t.pumpAndSettle();
+      final card = find.byType(XbPlanNoticeCard);
+      expect(card, findsOneWidget);
+      final notice = t.widget<XbPlanNoticeCard>(card);
+      expect(notice.urgent, isFalse);
+      expect(notice.icon, Icons.access_time);
+      final source = {'price':'价格','profile':'套餐资料','both':'价格和套餐资料'}[scenario];
+      expect(notice.title, '${source}同步失败');
+      c.read(interfaceUnavailableProvider.notifier).set(true);
+      await t.pump();
+      expect(t.widget<XbPlanNoticeCard>(card).onTap, isNull);
+      c.read(interfaceUnavailableProvider.notifier).set(false);
+      await t.pump();
+      final refresh = t.widget<XbPlanNoticeCard>(card).onTap!;
+      refresh(); refresh();
+      await t.pump();
+      expect(t.widget<XbPlanNoticeCard>(card).actionLabel, '正在刷新…');
+      expect(t.widget<XbPlanNoticeCard>(card).onTap, isNull);
+      expect(find.descendant(of: card, matching: find.byType(CircularProgressIndicator)), findsNothing);
+      expect(prices, scenario == 'profile' ? 1 : 2);
+      expect(profiles, scenario == 'price' ? 1 : 2);
+      nextCatalog.complete(const XbSuccess(_plans));
+      nextProfile.complete(_profile());
+      await t.pumpAndSettle();
+      expect(card, findsNothing);
+      expect(_text('续费 可续订套餐'), findsOneWidget);
+      _noWrites(service);
+    });
+  }
+  for (final empty in [true, false]) {
+    testWidgets('failed guest refresh preserves ${empty ? "empty" : "nonempty"} snapshot read-only', (t) async {
+      final s = _Service();
+      var reads = 0;
+      when(s.getGuestCatalog).thenAnswer((_) async => ++reads == 1 ? XbSuccess(empty ? <PlanItem>[] : _plans) :
+          const XbFailure(XbNetwork(XbNetworkKind.timeout, 'fixture')));
+      final c = _container(s, auth: AuthState.unauthenticated, profile: () async => _profile());
+      await t.pumpWidget(_app(c));
+      await t.pumpAndSettle();
+      c.read(apiEndpointProvider.notifier).set('https://fixture.invalid');
+      await t.pumpAndSettle();
+      expect(find.byType(XbPlanNoticeCard), findsOneWidget);
+      expect(find.textContaining(empty ? '上次目录没有可购买套餐' : '当前显示上次价格'), findsOneWidget);
+      if (!empty) {
+        final button = find.ancestor(of: _text('购买 可续订套餐'), matching: find.byType(OutlinedButton));
+        expect(t.widget<OutlinedButton>(button).onPressed, isNull);
+      }
+      expect(reads, 2);
+      _noWrites(s);
+    });
+  }
+  for (final mode in ['default', 'manual', 'no-year', 'invalid-year', 'manual-before-profile']) {
+    testWidgets('switch target period/price and checkout agree: $mode', (t) async {
+      final s = _Service();
+      final profile = Completer<XbDomainSubscription>();
+      when(s.getPlans).thenAnswer((_) async => XbSuccess([_plans.first.copyWith(prices: [
+        const PricePlan(period: XbPlanPeriod.monthly, amountYuan: 25.01),
+        if (mode != 'no-year') PricePlan(period: XbPlanPeriod.yearly, amountYuan: mode == 'invalid-year' ? 12.123 : 270.89),
+      ])]));
+      final c = _container(s, profile: () => profile.future);
+      if (mode != 'manual-before-profile') profile.complete(_profile(planId: 8));
+      await t.pumpWidget(_app(c));
+      await t.pumpAndSettle();
+      if (mode.startsWith('manual')) {
+        await _tap(t, '月付');
+        if (!profile.isCompleted) profile.complete(_profile(planId: 8));
+        await t.pumpAndSettle();
+      }
+      final annual = mode == 'default';
+      final period = annual ? XbPlanPeriod.yearly : XbPlanPeriod.monthly;
+      expect(t.widget<Semantics>(find.byKey(ValueKey(('shop-period', 4, period)))).properties.selected, isTrue);
+      expect(_text(annual ? '¥270.89  / 年' : '¥25.01  / 月'), findsOneWidget);
+      await _tap(t, '购买 可续订套餐');
+      await _tap(t, '确认更换');
+      expect(t.widget<PlanDetailPage>(find.byType(PlanDetailPage)).initialPeriod, period);
+      final selected = find.byWidgetPredicate((w) => w is XbSelectableOption && w.selected);
+      expect(find.descendant(of: selected, matching: find.text(annual ? '年付' : '月付')), findsOneWidget);
+      _noWrites(s);
+    });
+  }
+
   for (final auth in [AuthState.authenticated, AuthState.unauthenticated]) {
     testWidgets('visible $auth shop retries failed catalog only, without order writes', (t) async {
       final service = _Service();
@@ -192,7 +294,8 @@ void main() {
       const ValueKey(('shop-period', 4, XbPlanPeriod.yearly)),
     );
     expect(t.getTopLeft(first).dy, t.getTopLeft(second).dy);
-    expect(t.getTopLeft(first).dy - t.getBottomLeft(_text('商店')).dy, lessThan(80));
+    expect(_text('商店'), findsNothing);
+    expect(t.getTopLeft(first).dy - t.getTopLeft(find.byType(ShopTab)).dy, lessThan(80));
     expect(_text('¥25.01  / 月'), findsOneWidget);
     expect(_text('¥359.00  一次性'), findsOneWidget);
     expect(find.textContaining('第四条完整显示', findRichText: true), findsWidgets);
@@ -210,7 +313,8 @@ void main() {
     await t.pumpWidget(_app(c, mobile: true));
     await t.pumpAndSettle();
     expect(t.getTopLeft(first).dy, lessThan(t.getTopLeft(second).dy));
-    expect(t.getTopLeft(first).dy - t.getBottomLeft(_text('商店')).dy, lessThan(80));
+    expect(_text('商店'), findsNothing);
+    expect(t.getTopLeft(first).dy - t.getTopLeft(find.byType(ShopTab)).dy, lessThan(80));
     expect(t.widget<Semantics>(yearly).properties.selected, isTrue);
     verify(service.getPlans).called(1);
     _noWrites(service);

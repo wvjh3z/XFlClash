@@ -125,10 +125,26 @@ void main() {
       ));
       await tester.pumpAndSettle();
       expect(find.text('🎉 有新版本啦', findRichText: true), findsOneWidget);
+      late Completer<void> gate;
+      final answer = respond;
+      respond = () async {
+        await gate.future;
+        return answer();
+      };
+      late Future<UpdateCheckResult> flight;
       await tester.runAsync(() async {
+        gate = Completer<void>();
         await tester.tap(find.text('检查更新'));
         // Join the real button's in-flight check; desktop ABI resolves via uname.
-        await XbUpdateService.check(sdk, endpoints: race);
+        flight = XbUpdateService.check(sdk, endpoints: race);
+      });
+      await tester.pump();
+      final busy = find.widgetWithText(material.FilledButton, '正在检查更新…');
+      expect(tester.widget<material.FilledButton>(busy).onPressed, isNull);
+      expect(find.descendant(of: busy, matching: find.byType(material.CircularProgressIndicator)), findsNothing);
+      await tester.runAsync(() async {
+        gate.complete();
+        await flight.timeout(const Duration(seconds: 5));
       });
       await tester.pumpAndSettle();
       expect(requests, greaterThan(0));

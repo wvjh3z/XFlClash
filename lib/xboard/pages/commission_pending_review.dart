@@ -4,6 +4,7 @@ import 'package:material_ui/material_ui.dart';
 import '../providers/invite_provider.dart';
 import '../sdk/xboard_service.dart';
 import '../util/format.dart';
+import '../widgets/xb_ui_kit.dart' show XbGradientAction;
 
 /// The panel cannot correlate a transfer/withdrawal to an individual write.
 /// Review is explicit and read-only; it never clears the session's replay lock.
@@ -57,8 +58,11 @@ class _ReviewState extends ConsumerState<CommissionPendingReview> {
         '${report == null ? '' : '\n$report'}'),
       actions: [
         TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('关闭')),
-        TextButton(onPressed: !active || reading ? null : review,
-            child: Text(reading ? '核对中…' : '只读核对余额和流水')),
+        if (!active)
+          const TextButton(onPressed: null, child: Text('只读核对余额和流水'))
+        else
+          XbGradientAction(onPressed: review, busyLabel: reading ? '正在核对余额和流水…' : null,
+              child: const Text('只读核对余额和流水')),
       ],
     );
   }

@@ -33,10 +33,10 @@ class _DecisionOrder {
   final int? creditCents;
   final String? planName;
   int get reservedCreditCents => (balanceCents ?? 0) + (surplusCents ?? 0);
-  int? get appliedCreditCents {
-    final applied = appliedOrderSurplusCents(net: payableCents!, balance: balanceCents ?? 0, surplus: surplusCents ?? 0, credit: creditCents);
-    return applied == null ? null : applied + (balanceCents ?? 0);
-  }
+  int? get appliedSurplusCents => appliedOrderSurplusCents(
+    net: payableCents!, balance: balanceCents ?? 0,
+    surplus: surplusCents ?? 0, credit: creditCents,
+  );
 
   bool get complete =>
       status != null &&
@@ -284,6 +284,7 @@ extension _ConfirmedOrderDecision on XboardServiceImpl {
     ConfirmedOrderQuote quote,
     bool Function() current,
     Future<bool> Function(ConfirmedOrderConflict) confirm,
+    void Function(ConfirmedOrderStage stage)? onStage,
   ) async {
     const stopped = XbSuccess<String?>(null);
     const review = XbFailure<String?>(
@@ -312,6 +313,7 @@ extension _ConfirmedOrderDecision on XboardServiceImpl {
     bool couponCurrent() =>
         quote.couponEndsAt?.isAfter(DateTime.now()) ?? true;
     if (!couponCurrent()) return expiredCoupon;
+    onStage?.call(ConfirmedOrderStage.checking);
 
     // A coupon changes the estimate, not the catalog price the user selected.
     // Reset eligibility is independent of renewal permission: re-read the same
@@ -386,12 +388,16 @@ extension _ConfirmedOrderDecision on XboardServiceImpl {
       return cancelUnknown;
     }
 
-    final subscriptionMatches =
-        await _matchesExpectedSubscription(quote.expectedSubscription);
+    // These are independent authenticated reads in the same request-validity
+    // scope. Never reuse their evidence across user consent or a write.
+    Future<(bool, XbResult<_DecisionOrderSnapshot>)> readIntentEvidence() => (
+      _matchesExpectedSubscription(quote.expectedSubscription),
+      _runGuarded('getOrders', _decisionOrderSnapshot),
+    ).wait;
+
+    final (subscriptionMatches, first) = await readIntentEvidence();
     if (!current()) return stopped;
     if (!subscriptionMatches) return changedSubscription;
-    final first = await _runGuarded('getOrders', _decisionOrderSnapshot);
-    if (!current()) return stopped;
     final initial = first.dataOrNull;
     if (initial == null) return review;
     if (!couponCurrent()) return expiredCoupon;
@@ -408,6 +414,7 @@ extension _ConfirmedOrderDecision on XboardServiceImpl {
           existing.payableCents == quote.estimatedCents) {
         return XbSuccess(existing.tradeNo);
       }
+      onStage?.call(ConfirmedOrderStage.awaitingConfirmation);
       final consent = await confirm(
         ConfirmedOrderConflict(
           choice: sameProduct
@@ -418,16 +425,15 @@ extension _ConfirmedOrderDecision on XboardServiceImpl {
           existingPlanName: existing.planName ?? '套餐 #${existing.planId}',
           existingPeriod: _toXbPeriod(existing.period!),
           existingPayableCents: existing.payableCents!,
-          existingCreditCents: existing.appliedCreditCents,
+          existingBalanceCents: existing.balanceCents ?? 0,
+          existingAppliedSurplusCents: existing.appliedSurplusCents,
         ),
       );
       if (!current() || !consent) return stopped;
-      final subscriptionStillMatches =
-          await _matchesExpectedSubscription(quote.expectedSubscription);
+      onStage?.call(ConfirmedOrderStage.checking);
+      final (subscriptionStillMatches, second) = await readIntentEvidence();
       if (!current()) return stopped;
       if (!subscriptionStillMatches) return changedSubscription;
-      final second = await _runGuarded('getOrders', _decisionOrderSnapshot);
-      if (!current()) return stopped;
       final checkedAgain = second.dataOrNull;
       final latest = checkedAgain?.pending;
       if (latest == null || !existing.samePendingQuote(latest)) return review;
@@ -441,9 +447,13 @@ extension _ConfirmedOrderDecision on XboardServiceImpl {
       session.cancellationToVerify = existing;
       final cancel = await _runGuarded(
         'cancelOrder',
-        () => _sdk.order.cancelOrder(existing.tradeNo),
+        () {
+          onStage?.call(ConfirmedOrderStage.cancelling);
+          return _sdk.order.cancelOrder(existing.tradeNo);
+        },
       );
       if (!current()) return stopped;
+      onStage?.call(ConfirmedOrderStage.checkingCancellation);
       final cancelled = await _runGuarded(
         'getOrder',
         () => _decisionOrderDetail(existing.tradeNo),
@@ -456,10 +466,8 @@ extension _ConfirmedOrderDecision on XboardServiceImpl {
       if (cancel.dataOrNull != true) return cancelledWithoutReplacement;
       replaced = true;
 
-      final subscriptionAfterCancel =
-          await _matchesExpectedSubscription(quote.expectedSubscription);
-      if (!current()) return stopped;
-      final afterCancel = await _runGuarded('getOrders', _decisionOrderSnapshot);
+      onStage?.call(ConfirmedOrderStage.checking);
+      final (subscriptionAfterCancel, afterCancel) = await readIntentEvidence();
       if (!current()) return stopped;
       final after = afterCancel.dataOrNull;
       if (!subscriptionAfterCancel ||
@@ -481,11 +489,14 @@ extension _ConfirmedOrderDecision on XboardServiceImpl {
     session.createUnconfirmed = true;
     final creation = await _runGuarded('createOrder', () async {
       final no = await _withKnownWriteRejection(
-        () => _sdk.order.createOrder(
-          quote.planId,
-          period.value,
-          couponCode: quote.couponCode,
-        ),
+        () {
+          onStage?.call(ConfirmedOrderStage.creating);
+          return _sdk.order.createOrder(
+            quote.planId,
+            period.value,
+            couponCode: quote.couponCode,
+          );
+        },
       );
       if (snapshotTrades.contains(no)) _unknownOrderResponse();
       return _decisionTradeNo(no) ?? _unknownOrderResponse();
@@ -511,6 +522,7 @@ extension _ConfirmedOrderDecision on XboardServiceImpl {
       return XbFailure(error);
     }
     if (!current()) return stopped;
+    onStage?.call(ConfirmedOrderStage.verifying);
     if (creation case XbSuccess<String>(:final data)) {
       final checked = await _runGuarded(
         'getOrder',

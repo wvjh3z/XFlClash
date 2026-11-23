@@ -73,6 +73,18 @@ abstract interface class XboardConfirmedOrderControl {
   });
 }
 
+/// Optional phase reporting; existing order-control implementations keep the
+/// original contract. Stages are descriptive and never authorize an action.
+abstract interface class XboardProgressOrderControl implements XboardConfirmedOrderControl {
+  @override
+  Future<XbResult<String?>> confirmOrder(
+    ConfirmedOrderQuote quote, {
+    required bool Function() isActive,
+    required Future<bool> Function(ConfirmedOrderConflict) confirm,
+    void Function(ConfirmedOrderStage stage)? onStage,
+  });
+}
+
 /// 反腐层抽象：UI / providers 与 SDK 之间的唯一桥梁。
 abstract interface class XboardService {
   // ───────── 认证（R1/R2/R3/R4，5 方法）─────────

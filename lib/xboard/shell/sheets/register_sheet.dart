@@ -231,13 +231,8 @@ class _RegisterSheetState extends ConsumerState<RegisterSheet>
           child: XbGradientAction(
             height: 50,
             onPressed: (!ready || submitting) ? null : () => _submit(suffixes),
-            child: submitting
-                ? const SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : Text(ready ? '注册' : '准备中…'),
+            busyLabel: submitting ? '正在注册…' : null,
+            child: Text(ready ? '注册' : '准备中…'),
           ),
         ),
       ],

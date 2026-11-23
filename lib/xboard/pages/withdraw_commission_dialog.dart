@@ -346,7 +346,10 @@ class _WithdrawCommissionDialogState
               labelSize: _form ? 15 : 13,
               cancelLabel: _form ? '取消' : '关闭',
               onCancel: _submitting ? null : _close,
-              confirmLabel: !_form ? '提交提现申请' : _submitting ? '提交中…' : '提交申请',
+              confirmLabel: !_form ? '提交提现申请' : '提交申请',
+              busyLabel: _submitting ? '正在提交提现申请…'
+                  : !_form && _checking ? '正在核对提现条件…'
+                  : _form && _methodsChecking ? '正在读取收款方式…' : null,
               onConfirm: !_form ? (_eligible ? _continue : null) : (_canSubmit ? _submit : null),
             )
           else
@@ -514,13 +517,11 @@ class _WithdrawCommissionDialogState
         SizedBox(height: 8 + 4 * space),
         _amountRow(context, '整笔提现额', _balanceCents),
         SizedBox(height: 8 + 4 * space),
-        if (_methodsChecking)
-          const LinearProgressIndicator()
-        else if (_methods.isEmpty) ...[
+        if (!_methodsChecking && _methods.isEmpty) ...[
           Text(xbIsRecoverableReadError(_methodsError)
               ? '网络异常，暂时无法核实可用收款方式。' : '暂时无法核实可用收款方式。'),
           TextButton(onPressed: _loadMethods, child: const Text('重试')),
-        ] else ...[
+        ] else if (!_methodsChecking) ...[
           _payoutField(context, '收款方式',
             child: DropdownButtonHideUnderline(
               child: DropdownButton<String>(

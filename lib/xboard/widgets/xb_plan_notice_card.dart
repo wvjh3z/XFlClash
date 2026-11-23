@@ -86,15 +86,15 @@ class XbPlanNoticeCard extends StatelessWidget {
                     vertical: 8,
                   ),
                   decoration: BoxDecoration(
-                    color: accent,
+                    color: onTap == null ? t.sfc : accent,
                     borderRadius: BorderRadius.circular(XbTokens.rSm),
                   ),
                   child: Text(
                     actionLabel,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 12.5,
                       fontWeight: FontWeight.w600,
-                      color: Colors.white,
+                      color: onTap == null ? t.onv : Colors.white,
                     ),
                   ),
                 ),

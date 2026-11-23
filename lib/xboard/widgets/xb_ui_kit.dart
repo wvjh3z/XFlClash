@@ -115,18 +115,47 @@ class XbBrandScaffold extends StatelessWidget {
 }
 
 class XbGradientAction extends StatelessWidget {
-  const XbGradientAction({super.key, required this.onPressed, required this.child, this.height = 46, this.padding, this.tintWhenDisabled = false});
+  const XbGradientAction({super.key, required this.onPressed, required this.child, this.busyLabel, this.height = 46, this.padding, this.tintWhenDisabled = false, this.radius = XbTokens.rButton, this.shadow, this.keepMaterialDisabled = false});
   final VoidCallback? onPressed;
   final Widget child;
+  /// An actual in-flight operation, distinct from an unavailable action.
+  final String? busyLabel;
   final double height;
   final EdgeInsetsGeometry? padding;
   final bool tintWhenDisabled;
+  final double radius;
+  final BoxShadow? shadow;
+  final bool keepMaterialDisabled;
 
   @override
   Widget build(BuildContext context) {
     final brand = Theme.of(context).colorScheme.primary;
     final tokens = XbTokens.of(context);
-    final radius = BorderRadius.circular(XbTokens.rButton);
+    final corners = BorderRadius.circular(radius);
+    final progress = busyLabel;
+    if (progress != null) {
+      final fill = brand == const Color(0xffd92e1a)
+          ? const Color(0xffd7857d)
+          : Color.lerp(brand, const Color(0xffddd6d5), .45)!;
+      final label = Text(progress, textAlign: TextAlign.center, softWrap: true,
+            style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: Colors.white));
+      return FilledButton(
+        onPressed: null,
+        style: FilledButton.styleFrom(
+          disabledBackgroundColor: fill, disabledForegroundColor: Colors.white,
+          minimumSize: Size(0, height), padding: padding,
+          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          shape: RoundedRectangleBorder(borderRadius: corners), elevation: 0,
+        ),
+        child: label,
+      );
+    }
+    if (onPressed == null && keepMaterialDisabled) {
+      return FilledButton(onPressed: null, style: FilledButton.styleFrom(
+        minimumSize: Size(0, height), padding: padding,
+        shape: RoundedRectangleBorder(borderRadius: corners),
+      ), child: child);
+    }
     final start = brand == const Color(0xffd92e1a)
         ? const Color(0xffff5a44)
         : Color.lerp(brand, Colors.white, 0.16)!;
@@ -136,7 +165,8 @@ class XbGradientAction extends StatelessWidget {
         : tokens.onv;
     return DecoratedBox(
       decoration: BoxDecoration(
-        borderRadius: radius,
+        borderRadius: corners,
+        boxShadow: enabled && shadow != null ? [shadow!] : null,
         color: tokens.sfc,
         gradient: enabled || tintWhenDisabled ? LinearGradient(
           begin: Alignment.topLeft, end: Alignment.bottomRight,
@@ -152,7 +182,7 @@ class XbGradientAction extends StatelessWidget {
         disabledForegroundColor: disabledInk,
         disabledIconColor: disabledInk,
         minimumSize: Size(0, height), padding: padding, tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-        shape: RoundedRectangleBorder(borderRadius: radius), elevation: 0,
+        shape: RoundedRectangleBorder(borderRadius: corners), elevation: 0,
       ), child: DefaultTextStyle.merge(
         style: TextStyle(color: enabled ? Colors.white : disabledInk),
         child: IconTheme.merge(data: IconThemeData(color: enabled ? Colors.white : disabledInk), child: child),
@@ -161,13 +191,17 @@ class XbGradientAction extends StatelessWidget {
   }
 }
 
-/// 主按钮 —— loading 态内嵌 spinner。样式全吃主题 `filledButtonTheme`（品牌红/圆角/高52）。
+String xbActionInProgress(String label) =>
+    label == '提交订单' ? '正在创建订单…' : '正在$label…';
+
+/// 品牌主按钮，加载时以不可点的动作说明替换图标与原文案。
 class XbPrimaryButton extends StatelessWidget {
   const XbPrimaryButton({
     super.key,
     required this.label,
     required this.onPressed,
     this.loading = false,
+    this.busyLabel,
     this.icon,
   });
 
@@ -176,25 +210,19 @@ class XbPrimaryButton extends StatelessWidget {
   /// null 或 loading=true 时 disabled。
   final VoidCallback? onPressed;
   final bool loading;
+  final String? busyLabel;
   final IconData? icon;
 
   @override
   Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
     return SizedBox(
       width: double.infinity,
-      child: FilledButton(
+      child: XbGradientAction(
         onPressed: loading ? null : onPressed,
-        child: loading
-            ? SizedBox(
-                width: 22,
-                height: 22,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2.4,
-                  color: cs.onPrimary,
-                ),
-              )
-            : Row(
+        busyLabel: loading ? busyLabel ?? xbActionInProgress(label) : null,
+        height: XbTokens.hButton,
+        keepMaterialDisabled: true,
+        child: Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   if (icon != null) ...[

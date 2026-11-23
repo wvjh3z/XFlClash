@@ -60,9 +60,14 @@ class XboardNetworkObserver {
         if (key == _physical) {
           return;
         }
+        // The platform first reports its current interface, not a change.
+        // Startup may already have account, catalog and notice reads in flight.
+        final initialOnline = _physical == null && physical.isNotEmpty;
         _physical = key;
         _online = physical.isNotEmpty;
-        _race.networkChanged(rerace: false);
+        if (!initialOnline) {
+          _race.networkChanged(rerace: false);
+        }
         _schedule();
       },
       fireImmediately: true,

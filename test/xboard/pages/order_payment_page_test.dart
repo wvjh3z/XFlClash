@@ -240,11 +240,52 @@ Future<void> tap(WidgetTester tester, String label) async {
 Finder text(String label) => find.text(label, findRichText: true);
 
 void main() {
+  for (final (status, label) in [
+    (XbOrderStatus.pending, '待支付'), (XbOrderStatus.processing, '开通中'),
+    (XbOrderStatus.completed, '已完成'), (XbOrderStatus.cancelled, '已取消'),
+    (XbOrderStatus.discounted, '已折抵'),
+  ]) {
+    _paymentTest('compact order header: $label', (t, h) async {
+      h.service.onRead = (_) async => XbResult.success(order(status));
+      await h.mount(t);
+      expect(find.descendant(of: find.byType(AppBar), matching: text(label)), findsOneWidget);
+      expect(text('套餐内容'), findsOneWidget);
+      expect(text('标准套餐 · 季付'), findsOneWidget);
+      expect(text('周期'), findsNothing);
+    });
+  }
+  for (final cancel in [false, true]) {
+    _paymentTest('${cancel ? "cancel" : "checkout"} shows a centered busy label only on its own button', (t,h) async {
+      await h.mount(t);
+      final checkoutGate = Completer<XbResult<CheckoutOutcomeUi>>();
+      final cancelGate = Completer<XbResult<bool>>();
+      h.service.onCheckout = () => checkoutGate.future;
+      h.service.onCancel = () => cancelGate.future;
+      await tap(t, cancel ? '取消订单' : '立即支付');
+      if (cancel) await tap(t, '确定取消');
+      final label = cancel ? '正在取消…' : '正在支付…';
+      final button = cancel ? find.widgetWithText(OutlinedButton,label) : find.widgetWithText(FilledButton,label);
+      expect(t.widget<ButtonStyleButton>(button).onPressed,isNull);
+      expect(t.getCenter(text(label)).dx, closeTo(t.getCenter(button).dx, 1));
+      expect(find.descendant(of:button,matching:find.byType(CircularProgressIndicator)),findsNothing);
+      expect(text(cancel ? '立即支付' : '取消订单'),findsOneWidget);
+      expect(find.widgetWithText(OutlinedButton, '支付状态检查中'),findsNothing);
+      if (cancel) {
+        cancelGate.complete(const XbSuccess(false));
+      } else {
+        checkoutGate.complete(const XbSuccess(CheckoutCanceled()));
+      }
+      await t.pumpAndSettle();
+      expect(text(label),findsNothing);
+      expect(h.service.cancellations, cancel ? 1 : 0);
+      expect(h.service.checkouts, cancel ? 0 : 1);
+    });
+  }
   _paymentTest('detail remains visible during channel load; verified recovery only retries reads', (t,h) async {
     final methods = Completer<XbResult<List<PaymentMethodItem>>>();
     h.service.onMethods = () => methods.future;
     await h.mount(t);
-    expect(text('标准套餐'), findsOneWidget);
+    expect(text('标准套餐 · 季付'), findsOneWidget);
     expect(text('正在加载支付方式…'), findsOneWidget);
     final pay = find.widgetWithText(FilledButton, '立即支付');
     expect(t.widget<FilledButton>(pay).onPressed, isNull);
@@ -252,7 +293,7 @@ void main() {
     await t.pump();
     await t.pump(const Duration(milliseconds: 350));
     h.service.onRead = (_) async => const XbFailure(XbNetwork(XbNetworkKind.timeout, 'fixture'));
-    await tap(t, '检测支付状态');
+    await tap(t, '检查支付状态');
     final reads = h.service.reads;
     await t.pump(const Duration(seconds: 12));
     expect(h.service.reads, reads);
@@ -304,10 +345,10 @@ void main() {
               ? null
               : order(XbOrderStatus.completed, tradeNo: 'another-order'),
         );
-        await tap(t, '检测支付状态');
+        await tap(t, '检查支付状态');
         expect(text('待支付'), findsOneWidget);
         expect(text('检测失败'), findsOneWidget);
-        expect(text('重新检测'), findsOneWidget);
+        expect(text('检查支付状态'), findsOneWidget);
         expect(h.subscription.calls, 0);
       },
     );
@@ -404,7 +445,7 @@ void main() {
         handlingAmountYuan: 0.23,
       ),
     );
-    await tap(t, '检测支付状态');
+    await tap(t, '检查支付状态');
     expect(text('支付手续费'), findsOneWidget);
     expect(text('¥0.23'), findsOneWidget);
     expect(text('¥2.23'), findsOneWidget);
@@ -521,7 +562,7 @@ void main() {
     await h.mount(t);
     h.service.onRead = (_) async =>
         XbResult.success(order(XbOrderStatus.discounted));
-    await tap(t, '检测支付状态');
+    await tap(t, '检查支付状态');
     expect(text('订单已折抵'), findsOneWidget);
     expect(h.subscription.calls, 1);
     await t.pump(const Duration(seconds: 12));
@@ -548,7 +589,7 @@ void main() {
       h.service.onCheckout = () async => const XbSuccess(CheckoutRedirect('https://example.invalid/pay'));
       await tap(t, '立即支付');
       expect(text('无法打开支付页面'), findsOneWidget);
-      expect(text('已打开支付页面，完成后返回点「检测支付状态」'), findsNothing);
+      expect(text('已打开支付页面，完成后返回点「检查支付状态」'), findsNothing);
       expect(h.service.checkouts, 1);
       expect(attempts.where((m) => m == 'launch'), hasLength(['denied','launch-error'].contains(failure) ? 1 : 0));
       expect(t.takeException(), isNull);
@@ -589,7 +630,7 @@ void main() {
           expect(pay, findsNothing);
         } else {
           expect(t.widget<FilledButton>(pay).onPressed != null, result == 'pending');
-          if (result == 'failed') expect(text('重新检测'), findsOneWidget);
+          if (result == 'failed') expect(text('检查支付状态'), findsOneWidget);
         }
         expect(h.service.checkouts, 1);
         await t.pump(const Duration(seconds: 4));
@@ -630,38 +671,31 @@ void main() {
     },
   );
   _paymentTest(
-    'manual detection shows busy, disables actions, and shares slow request',
+    'manual detection shows busy, leaves other actions enabled, and shares slow request',
     (t, h) async {
       await h.mount(t);
       final response = Completer<XbResult<OrderDetail?>>();
       h.service.onRead = (_) => response.future;
-      await tap(t, '检测支付状态');
-      expect(text('正在检测…'), findsOneWidget);
-      for (final label in ['立即支付', '取消订单', '正在检测…']) {
-        expect(
-          t
-              .widget<ButtonStyleButton>(
-                find
-                    .ancestor(
-                      of: text(label),
-                      matching: find.byWidgetPredicate(
-                        (widget) => widget is ButtonStyleButton,
-                      ),
-                    )
-                    .first,
-              )
-              .onPressed,
-          isNull,
-        );
+      await tap(t, '检查支付状态');
+      expect(text('支付状态检查中'), findsOneWidget);
+      final busyCheck = find.widgetWithText(OutlinedButton, '支付状态检查中');
+      expect(busyCheck, findsOneWidget);
+      expect(find.descendant(of: busyCheck, matching: find.byType(CircularProgressIndicator)), findsNothing);
+      expect(find.descendant(of: busyCheck, matching: find.byIcon(Icons.hourglass_empty_rounded)), findsOneWidget);
+      expect(t.widget<OutlinedButton>(busyCheck).onPressed, isNull);
+      for (final label in ['立即支付', '取消订单']) {
+        final action = find.ancestor(of: text(label), matching: find.byWidgetPredicate((w) => w is ButtonStyleButton)).first;
+        expect(t.widget<ButtonStyleButton>(action).onPressed, isNotNull);
       }
-      await tap(t, '正在检测…');
+      await tap(t, '支付状态检查中');
       await t.pump(const Duration(seconds: 12));
       expect(h.service.reads, 2);
       response.complete(XbResult.success(order(XbOrderStatus.pending)));
       await t.pump();
+      await t.pump(const Duration(milliseconds: 250));
       expect(text('订单仍待支付'), findsOneWidget);
       expect(text('若已完成付款，请稍后再试。'), findsOneWidget);
-      expect(text('检测支付状态'), findsOneWidget);
+      expect(text('检查支付状态'), findsOneWidget);
       expect(h.subscription.calls, 0);
     },
   );
@@ -670,12 +704,17 @@ void main() {
     'manual query joins polling and completion refreshes exactly once',
     (t, h) async {
       await h.mount(t);
+      await t.pump(const Duration(seconds: 10));
+      expect(h.service.reads, 1, reason: 'opening a pending order does not start the payment watch');
+      h.service.onCheckout = () async => const XbSuccess(CheckoutCanceled());
+      await tap(t, '立即支付');
       final accountsBefore = h.service.subscriptionReads;
       final response = Completer<XbResult<OrderDetail?>>();
       h.service.onRead = (_) => response.future;
       await t.pump(const Duration(seconds: 5));
       expect(h.service.reads, 2);
-      await tap(t, '检测支付状态');
+      expect(find.widgetWithText(OutlinedButton, '支付状态检查中'), findsOneWidget);
+      await tap(t, '支付状态检查中');
       await t.pump(const Duration(seconds: 10));
       expect(h.service.reads, 2);
       response.complete(XbResult.success(order(XbOrderStatus.completed)));
@@ -699,20 +738,20 @@ void main() {
     await h.mount(t);
     h.service.onRead = (_) async =>
         XbResult.failure(const XbNetwork(XbNetworkKind.timeout, 'timeout'));
-    await tap(t, '检测支付状态');
+    await tap(t, '检查支付状态');
     expect(text('检测失败'), findsOneWidget);
     expect(text('待支付'), findsOneWidget);
-    expect(text('重新检测'), findsOneWidget);
+    expect(text('检查支付状态'), findsOneWidget);
     expect(t.widget<FilledButton>(find.widgetWithText(FilledButton, '立即支付')).onPressed, isNull);
     expect(t.widget<OutlinedButton>(find.widgetWithText(OutlinedButton, '取消订单')).onPressed, isNull);
     h.service.onRead = (_) async =>
         XbResult.success(order(XbOrderStatus.processing));
-    await tap(t, '重新检测');
+    await tap(t, '检查支付状态');
     expect(text('开通中'), findsNWidgets(2));
-    expect(text('付款已确认，正在开通服务，请勿重复支付。'), findsNWidgets(2));
+    expect(text('付款已确认，正在开通服务，请勿重复支付。'), findsOneWidget);
     expect(text('立即支付'), findsNothing);
     expect(find.widgetWithText(OutlinedButton, '取消订单'), findsNothing);
-    expect(text('检测支付状态'), findsOneWidget);
+    expect(text('检查支付状态'), findsOneWidget);
     expect(h.subscription.calls, 0);
   });
 
@@ -725,12 +764,12 @@ void main() {
     await h.mount(t);
     h.service.onRead = (_) async =>
         XbResult.failure(const XbServer(503, 'unavailable'));
-    await tap(t, '检测支付状态');
+    await tap(t, '检查支付状态');
     expect(text('开通中'), findsOneWidget);
     expect(text('检测失败'), findsOneWidget);
     h.service.onRead = (_) async =>
         XbResult.success(order(XbOrderStatus.pending));
-    await tap(t, '重新检测');
+    await tap(t, '检查支付状态');
     expect(text('开通中'), findsNWidgets(2));
     expect(text('待支付'), findsNothing);
     expect(text('立即支付'), findsNothing);
@@ -743,7 +782,7 @@ void main() {
       final accountsBefore = h.service.subscriptionReads;
       h.service.onRead = (_) async =>
           XbResult.success(order(XbOrderStatus.cancelled));
-      await tap(t, '检测支付状态');
+      await tap(t, '检查支付状态');
       expect(text('已取消'), findsOneWidget);
       expect(text('订单已取消'), findsWidgets);
       expect(text('支付成功'), findsNothing);
@@ -759,6 +798,8 @@ void main() {
     h,
   ) async {
     await h.mount(t);
+      h.service.onCheckout = () async => const XbSuccess(CheckoutCanceled());
+      await tap(t, '立即支付');
     final response = Completer<XbResult<OrderDetail?>>();
     h.service.onRead = (_) => h.service.reads == 2
         ? response.future
@@ -790,8 +831,12 @@ void main() {
       h.service.onRead = (_) => h.service.reads == 2
           ? old.future
           : Future.value(XbResult.success(order(XbOrderStatus.completed)));
-      await t.pump(const Duration(seconds: 5));
+      final checkout = Completer<XbResult<CheckoutOutcomeUi>>();
+      h.service.onCheckout = () => checkout.future;
       await tap(t, '立即支付');
+      await t.pump(const Duration(seconds: 5));
+      checkout.complete(const XbSuccess(CheckoutPaid()));
+      await t.pump();
       expect(h.service.checkouts, 1);
       expect(h.service.reads, 2);
       expect(h.subscription.calls, 0);
@@ -818,7 +863,7 @@ void main() {
     await t.pump(const Duration(milliseconds: 350));
     expect(text('暂不可用'), findsNothing);
     expect(text('待支付'), findsOneWidget);
-    expect(text('标准套餐'), findsOneWidget);
+    expect(text('标准套餐 · 季付'), findsOneWidget);
     expect(text('立即支付'), findsOneWidget);
   });
 
@@ -828,7 +873,7 @@ void main() {
       h.service.onMethods = () async =>
           XbResult.failure(const XbServer(503, 'unavailable'));
       await h.mount(t);
-      expect(text('标准套餐'), findsOneWidget);
+      expect(text('标准套餐 · 季付'), findsOneWidget);
       expect(text('支付方式加载失败'), findsOneWidget);
       final pay = find.widgetWithText(FilledButton, '立即支付');
       expect(t.widget<FilledButton>(pay).onPressed, isNull);
@@ -876,7 +921,10 @@ void main() {
       final retry = find.widgetWithText(FilledButton, '重新加载');
       final pay = find.widgetWithText(FilledButton, '立即支付');
       final cancel = find.widgetWithText(OutlinedButton, '取消订单');
-      final check = find.widgetWithText(TextButton, '检测支付状态');
+      final check = find.widgetWithText(OutlinedButton, '检查支付状态');
+      expect(t.getRect(check).top, greaterThan(t.getRect(pay).bottom));
+      expect(t.getRect(cancel).top, greaterThan(t.getRect(check).bottom));
+      expect(t.getSize(check).width, t.getSize(pay).width);
       final centerX = t.getCenter(pay).dx;
       expect(t.getCenter(retry).dx, closeTo(centerX, 1));
       expect(t.getCenter(text('支付方式加载失败')).dx, closeTo(centerX, 1));
@@ -885,9 +933,15 @@ void main() {
       h.service.onMethods = () => response.future;
       await tap(t, '重新加载');
       expect(t.getCenter(text('正在加载支付方式…')).dx, closeTo(centerX, 1));
+      final busyRetry = find.widgetWithText(FilledButton, '正在加载…');
+      expect(t.getCenter(text('正在加载…')).dx, closeTo(t.getCenter(busyRetry).dx, 1));
+      expect(t.widget<FilledButton>(busyRetry).onPressed, isNull);
+      expect(t.widget<Text>(find.text('正在加载…')).style?.color, Colors.white);
+      expect(find.descendant(of: busyRetry, matching: find.byType(CircularProgressIndicator)), findsNothing);
+      expect(text('正在支付…'), findsNothing);
       // Check the inherited text color and painted button background, rather
       // than assuming the theme's disabled defaults provide readable contrast.
-      for (final entry in [(retry, '重新加载'), (pay, '立即支付'), (cancel, '取消订单'), (check, '检测支付状态')]) {
+      for (final entry in [(pay, '立即支付'), (cancel, '取消订单'), (check, '检查支付状态')]) {
         final (finder, label) = entry;
         final button = t.widget<ButtonStyleButton>(finder);
         expect(button.onPressed, isNull);
@@ -923,7 +977,7 @@ void main() {
     await tap(t, '重新加载');
     expect(text('支付方式加载失败'), findsOneWidget);
     expect(text('正在加载支付方式…'), findsNothing);
-    expect(text('标准套餐'), findsOneWidget);
+    expect(text('标准套餐 · 季付'), findsOneWidget);
     h.service.onMethods = null;
     await tap(t, '重新加载');
     await t.pumpAndSettle();
@@ -988,9 +1042,9 @@ void main() {
   ) async {
     await h.mount(t);
     h.service.onRead = (_) => throw StateError('fixture failure');
-    await tap(t, '检测支付状态');
-    expect(text('正在检测…'), findsNothing);
-    expect(text('重新检测'), findsOneWidget);
+    await tap(t, '检查支付状态');
+    expect(find.widgetWithText(OutlinedButton, '支付状态检查中'), findsNothing);
+    expect(text('检查支付状态'), findsOneWidget);
     expect(text('检测失败'), findsOneWidget);
     expect(t.takeException(), isNull);
   });
@@ -1001,16 +1055,16 @@ void main() {
       await h.mount(t);
       final response = Completer<XbResult<OrderDetail?>>();
       h.service.onRead = (_) => response.future;
-      await tap(t, '检测支付状态');
+      await tap(t, '检查支付状态');
       response.completeError(StateError('controlled asynchronous failure'));
       await t.pump();
       await t.pump(const Duration(milliseconds: 350));
-      expect(text('重新检测'), findsOneWidget);
+      expect(text('检查支付状态'), findsOneWidget);
       expect(t.takeException(), isNull);
       final previous = h.service.reads;
       h.service.onRead = (_) async =>
           XbResult.success(order(XbOrderStatus.pending));
-      await tap(t, '重新检测');
+      await tap(t, '检查支付状态');
       expect(h.service.reads, previous + 1);
       expect(t.widget<FilledButton>(find.widgetWithText(FilledButton, '立即支付')).onPressed, isNotNull);
       expect(t.takeException(), isNull);
@@ -1024,7 +1078,7 @@ void main() {
     await h.mount(t);
     final response = Completer<XbResult<OrderDetail?>>();
     h.service.onRead = (_) => response.future;
-    await tap(t, '检测支付状态');
+    await tap(t, '检查支付状态');
     await h.unmount(t);
     response.completeError(StateError('controlled disposed query failure'));
     await t.pump();
@@ -1037,7 +1091,7 @@ void main() {
       await h.mount(t);
       final response = Completer<XbResult<OrderDetail?>>();
       h.service.onRead = (_) => response.future;
-      await tap(t, '检测支付状态');
+      await tap(t, '检查支付状态');
       await h.unmount(t);
       response.complete(XbResult.success(order(XbOrderStatus.completed)));
       await t.pump();
@@ -1053,7 +1107,7 @@ void main() {
     await h.mount(t);
     final response = Completer<XbResult<OrderDetail?>>();
     h.service.onRead = (_) => response.future;
-    await tap(t, '检测支付状态');
+    await tap(t, '检查支付状态');
     h.auth.change(AuthState.unauthenticated);
     h.auth.change(AuthState.authenticated);
     await t.pump();
@@ -1078,15 +1132,15 @@ void main() {
               order(XbOrderStatus.pending, tradeNo: trade, plan: '新订单套餐'),
             ),
           );
-    await tap(t, '检测支付状态');
+    await tap(t, '检查支付状态');
     await h.mount(t, tradeNo: 'T2');
     old.complete(
       XbResult.success(order(XbOrderStatus.completed, plan: '旧订单套餐')),
     );
     await t.pump();
     await t.pump(const Duration(milliseconds: 350));
-    expect(text('新订单套餐'), findsOneWidget);
-    expect(text('旧订单套餐'), findsNothing);
+    expect(text('新订单套餐 · 季付'), findsOneWidget);
+    expect(text('旧订单套餐 · 季付'), findsNothing);
     expect(h.subscription.calls, 0);
     expect(h.service.trades, contains('T2'));
   });
@@ -1095,6 +1149,8 @@ void main() {
     'background pauses polling and resume silently queries latest status',
     (t, h) async {
       await h.mount(t);
+      h.service.onCheckout = () async => const XbSuccess(CheckoutCanceled());
+      await tap(t, '立即支付');
       t.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
       await t.pump(const Duration(seconds: 12));
       expect(h.service.reads, 1);
@@ -1115,8 +1171,8 @@ void main() {
       await h.mount(t, size: const Size(1200, 800));
       expect(text('开通中'), findsOneWidget);
       expect(
-        t.getTopLeft(text('产品信息')).dx,
-        lessThan(t.getTopLeft(text('检测支付状态')).dx),
+        t.getTopLeft(text('套餐内容')).dx,
+        lessThan(t.getTopLeft(text('检查支付状态')).dx),
       );
       expect(text('立即支付'), findsNothing);
       expect(t.takeException(), isNull);
@@ -1132,7 +1188,7 @@ void main() {
       for (final width in [839.0, 840.0, 839.0]) {
         t.view.physicalSize = Size(width, 900);
         await t.pump();
-        final check = t.getRect(text('检测支付状态'));
+        final check = t.getRect(text('检查支付状态'));
         final information = t.getRect(text('订单信息'));
         if (width < 840) {
           expect(check.top, greaterThan(information.bottom));
@@ -1154,7 +1210,7 @@ void main() {
     h.service.onRead = (_) async =>
         XbResult.success(order(XbOrderStatus.processing));
     await h.mount(t, size: const Size(840, 900), panelWidth: 632);
-    final check = t.getRect(text('检测支付状态'));
+    final check = t.getRect(text('检查支付状态'));
     final information = t.getRect(text('订单信息'));
     expect(
       check.top,
@@ -1182,7 +1238,7 @@ void main() {
         brightness: Brightness.dark,
         textScale: 2,
       );
-      await tap(t, '检测支付状态');
+      await tap(t, '检查支付状态');
       await t.pump(const Duration(milliseconds: 250));
       expect(text('开通中'), findsNWidgets(2));
       expect(t.takeException(), isNull);

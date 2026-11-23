@@ -57,6 +57,8 @@ class ConfirmedOrderSubscription {
 
 enum ConfirmedOrderChoice { useExisting, replaceExisting }
 
+enum ConfirmedOrderStage { checking, awaitingConfirmation, cancelling, checkingCancellation, creating, verifying }
+
 class ConfirmedOrderConflict {
   const ConfirmedOrderConflict({
     required this.choice,
@@ -65,7 +67,8 @@ class ConfirmedOrderConflict {
     required this.existingPlanName,
     required this.existingPeriod,
     required this.existingPayableCents,
-    this.existingCreditCents = 0,
+    this.existingBalanceCents = 0,
+    this.existingAppliedSurplusCents = 0,
   });
 
   final ConfirmedOrderChoice choice;
@@ -74,7 +77,16 @@ class ConfirmedOrderConflict {
   final String existingPlanName;
   final XbPlanPeriod existingPeriod;
   final int existingPayableCents;
-  final int? existingCreditCents;
+  /// Account balance already deducted on the verified pending order.
+  final int existingBalanceCents;
+  /// Old-plan surplus actually applied, excluding excess returned on opening.
+  /// Zero means no deduction; null means the wire evidence is insufficient.
+  final int? existingAppliedSurplusCents;
+
+  /// Compatibility for consumers of the old aggregate. New UI labels the
+  /// two sources separately; neither is derived from the new catalog price.
+  int? get existingCreditCents => existingAppliedSurplusCents == null
+      ? null : existingBalanceCents + existingAppliedSurplusCents!;
 }
 
 /// Convert catalog yuan back to integer cents; do not round away sub-cent

@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
+import 'package:html/parser.dart' as html;
 
 const _maxBytes = 256 * 1024;
 const _maxRedirects = 3;
@@ -76,7 +77,48 @@ Future<({Uint8List bytes, bool isSvg})?> _readIcon(
         mime == 'image/svg+xml' ||
         uri.path.toLowerCase().endsWith('.svg') ||
         _svgRoot.hasMatch(utf8.decode(sample, allowMalformed: true));
-    return (bytes: bytes, isSvg: isSvg);
+    return (bytes: isSvg ? normalizePaymentSvgPaint(bytes) : bytes, isSvg: isSvg);
   }
   return null;
+}
+
+/// flutter_svg does not apply embedded stylesheets. Illustrator exports often
+/// use plain class selectors even for two flat colors. Inline only that small
+/// supported subset; don't reinterpret external CSS, URLs or complex selectors.
+Uint8List normalizePaymentSvgPaint(Uint8List bytes) {
+  final source = utf8.decode(bytes, allowMalformed: true);
+  if (!source.contains('<style') || !source.contains('class=')) return bytes;
+  final svg = html.parseFragment(source).querySelector('svg');
+  if (svg == null) return bytes;
+  final rules = <(String, Map<String, String>)>[];
+  final selector = RegExp(r'\.([a-zA-Z_][\w-]*)\s*\{([^{}]*)\}\s*');
+  final paint = RegExp(r'^(fill|stroke)\s*:\s*(#[\da-fA-F]{6}|#[\da-fA-F]{3}|none)$');
+  final sheets = svg.querySelectorAll('style');
+  for (final sheet in sheets) {
+    final css = sheet.text.replaceAll(RegExp(r'/\*.*?\*/', dotAll: true), '').trim();
+    var pos = 0;
+    while (pos < css.length) {
+      final rule = selector.matchAsPrefix(css, pos);
+      if (rule == null) return bytes;
+      final props = <String, String>{};
+      for (final decl in rule[2]!.split(';').map((s) => s.trim()).where((s) => s.isNotEmpty)) {
+        final entry = paint.firstMatch(decl);
+        if (entry == null) return bytes;
+        props[entry[1]!] = entry[2]!;
+      }
+      rules.add((rule[1]!, props));
+      pos = rule.end;
+    }
+  }
+  if (rules.isEmpty || rules.length > 128) return bytes;
+  for (final el in [svg, ...svg.querySelectorAll('[class]')]) {
+    for (final (name, props) in rules) {
+      if (el.classes.contains(name)) el.attributes.addAll(props);
+    }
+    // Existing inline style attributes retain precedence over fill/stroke.
+  }
+  for (final sheet in sheets) {
+    sheet.remove();
+  }
+  return Uint8List.fromList(utf8.encode(svg.outerHtml));
 }

@@ -50,7 +50,7 @@ class XboardServiceImpl
         XboardInviteRequestControl,
         XboardAuthenticationRequestControl,
         XboardGuestCatalogControl,
-        XboardConfirmedOrderControl {
+        XboardProgressOrderControl {
   XboardServiceImpl({
     required XBoardSDK sdk,
     SubscriptionCache? subscriptionCache,
@@ -749,6 +749,7 @@ class XboardServiceImpl
     ConfirmedOrderQuote quote, {
     required bool Function() isActive,
     required Future<bool> Function(ConfirmedOrderConflict) confirm,
+    void Function(ConfirmedOrderStage stage)? onStage,
   }) async {
     final epoch = _operationEpoch;
     final revision = _sdkRevision;
@@ -767,7 +768,7 @@ class XboardServiceImpl
     try {
       return await _sdk.httpService.withRequestValidity(
         current,
-        () => _decideConfirmedOrder(session, quote, current, confirm),
+        () => _decideConfirmedOrder(session, quote, current, confirm, onStage),
       );
     } finally {
       session.writes.remove('orders');

@@ -11,7 +11,6 @@ import 'package:fl_clash/models/models.dart'
     show Group, PatchClashConfig, ProxiesTabState, Proxy;
 import 'package:fl_clash/providers/config.dart';
 import 'package:fl_clash/providers/state.dart';
-import 'package:fl_clash/ui/icons/icons.dart' show AppGlyphs, GlyphIcon;
 import 'package:fl_clash/xboard/config/xboard_config.dart';
 import 'package:fl_clash/xboard/models/xb_domain_error.dart';
 import 'package:fl_clash/xboard/models/xb_domain_subscription.dart';
@@ -26,7 +25,6 @@ import 'package:fl_clash/xboard/services/xboard_subscription_service.dart';
 import 'package:fl_clash/xboard/shell/adapters/xb_nodes_adapter.dart';
 import 'package:fl_clash/xboard/shell/tabs/mine/mine_tab.dart';
 import 'package:fl_clash/xboard/shell/tabs/nodes/nodes_tab.dart';
-import 'package:fl_clash/xboard/widgets/xb_theme.dart' show XbTokens;
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -249,6 +247,9 @@ Future<void> _finishAnimations(WidgetTester tester) async {
 void _expectBusy(WidgetTester tester, {required bool nodes}) {
   final busy = _inside(nodes, findActionLabel('刷新中…'));
   expect(busy, findsOneWidget);
+  if (nodes) {
+    expect(find.descendant(of: busy, matching: find.byType(CircularProgressIndicator)), findsNothing);
+  }
   final button = find.ancestor(
     of: busy,
     matching: find.byWidgetPredicate((w) => w is TextButton),
@@ -359,13 +360,8 @@ void main() {
         if (capsuleSize != null) {
           expect(tester.getSize(capsule), capsuleSize);
           final refreshAction = _cooldown(true);
-          expect(find.descendant(of: refreshAction, matching: find.textContaining(RegExp(r'^\d+s$'))), findsNothing);
+          expect(find.descendant(of: refreshAction, matching: find.textContaining(RegExp(r'^\d+s$'))), findsOneWidget);
           expect(find.descendant(of: capsule, matching: find.text('刷新节点')), findsOneWidget);
-          final refreshGlyph = tester.widget<GlyphIcon>(
-            find.descendant(of: refreshAction, matching: find.byType(GlyphIcon)),
-          );
-          expect(refreshGlyph.glyph, AppGlyphs.refresh);
-          expect(refreshGlyph.color, XbTokens.light.onv);
           expect(find.descendant(of: capsule, matching: find.text('测延迟')), findsOneWidget,
               reason: 'Refresh cooldown does not put the delay action into cooldown');
         }

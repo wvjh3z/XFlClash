@@ -15,6 +15,8 @@ import 'package:fl_clash/xboard/config/xboard_config.dart';
 import 'package:fl_clash/xboard/providers/auth_state_provider.dart';
 import '../../../providers/subscription_sync_status.dart';
 import '../../../providers/user_profile_provider.dart';
+import '../../../providers/notice_provider.dart';
+import '../../../widgets/xb_plan_notice_card.dart';
 import '../../../providers/xboard_connectivity_provider.dart';
 import '../../../services/xboard_subscription_service.dart';
 import 'package:fl_clash/xboard/providers/xboard_providers.dart';
@@ -197,7 +199,7 @@ class _HomeTabState extends ConsumerState<HomeTab> {
           // AppBar 标题「MyClient」+ 右侧更新提示（有新版时）。
           const _HomeHeader(),
           if (ref.watch(interfaceUnavailableProvider)) const Text('未检测到网络连接，请检查网络设置。'),
-          if (!isGuest) const _HomeAccountRetry(),
+          if (!isGuest) const XbHomeSyncNotice(),
           if (preparing) ...[
             const XbSyncBanner(text: '正在准备服务，请稍候…'),
             const SizedBox(height: 12),
@@ -304,7 +306,7 @@ class _HomeTabState extends ConsumerState<HomeTab> {
                       ),
                       const SizedBox(height: 12),
                     ],
-                    if (!isGuest) const _HomeAccountRetry(),
+                    if (!isGuest) const XbHomeSyncNotice(centered: true),
                     XbExpiryCard(onTapRenew: widget.onTapRenew, centered: true),
                     const XbTrafficNotice(centered: true),
                     const SizedBox(height: 8),
@@ -399,17 +401,32 @@ class _HomeTabState extends ConsumerState<HomeTab> {
   }
 }
 
-/// 首页头部（移动端）：标题「MyClient」+ 右侧「有新版本」绿色胶囊（点击弹更新弹窗）。
-class _HomeAccountRetry extends ConsumerWidget {
-  const _HomeAccountRetry();
+/// One notice for independent account and announcement reads. The underlying
+/// providers still own recovery, and a successful source is never retried here.
+class XbHomeSyncNotice extends ConsumerWidget {
+  const XbHomeSyncNotice({super.key, this.centered = false});
+  final bool centered;
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final profile = ref.watch(userProfileProvider);
-    if (!profile.hasError || profile.isLoading) return const SizedBox.shrink();
-    return Wrap(alignment: WrapAlignment.center, crossAxisAlignment: WrapCrossAlignment.center, children: [
-      const Text('账号资料暂未更新'),
-      TextButton(onPressed: () => ref.invalidate(userProfileProvider), child: const Text('重试资料')),
-    ]);
+    final account = ref.watch(userProfileProvider);
+    final notice = ref.watch(noticeStateProvider);
+    if (!account.hasError && !notice.hasError) return const SizedBox.shrink();
+    final both = account.hasError && notice.hasError;
+    final offline = ref.watch(interfaceUnavailableProvider);
+    final busy = (account.hasError && account.isLoading) || (notice.hasError && notice.isLoading);
+    return XbPlanNoticeCard(
+      centered: centered, urgent: false, icon: Icons.access_time,
+      title: both ? '资料暂未更新' : account.hasError ? '账号资料暂未更新' : '公告暂未更新',
+      desc: offline ? '请连接网络后刷新' : both ? '账号资料和公告未能同步' : '未能同步，可稍后刷新',
+      actionLabel: busy ? '刷新中' : '刷新',
+      onTap: offline || busy ? null : () {
+        final a = ref.read(userProfileProvider);
+        final n = ref.read(noticeStateProvider);
+        if (a.hasError && !a.isLoading) ref.invalidate(userProfileProvider);
+        if (n.hasError && !n.isLoading) ref.invalidate(noticeStateProvider);
+      },
+    );
   }
 }
 

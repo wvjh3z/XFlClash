@@ -13,6 +13,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/xb_notice.dart';
 import '../providers/notice_provider.dart';
+import '../providers/auth_state_provider.dart';
 import '../providers/xboard_providers.dart';
 import '../shell/sheets/sheet_scaffold.dart';
 import '../util/format.dart' show xbDate;
@@ -93,18 +94,17 @@ class _XbNoticePillState extends ConsumerState<XbNoticePill> {
     ref.listen(noticeStateProvider, (_, next) {
       if (!next.isLoading) _age.reset();
     });
-    xbListenForReadRecovery(context, ref, () {
-      final current = ref.read(noticeStateProvider);
-      if (!current.isLoading && xbIsRecoverableReadError(current.error)) {
-        ref.invalidate(noticeStateProvider);
-      }
-    });
+    xbListenForPendingReadRecovery(context, ref,
+      state: () => ref.read(noticeStateProvider),
+      future: () => ref.read(noticeStateProvider.future),
+      current: () => _visible && ref.read(authStateProvider) == AuthState.authenticated,
+      retry: () => ref.invalidate(noticeStateProvider),
+    );
     final s = result.asData?.value;
-    final failed = result.hasError && !result.isLoading;
-    if (!failed && (s == null || !s.hasUnread)) return const SizedBox.shrink();
+    if (result.hasError || s == null || !s.hasUnread) return const SizedBox.shrink();
     final scheme = Theme.of(context).colorScheme;
     return GestureDetector(
-      onTap: failed ? () => ref.invalidate(noticeStateProvider) : () => _open(s!),
+      onTap: () => _open(s),
       child: Container(
         padding: widget.large
             ? const EdgeInsets.symmetric(horizontal: 14, vertical: 7)
@@ -120,7 +120,7 @@ class _XbNoticePillState extends ConsumerState<XbNoticePill> {
             Icon(Icons.campaign_outlined,
                 size: widget.large ? 16 : 14, color: scheme.primary),
             const SizedBox(width: 4),
-            Text(failed ? '公告重试' : '有新公告',
+            Text('有新公告',
                 style: TextStyle(
                     fontSize: widget.large ? 13 : 11,
                     fontWeight: FontWeight.w600,

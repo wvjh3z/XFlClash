@@ -12,11 +12,12 @@ import 'xb_theme.dart';
 
 /// Catalog facts shown identically in the shop and before checkout.
 class XbPlanDetails extends ConsumerWidget {
-  const XbPlanDetails({super.key, required this.plan, this.showQuota = true, this.compact = false});
+  const XbPlanDetails({super.key, required this.plan, this.showQuota = true, this.compact = false, this.tightDescription = false});
 
   final PlanItem plan;
   final bool showQuota;
   final bool compact;
+  final bool tightDescription;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -53,8 +54,13 @@ class XbPlanDetails extends ConsumerWidget {
                 margin: Margins.zero,
                 padding: HtmlPaddings.zero,
                 color: t.on,
+                lineHeight: tightDescription ? const LineHeight(1.35) : null,
               ),
-              if (compact) 'p': Style(margin: Margins.only(bottom: 4)),
+              if (compact) 'p': Style(margin: Margins.only(bottom: tightDescription ? 2 : 4)),
+              if (tightDescription) ...{
+                for (final tag in ['ul', 'ol']) tag: Style(margin: Margins.zero),
+                'li': Style(margin: Margins.only(bottom: 2)),
+              },
               '.$kXbEmojiClass': Style(fontFamily: 'Twemoji'),
             },
             onLinkTap: (url, _, _) =>

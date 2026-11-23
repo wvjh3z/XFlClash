@@ -3,6 +3,7 @@
 /// 纯单测（mock 反腐层，无 core）：覆盖之前只测了「渲染 + gate」未测的 _submit 分支。
 library;
 
+import 'dart:async';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -53,6 +54,13 @@ void main() {
     await t.pumpAndSettle();
   }
 
+  Future<void> expectBusy(WidgetTester t, String label) async {
+    await t.pump();
+    final button = find.widgetWithText(FilledButton, label);
+    expect(t.widget<FilledButton>(button).onPressed, isNull);
+    expect(find.descendant(of: button, matching: find.byType(CircularProgressIndicator)), findsNothing);
+  }
+
   group('LoginSheet 提交', () {
     testWidgets('空字段 → banner「请输入邮箱和密码」，不调反腐层', (t) async {
       await pump(t, const LoginSheet());
@@ -63,12 +71,15 @@ void main() {
     });
 
     testWidgets('成功 → markAuthenticated', (t) async {
+      final reply = Completer<XbResult<String>>();
       when(() => service.login(any(), any()))
-          .thenAnswer((_) async => XbResult.success('token'));
+          .thenAnswer((_) => reply.future);
       await pump(t, const LoginSheet());
       await t.enterText(find.byType(TextField).first, 'a@b.com');
       await t.enterText(find.byType(TextField).last, 'pw');
       await t.tap(find.widgetWithText(FilledButton, '登录'));
+      await expectBusy(t, '正在登录…');
+      reply.complete(XbResult.success('token'));
       await t.pumpAndSettle();
       expect(container.read(authStateProvider), AuthState.authenticated);
     });
@@ -100,10 +111,11 @@ void main() {
     });
 
     testWidgets('成功注册 → 二步登录 → markAuthenticated（后缀拼接 @gmail.com）', (t) async {
+      final reply = Completer<XbResult<bool>>();
       when(() => service.register(any(), any(),
               emailCode: any(named: 'emailCode'),
               inviteCode: any(named: 'inviteCode')))
-          .thenAnswer((_) async => XbResult.success(true));
+          .thenAnswer((_) => reply.future);
       when(() => service.login(any(), any()))
           .thenAnswer((_) async => XbResult.success('token'));
       await pump(t, const RegisterSheet());
@@ -113,6 +125,8 @@ void main() {
       await t.enterText(fields.at(1), '123456'); // 验证码
       await t.enterText(fields.at(2), 'pw123456'); // 密码
       await t.tap(find.widgetWithText(FilledButton, '注册'));
+      await expectBusy(t, '正在注册…');
+      reply.complete(XbResult.success(true));
       await t.pumpAndSettle();
       // 拼接白名单后缀 → alice@gmail.com 注册。
       verify(() => service.register('alice@gmail.com', 'pw123456',
@@ -136,14 +150,17 @@ void main() {
 
   group('ForgotPwdSheet 提交', () {
     testWidgets('成功重置 → pop + snackbar', (t) async {
+      final reply = Completer<XbResult<bool>>();
       when(() => service.forgotPassword(any(), any(), any()))
-          .thenAnswer((_) async => XbResult.success(true));
+          .thenAnswer((_) => reply.future);
       await pump(t, const ForgotPwdSheet());
       final fields = find.byType(TextField);
       await t.enterText(fields.at(0), 'alice');
       await t.enterText(fields.at(1), '123456');
       await t.enterText(fields.at(2), 'newpw123');
       await t.tap(find.widgetWithText(FilledButton, '重置密码'));
+      await expectBusy(t, '正在重置密码…');
+      reply.complete(XbResult.success(true));
       await t.pumpAndSettle();
       verify(() => service.forgotPassword('alice@gmail.com', '123456', 'newpw123'))
           .called(1);

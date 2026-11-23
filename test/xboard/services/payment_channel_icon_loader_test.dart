@@ -1,10 +1,21 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:fl_clash/xboard/services/payment_channel_icon_loader.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test('SVG channel class paints retain their source colors and unsupported CSS is untouched', () {
+    Uint8List icon(String css) => Uint8List.fromList(utf8.encode(
+      '<svg xmlns="http://www.w3.org/2000/svg"><style>$css</style><path class="base"/><g class="mark"><path/></g></svg>',
+    ));
+    final result = utf8.decode(normalizePaymentSvgPaint(icon('.base{fill:#2DC100;} .mark{fill:#FFFFFF;}')));
+    expect(result, contains('fill="#2DC100"'));
+    expect(result, contains('fill="#FFFFFF"'));
+    final untouched = icon('.base:hover{fill:#333;}');
+    expect(normalizePaymentSvgPaint(untouched), same(untouched));
+  });
   test('retrieves SVG and raster artwork anonymously, including safe redirects', () async {
     final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
     addTearDown(() => server.close(force: true));

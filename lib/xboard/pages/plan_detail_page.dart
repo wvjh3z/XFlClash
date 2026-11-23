@@ -196,11 +196,13 @@ class _PlanDetailPageState extends ConsumerState<PlanDetailPage> {
   int _couponGeneration = 0;
   String _couponText = '';
   final _couponController = TextEditingController();
+  final _couponFocus = FocusNode();
   CouponInfo? _coupon; // 已校验通过的券
   String? _couponError;
   Object? _couponReadFailure;
   bool _checkingCoupon = false;
   bool _submitting = false;
+  String _orderStage = '正在核对当前套餐';
   XboardService? _ownerService;
   late final int _ownerRevision;
 
@@ -296,6 +298,7 @@ class _PlanDetailPageState extends ConsumerState<PlanDetailPage> {
 
   @override
   void dispose() {
+    _couponFocus.dispose();
     _couponGeneration++;
     _couponController.removeListener(_onCouponTextChanged);
     _couponController.dispose();
@@ -365,7 +368,7 @@ class _PlanDetailPageState extends ConsumerState<PlanDetailPage> {
   }
 
   List<Widget> _reviewChildren(BuildContext context) => [
-    _checkoutActions(context, showBack: false),
+    _checkoutActions(context),
     const SizedBox(height: 14),
     XbSectionCard(title: '优惠码', child: _couponSection(context)),
   ];
@@ -395,89 +398,53 @@ class _PlanDetailPageState extends ConsumerState<PlanDetailPage> {
     );
   }
 
-  Widget _checkoutActions(BuildContext context, {bool showBack = true}) {
+  Widget _checkoutActions(BuildContext context) {
     final theme = Theme.of(context);
     final t = XbTokens.of(context);
-    final brand = theme.colorScheme.primary;
     final enabled = !_checkingCoupon && !_submitting && !ref.read(isOfflineProvider);
-    var gradientStart = Color.lerp(brand, Colors.white, 0.16)!;
-    // Preserve at least 4.66:1 against white, including the bright end.
-    while (gradientStart.computeLuminance() > 0.175) {
-      gradientStart = Color.lerp(gradientStart, Colors.black, 0.05)!;
-    }
     final shape = RoundedRectangleBorder(
       borderRadius: BorderRadius.circular(XbTokens.rButton),
     );
-    ButtonStyle actionStyle(Color fill, Color foreground) =>
-        FilledButton.styleFrom(
-          backgroundColor: fill,
-          disabledBackgroundColor: t.sfc,
-          foregroundColor: foreground,
-          disabledForegroundColor: t.onv,
-          minimumSize: const Size(0, 48),
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-          shape: shape,
-          textStyle: theme.textTheme.labelLarge?.copyWith(fontSize: 15, fontWeight: FontWeight.w600),
-          elevation: 0,
-        );
+    final backColor = theme.brightness == Brightness.dark
+        ? Color.lerp(theme.colorScheme.primary, t.on, .4)!
+        : theme.colorScheme.primary;
     return IntrinsicHeight(
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          if (showBack) ...[
             SizedBox(
-              width: 96,
-              child: FilledButton(
+              width: 72,
+              child: OutlinedButton(
                 onPressed: _submitting ? null : () => Navigator.maybePop(context),
-                style: actionStyle(t.sfc, t.on),
+                style: OutlinedButton.styleFrom(
+                  backgroundColor: Colors.transparent, foregroundColor: backColor,
+                  disabledForegroundColor: t.onv, minimumSize: const Size(0, 48),
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8), shape: shape,
+                  side: BorderSide(color: _submitting ? t.line : Color.lerp(t.line, backColor, .32)!, width: 1.5),
+                  textStyle: theme.textTheme.labelLarge?.copyWith(fontSize: 15, fontWeight: FontWeight.w700),
+                ),
                 child: const Text('返回', textAlign: TextAlign.center),
               ),
             ),
-            const SizedBox(width: 12),
-          ],
+            const SizedBox(width: 10),
           Expanded(
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                borderRadius: shape.borderRadius,
-                gradient: enabled
-                    ? LinearGradient(
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                        colors: [
-                          gradientStart,
-                          Color.lerp(gradientStart, Colors.black, 0.24)!,
-                        ],
-                      )
-                    : null,
-              ),
-              child: FilledButton(
-                onPressed: enabled ? _submitOrder : null,
-                style: actionStyle(Colors.transparent, Colors.white),
-                child: _submitting
-                    ? const SizedBox.square(
-                        dimension: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(
-                            Icons.shopping_cart_checkout_rounded,
-                            size: 19,
-                            color: enabled ? Colors.white : t.onv,
-                          ),
-                          const SizedBox(width: 6),
-                          Flexible(
-                            child: Text(
-                              widget.renew ? '确认续费' : '提交订单',
-                              textAlign: TextAlign.center,
-                              style: TextStyle(
-                                color: enabled ? Colors.white : t.onv,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
+            child: XbGradientAction(
+              onPressed: enabled ? _submitOrder : null,
+              busyLabel: _submitting ? _orderStage : null,
+              height: 48,
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.shopping_cart_checkout_rounded, size: 19,
+                      color: enabled ? Colors.white : t.onv),
+                  const SizedBox(width: 6),
+                  Flexible(child: Text(
+                    widget.renew ? '确认续费' : '提交订单',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: enabled ? Colors.white : t.onv, fontSize: 15, fontWeight: FontWeight.w700),
+                  )),
+                ],
               ),
             ),
           ),
@@ -525,6 +492,7 @@ class _PlanDetailPageState extends ConsumerState<PlanDetailPage> {
 
   Widget _planDetails(BuildContext context) => XbCard(
     radius: XbTokens.rLg,
+    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -537,7 +505,7 @@ class _PlanDetailPageState extends ConsumerState<PlanDetailPage> {
             ),
           ),
         ),
-        XbPlanDetails(plan: plan),
+        XbPlanDetails(plan: plan, compact: true, tightDescription: true),
       ],
     ),
   );
@@ -714,54 +682,65 @@ class _PlanDetailPageState extends ConsumerState<PlanDetailPage> {
     final theme = Theme.of(context);
     final t = XbTokens.of(context);
     final scheme = theme.colorScheme;
-    final text = theme.textTheme.bodyMedium;
-    final fontSize = text?.fontSize ?? 14;
-    final height =
-        44 + MediaQuery.textScalerOf(context).scale(fontSize) - fontSize;
+    final text = theme.textTheme.bodyMedium?.copyWith(fontSize: 14, height: 1.45);
+    final lineHeight = MediaQuery.textScalerOf(context).scale(14) * 1.45;
+    final height = (lineHeight + 18).clamp(44.0, double.infinity).toDouble();
     final enabled = !_checkingCoupon && !_submitting;
     final verifyFill = Color.alphaBlend(
       scheme.primary.withValues(alpha: 0.10),
       t.card,
     );
     final verifyInk = _mobileBrandInk(scheme.primary, verifyFill, t.on);
-    OutlineInputBorder border(Color color, double width) => OutlineInputBorder(
-      borderRadius: BorderRadius.circular(XbTokens.rSm),
-      borderSide: BorderSide(color: color, width: width),
-    );
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(
+        IntrinsicHeight(child: Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Expanded(
-              child: SizedBox(
-                height: height,
+              child: ListenableBuilder(
+                listenable: _couponFocus,
+                builder: (_, child) => Container(
+                  key: const ValueKey('coupon-input-surface'),
+                  constraints: BoxConstraints(minHeight: height),
+                  alignment: Alignment.centerLeft,
+                  padding: const EdgeInsets.symmetric(horizontal: 13),
+                  decoration: BoxDecoration(
+                    color: t.sf2,
+                    borderRadius: BorderRadius.circular(XbTokens.rSm),
+                    border: Border.all(
+                      color: _couponError != null ? scheme.error : _couponFocus.hasFocus ? scheme.primary : t.line,
+                      width: _couponFocus.hasFocus ? 2 : 1,
+                    ),
+                  ),
+                  child: child,
+                ),
                 child: TextField(
                   controller: _couponController,
+                  focusNode: _couponFocus,
                   enabled: enabled,
+                  autocorrect: false,
+                  enableSuggestions: false,
+                  textInputAction: TextInputAction.done,
+                  onSubmitted: (_) => _checkCoupon(),
+                  maxLength: 64,
                   textAlignVertical: TextAlignVertical.center,
                   style: text,
                   decoration: InputDecoration(
+                    isCollapsed: true, isDense: true, filled: false,
+                    contentPadding: EdgeInsets.zero, counterText: '',
+                    border: InputBorder.none, focusedBorder: InputBorder.none,
+                    enabledBorder: InputBorder.none, disabledBorder: InputBorder.none,
                     hintText: '输入优惠码（如有）',
-                    isDense: true,
-                    constraints: BoxConstraints.tightFor(height: height),
-                    filled: true,
-                    fillColor: t.sf2,
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 14),
-                    border: border(t.line, 1.5),
-                    disabledBorder: border(t.line, 1.5),
-                    enabledBorder: _couponError == null
-                        ? border(t.line, 1.5)
-                        : border(scheme.error, 1.5),
-                    focusedBorder: _couponError == null
-                        ? border(scheme.primary, 1.8)
-                        : border(scheme.error, 1.8),
+                    hintStyle: text?.copyWith(color: t.onv),
                   ),
                 ),
               ),
             ),
             const SizedBox(width: 10),
-            OutlinedButton(
+            SizedBox(
+              width: MediaQuery.textScalerOf(context).scale(14) * 2 + 32,
+              child: OutlinedButton(
               onPressed: enabled ? _checkCoupon : null,
               style: OutlinedButton.styleFrom(
                 foregroundColor: verifyInk,
@@ -771,21 +750,22 @@ class _PlanDetailPageState extends ConsumerState<PlanDetailPage> {
                     scheme.primary.withValues(alpha: 0.30),
                     t.line,
                   ),
-                  width: 1.5,
+                  width: 1,
                 ),
                 minimumSize: Size(0, height),
-                padding: const EdgeInsets.symmetric(horizontal: 15),
+                textStyle: text?.copyWith(fontWeight: FontWeight.w600),
+                padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 1),
                 tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(XbTokens.rSm),
                 ),
               ),
-              child: _checkingCoupon
-                  ? _couponSpinner(verifyInk)
-                  : const Text('验证'),
+              child: Text(_checkingCoupon ? '正在验证…' : '验证',
+                textAlign: TextAlign.center, softWrap: true),
+              ),
             ),
           ],
-        ),
+        )),
         if (_couponError case final error?)
           Padding(
             padding: const EdgeInsets.only(top: 6, left: 2),
@@ -800,11 +780,6 @@ class _PlanDetailPageState extends ConsumerState<PlanDetailPage> {
       ],
     );
   }
-
-  Widget _couponSpinner(Color color) => SizedBox.square(
-    dimension: 16,
-    child: CircularProgressIndicator(strokeWidth: 2, color: color),
-  );
 
   Color _mobileBrandInk(Color brand, Color background, Color on) {
     var ink = brand;
@@ -929,7 +904,10 @@ class _PlanDetailPageState extends ConsumerState<PlanDetailPage> {
       xbToastSafe('优惠码已过期，请重新验证。');
       return;
     }
-    setState(() => _submitting = true);
+    setState(() {
+      _orderStage = '正在核对当前套餐…';
+      _submitting = true;
+    });
     try {
       final subscriptionRead = await service.getSubscription();
       if (!current()) return;
@@ -964,10 +942,23 @@ class _PlanDetailPageState extends ConsumerState<PlanDetailPage> {
         }
       }
       if (!mounted || !current()) return;
+      setState(() => _orderStage = '正在核对订单…');
       final result = await submitConfirmedOrder(
         context: context,
         service: service,
         isActive: current,
+        onStage: (stage) {
+          if (!mounted || !_submitting || !current()) return;
+          final label = switch (stage) {
+            ConfirmedOrderStage.checking => '正在核对订单…',
+            ConfirmedOrderStage.awaitingConfirmation => '等待确认旧订单…',
+            ConfirmedOrderStage.cancelling => '正在取消旧订单…',
+            ConfirmedOrderStage.checkingCancellation => '正在核实取消结果…',
+            ConfirmedOrderStage.creating => '正在创建订单…',
+            ConfirmedOrderStage.verifying => '正在核实下单结果…',
+          };
+          if (_orderStage != label) setState(() => _orderStage = label);
+        },
         quote: ConfirmedOrderQuote(
           planId: submittedPlan.id,
           planName: submittedPlan.name,

@@ -40,6 +40,12 @@ class _Probe extends XbExitIpProbe {
   }
 }
 
+// First frame delivers the async probe result; the next paints Riverpod consumers.
+Future<void> flushProbe(WidgetTester tester) async {
+  await tester.pump();
+  await tester.pump();
+}
+
 void main() {
   testWidgets('unchanged foreground resumes reuse a successful IP', (tester) async {
     final visible = StateProvider<bool>((ref) => true);
@@ -65,7 +71,7 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));
     probes.single.answer.complete(const XbExitIpResult('203.0.113.1', 'HK'));
-    await tester.pump();
+    await flushProbe(tester);
     for (var i = 0; i < 3; i++) {
       container.read(visible.notifier).state = false;
       await tester.pump();
@@ -79,7 +85,7 @@ void main() {
     container.read(xbExitIpProvider.notifier).refresh(immediate: true);
     expect(probes, hasLength(2), reason: 'manual refresh must still run immediately');
     probes.last.answer.complete(const XbExitIpResult('203.0.113.2', 'JP'));
-    await tester.pump();
+    await flushProbe(tester);
     await tester.pumpWidget(const SizedBox());
   });
 
@@ -107,7 +113,7 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));
     probes.single.answer.complete(const XbExitIpResult('203.0.113.1', 'HK'));
-    await tester.pump();
+    await flushProbe(tester);
     container.read(visible.notifier).state = false;
     await tester.pump();
     final route = container.read(routeTrackerProvider.notifier) as _Route;
@@ -130,7 +136,7 @@ void main() {
     await tester.pump(const Duration(milliseconds: 300));
     expect(probes, hasLength(3), reason: 'a failed round must not be cached as valid');
     probes.last.answer.complete(const XbExitIpResult('203.0.113.3', 'US'));
-    await tester.pump();
+    await flushProbe(tester);
     expect(container.read(xbExitIpProvider).result?.ip, '203.0.113.3');
     await tester.pumpWidget(const SizedBox());
   });
@@ -187,7 +193,7 @@ void main() {
           probes.last.answer.complete(
             const XbExitIpResult('203.0.113.1', 'HK'),
           );
-          await tester.pump();
+          await flushProbe(tester);
           final route = container.read(routeTrackerProvider.notifier) as _Route;
           // Actual applySnapshot changes hostEpoch on first synchronization.
           route.firstSync();
@@ -199,7 +205,7 @@ void main() {
           probes.last.answer.complete(
             const XbExitIpResult('203.0.113.1', 'HK'),
           );
-          await tester.pump();
+          await flushProbe(tester);
           final count = probes.length;
           route.repeatSnapshot();
           await tester.pump(const Duration(seconds: 2));
@@ -217,12 +223,12 @@ void main() {
           expect(stale.cancelled, isTrue);
           await tester.pump(const Duration(milliseconds: 300));
           stale.answer.complete(const XbExitIpResult('203.0.113.99', 'US'));
-          await tester.pump();
+          await flushProbe(tester);
           expect(find.text('203.0.113.99'), findsNothing);
           probes.last.answer.complete(
             const XbExitIpResult('203.0.113.2', 'JP'),
           );
-          await tester.pump();
+          await flushProbe(tester);
           expect(find.text('203.0.113.2'), findsOneWidget);
           expect(find.textContaining('上次结果'), findsNothing);
           // Revalidation failure cannot present the retained value as fresh.
@@ -230,7 +236,7 @@ void main() {
           await tester.pump();
           await tester.pump(const Duration(milliseconds: 300));
           probes.last.answer.completeError(Exception('probe failure'));
-          await tester.pump();
+          await flushProbe(tester);
           expect(find.text('203.0.113.2'), findsOneWidget);
           expect(find.textContaining('上次结果，复核失败'), findsOneWidget);
           await tester.tap(find.byType(IconButton));
@@ -240,7 +246,7 @@ void main() {
           probes.last.answer.complete(
             const XbExitIpResult('203.0.113.3', 'HK'),
           );
-          await tester.pump();
+          await flushProbe(tester);
           // Explicit changes still invalidate old results, including pause.
           for (final action in [
             route.hostChanged,
@@ -257,7 +263,7 @@ void main() {
             probes.last.answer.complete(
               const XbExitIpResult('203.0.113.3', 'HK'),
             );
-            await tester.pump();
+            await flushProbe(tester);
           }
           // Background/resume cancels a revalidation and isolates its answer.
           route.advanceRoute();
@@ -268,14 +274,14 @@ void main() {
           await tester.pump();
           expect(hidden.cancelled, isTrue);
           hidden.answer.complete(const XbExitIpResult('203.0.113.99', 'US'));
-          await tester.pump();
+          await flushProbe(tester);
           container.read(visible.notifier).state = true;
           await tester.pump();
           await tester.pump(const Duration(milliseconds: 300));
           probes.last.answer.complete(
             const XbExitIpResult('203.0.113.4', 'HK'),
           );
-          await tester.pump();
+          await flushProbe(tester);
           expect(find.text('203.0.113.4'), findsOneWidget);
           expect(tester.takeException(), isNull);
           await tester.pumpWidget(const SizedBox());
@@ -331,7 +337,7 @@ void main() {
           probes.last.answer.complete(
             const XbExitIpResult('203.0.113.1', 'CN'),
           );
-          await tester.pump();
+          await flushProbe(tester);
           expect(find.text('203.0.113.1'), findsOneWidget);
           await tester.tap(find.byType(IconButton));
           await tester.pump();
@@ -343,12 +349,12 @@ void main() {
           expect(old.cancelled, isTrue);
           await tester.pump(const Duration(milliseconds: 300));
           old.answer.complete(const XbExitIpResult('203.0.113.9', 'US'));
-          await tester.pump();
+          await flushProbe(tester);
           expect(find.text('203.0.113.9'), findsNothing);
           probes.last.answer.complete(
             const XbExitIpResult('203.0.113.2', 'HK'),
           );
-          await tester.pump();
+          await flushProbe(tester);
           expect(find.text('203.0.113.2'), findsOneWidget);
           for (final action in [
             () => container.read(mode.notifier).state = Mode.global,
@@ -362,7 +368,7 @@ void main() {
             await tester.pump(const Duration(milliseconds: 300));
             expect(probes.length, count + 1);
             probes.last.answer.complete(null);
-            await tester.pump();
+            await flushProbe(tester);
             expect(find.text('检测失败'), findsOneWidget);
           }
           final stableCount = probes.length;
@@ -379,7 +385,7 @@ void main() {
           await tester.pump();
           expect(pending.cancelled, isTrue);
           pending.answer.complete(const XbExitIpResult('203.0.113.7', 'JP'));
-          await tester.pump();
+          await flushProbe(tester);
           expect(find.text('203.0.113.7'), findsNothing);
           container.read(visible.notifier).state = true;
           await tester.pump();
@@ -389,7 +395,7 @@ void main() {
           await tester.pump();
           expect(closing.cancelled, isTrue);
           closing.answer.complete(const XbExitIpResult('203.0.113.8', 'JP'));
-          await tester.pump();
+          await flushProbe(tester);
           expect(tester.takeException(), isNull);
         },
       );

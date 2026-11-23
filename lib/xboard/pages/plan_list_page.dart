@@ -23,7 +23,6 @@ import '../util/format.dart';
 import '../util/html_text.dart';
 import '../util/period_label.dart';
 import '../widgets/xb_ui_kit.dart';
-import 'pending_order_section.dart';
 import 'plan_detail_page.dart';
 import 'commerce_read_recovery.dart';
 
@@ -130,11 +129,10 @@ class _PlanListPageState extends ConsumerState<_OwnedPlanList> {
                   if (!twoCol) {
                     return ListView.builder(
                       padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
-                      itemCount: plans.length + 2,
+                      itemCount: plans.length + 1,
                       itemBuilder: (_, i) {
-                        if (i == 0) return const PendingOrderSection();
-                        if (i == 1) return const XbGroupLabel('选择套餐');
-                        final plan = plans[i - 2];
+                        if (i == 0) return const XbGroupLabel('选择套餐');
+                        final plan = plans[i - 1];
                         return Padding(
                           padding: const EdgeInsets.only(bottom: 11),
                           child: _PlanOptCard(
@@ -156,7 +154,6 @@ class _PlanListPageState extends ConsumerState<_OwnedPlanList> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                        const PendingOrderSection(),
                         const XbGroupLabel('选择套餐'),
                         const SizedBox(height: 4),
                         Wrap(

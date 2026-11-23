@@ -82,10 +82,11 @@ class _TutorialListBodyState extends ConsumerState<_TutorialListBody> {
     ref.listen(tutorialsProvider, (_, next) {
       if (!next.isLoading) _age.reset();
     });
-    xbListenForReadRecovery(context, ref, () {
-      final current = ref.read(tutorialsProvider);
-      if (!current.isLoading && xbIsRecoverableReadError(current.error)) _reload(ref);
-    });
+    xbListenForPendingReadRecovery(context, ref,
+      state: () => ref.read(tutorialsProvider),
+      future: () => ref.read(tutorialsProvider.future),
+      retry: () => _reload(ref),
+    );
     if (async is AsyncData<List<XbTutorial>>) _last = async.value;
     if (async.hasError && !xbIsRecoverableReadError(async.error)) _last = null;
     final saved = _last;

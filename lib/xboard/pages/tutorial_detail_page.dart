@@ -101,12 +101,12 @@ class _DetailBodyState extends ConsumerState<_DetailBody> {
   Widget build(BuildContext context) {
     final id = widget.id;
     final async = ref.watch(tutorialDetailProvider(id));
-    xbListenForReadRecovery(context, ref, () {
-      final current = ref.read(tutorialDetailProvider(id));
-      if (_article == null && !current.isLoading && xbIsRecoverableReadError(current.error)) {
-        ref.invalidate(tutorialDetailProvider(id));
-      }
-    });
+    xbListenForPendingReadRecovery(context, ref,
+      state: () => ref.read(tutorialDetailProvider(id)),
+      future: () => ref.read(tutorialDetailProvider(id).future),
+      current: () => _article == null && widget.id == id,
+      retry: () => ref.invalidate(tutorialDetailProvider(id)),
+    );
     if (async is AsyncData<XbTutorialDetail> && !identical(_last, async.value)) {
       _last = async.value;
       _article = _last!.body.trim().isEmpty ? null : _Article(id: id, detail: _last!);

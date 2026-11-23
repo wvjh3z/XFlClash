@@ -39,6 +39,7 @@ import 'package:fl_clash/xboard/services/xb_update_service.dart';
 import 'package:fl_clash/xboard/util/app_version.dart';
 import 'package:fl_clash/xboard/util/format.dart';
 import 'package:fl_clash/xboard/widgets/xb_components.dart';
+import 'package:fl_clash/xboard/widgets/xb_plan_notice_card.dart';
 import 'package:fl_clash/xboard/widgets/xb_feedback.dart'
     show xbConfirm, xbBrandColor, xbToast;
 import 'package:fl_clash/xboard/widgets/xb_refresh_throttle_guard.dart';
@@ -119,9 +120,9 @@ class _MineTabState extends ConsumerState<MineTab> with XbRefreshThrottleGuard {
         ref.read(userProfileProvider.future).then((_) {}),
         if (!retry) _checkAppUpdate(),
       ]);
-      if (mounted && ref.read(authStateProvider.notifier).sessionRevision == revision) {
+      if (!retry && mounted && ref.read(authStateProvider.notifier).sessionRevision == revision) {
         ref.invalidate(_rebateRateProvider);
-        if (!retry) startThrottle();
+        startThrottle();
       }
     } catch (_) {
       // The shared provider displays the failure; do not throttle a failed read.
@@ -177,15 +178,21 @@ class _MineTabState extends ConsumerState<MineTab> with XbRefreshThrottleGuard {
           final accountBlock = isGuest
               ? _GuestCard(onTapLogin: widget.onTapLogin)
               : stale != null
-                  ? Column(children: [
-                      IgnorePointer(child: _AccountCard(sub: stale, active: widget.active, now: widget.now, large: isDesktop)),
-                      Text(profile!.isLoading ? '正在更新 · 显示上次资料' : '更新失败 · 显示上次资料，请刷新重试'),
+                  ? Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                      Semantics(
+                        label: '上次同步的账号资料',
+                        child: IgnorePointer(child: _AccountCard(sub: stale, active: widget.active, now: widget.now, large: isDesktop)),
+                      ),
+                      if (profile!.hasError && !profile.isLoading) ...[
+                        const SizedBox(height: 12),
+                        _AccountSyncNotice(hasPrevious: true, onRetry: _retryAccount),
+                      ],
                     ])
               : skeleton
                   ? const _AccountSkeleton()
                   : profile!.when(
                       loading: () => const _AccountSkeleton(),
-                      error: (error, stack) => _AccountErrorCard(onRetry: _retryAccount),
+                      error: (error, stack) => _AccountSyncNotice(hasPrevious: false, onRetry: _retryAccount),
                       data: (sub) => _AccountCard(sub: sub, active: widget.active, now: widget.now, large: isDesktop),
                     );
 
@@ -356,9 +363,7 @@ class _RefreshButton extends StatelessWidget {
     // 与节点页「刷新节点」(_NodesRefreshAction) 同款 TextButton.icon → 字体/样式统一。
     return TextButton.icon(
       onPressed: refreshing ? null : onTap,
-      icon: refreshing
-          ? const XbSpinner(color: XbTokens.warn, size: 16, stroke: 2)
-          : Icon(Icons.refresh, size: 16, color: color),
+      icon: refreshing ? null : Icon(Icons.refresh, size: 16, color: color),
       label: Text(label),
       style: TextButton.styleFrom(
         foregroundColor: color,
@@ -706,98 +711,20 @@ class _AccountSkeleton extends StatelessWidget {
   }
 }
 
-/// 账号卡加载失败态（原型 `.plan-error`，11c）：白底卡 + 圆形红云图标 + 标题 + 出路说明 +
-/// 描边「重新加载」按钮。重试 = `ref.invalidate(userProfileProvider)` → 只重发 getSubscription
-/// （不重新竞速、不重拉节点订阅），故文案强调「不影响连接与节点」。下方账户/应用菜单仍可用。
-class _AccountErrorCard extends StatelessWidget {
-  const _AccountErrorCard({required this.onRetry});
-
+class _AccountSyncNotice extends StatelessWidget {
+  const _AccountSyncNotice({required this.hasPrevious, required this.onRetry});
+  final bool hasPrevious;
   final VoidCallback onRetry;
 
   @override
-  Widget build(BuildContext context) {
-    final t = XbTokens.of(context);
-    final scheme = Theme.of(context).colorScheme;
-    // 横向紧凑布局（与紧凑账号卡等高）：左圆图标 + 中标题/说明 + 右描边重试。
-    return Container(
-      constraints: const BoxConstraints(minHeight: 118),
-      padding: const EdgeInsets.fromLTRB(18, 16, 18, 16),
-      decoration: BoxDecoration(
-        color: t.card,
-        borderRadius: BorderRadius.circular(XbTokens.rLg),
-        border: Border.all(color: t.line),
-        boxShadow: t.shadow1,
-      ),
-      child: Row(
-        children: [
-          // 圆形图标容器（红云，--bad 10% 柔底）。
-          Container(
-            width: 48,
-            height: 48,
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: Color.alphaBlend(
-                XbTokens.bad.withValues(alpha: 0.10),
-                t.sfc,
-              ),
-            ),
-            child: const Icon(
-              Icons.cloud_off_rounded,
-              size: 25,
-              color: XbTokens.bad,
-            ),
-          ),
-          const SizedBox(width: 14),
-          // 标题 + 一行说明。
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  '账号信息加载失败',
-                  style: TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w600,
-                    color: t.on,
-                  ),
-                ),
-                const SizedBox(height: 3),
-                Text(
-                  '请检查网络后重试，期间不影响连接与节点使用',
-                  style: TextStyle(fontSize: 12.5, height: 1.5, color: t.onv),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(width: 12),
-          // 描边「重新加载」按钮。
-          OutlinedButton.icon(
-            onPressed: onRetry,
-            icon: const Icon(Icons.refresh_rounded, size: 17),
-            label: const Text('重新加载'),
-            style: OutlinedButton.styleFrom(
-              foregroundColor: scheme.primary,
-              side: BorderSide(
-                color: scheme.primary.withValues(alpha: 0.40),
-                width: 1.6,
-              ),
-              minimumSize: const Size(0, 38),
-              padding: const EdgeInsets.symmetric(horizontal: 14),
-              textStyle: const TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-              ),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(XbTokens.rMd),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
+  Widget build(BuildContext context) => XbPlanNoticeCard(
+    title: '账号资料同步失败',
+    desc: hasPrevious ? '当前显示上次资料，请刷新重试。' : '暂未获取账号资料，请刷新重试。',
+    icon: Icons.access_time,
+    urgent: false,
+    actionLabel: '刷新',
+    onTap: onRetry,
+  );
 }
 
 /// 游客引导卡（R6.10）—— 原型灰渐变卡（与账号卡同布局，未登录用灰色，白字 + 白登录按钮）。
@@ -1353,7 +1280,7 @@ class _SupportRowState extends ConsumerState<_SupportRow>
             Color.lerp(brand, Colors.white, 0.16)!, brand,
           ])),
           child: Row(mainAxisSize: MainAxisSize.min, children: [
-            TextButton(onPressed: open, child: const Text('继续聊天', style: TextStyle(color: Colors.white))),
+            TextButton(onPressed: open, child: Text(submitting ? '正在打开客服…' : '继续聊天', style: const TextStyle(color: Colors.white))),
             Container(width: 1, height: 16, color: Colors.white38),
             IconButton(tooltip: '隐藏聊天入口', icon: const Icon(Icons.close, color: Colors.white, size: 18),
               onPressed: submitting ? null : () =>
@@ -1366,13 +1293,7 @@ class _SupportRowState extends ConsumerState<_SupportRow>
     icon: Icons.support_agent,
     label: submitting ? '正在打开客服…' : '在线客服',
     large: widget.large,
-    trailing: submitting
-        ? const SizedBox(
-            width: 18,
-            height: 18,
-            child: CircularProgressIndicator(strokeWidth: 2),
-          )
-        : null,
+    showChevron: !submitting,
     onTap: open,
     );
   }

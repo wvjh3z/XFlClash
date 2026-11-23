@@ -4,9 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../../../../ui/icons/icons.dart' show AppGlyphs;
-import '../../../widgets/xb_components.dart' show XbSpinner;
 import '../../../widgets/xb_feedback.dart' show xbToast;
-import '../../../widgets/xb_theme.dart' show XbTokens;
 import '../../adapters/xb_nodes_adapter.dart';
 import 'xb_node_capsule_action.dart';
 
@@ -122,9 +120,7 @@ class _XbGroupDelayActionState extends ConsumerState<XbGroupDelayAction> {
           : scheme.primary;
       return TextButton.icon(
         onPressed: testing || widget.group.nodes.isEmpty ? null : _test,
-        icon: testing
-            ? const XbSpinner(color: XbTokens.warn, size: 13, stroke: 2)
-            : Icon(Icons.bolt, size: 16, color: color),
+        icon: testing ? null : Icon(Icons.bolt, size: 16, color: color),
         label: Text(label),
         style: TextButton.styleFrom(
           foregroundColor: color,

@@ -24,6 +24,34 @@ class _UnknownConnectivity extends FakeConnectivity {
 }
 
 void main() {
+  testWidgets('cold start online snapshot preserves reads already in flight', (tester) async {
+    final hardware = FakeConnectivity();
+    final race = _Race();
+    var invalidations = 0;
+    race.resetApiEndpointHealth = () => invalidations++;
+    final container = ProviderContainer(overrides: [
+      isStartProvider.overrideWith((_) => false),
+      suspendProvider.overrideWith((_) => false),
+      xboardConnectivityClientProvider.overrideWithValue(hardware),
+    ]);
+    final observer = XboardNetworkObserver(container, race);
+    try {
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 301));
+      expect(invalidations, 0, reason: 'first Wi-Fi sample is not a switch');
+      expect(race.refreshes, 1, reason: 'still verify the initial API');
+      hardware.goMobile();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 301));
+      expect(invalidations, 1);
+      expect(race.refreshes, 2);
+    } finally {
+      observer.dispose();
+      race.dispose();
+      container.dispose();
+      await hardware.close();
+    }
+  });
   test('接口变化、门户失败均不算恢复；同一地址成功每代只发布一次', () async {
     var reachable = true, recovered = 0, switched = 0;
     final race = EndpointRaceController(probe: (_) async => reachable,

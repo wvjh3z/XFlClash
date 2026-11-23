@@ -1,18 +1,31 @@
 /// 测速中节点集合 + 节点页延迟行屏蔽中间跳变（显示转圈）。
 library;
 
+import 'dart:async';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:fl_clash/providers/state.dart'
     show delayProvider, selectedProxyNameProvider, proxyNameProvider;
+import 'package:fl_clash/models/models.dart' show Delay;
 import 'package:fl_clash/xboard/shell/adapters/xb_nodes_adapter.dart';
 import 'package:fl_clash/xboard/shell/tabs/nodes/xb_node_group.dart';
 import 'package:fl_clash/xboard/widgets/xb_components.dart' show XbSpinner;
 
-Future<ProviderContainer> pumpNode(WidgetTester tester, int? rawDelay) async {
+class _ManualTest extends XbNodesAdapter {
+  final result = Completer<Delay?>();
+  int calls = 0;
+  @override
+  Future<Delay?> testNode(WidgetRef ref, {required String proxyName, required String type, String? testUrl}) {
+    calls++;
+    return result.future;
+  }
+}
+
+Future<ProviderContainer> pumpNode(WidgetTester tester, int? rawDelay, {XbNodesAdapter? adapter}) async {
   final container = ProviderContainer(overrides: [
+    if (adapter != null) xbNodesAdapterProvider.overrideWithValue(adapter),
     delayProvider(proxyName: 'HK01', testUrl: null).overrideWithValue(rawDelay),
     selectedProxyNameProvider('HK').overrideWithValue(''),
     proxyNameProvider('HK').overrideWithValue(null),
@@ -70,6 +83,20 @@ void main() {
   });
 
   group('节点页延迟行：测速中屏蔽跳变', () {
+    testWidgets('手动单节点测速只显示忙态文字，重复点不重发', (tester) async {
+      final adapter = _ManualTest();
+      await pumpNode(tester, 120, adapter: adapter);
+      await tester.tap(find.text('30ms'));
+      await tester.pump();
+      expect(find.text('测速中…'), findsOneWidget);
+      expect(find.byType(XbSpinner), findsNothing);
+      await tester.tap(find.text('测速中…'));
+      await tester.pump();
+      expect(adapter.calls, 1);
+      adapter.result.complete(null);
+      await tester.pumpAndSettle();
+      expect(find.text('30ms'), findsOneWidget);
+    });
     testWidgets('节点在测速集合中 → 显示转圈（即便有延迟值）', (t) async {
       final container = await pumpNode(t, 120);
       // 未测速中 → 显示延迟值。

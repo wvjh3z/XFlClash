@@ -114,6 +114,10 @@ void main() {
             action();
             await t.pump();
             expect(calls, 1);
+            expect(find.text('检测中…'), findsOneWidget);
+            expect(find.text('正在登录…'), findsNothing);
+            expect(find.descendant(of: find.byType(LoginSheet),
+                matching: find.byType(CircularProgressIndicator)), findsNothing);
             expect(
               t.widget<FilledButton>(find.byType(FilledButton).last).onPressed,
               isNull,

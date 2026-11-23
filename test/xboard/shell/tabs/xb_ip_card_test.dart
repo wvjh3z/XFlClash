@@ -49,10 +49,11 @@ void main() {
     expect(find.text('113.96.1.2'), findsOneWidget);
   });
 
-  testWidgets('检测中（无旧值）→ 检测中… + 转圈', (t) async {
+  testWidgets('检测中（无旧值）→ 保留检测状态，刷新按钮仅文字禁用', (t) async {
     await _pump(t, const XbIpStatus(loading: true, ip: null));
     expect(find.text('检测中…'), findsOneWidget);
-    expect(find.byType(CircularProgressIndicator), findsOneWidget);
+    expect(t.widget<TextButton>(find.widgetWithText(TextButton, '刷新中…')).onPressed, isNull);
+    expect(find.byType(CircularProgressIndicator), findsNothing);
     expect(find.text('出口 IP'), findsOneWidget); // 无国家括号
   });
 
@@ -61,7 +62,8 @@ void main() {
     expect(find.text('检测中…'), findsNothing);
     expect(find.text('203.0.113.1'), findsOneWidget);
     expect(find.textContaining('上次结果，复核中'), findsOneWidget);
-    expect(find.byType(CircularProgressIndicator), findsOneWidget);
+    expect(find.widgetWithText(TextButton, '刷新中…'), findsOneWidget);
+    expect(find.byType(CircularProgressIndicator), findsNothing);
   });
 
   testWidgets('检测失败（非加载 + 无 IP）→ 检测失败', (t) async {

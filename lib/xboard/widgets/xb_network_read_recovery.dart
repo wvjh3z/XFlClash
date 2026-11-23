@@ -24,3 +24,33 @@ void xbListenForReadRecovery(
     onRecovery();
   });
 }
+
+/// For a visible page whose initial GET may finish *after* the API probe.
+/// A manually replaced read, hidden route or disposed owner must not retry.
+void xbListenForPendingReadRecovery<T>(BuildContext context, WidgetRef ref, {
+  required AsyncValue<T> Function() state,
+  required Future<T> Function() future,
+  required VoidCallback retry,
+  bool Function()? current,
+}) {
+  xbListenForReadRecovery(context, ref, () async {
+    if (current?.call() == false) return;
+    if (state().isLoading) {
+      final pending = future();
+      try {
+        await pending;
+        return;
+      } catch (_) {
+        if (!context.mounted || ModalRoute.of(context)?.isCurrent == false ||
+            !TickerMode.valuesOf(context).enabled || current?.call() == false ||
+            !identical(future(), pending)) {
+          return;
+        }
+        final life = WidgetsBinding.instance.lifecycleState;
+        if (life != null && life != AppLifecycleState.resumed) return;
+      }
+    }
+    final latest = state();
+    if (!latest.isLoading && xbIsRecoverableReadError(latest.error)) retry();
+  });
+}

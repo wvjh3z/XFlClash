@@ -131,6 +131,7 @@ void main() {
           }
            expect(b.quotes, isEmpty);
           if (mode == 'normal-success') {
+            await tester.pumpAndSettle();
             expect(find.byType(OrderPaymentPage), findsOneWidget);
           } else if (mode == 'normal-failure') {
             expect(find.textContaining('fixture late failure'), findsOneWidget);

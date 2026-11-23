@@ -307,7 +307,7 @@ void main() {
       final container = await _setup(tester, service, 'brand_a');
       expect(find.text('已达标'), findsOneWidget);
       expect(find.text('检测中…'), findsOneWidget);
-      expect(tester.widget<FilledButton>(_continue).onPressed, isNull);
+      expect(tester.widget<FilledButton>(find.widgetWithText(FilledButton, '正在核对提现条件…')).onPressed, isNull);
       if (scenario == 'close') {
         await tester.tap(find.text('关闭'));
       } else if (scenario == 'switch account') {

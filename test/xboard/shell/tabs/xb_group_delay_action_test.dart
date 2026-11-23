@@ -92,7 +92,7 @@ void main() {
     expect(visibleLabel('测速中'), findsOneWidget);
     expect(advertisesAction('A · 测速中'), isTrue); // Tap reports progress.
     expect(find.text('2/3'), findsNothing);
-    expect(tester.widget<CircularProgressIndicator>(find.byType(CircularProgressIndicator)).value, isNull);
+    expect(find.byType(CircularProgressIndicator), findsNothing);
     await tester.tap(action);
     await tester.pump();
     expect(adapter.calls, 1); // Progress tap reports status, never restarts.
@@ -105,12 +105,22 @@ void main() {
     await tester.pump();
     expect(find.text('50%'), findsNothing);
     expect(advertisesAction('B · 测速中'), isTrue);
-    expect(find.byType(CircularProgressIndicator), findsOneWidget);
+    expect(find.byType(CircularProgressIndicator), findsNothing);
     update(() => selected = a);
     await tester.pump();
     expect(advertisesAction('A · 测速中'), isTrue);
     expect(tester.getSize(action), originalSize);
 
+    final desktop = find.byKey(const ValueKey('desktop'));
+    await tester.tap(find.descendant(of: desktop, matching: find.byType(TextButton)));
+    adapter.progress['desktop']!(1, 2);
+    await tester.pump();
+    expect(find.text('测速中 1/2'), findsOneWidget);
+    expect(tester.widget<TextButton>(
+      find.descendant(of: desktop, matching: find.byType(TextButton)),
+    ).onPressed, isNull);
+    expect(find.byType(CircularProgressIndicator), findsNothing);
+    adapter.pending['desktop']!.complete();
     adapter.pending['A']!.complete();
     await tester.pump();
     expect(find.text('60s'), findsOneWidget);
@@ -121,10 +131,10 @@ void main() {
     expect(find.text('测延迟 60s'), findsOneWidget); // Already-mounted desktop observes cooldown.
     await tester.tap(action);
     await tester.pump();
-    expect(adapter.calls, 2);
+    expect(adapter.calls, 3);
     update(() => selected = b);
     await tester.pump();
-    expect(find.byType(CircularProgressIndicator), findsOneWidget); // Own running state wins over cooldown.
+    expect(visibleLabel('测速中'), findsOneWidget); // Own running state wins over cooldown.
     update(() => visible = false);
     await tester.pump();
     adapter.pending['B']!.completeError(StateError('late failure'));
@@ -140,4 +150,5 @@ void main() {
       semantics.dispose();
     }
   });
+
 }

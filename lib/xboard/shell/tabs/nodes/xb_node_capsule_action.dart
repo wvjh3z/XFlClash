@@ -55,18 +55,9 @@ class _XbNodeCapsuleActionState extends State<XbNodeCapsuleAction> {
       color: color,
     );
     final countdown = widget.countdownSeconds;
-    final Widget face;
+    final Widget? face;
     if (widget.busy) {
-      face = SizedBox.square(
-        dimension: 16,
-        child: CircularProgressIndicator(
-          value: MediaQuery.disableAnimationsOf(context) ? 0.5 : null,
-          padding: EdgeInsets.zero,
-          strokeWidth: 2,
-          color: color,
-          backgroundColor: tokens.sfc,
-        ),
-      );
+      face = null;
     } else if (countdown != null) {
       face = Text(
         '${countdown}s',
@@ -123,8 +114,7 @@ class _XbNodeCapsuleActionState extends State<XbNodeCapsuleAction> {
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            face,
-                            const SizedBox(width: 4),
+                            if (face != null) ...[face, const SizedBox(width: 4)],
                             Text(widget.label, maxLines: 1, style: textStyle),
                           ],
                         ),

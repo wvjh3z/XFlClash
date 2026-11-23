@@ -251,20 +251,15 @@ class _LoginSheetState extends ConsumerState<LoginSheet>
             ),
             child: Row(
               children: [
-                if (_checking)
-                  const SizedBox(
-                    width: 18,
-                    height: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                else
+                if (!_checking) ...[
                   Icon(
                     _checkSucceeded
                         ? Icons.check_circle_outline
                         : Icons.info_outline,
                     size: 18,
                   ),
-                const SizedBox(width: 8),
+                  const SizedBox(width: 8),
+                ],
                 Expanded(child: Text(_banner!)),
                 const SizedBox(width: 8),
                 TextButton(
@@ -305,13 +300,8 @@ class _LoginSheetState extends ConsumerState<LoginSheet>
           child: XbGradientAction(
             height: 50,
             onPressed: (!ready || submitting || _checking) ? null : _submit,
-            child: submitting
-                ? const SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : Text(ready ? '登录' : '准备中…'),
+            busyLabel: submitting ? '正在登录…' : null,
+            child: Text(ready ? '登录' : '准备中…'),
           ),
         ),
       ],

@@ -232,7 +232,7 @@ void main() {
       ProviderScope(
         overrides: [
           authStateProvider.overrideWith(_FakeAuth.new),
-          // 抛错 → AsyncError → _AccountErrorCard。
+          // 首次读取失败、无上次资料：只展示同步提示条。
           userProfileProvider.overrideWith(
               (ref) async => throw Exception('network down')),
         ],
@@ -243,6 +243,7 @@ void main() {
       ),
     );
     expect(t.takeException(), isNull);
+    expect(find.text('暂未获取账号资料，请刷新重试。'), findsOneWidget);
     await expectXbGolden(t, find.byType(MineTab), 'goldens/page_mine_error.png');
   });
 

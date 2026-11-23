@@ -76,11 +76,34 @@ String buildShareText(String url, String? code) {
 }
 
 /// 单条分享地址行（不展示具体 URL，只「图标 + 标签 + 复制按钮」）。
-class _ShareLinkRow extends StatelessWidget {
+class _ShareLinkRow extends StatefulWidget {
   const _ShareLinkRow({required this.label, required this.url, this.inviteCode});
   final String label;
   final String url;
   final String? inviteCode;
+
+  @override
+  State<_ShareLinkRow> createState() => _ShareLinkRowState();
+}
+
+class _ShareLinkRowState extends State<_ShareLinkRow> {
+  bool copying = false;
+  Future<void> _copy() async {
+    if (copying) return;
+    final url = widget.url;
+    final code = widget.inviteCode;
+    setState(() => copying = true);
+    try {
+      await Clipboard.setData(ClipboardData(text: buildShareText(url, code)));
+      if (mounted && widget.url == url && widget.inviteCode == code) {
+        xbToast(context, code != null && code.isNotEmpty ? '已复制下载链接与邀请码' : '已复制${widget.label}');
+      }
+    } catch (_) {
+      if (mounted) xbToast(context, '复制失败，请重试');
+    } finally {
+      if (mounted) setState(() => copying = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -102,7 +125,7 @@ class _ShareLinkRow extends StatelessWidget {
           ),
           const SizedBox(width: 11),
           Expanded(
-            child: Text(label,
+            child: Text(widget.label,
                 style: TextStyle(
                     fontSize: 13, fontWeight: FontWeight.w600, color: t.on)),
           ),
@@ -112,13 +135,11 @@ class _ShareLinkRow extends StatelessWidget {
             borderRadius: BorderRadius.circular(10),
             child: InkWell(
               borderRadius: BorderRadius.circular(10),
-              onTap: () {
-                final hasCode = inviteCode != null && inviteCode!.isNotEmpty;
-                Clipboard.setData(
-                    ClipboardData(text: buildShareText(url, inviteCode)));
-                xbToast(context, hasCode ? '已复制下载链接与邀请码' : '已复制$label');
-              },
-              child: SizedBox(
+              onTap: copying ? null : _copy,
+              child: copying ? Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+                child: Text('正在复制…', style: TextStyle(color: brand, fontSize: 13)),
+              ) : SizedBox(
                 width: 38,
                 height: 38,
                 child: Icon(Icons.content_copy, size: 18, color: brand),

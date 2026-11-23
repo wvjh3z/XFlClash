@@ -21,21 +21,30 @@ import 'package:fl_clash/xboard/widgets/xb_plan_details.dart';
 import 'package:fl_clash/xboard/widgets/xb_theme.dart';
 
 class _Service extends Mock
-    implements XboardService, XboardConfirmedOrderControl {
+    implements XboardService, XboardProgressOrderControl {
   int submitCalls = 0;
   ConfirmedOrderQuote? submittedQuote;
   bool askAboutOldOrder = false;
   bool? acceptedOldOrder;
   bool replacing = false;
+  Future<void>? submitGate;
+  Future<void>? createGate;
 
   @override
   Future<XbResult<String?>> confirmOrder(
     ConfirmedOrderQuote quote, {
     required bool Function() isActive,
     required Future<bool> Function(ConfirmedOrderConflict) confirm,
+    void Function(ConfirmedOrderStage stage)? onStage,
   }) async {
     submitCalls++;
     submittedQuote = quote;
+    onStage?.call(ConfirmedOrderStage.checking);
+    if (submitGate != null) await submitGate;
+    if (createGate != null && isActive()) {
+      onStage?.call(ConfirmedOrderStage.creating);
+      await createGate;
+    }
     if (askAboutOldOrder) {
       acceptedOldOrder = await confirm(
         ConfirmedOrderConflict(
@@ -70,6 +79,47 @@ const _coupon = CouponInfo(code: 'VALID', type: 1, value: 100);
 
 void main() {
   setUpAll(() => registerFallbackValue(XbPlanPeriod.monthly));
+  testWidgets('narrow checkout shows text-only progress and cannot double-submit', (t) async {
+    t.view.devicePixelRatio = 1;
+    t.view.physicalSize = const Size(320, 844);
+    addTearDown(t.view.reset);
+    final read = Completer<XbResult<XbDomainSubscription>>();
+    final write = Completer<void>();
+    final check = Completer<void>();
+    final service = _Service()..submitGate = check.future..createGate = write.future;
+    when(service.getSubscription).thenAnswer((_) => read.future);
+    await t.pumpWidget(ProviderScope(overrides: [
+      authStateProvider.overrideWith(_Auth.new), xboardServiceProvider.overrideWithValue(service),
+    ], child: MaterialApp(
+      builder: (context, child) => MediaQuery(data: MediaQuery.of(context).copyWith(textScaler: TextScaler.linear(2)), child: child!),
+      home: const PlanDetailPage(plan: _plan, initialPeriod: XbPlanPeriod.monthly),
+    )));
+    await t.pumpAndSettle();
+    final start = find.widgetWithText(FilledButton, '提交订单');
+    await t.ensureVisible(start);
+    await t.tap(start);
+    await t.pump();
+    expect(t.widget<FilledButton>(find.widgetWithText(FilledButton, '正在核对当前套餐…')).onPressed, isNull);
+    read.complete(const XbSuccess(XbDomainSubscription(email:'f@example.invalid',uuid:'fixture',totalBytes:0,usedBytes:0)));
+    await t.pump();
+    expect(t.widget<FilledButton>(find.widgetWithText(FilledButton, '正在核对订单…')).onPressed, isNull);
+    expect(find.text('正在创建订单…'), findsNothing);
+    check.complete();
+    await t.pump();
+    final busy = find.widgetWithText(FilledButton, '正在创建订单…');
+    expect(t.widget<FilledButton>(busy).onPressed, isNull);
+    expect(find.descendant(of: busy, matching: find.byType(CircularProgressIndicator)), findsNothing);
+    final text = t.renderObject<RenderParagraph>(find.text('正在创建订单…'));
+    expect(text.text.style?.color, Colors.white);
+    expect(text.textAlign, TextAlign.center);
+    await t.tap(busy);
+    await t.pump();
+    expect(service.submitCalls, 1);
+    expect(t.takeException(), isNull);
+    write.complete();
+    await t.pumpAndSettle();
+    expect(t.widget<FilledButton>(start).onPressed, isNotNull);
+  });
   for (final width in [360.0, 1280.0]) {
     testWidgets('checkout $width preserves period, layout and acknowledgement', (tester) async {
       tester.view.devicePixelRatio = 1;
@@ -131,7 +181,8 @@ void main() {
       expect(service.submittedQuote!.estimatedCents, 1000);
       expect(find.text('确认更换套餐'), findsNothing);
       expect(find.textContaining('当前预估 ¥10'), findsOneWidget);
-      final payExisting = find.textContaining('支付已有订单 ¥25');
+      final payExisting = find.text('继续支付旧单');
+      expect(find.textContaining('按旧单金额 ¥25'), findsOneWidget);
       expect(payExisting, findsOneWidget);
       await tester.tap(payExisting);
       await tester.pumpAndSettle();
@@ -196,13 +247,15 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      final back = find.widgetWithText(FilledButton, '返回');
+      final back = find.widgetWithText(OutlinedButton, '返回');
       final submit = find.widgetWithText(FilledButton, '提交订单');
       final tokens = XbTokens.of(tester.element(back));
       expect(
-        tester.widget<FilledButton>(back).style!.backgroundColor!.resolve({}),
-        tokens.sfc,
+        tester.widget<OutlinedButton>(back).style!.backgroundColor!.resolve({}),
+        Colors.transparent,
       );
+      expect(tester.widget<OutlinedButton>(back).style!.side!.resolve({})!.color, isNot(tokens.line));
+      expect(tester.getSize(back).width, 72);
       expect(tester.getSize(back).height, tester.getSize(submit).height);
       expect(
         tester.renderObject<RenderParagraph>(find.text('提交订单')).text.style?.color,
@@ -218,18 +271,25 @@ void main() {
       );
       expect(gradient, findsOneWidget);
       final field = find.byType(TextField);
+      final surface = find.byKey(const ValueKey('coupon-input-surface'));
       final verify = find.widgetWithText(OutlinedButton, '验证');
       expect(tester.getTopLeft(field).dy, greaterThan(tester.getBottomLeft(submit).dy));
-      expect(tester.getTopLeft(field).dy, closeTo(tester.getTopLeft(verify).dy, 0.5));
-      expect(tester.getSize(field).height, closeTo(tester.getSize(verify).height, 0.5));
+      expect(tester.getTopLeft(surface).dy, closeTo(tester.getTopLeft(verify).dy, 0.5));
+      expect(tester.getSize(surface).height, closeTo(tester.getSize(verify).height, 0.5));
+      final paint = tester.widget<Container>(surface).decoration! as BoxDecoration;
+      expect((paint.border! as Border).top.width, 1);
+      expect(tester.getSize(surface).height, dark ? greaterThan(44.0) : equals(44.0));
+      final edit = find.descendant(of: field, matching: find.byType(EditableText));
+      expect(tester.getRect(surface).contains(tester.getCenter(edit)), isTrue);
+      expect(tester.widget<TextField>(field).maxLength, 64);
 
       await tester.ensureVisible(verify);
       await tester.tap(verify);
       await tester.pumpAndSettle();
       final error = find.text('请输入优惠码');
       expect(error, findsOneWidget);
-      expect(tester.getTopLeft(error).dy, greaterThan(tester.getBottomLeft(field).dy));
-      expect(tester.getSize(field).height, closeTo(tester.getSize(verify).height, 0.5));
+      expect(tester.getTopLeft(error).dy, greaterThan(tester.getBottomLeft(surface).dy));
+      expect(tester.getSize(surface).height, closeTo(tester.getSize(verify).height, 0.5));
       expect(service.submitCalls, 0);
       verifyNever(() => service.checkCoupon(any(), any(), any()));
       expect(tester.takeException(), isNull);
@@ -245,7 +305,7 @@ void main() {
         addTearDown(tester.view.reset);
         const description =
             '<p><strong style="color:#245BA9">自带颜色 📦</strong></p>'
-            '<ul><li>完整条目 1</li><li>完整条目 2</li></ul>';
+            '<p>流量：120 GB/月</p><ul><li>完整条目 1</li><li>完整条目 2</li></ul>';
         final plan = _plan.copyWith(description: description);
         final service = _Service();
         when(service.getSubscription).thenAnswer((_) async => const XbSuccess(
@@ -289,10 +349,14 @@ void main() {
           renew ? '确认续费' : '提交订单',
         );
         expect(name, findsOneWidget);
+        expect(find.text('展开说明'), findsNothing);
+        expect(find.text('收起说明'), findsNothing);
+        // The same full four-row fixture previously measured 124 logical pixels.
+        expect(tester.getSize(html).height, lessThan(124));
         expect(details, findsOneWidget);
         expect(find.descendant(of: details, matching: html), findsOneWidget);
         expect(tester.widget<Html>(html).data, contains('color:#245BA9'));
-        for (final item in ['自带颜色', '完整条目 1', '完整条目 2']) {
+        for (final item in ['自带颜色', '120 GB/月', '完整条目 1', '完整条目 2']) {
           expect(
             find.descendant(
               of: html,
@@ -427,6 +491,9 @@ void main() {
           await tester.enterText(find.byType(TextField), 'VALID');
           await tester.tap(find.text('验证'));
           await tester.pump();
+          final verifying = find.widgetWithText(OutlinedButton, '正在验证…');
+          expect(tester.widget<OutlinedButton>(verifying).onPressed, isNull);
+          expect(find.descendant(of: verifying, matching: find.byType(CircularProgressIndicator)), findsNothing);
           if (scenario.startsWith('dispose')) {
             await tester.pumpWidget(const SizedBox());
           } else if (scenario == 'period') {

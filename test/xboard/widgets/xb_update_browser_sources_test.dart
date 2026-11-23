@@ -147,7 +147,7 @@ void main() {
     final release = Completer<bool>(); launcher.answer = (_) => release.future;
     await pump(tester, _Probe()); await tester.pump();
     expect(launcher.urls.length, 1);
-    expect(tester.widget<FilledButton>(find.widgetWithText(FilledButton, '重新打开')).onPressed, isNull);
+    expect(tester.widget<FilledButton>(find.widgetWithText(FilledButton, '正在打开…')).onPressed, isNull);
     expect(tester.widget<FilledButton>(find.ancestor(of: find.text('换下一条'), matching: find.byType(FilledButton))).onPressed, isNull);
     release.complete(true); await tester.pumpAndSettle();
     expect(launcher.urls.length, 1);

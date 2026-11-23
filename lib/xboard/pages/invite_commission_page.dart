@@ -149,13 +149,12 @@ class _RecordsEntry extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final records = ref.watch(commissionRecordsProvider);
     final owner = ref.watch(commissionReadOwnerProvider);
-    xbListenForReadRecovery(context, ref, () {
-      final actual = ref.read(commissionRecordsProvider);
-      if (owner == ref.read(commissionReadOwnerProvider) && !owner.$1.busy &&
-          !actual.isLoading && xbIsRecoverableReadError(actual.error)) {
-        ref.invalidate(commissionRecordsProvider);
-      }
-    });
+    xbListenForPendingReadRecovery(context, ref,
+      state: () => ref.read(commissionRecordsProvider),
+      future: () => ref.read(commissionRecordsProvider.future),
+      current: () => owner == ref.read(commissionReadOwnerProvider) && !owner.$1.busy,
+      retry: () => ref.invalidate(commissionRecordsProvider),
+    );
     final rows = records.isLoading ? null : records.asData?.value;
     final count = rows == null ? null : withdrawPaidRecordCount(rows);
     final tokens = XbTokens.of(context);
@@ -685,15 +684,36 @@ class _ShareLinksState extends ConsumerState<_ShareLinksSection> {
 
 // ───────────────────────── 邀请码卡 ─────────────────────────
 
-class _InviteCodeCard extends ConsumerWidget {
+class _InviteCodeCard extends ConsumerStatefulWidget {
   const _InviteCodeCard({required this.code});
   final String? code;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_InviteCodeCard> createState() => _InviteCodeCardState();
+}
+
+class _InviteCodeCardState extends ConsumerState<_InviteCodeCard> {
+  bool copying = false;
+
+  Future<void> _copy(String code) async {
+    if (copying) return;
+    setState(() => copying = true);
+    try {
+      await Clipboard.setData(ClipboardData(text: code));
+      if (mounted && widget.code == code) xbToast(context, '邀请码已复制');
+    } catch (_) {
+      if (mounted && widget.code == code) xbToast(context, '复制失败，请重试');
+    } finally {
+      if (mounted) setState(() => copying = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final t = XbTokens.of(context);
     final brand = Theme.of(context).colorScheme.primary;
-    final hasCode = code != null && code!.isNotEmpty;
+    final code = widget.code ?? '';
+    final hasCode = code.isNotEmpty;
     return XbCard(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -764,7 +784,7 @@ class _InviteCodeCard extends ConsumerWidget {
                   children: [
                     Expanded(
                       child: Text(
-                        hasCode ? code! : '邀请码暂不可用',
+                        hasCode ? code : '邀请码暂不可用',
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
@@ -785,46 +805,22 @@ class _InviteCodeCard extends ConsumerWidget {
                       ),
                     ),
                     const SizedBox(width: 10),
-                    DecoratedBox(
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(12),
-                        gradient: hasCode ? LinearGradient(
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                          colors: [
-                            brand == const Color(0xffd92e1a) ? const Color(0xffff5a44)
-                                : Color.lerp(brand, Colors.white, .16)!,
-                            brand,
-                          ],
-                        ) : null,
-                        boxShadow: hasCode ? [BoxShadow(
-                          color: brand.withValues(alpha: .5), blurRadius: 12,
-                          offset: const Offset(0, 5), spreadRadius: -6,
-                        )] : null,
+                    XbGradientAction(
+                      busyLabel: copying ? '正在复制…' : null,
+                      radius: 12,
+                      height: 40,
+                      padding: const EdgeInsets.symmetric(horizontal: 15),
+                      keepMaterialDisabled: true,
+                      shadow: BoxShadow(
+                        color: brand.withValues(alpha: .5), blurRadius: 12,
+                        offset: const Offset(0, 5), spreadRadius: -6,
                       ),
-                      child: FilledButton.icon(
-                        onPressed: hasCode
-                            ? () {
-                                Clipboard.setData(ClipboardData(text: code!));
-                                xbToast(context, '邀请码已复制');
-                              }
-                            : null,
-                        icon: const Icon(Icons.content_copy, size: 15),
-                        label: const Text('复制'),
-                        style: FilledButton.styleFrom(
-                          backgroundColor: Colors.transparent,
-                          foregroundColor: Colors.white,
-                          minimumSize: const Size(0, 40),
-                          padding: const EdgeInsets.symmetric(horizontal: 15),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          textStyle: const TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ),
+                      onPressed: hasCode ? () => _copy(code) : null,
+                      child: const Row(mainAxisSize: MainAxisSize.min, children: [
+                        Icon(Icons.content_copy, size: 15),
+                        SizedBox(width: 5),
+                        Text('复制', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+                      ]),
                     ),
                   ],
                 ),
@@ -832,13 +828,14 @@ class _InviteCodeCard extends ConsumerWidget {
               const SizedBox(height: 11),
               if (!hasCode)
                 TextButton(
-                  onPressed: () {
+                  onPressed: ref.watch(inviteInfoProvider).isLoading ? null : () {
                     final session = ref.read(commissionSessionProvider);
                     if (session.busy || ref.read(inviteInfoProvider).isLoading) return;
                     session.allowCodeGeneration = !session.codeUnconfirmed;
                     ref.invalidate(inviteInfoProvider);
                   },
-                  child: Text(ref.watch(commissionSessionProvider).codeUnconfirmed
+                  child: Text(ref.watch(inviteInfoProvider).isLoading ? '正在获取邀请码…'
+                      : ref.watch(commissionSessionProvider).codeUnconfirmed
                       ? '生成结果未确认，查询邀请码' : '重新获取邀请码'),
                 ),
               Row(
@@ -1293,7 +1290,8 @@ class _DialogActions extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = XbTokens.of(context);
-    return Row(
+    return IntrinsicHeight(child: Row(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Expanded(
           child: SizedBox(
@@ -1314,24 +1312,14 @@ class _DialogActions extends StatelessWidget {
         ),
         const SizedBox(width: 11),
         Expanded(
-          child: SizedBox(
-            height: 46,
-            child: XbGradientAction(
-              onPressed: submitting ? null : onConfirm,
-              child: submitting
-                  ? const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: Colors.white,
-                      ),
-                    )
-                  : Text(confirmLabel),
-            ),
+          child: XbGradientAction(
+            onPressed: onConfirm,
+            busyLabel: submitting ? '正在处理划转…' : null,
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+            child: Text(confirmLabel),
           ),
         ),
       ],
-    );
+    ));
   }
 }

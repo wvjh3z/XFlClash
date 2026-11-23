@@ -379,28 +379,10 @@ class _PendingOrderCard extends StatelessWidget {
           _OrderSummaryRow(order: order),
           Padding(
             padding: const EdgeInsets.fromLTRB(13, 0, 13, 12),
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(XbTokens.rMd),
-                gradient: onContinue == null ? null : LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [
-                    Color.lerp(Theme.of(context).colorScheme.primary, Colors.white, 0.16)!,
-                    Theme.of(context).colorScheme.primary,
-                  ],
-                ),
-              ),
-              child: FilledButton(
-                onPressed: onContinue,
-                style: FilledButton.styleFrom(
-                  foregroundColor: Colors.white,
-                  backgroundColor: Colors.transparent,
-                  minimumSize: const Size(0, 44),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(XbTokens.rMd)),
-                ),
-                child: const Text('继续支付'),
-              ),
+            child: XbGradientAction(
+              onPressed: onContinue,
+              height: 44,
+              child: const Text('继续支付'),
             ),
           ),
         ],

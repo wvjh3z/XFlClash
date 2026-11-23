@@ -136,7 +136,9 @@ void main() {
     ]);
 
     final gradient = find.byKey(const ValueKey('nodes-guest-login-gradient'));
-    final loginDecoration = tester.widget<DecoratedBox>(gradient).decoration as BoxDecoration;
+    final loginDecoration = tester.widget<DecoratedBox>(
+      find.descendant(of: gradient, matching: find.byType(DecoratedBox)).first,
+    ).decoration as BoxDecoration;
     expect((loginDecoration.gradient! as LinearGradient).colors, [
       const Color(0xFFFF5A44),
       brand,
@@ -157,6 +159,26 @@ void main() {
     } finally {
       semantics.dispose();
     }
+  });
+
+  testWidgets('非红品牌的节点主操作使用当前品牌色与白字', (tester) async {
+    const brand = Color(0xff1f8a52);
+    await pumpNodes(tester, auth: AuthState.unauthenticated,
+      theme: buildXbTheme(brandColor: brand, brightness: Brightness.dark)
+          .copyWith(platform: TargetPlatform.android),
+      onTapLogin: () {},
+    );
+    final action = find.byKey(const ValueKey('nodes-guest-login-gradient'));
+    final fill = tester.widget<DecoratedBox>(
+      find.descendant(of: action, matching: find.byType(DecoratedBox)).first,
+    ).decoration as BoxDecoration;
+    final colors = (fill.gradient! as LinearGradient).colors;
+    expect(colors.last, brand);
+    expect(colors.first, isNot(brand));
+    final ink = tester.widget<RichText>(
+      find.descendant(of: find.text('立即登录'), matching: find.byType(RichText)),
+    ).text.style?.color;
+    expect(ink, Colors.white);
   });
 
   testWidgets('低高度游客可滚到登录按钮，桌面仍用独立上方布局', (tester) async {

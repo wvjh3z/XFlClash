@@ -19,7 +19,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../config/xboard_config.dart';
-import 'xb_theme.dart' show xbShowDialog;
+import 'xb_theme.dart' show xbShowDialog, XbTokens;
+import 'xb_ui_kit.dart' show XbGradientAction;
 
 /// consent 持久化 key（DD-22 v1；schema 升级时改 v2 重新弹）。
 const String kXbConsentKey = 'xb_consent_v1';
@@ -124,7 +125,8 @@ class _ConsentDialogBody extends StatelessWidget {
           onPressed: () => Navigator.of(context).pop(false),
           child: const Text('暂不'),
         ),
-        FilledButton(
+        XbGradientAction(
+          height: XbTokens.hButton,
           onPressed: () => Navigator.of(context).pop(true),
           child: const Text('同意并继续'),
         ),

@@ -9,6 +9,7 @@ import 'package:material_ui/material_ui.dart';
 import '../config/xboard_config.dart';
 import 'xb_center_toast.dart';
 import 'xb_theme.dart' show xbShowDialog, XbTokens;
+import 'xb_ui_kit.dart' show XbGradientAction;
 
 /// 当前 flavor 品牌色（替代散落的 `Color(XboardConfig.current.brandColor)`）。
 Color xbBrandColor() => Color(XboardConfig.current.brandColor);
@@ -106,22 +107,21 @@ Future<bool> xbConfirm(
               Expanded(
                 child: SizedBox(
                   height: 46,
-                  child: FilledButton(
-                    onPressed: () => Navigator.of(ctx).pop(true),
-                    style: destructive
-                        ? FilledButton.styleFrom(
+                  child: destructive
+                      ? FilledButton(
+                          onPressed: () => Navigator.of(ctx).pop(true),
+                          style: FilledButton.styleFrom(
                             backgroundColor: XbTokens.bad,
                             shape: RoundedRectangleBorder(
-                                borderRadius:
-                                    BorderRadius.circular(XbTokens.rMd)),
-                          )
-                        : FilledButton.styleFrom(
-                            shape: RoundedRectangleBorder(
-                                borderRadius:
-                                    BorderRadius.circular(XbTokens.rMd)),
+                              borderRadius: BorderRadius.circular(XbTokens.rMd),
+                            ),
                           ),
-                    child: Text(confirmLabel),
-                  ),
+                          child: Text(confirmLabel),
+                        )
+                      : XbGradientAction(
+                          onPressed: () => Navigator.of(ctx).pop(true),
+                          child: Text(confirmLabel),
+                          ),
                 ),
               ),
             ],

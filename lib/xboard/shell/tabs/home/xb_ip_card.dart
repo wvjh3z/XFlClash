@@ -1,7 +1,7 @@
 /// 形态 A 出口 IP 卡（spec `xboard-form-a-ui-revamp` / W3 · 原型 `.ipcard`）。
 ///
 /// 使用 Xboard 旧版七源探测器，经 [XbNetworkAdapter] 收口。
-/// 与登录无关：游客 / 未连接也显示本地直连出口 IP；已连接显示 VPN 出口 IP；检测中显示转圈。
+/// 与登录无关：游客 / 未连接也显示本地直连出口 IP；已连接显示 VPN 出口 IP。
 /// 标签格式「出口 IP (国家)」。点右侧刷新重新检测。
 library;
 
@@ -92,19 +92,15 @@ class XbIpCard extends ConsumerWidget {
             ),
           ),
           const SizedBox(width: 10),
-          // 刷新（检测中显示转圈）。
-          IconButton(
-            onPressed: status.loading ? null : () => adapter.forceCheck(ref),
-            visualDensity: VisualDensity.compact,
-            icon: status.loading
-                ? SizedBox(
-                    width: 18,
-                    height: 18,
-                    child: CircularProgressIndicator(
-                        strokeWidth: 2, color: scheme.primary),
-                  )
-                : Icon(Icons.refresh, size: 20, color: scheme.primary),
-          ),
+          if (status.loading)
+            const TextButton(onPressed: null, child: Text('刷新中…'))
+          else
+            IconButton(
+              tooltip: '刷新出口 IP',
+              onPressed: () => adapter.forceCheck(ref),
+              visualDensity: VisualDensity.compact,
+              icon: Icon(Icons.refresh, size: 20, color: scheme.primary),
+            ),
         ],
       );
 

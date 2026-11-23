@@ -16,7 +16,7 @@ import 'package:material_ui/material_ui.dart';
 import '../shell/widgets/xb_responsive.dart' show xbIsDesktopWidth;
 import 'xb_theme.dart';
 import 'xb_emoji_text.dart';
-import 'xb_ui_kit.dart' show XbIconBadge, XbGradientAction;
+import 'xb_ui_kit.dart' show XbIconBadge, XbGradientAction, xbActionInProgress;
 
 /// 细环转圈（原型 `.spin`）：淡色整环 + 一段实色弧，匀速旋转。比 Material
 /// `CircularProgressIndicator`（粗弧扫尾）更接近原型的精致小圈。[color] 实色弧色，
@@ -690,16 +690,8 @@ class XbPendingOrderBanner extends StatelessWidget {
             children: [
               // 取消订单（描边）。
               Expanded(
-                child: OutlinedButton.icon(
+                child: OutlinedButton(
                   onPressed: cancelling ? null : onCancel,
-                  icon: cancelling
-                      ? const SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(
-                              strokeWidth: 2, color: warn))
-                      : const Icon(Icons.close, size: 18),
-                  label: const Text('取消订单'),
                   style: OutlinedButton.styleFrom(
                     foregroundColor: t.onv,
                     side: BorderSide(color: warn.withValues(alpha: 0.30), width: 1.5),
@@ -707,6 +699,12 @@ class XbPendingOrderBanner extends StatelessWidget {
                     shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(12)),
                   ),
+                  child: cancelling
+                      ? const Text('正在取消订单…', textAlign: TextAlign.center)
+                      : const Row(mainAxisSize: MainAxisSize.min, children: [
+                          Icon(Icons.close, size: 18), SizedBox(width: 8),
+                          Flexible(child: Text('取消订单')),
+                        ]),
                 ),
               ),
               const SizedBox(width: 10),
@@ -855,22 +853,22 @@ class XbEmptyState extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    actionIcon != null
-                        ? FilledButton.icon(
-                            onPressed: onAction,
-                            icon: Icon(actionIcon, size: 18),
-                            label: Text(actionLabel!),
-                            style: FilledButton.styleFrom(
-                                padding: const EdgeInsets.symmetric(
-                                    horizontal: 30, vertical: 14)),
-                          )
-                        : FilledButton(
-                            onPressed: onAction,
-                            style: FilledButton.styleFrom(
-                                padding: const EdgeInsets.symmetric(
-                                    horizontal: 38, vertical: 14)),
-                            child: Text(actionLabel!),
-                          ),
+                    XbGradientAction(
+                      onPressed: onAction,
+                      height: XbTokens.hButton,
+                      keepMaterialDisabled: true,
+                      padding: EdgeInsets.symmetric(
+                          horizontal: actionIcon != null ? 30 : 38, vertical: 14),
+                      child: actionIcon == null ? Text(actionLabel!) : Row(
+                        mainAxisSize: MainAxisSize.min,
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(actionIcon, size: 18),
+                          const SizedBox(width: 8),
+                          Flexible(child: Text(actionLabel!)),
+                        ],
+                      ),
+                    ),
                     if (secondaryLabel != null) ...[
                       const SizedBox(height: 11),
                       OutlinedButton.icon(
@@ -976,6 +974,7 @@ class XbBottomActionBar extends StatelessWidget {
     required this.onPrimary,
     this.primaryIcon,
     this.primaryLoading = false,
+    this.busyLabel,
     this.secondaryLabel,
     this.onSecondary,
   });
@@ -984,6 +983,7 @@ class XbBottomActionBar extends StatelessWidget {
   final VoidCallback? onPrimary;
   final IconData? primaryIcon;
   final bool primaryLoading;
+  final String? busyLabel;
   final String? secondaryLabel;
   final VoidCallback? onSecondary;
 
@@ -1002,18 +1002,19 @@ class XbBottomActionBar extends StatelessWidget {
               const SizedBox(width: 12),
             ],
             Expanded(
-              child: FilledButton.icon(
+              child: XbGradientAction(
                 onPressed: primaryLoading ? null : onPrimary,
-                icon: primaryLoading
-                    ? const SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(
-                            strokeWidth: 2.2, color: Colors.white))
-                    : (primaryIcon != null
-                        ? Icon(primaryIcon, size: 20)
-                        : const SizedBox.shrink()),
-                label: Text(primaryLabel),
+                busyLabel: primaryLoading ? busyLabel ?? xbActionInProgress(primaryLabel) : null,
+                height: XbTokens.hButton,
+                keepMaterialDisabled: true,
+                child: Row(mainAxisSize: MainAxisSize.min,
+                  mainAxisAlignment: MainAxisAlignment.center, children: [
+                  if (primaryIcon != null) ...[
+                    Icon(primaryIcon, size: 20),
+                    const SizedBox(width: 8),
+                  ],
+                  Flexible(child: Text(primaryLabel)),
+                ]),
               ),
             ),
           ],

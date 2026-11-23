@@ -1,7 +1,7 @@
 /// R9 订单/支付页（pending 与终态共用）：订单状态 + 产品信息 + 订单信息 + 支付方式 + 操作。
 ///
 /// **数据源**：反腐层 `getOrder()` / `getPaymentMethods()` / `checkout()` / `cancelOrder()`。
-/// pending → 显示支付方式 + 立即支付/取消订单/检测支付状态 + **自动轮询**（pending/processing
+/// pending → 显示支付方式 + 立即支付/取消订单/检查支付状态 + **自动轮询**（pending/processing
 /// 每 5s 拉一次 getOrder，终态停）；终态 → 仅显示信息无操作。
 library;
 
@@ -31,7 +31,6 @@ import '../util/format.dart';
 import '../util/period_label.dart';
 import '../widgets/xb_feedback.dart' show xbConfirm, xbBrandColor, XbStateToast;
 import '../widgets/xb_center_toast.dart';
-import '../widgets/xb_motion.dart';
 import '../widgets/xb_submit_guard.dart';
 import '../widgets/xb_theme.dart' show xbShowDialog, XbTokens;
 import '../widgets/xb_async_view.dart';
@@ -72,11 +71,14 @@ class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage>
   Object? _methodsFailure;
   Object? _statusFailure;
   bool _paying = false;
+  bool _cancelling = false;
   final _firstMethodFocus = FocusNode();
   Object? _loadError;
   bool _loading = true;
   bool _retrying = false; // 重试中 → 顶部「正在刷新服务」黄条
   Timer? _pollTimer;
+  bool _paymentAttempted = false;
+  bool _autoChecking = false;
   Future<_OrderRead>? _orderRead;
   int _contextVersion = 0;
   int _readVersion = 0;
@@ -95,7 +97,7 @@ class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage>
   ProviderSubscription<XboardService>? _serviceSubscription;
   VoidCallback? _dismissFeedback;
 
-  bool get _actionsBusy => submitting || _checking || _checkingReturn || _loading ||
+  bool get _actionsBusy => submitting || _loading ||
       _methodsReloading || ref.read(isOfflineProvider);
   bool get _canMutate =>
       !_actionsBusy && !_requiresNetworkCheck && !_redirectNeedsCheck && !_checkFailed &&
@@ -180,6 +182,8 @@ class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage>
     _pollTimer?.cancel();
     _dismissFeedback?.call();
     setState(() {
+      _paymentAttempted = false;
+      _autoChecking = false;
       _detail = null;
       _methods = const [];
       _methodsError = false;
@@ -187,6 +191,7 @@ class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage>
       _methodsFailure = null;
       _statusFailure = null;
       _paying = false;
+      _cancelling = false;
       _selectedMethodId = null;
       _loadError = error;
       _loading = false;
@@ -382,7 +387,7 @@ class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage>
     }
   }
 
-  /// 静默刷新（轮询 / 检测支付状态用，不显示全屏 loading）。
+  /// 静默刷新（轮询 / 检查支付状态用，不显示全屏 loading）。
   Future<XbResult<OrderDetail?>?> _refreshStatus() async {
     final owner = _contextVersion;
     try {
@@ -454,12 +459,11 @@ class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage>
   }
 
   Future<void> _checkStatus() async {
-    if (_actionsBusy) return;
+    if (_actionsBusy || _autoChecking || _checking || _checkingReturn) return;
     final owner = _contextVersion;
     _dismissFeedback?.call();
     setState(() {
       _checking = true;
-      _checkFailed = false;
     });
     final result = await _refreshStatus();
     if (!mounted || owner != _contextVersion) return;
@@ -531,19 +535,35 @@ class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage>
     if (status == null) return;
     final shouldPoll =
         _foreground &&
-        !ref.read(isOfflineProvider) && _statusFailure == null &&
-        (status == XbOrderStatus.pending || status == XbOrderStatus.processing);
+        !ref.read(isOfflineProvider) && (_statusFailure == null || xbIsRecoverableReadError(_statusFailure)) &&
+        (status == XbOrderStatus.pending && _paymentAttempted || status == XbOrderStatus.processing);
     if (shouldPoll && (_pollTimer == null || !_pollTimer!.isActive)) {
       _pollTimer = Timer.periodic(_kPollInterval, (_) {
-        if (!_loading && (ModalRoute.of(context)?.isCurrent != false || _qrVisible) &&
-            (!submitting || _qrVisible) && !_methodsReloading &&
+        if (!_loading && !_autoChecking && (ModalRoute.of(context)?.isCurrent != false || _qrVisible) &&
+            (!submitting || _paying || _qrVisible) && !_methodsReloading &&
             !_checking && !_checkingReturn &&
             !ref.read(isOfflineProvider) && _orderRead == null) {
-          unawaited(_refreshStatus());
+          unawaited(_pollOnce());
         }
       });
     } else if (!shouldPoll) {
       _pollTimer?.cancel();
+    }
+  }
+
+  Future<void> _pollOnce() async {
+    final owner = _contextVersion;
+    setState(() => _autoChecking = true);
+    try {
+      final previous = _detail?.summary.status;
+      final result = await _refreshStatus();
+      if (mounted && owner == _contextVersion && result is XbSuccess<OrderDetail?> &&
+          _isTerminal(_detail?.summary.status) && previous != _detail?.summary.status &&
+          ModalRoute.of(context)?.isCurrent == true) {
+        _showCheckFeedback(result);
+      }
+    } finally {
+      if (mounted && owner == _contextVersion) setState(() => _autoChecking = false);
     }
   }
 
@@ -611,6 +631,11 @@ class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage>
         final wide = xbIsDesktopWidth(constraints.maxWidth);
         return XbBrandScaffold(
           title: '订单详情',
+          actions: [
+            if (_detail?.summary.status case final XbOrderStatus status when _loadError == null)
+              Padding(padding: const EdgeInsetsDirectional.only(end: 16),
+                  child: Center(child: _OrderStatusBadge(status: status))),
+          ],
           maxContentWidth: wide ? 1000 : null,
           body: XbAsyncView(
             loading: _loading && !_retrying,
@@ -635,13 +660,10 @@ class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage>
     final isPending = s.status == XbOrderStatus.pending;
     final canCheck = !_isTerminal(s.status);
     final netCents = (s.totalAmountYuan! * 100).round();
-    final statusCard = _StatusCard(status: s.status!, compact: !wide);
     final productCard = _SectionCard(
       compact: !wide,
-      title: '产品信息',
       children: [
-        _InfoRow(label: '套餐名称', value: s.planName ?? '套餐订单', compact: !wide),
-        _InfoRow(label: '周期', value: planPeriodLabel(s.period), compact: !wide),
+        _InfoRow(label: '套餐内容', value: "${s.planName ?? '套餐订单'} · ${planPeriodLabel(s.period)}", compact: !wide),
       ],
     );
     final orderCard = _SectionCard(
@@ -665,8 +687,6 @@ class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage>
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  statusCard,
-                  const SizedBox(height: 16),
                   productCard,
                   const SizedBox(height: 16),
                   orderCard,
@@ -699,8 +719,6 @@ class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage>
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
       children: [
-        statusCard,
-        const SizedBox(height: 9),
         productCard,
         const SizedBox(height: 9),
         orderCard,
@@ -797,12 +815,10 @@ class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage>
               XbGradientAction(
                 height: 48,
                 onPressed: _actionsBusy ? null : _reloadMethods,
+                busyLabel: _methodsReloading ? '正在加载…' : null,
                 padding: const EdgeInsets.symmetric(horizontal: 16),
                 child: Row(mainAxisSize: MainAxisSize.min, children: [
-                  if (_methodsReloading)
-                    SizedBox.square(dimension: 16, child: CircularProgressIndicator(strokeWidth: 2, color: XbTokens.of(context).onv))
-                  else
-                    const Icon(Icons.refresh_rounded, size: 18),
+                  const Icon(Icons.refresh_rounded, size: 18),
                   const SizedBox(width: 7),
                   Text('重新加载', key: _retryLabel),
                 ]),
@@ -895,6 +911,7 @@ class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage>
     final scheme = Theme.of(context).colorScheme;
     final t = XbTokens.of(context);
     final pending = _detail?.summary.status == XbOrderStatus.pending;
+    final checking = _autoChecking || _checking || _checkingReturn;
     return Column(
       children: [
         if (pending) ...[
@@ -902,26 +919,35 @@ class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage>
             height: 48,
             tintWhenDisabled: true,
             onPressed: _canPay ? _pay : null,
-            child: Row(mainAxisSize: MainAxisSize.min, children: [
-              if (_paying)
-                SizedBox(
-                    width: 18,
-                    height: 18,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2.2,
-                      color: Color.lerp(t.onv, t.on, .25),
-                    ),
-                )
-              else
-                const Icon(Icons.payment_rounded, size: 19),
-              const SizedBox(width: 8),
-              const Flexible(child: Text('立即支付')),
+            busyLabel: _paying && !_checkingReturn ? '正在支付…' : null,
+            child: const Row(mainAxisSize: MainAxisSize.min, children: [
+              Icon(Icons.payment_rounded, size: 19),
+              SizedBox(width: 8),
+              Flexible(child: Text('立即支付')),
             ]),
           )),
           SizedBox(height: compact ? 6 : 10),
-          OutlinedButton.icon(
+        ],
+        OutlinedButton(
+          onPressed: checking || _actionsBusy ? null : _checkStatus,
+          style: OutlinedButton.styleFrom(
+            foregroundColor: scheme.primary,
+            minimumSize: Size.fromHeight(compact ? 44 : XbTokens.hButton),
+            side: BorderSide(color: checking || _actionsBusy ? t.line : Color.lerp(t.line, scheme.primary, .4)!, width: 1.5),
+            disabledForegroundColor: t.onv,
+            disabledIconColor: t.onv,
+            disabledBackgroundColor: checking ? Colors.transparent : t.sfc,
+          ),
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            Icon(checking ? Icons.hourglass_empty_rounded : Icons.refresh_rounded, size: 18),
+            const SizedBox(width: 7),
+            Flexible(child: Text(checking ? '支付状态检查中' : '检查支付状态')),
+          ]),
+        ),
+        if (pending) ...[
+          SizedBox(height: compact ? 6 : 10),
+          OutlinedButton(
             onPressed: _canMutate ? _cancel : null,
-            icon: Icon(Icons.close_rounded, size: 18, color: _canMutate ? null : t.onv),
             style: OutlinedButton.styleFrom(
               minimumSize: Size.fromHeight(compact ? 40 : XbTokens.hButton),
               disabledForegroundColor: t.onv,
@@ -929,37 +955,21 @@ class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage>
               disabledBackgroundColor: t.sfc,
               side: BorderSide(color: _canMutate ? Color.lerp(t.line, scheme.primary, .40)! : t.line, width: 1.5),
             ),
-            label: Text('取消订单', style: TextStyle(color: _canMutate ? null : t.onv)),
+            child: _cancelling ? Text('正在取消…', textAlign: TextAlign.center, style: TextStyle(color: t.onv))
+                : Row(mainAxisSize: MainAxisSize.min, children: [
+                    Icon(Icons.close_rounded, size: 18, color: _canMutate ? null : t.onv),
+                    const SizedBox(width: 8),
+                    Flexible(child: Text('取消订单', style: TextStyle(color: _canMutate ? null : t.onv))),
+                  ]),
           ),
-          const SizedBox(height: 4),
         ],
-        TextButton.icon(
-          onPressed: _actionsBusy ? null : _checkStatus,
-          style: TextButton.styleFrom(
-            disabledForegroundColor: t.onv,
-            disabledIconColor: t.onv,
-            disabledBackgroundColor: t.sfc,
-          ),
-          icon: _checking
-              ? SizedBox(
-                  width: 16,
-                  height: 16,
-                  child: CircularProgressIndicator(strokeWidth: 2, color: t.onv),
-                )
-              : Icon(Icons.refresh_rounded, size: 18, color: _actionsBusy ? t.onv : null),
-          label: Text(
-            _checking
-                ? '正在检测…'
-                : _checkFailed
-                ? '重新检测'
-                : '检测支付状态',
-            style: TextStyle(color: _actionsBusy ? t.onv : null),
-          ),
-        ),
         const SizedBox(height: 4),
         Text(
-          _checkFailed ? '订单状态尚未确认，请重新检测。'
-              : pending ? '付款后返回此页，可检测订单状态。' : '订单状态将自动更新，无需重复支付。',
+          ref.read(isOfflineProvider) ? '网络已断开，恢复后再核对订单。'
+              : _checkFailed && (_paymentAttempted || !pending) && xbIsRecoverableReadError(_statusFailure)
+                  ? '暂未确认，将在 5 秒后再检测。'
+              : _checkFailed ? '订单状态尚未确认，请重新检测。'
+              : _paymentAttempted || !pending ? '每 5 秒自动检测，也可手动检测。' : '付款后返回此页，可检测订单状态。',
           textAlign: TextAlign.center,
           style: Theme.of(
             context,
@@ -976,7 +986,8 @@ class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage>
     final owner = _contextVersion;
     final method = _selectedMethodId!;
     await runSubmit(() async {
-      setState(() => _paying = true);
+      setState(() { _paying = true; _paymentAttempted = true; });
+      _maybeStartPolling();
       try {
         final result = await ref
             .read(xboardServiceProvider)
@@ -991,6 +1002,7 @@ class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage>
           if (error is XbUnconfirmed) await _refreshAfterMutation();
           return;
         }
+        if (_isTerminal(_detail?.summary.status)) return;
         await _handleOutcome((result as XbSuccess<CheckoutOutcomeUi>).data);
       } finally {
         if (mounted && owner == _contextVersion) setState(() => _paying = false);
@@ -1020,7 +1032,7 @@ class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage>
     if (opened) {
       ++_readVersion; // A status read from before handoff cannot unlock payment.
       setState(() => _redirectNeedsCheck = true);
-      if (!returned) xbToastSafe('已打开支付页面，完成后返回点「检测支付状态」');
+      if (!returned) xbToastSafe('已打开支付页面，完成后返回点「检查支付状态」');
     } else {
       xbToastSafe('无法打开支付页面');
     }
@@ -1104,31 +1116,29 @@ class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage>
       return;
     }
     await runSubmit(() async {
-      final result = await ref
-          .read(xboardServiceProvider)
-          .cancelOrder(widget.tradeNo);
-      if (!mounted || owner != _contextVersion) return;
-      switch (result) {
-        case XbSuccess(data: true):
-          // 成功取消本身已确认终态，不让操作前的详情把页面退回待支付。
-          final detail = _detail!;
-          setState(
-            () => _detail = detail.copyWith(
+      setState(() => _cancelling = true);
+      try {
+        final result = await ref.read(xboardServiceProvider).cancelOrder(widget.tradeNo);
+        if (!mounted || owner != _contextVersion) return;
+        switch (result) {
+          case XbSuccess(data: true):
+            final detail = _detail!;
+            setState(() => _detail = detail.copyWith(
               summary: detail.summary.copyWith(status: XbOrderStatus.cancelled),
-            ),
-          );
-          _maybeStartPolling();
-          _showCheckFeedback(XbResult.success(_detail));
-          await _refreshAfterMutation();
-        case XbSuccess():
-          xbToastSafe('取消失败，请稍后重试');
-        case XbFailure(:final error):
-          xbToastSafe(
-            error is XbUnconfirmed
+            ));
+            _maybeStartPolling();
+            _showCheckFeedback(XbResult.success(_detail));
+            await _refreshAfterMutation();
+          case XbSuccess():
+            xbToastSafe('取消失败，请稍后重试');
+          case XbFailure(:final error):
+            xbToastSafe(error is XbUnconfirmed
                 ? resolveErrorText(error)
-                : '取消失败：${resolveErrorText(error, fallback: '请稍后重试')}',
-          );
-          if (error is XbUnconfirmed) await _refreshAfterMutation();
+                : '取消失败：${resolveErrorText(error, fallback: '请稍后重试')}');
+            if (error is XbUnconfirmed) await _refreshAfterMutation();
+        }
+      } finally {
+        if (mounted && owner == _contextVersion) setState(() => _cancelling = false);
       }
     });
   }
@@ -1138,53 +1148,24 @@ class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage>
   String _fmtDateTime(DateTime d) => xbDateTime(d);
 }
 
-/// 订单状态卡（顶部，按状态变色 + 文案）。
-class _StatusCard extends StatelessWidget {
-  const _StatusCard({required this.status, required this.compact});
+class _OrderStatusBadge extends StatelessWidget {
+  const _OrderStatusBadge({required this.status});
   final XbOrderStatus status;
-  final bool compact;
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final text = Theme.of(context).textTheme;
-    // 语义色统一取 XbTokens（原型 --warn/--info/--ok/--bad），不再各页硬编码。
-    final (icon, title, desc, color) = switch (status) {
-      XbOrderStatus.pending => (
-        Icons.schedule_rounded,
-        '待支付',
-        '请选择支付方式完成订单',
-        XbTokens.warn,
-      ),
-      XbOrderStatus.processing => (
-        Icons.hourglass_top_rounded,
-        '开通中',
-        '付款已确认，正在开通服务，请勿重复支付。',
-        XbTokens.info,
-      ),
-      XbOrderStatus.completed => (
-        Icons.check_circle_rounded,
-        '已完成',
-        '订单已支付完成',
-        XbTokens.ok,
-      ),
-      XbOrderStatus.discounted => (
-        Icons.verified_rounded,
-        '已折抵',
-        '订单已折抵到其他订单',
-        XbTokens.ok,
-      ),
-      XbOrderStatus.cancelled => (
-        Icons.cancel_rounded,
-        '已取消',
-        '订单已取消',
-        scheme.onSurfaceVariant,
-      ),
+    final (icon, title, color) = switch (status) {
+      XbOrderStatus.pending => (Icons.schedule_rounded, '待支付', XbTokens.warn),
+      XbOrderStatus.processing => (Icons.hourglass_top_rounded, '开通中', XbTokens.info),
+      XbOrderStatus.completed => (Icons.check_circle_outline, '已完成', XbTokens.ok),
+      XbOrderStatus.discounted => (Icons.swap_horiz_rounded, '已折抵', XbTokens.ok),
+      XbOrderStatus.cancelled => (Icons.cancel_outlined, '已取消', Theme.of(context).colorScheme.onSurfaceVariant),
     };
     final tokens = XbTokens.of(context);
     final foreground = switch (status) {
       XbOrderStatus.pending => tokens.onWarn,
-      XbOrderStatus.completed || XbOrderStatus.discounted => tokens.onOk,
+      XbOrderStatus.completed || XbOrderStatus.discounted => Theme.of(context).brightness == Brightness.light
+          ? Color.lerp(tokens.onOk, Colors.black, .20)! : tokens.onOk,
       XbOrderStatus.processing =>
         Theme.of(context).brightness == Brightness.dark
             ? Color.lerp(color, tokens.on, .35)!
@@ -1192,92 +1173,21 @@ class _StatusCard extends StatelessWidget {
       XbOrderStatus.cancelled => color,
     };
     return Container(
-      padding: compact ? const EdgeInsets.symmetric(horizontal: 13, vertical: 11) : const EdgeInsets.all(15),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.10),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: color.withValues(alpha: 0.26)),
-      ),
-      child: Row(
-        children: [
-          // 圆形柔色徽标包住状态图标（与订单卡/账号失败卡统一，不裸放大图标）。
-          Container(
-            width: compact ? 36 : 46,
-            height: compact ? 36 : 46,
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: color.withValues(alpha: 0.16),
-            ),
-            child: _StatusIcon(
-              icon: icon,
-              color: status == XbOrderStatus.pending ? color : foreground,
-              status: status,
-            ),
-          ),
-          SizedBox(width: compact ? 12 : 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: text.titleMedium?.copyWith(
-                    color: foreground,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  desc,
-                  style: text.bodySmall?.copyWith(
-                    color: scheme.onSurfaceVariant,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-/// 状态图标：成功态（已完成 / 已抵扣）入场轻微回弹放大（庆祝时刻），其余状态静态。
-/// 一次性动画（settle 到 scale 1.0，golden 安全）；尊重「减弱动态效果」。
-class _StatusIcon extends StatelessWidget {
-  const _StatusIcon({
-    required this.icon,
-    required this.color,
-    required this.status,
-  });
-
-  final IconData icon;
-  final Color color;
-  final XbOrderStatus status;
-
-  @override
-  Widget build(BuildContext context) {
-    final isSuccess =
-        status == XbOrderStatus.completed || status == XbOrderStatus.discounted;
-    final iconWidget = Icon(icon, color: color, size: 26);
-    if (!isSuccess || XbMotion.reduced(context)) return iconWidget;
-    return TweenAnimationBuilder<double>(
-      // key 绑定状态：仅在切到成功态时重建并从 0.4 回弹放大到 1.0。
-      key: ValueKey(status),
-      tween: Tween<double>(begin: 0.4, end: 1.0),
-      duration: const Duration(milliseconds: 520),
-      curve: Curves.elasticOut,
-      builder: (context, v, child) => Transform.scale(scale: v, child: child),
-      child: iconWidget,
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
+      decoration: ShapeDecoration(color: color.withValues(alpha: .12), shape: const StadiumBorder()),
+      child: Row(mainAxisSize: MainAxisSize.min, children: [
+        Icon(icon, size: 15, color: foreground),
+        const SizedBox(width: 5),
+        Text(title, style: Theme.of(context).textTheme.labelMedium?.copyWith(color: foreground, fontWeight: FontWeight.w600)),
+      ]),
     );
   }
 }
 
 /// 信息分区卡（标题 + 子行）。
 class _SectionCard extends StatelessWidget {
-  const _SectionCard({required this.title, required this.children, this.compact = false});
-  final String title;
+  const _SectionCard({this.title, required this.children, this.compact = false});
+  final String? title;
   final List<Widget> children;
   final bool compact;
 
@@ -1299,11 +1209,13 @@ class _SectionCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            if (title case final String heading) ...[
             Text(
-              title,
+              heading,
               style: text.titleMedium?.copyWith(fontSize: compact ? 13 : null, color: compact ? t.onv : null, fontWeight: compact ? FontWeight.w600 : FontWeight.w700),
             ),
             SizedBox(height: compact ? 6 : 12),
+            ],
             ...children,
           ],
         ),

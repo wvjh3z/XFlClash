@@ -24,6 +24,7 @@ import 'package:fl_clash/xboard/sdk/xboard_service.dart';
 import 'package:fl_clash/xboard/shell/tabs/mine/mine_tab.dart';
 import 'package:fl_clash/xboard/shell/widgets/xb_tab_refresh_indicator.dart';
 import 'package:fl_clash/xboard/widgets/xb_components.dart' show XbSkeletonBar, XbSyncBanner;
+import 'package:fl_clash/xboard/widgets/xb_plan_notice_card.dart';
 
 class _MockService extends Mock implements XboardService {}
 
@@ -130,6 +131,7 @@ void main() {
     ));
     await tester.pump();
     expect(find.byType(XbSkeletonBar), findsWidgets);
+    expect(find.byType(XbPlanNoticeCard), findsNothing);
     final indicator = tester.widget<XbTabRefreshIndicator>(find.byType(XbTabRefreshIndicator));
     await indicator.onRefresh();
     expect(tester.widget<TextButton>(find.ancestor(
@@ -619,7 +621,7 @@ void main() {
     verifyNever(service.getInviteInfo);
   });
 
-  testWidgets('账号重试保留骨架但不显示黄横幅，失败后恢复重试入口', (tester) async {
+  testWidgets('首次失败无假资料，提示条刷新时恢复骨架并防重入', (tester) async {
     final svc = _MockService();
     // 重试调用service：延迟后返回失败，骨架应正常撤除。
     when(svc.getSubscription).thenAnswer((_) async {
@@ -638,17 +640,20 @@ void main() {
         child: const MaterialApp(home: Scaffold(body: MineTab())),
       ),
     );
-    // keepAlive 首次错误经 AsyncLoading(error:)→AsyncError，pumpAndSettle 落定到失败卡。
-    try {
-      await tester.pumpAndSettle(const Duration(milliseconds: 100));
-    } catch (_) {}
-    expect(find.text('账号信息加载失败'), findsOneWidget);
+    await tester.pump(const Duration(milliseconds: 150));
+    await tester.pump();
+    expect(find.text('暂未获取账号资料，请刷新重试。'), findsOneWidget);
+    expect(find.textContaining('已用 '), findsNothing);
+    final card = tester.widget<XbPlanNoticeCard>(find.byType(XbPlanNoticeCard));
+    expect(card.urgent, isFalse);
+    expect(card.icon, Icons.access_time);
 
     // 点重新加载后显示骨架，不额外显示同步横幅。
-    await tester.tap(find.text('重新加载'));
+    await tester.tap(find.text('刷新'));
     await tester.pump();
     expect(find.text('正在刷新服务，请稍候…'), findsNothing);
     expect(find.byType(XbSyncBanner), findsNothing);
+    expect(find.byType(XbPlanNoticeCard), findsNothing);
     // 重试态与首次加载同样保留账号骨架，无重复购买入口。
     expect(
       find.byType(XbSkeletonBar),
@@ -665,12 +670,55 @@ void main() {
     )).onPressed, isNull);
     verify(svc.getSubscription).called(2); // initial read + one user retry
     // _retry等待service结果，失败也必须退出骨架忙态。
-    try {
-      await tester.pumpAndSettle(const Duration(milliseconds: 100));
-    } catch (_) {}
+    await tester.pump(const Duration(milliseconds: 150));
+    await tester.pump();
     expect(find.byType(XbSyncBanner), findsNothing);
-    expect(find.text('账号信息加载失败'), findsOneWidget, reason: '重试仍失败 → 回到失败卡');
+    expect(find.text('账号资料同步失败'), findsOneWidget);
   }, timeout: const Timeout(Duration(seconds: 30)));
+
+  for (final mode in Brightness.values) {
+    testWidgets('320dp $mode：缓存只读显示，提示条只重读账号，成功后撤除', (tester) async {
+      tester.view.physicalSize = const Size(320, 844);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final account = _sub(total: 100 * gb, used: 10 * gb);
+      final svc = _MockService();
+      final next = Completer<XbResult<XbDomainSubscription>>();
+      var reads = 0;
+      when(svc.getSubscription).thenAnswer((_) async {
+        if (++reads == 1) return const XbFailure(XbNetwork(XbNetworkKind.unknown, 'down'));
+        return next.future;
+      });
+      when(svc.getInviteInfo).thenAnswer((_) async => XbResult.success(_inviteInfo(10)));
+      await tester.pumpWidget(ProviderScope(
+        overrides: [
+          authStateProvider.overrideWith(() => _FakeAuth(AuthState.authenticated)),
+          xboardServiceProvider.overrideWithValue(svc),
+          staleAccountDisplayProvider.overrideWithValue(account),
+        ],
+        child: MaterialApp(theme: ThemeData(brightness: mode),
+            home: const Scaffold(body: MineTab())),
+      ));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 350));
+      expect(find.text(account.email), findsOneWidget);
+      expect(find.text('当前显示上次资料，请刷新重试。'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+      clearInteractions(svc);
+      await tester.tap(find.text('刷新'));
+      await tester.pump();
+      expect(find.text(account.email), findsOneWidget);
+      expect(find.byType(XbPlanNoticeCard), findsNothing);
+      next.complete(XbResult.success(account.copyWith(email: 'fresh@example.invalid')));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 800));
+      expect(find.text('fresh@example.invalid'), findsOneWidget);
+      expect(find.byType(XbPlanNoticeCard), findsNothing);
+      verify(svc.getSubscription).called(1);
+      verifyNoMoreInteractions(svc);
+      expect(tester.takeException(), isNull);
+    });
+  }
 
   group('在线客服入口（D9 Crisp，按 crispWebsiteId 显隐）', () {
     tearDown(XboardConfig.resetForTest);

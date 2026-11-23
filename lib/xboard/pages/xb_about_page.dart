@@ -159,22 +159,9 @@ class _AboutBodyState extends ConsumerState<_AboutBody> {
                   width: double.infinity,
                   child: XbGradientAction(
                     onPressed: _checking ? null : _checkForUpdate,
-                    child: _checking
-                        ? const SizedBox(
-                            width: 18,
-                            height: 18,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: Colors.white,
-                            ),
-                          )
-                        : const Text(
-                            '检查更新',
-                            style: TextStyle(
-                              fontSize: 14,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
+                    busyLabel: _checking ? '正在检查更新…' : null,
+                    child: const Text('检查更新',
+                        style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
                   ),
                 ),
               ),

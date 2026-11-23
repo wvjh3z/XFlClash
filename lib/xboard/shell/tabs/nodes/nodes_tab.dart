@@ -27,6 +27,7 @@ import 'package:fl_clash/xboard/widgets/xb_feedback.dart' show xbToast;
 import 'package:fl_clash/xboard/widgets/xb_refresh_throttle_guard.dart';
 import 'package:fl_clash/xboard/widgets/xb_theme.dart' show XbTokens;
 import 'package:prism_ui/prism_ui.dart' show AppRadius, AppTextStyle;
+import 'package:fl_clash/xboard/widgets/xb_ui_kit.dart' show XbGradientAction;
 
 import '../../../../ui/icons/icons.dart'
     show AppGlyphs, Glyph, GlyphIcon, GlyphPolyline, GlyphRole, GlyphVertex;
@@ -884,13 +885,14 @@ class _NodesRefreshAction extends StatelessWidget {
         onTap: refreshing ? null : onRefresh,
         busy: refreshing,
         cooling: !refreshing && coolingDown,
+        countdownSeconds: !refreshing && coolingDown ? cooldownSec : null,
       );
     }
     return TextButton.icon(
       // 真正刷新中才禁用（null）；冷却中保持可点 → 触发 _refreshNodes 内的冷却 toast。
       onPressed: refreshing ? null : onRefresh,
       icon: refreshing
-          ? const XbSpinner(color: XbTokens.warn, size: 16, stroke: 2)
+          ? null
           : Icon(
               Icons.refresh,
               size: 16,
@@ -1078,44 +1080,19 @@ class _NodePromptButton extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final brand = theme.colorScheme.primary;
-    final brandLight = brand == const Color(0xFFD92E1A)
-        ? const Color(0xFFFF5A44)
-        : Color.lerp(brand, Colors.white, 0.16)!;
     const buttonText = AppTextStyle.subheadline;
 
-    return DecoratedBox(
-      key: icon == null ? const ValueKey('nodes-guest-login-gradient') : null,
-      decoration: onPressed == null
-          ? const BoxDecoration()
-          : BoxDecoration(
-              borderRadius: AppRadius.md,
-              gradient: LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [brandLight, brand],
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color: brand.withValues(alpha: 0.32),
-                  offset: const Offset(0, 6),
-                  blurRadius: 16,
-                  spreadRadius: -8,
-                ),
-              ],
-            ),
-      child: FilledButton(
+    return XbGradientAction(
+        key: icon == null ? const ValueKey('nodes-guest-login-gradient') : null,
         onPressed: onPressed,
-        style: FilledButton.styleFrom(
-          foregroundColor: Colors.white,
-          backgroundColor: Colors.transparent,
-          minimumSize: const Size(0, 50),
-          padding: const EdgeInsets.symmetric(horizontal: 30, vertical: 12),
-          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-          shape: const RoundedRectangleBorder(borderRadius: AppRadius.md),
-          textStyle: theme.textTheme.labelLarge?.copyWith(
-            fontSize: buttonText.size,
-            fontWeight: buttonText.emphasizedWeight,
-          ),
+        height: 50,
+        padding: const EdgeInsets.symmetric(horizontal: 30, vertical: 12),
+        keepMaterialDisabled: true,
+        shadow: BoxShadow(
+          color: brand.withValues(alpha: 0.32),
+          offset: const Offset(0, 6),
+          blurRadius: 16,
+          spreadRadius: -8,
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
@@ -1123,17 +1100,16 @@ class _NodePromptButton extends StatelessWidget {
           children: [
             if (icon != null)
               Icon(icon, size: 18)
-            else GlyphIcon(
+            else const GlyphIcon(
               _loginGlyph,
               size: 18,
               fill: 1,
-              color: onPressed == null ? null : Colors.white,
             ),
             const SizedBox(width: 7),
-            Flexible(child: Text(label, textAlign: TextAlign.center)),
+            Flexible(child: Text(label, textAlign: TextAlign.center,
+                style: TextStyle(fontSize: buttonText.size, fontWeight: buttonText.emphasizedWeight))),
           ],
         ),
-      ),
     );
   }
 }

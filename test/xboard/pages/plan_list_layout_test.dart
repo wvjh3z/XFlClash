@@ -41,6 +41,7 @@ void main() {
         final longLine = '第四行${List.filled(40, '连续长介绍').join()}';
         final lines = ['第一行说明', '第二行说明', '第三行说明', longLine, '第五行不显示'];
         final description = lines.join('\n');
+        var pendingReads = 0;
         final service = _Service();
         when(() => service.getPlans()).thenAnswer(
           (_) async => XbSuccess([
@@ -64,7 +65,7 @@ void main() {
               ProviderScope(
                 overrides: [
                   xboardServiceProvider.overrideWithValue(service),
-                  pendingOrderProvider.overrideWith((ref) async => null),
+                  pendingOrderProvider.overrideWith((ref) async { pendingReads++; return null; }),
                 ],
                 child: MaterialApp(
                   home: MediaQuery(
@@ -75,6 +76,7 @@ void main() {
               ),
             );
             await tester.pumpAndSettle();
+            expect(pendingReads, 0, reason: '套餐列表不应为顶部待支付横幅读订单');
             final intro = paragraph(description);
             final render = tester.renderObject<RenderParagraph>(intro);
             expect(render.maxLines, 3);
