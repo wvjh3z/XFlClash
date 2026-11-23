@@ -6,6 +6,8 @@ import 'package:fl_clash/xboard/models/xb_domain_types.dart';
 import 'package:fl_clash/xboard/models/xb_result.dart';
 import 'package:fl_clash/xboard/pages/plan_detail_page.dart';
 import 'package:fl_clash/xboard/providers/auth_state_provider.dart';
+import 'package:fl_clash/xboard/providers/network_recovery_provider.dart';
+import 'package:fl_clash/xboard/models/xb_domain_error.dart';
 import 'package:fl_clash/xboard/providers/user_profile_provider.dart';
 import 'package:fl_clash/xboard/providers/xboard_providers.dart';
 import 'package:fl_clash/xboard/sdk/guest_catalog.dart';
@@ -119,6 +121,28 @@ void _noWrites(_Service service) {
 
 void main() {
   setUpAll(() => registerFallbackValue(XbPlanPeriod.monthly));
+
+  for (final auth in [AuthState.authenticated, AuthState.unauthenticated]) {
+    testWidgets('visible $auth shop retries failed catalog only, without order writes', (t) async {
+      final service = _Service();
+      int reads = 0;
+      Future<XbResult<List<PlanItem>>> fetch() async => ++reads == 1
+          ? const XbFailure(XbNetwork(XbNetworkKind.timeout, 'fixture'))
+          : const XbSuccess(_plans);
+      when(service.getPlans).thenAnswer((_) => fetch());
+      when(service.getGuestCatalog).thenAnswer((_) => fetch());
+      final c = _container(service, auth: auth, profile: () async => _profile());
+      await t.pumpWidget(_app(c));
+      await t.pumpAndSettle();
+      expect(reads, 1);
+      c.read(networkRecoveryProvider.notifier).publish();
+      await t.pumpAndSettle();
+      expect(_text('可续订套餐'), findsOneWidget);
+      c.read(networkRecoveryProvider.notifier).publish();
+      expect(reads, 2);
+      _noWrites(service);
+    });
+  }
 
   for (final expired in [false,true]) {
     testWidgets('owned non-renewable plan cannot enter checkout (expired=$expired)', (t) async {

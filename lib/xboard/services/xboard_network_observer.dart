@@ -13,6 +13,7 @@ class XboardNetworkObserver {
     ProviderContainer container,
     this._race, {
     this.onEffectiveVpnChanged,
+    this.onProbeRound,
   }) {
     _vpn = container.listen<bool>(_effectiveVpnProvider, (_, active) {
       final previous = _active;
@@ -31,6 +32,7 @@ class XboardNetworkObserver {
       (_, next) {
         // Loading/errors are unknown, not proof of a disconnected network.
         if (next is AsyncError<List<ConnectivityResult>>) {
+          container.read(interfaceUnavailableProvider.notifier).set(false);
           _online =
               true; // Unknown must not permanently disable VPN-triggered races.
           return;
@@ -39,6 +41,9 @@ class XboardNetworkObserver {
           return;
         }
         final values = next.value.toSet();
+        container.read(interfaceUnavailableProvider.notifier).set(
+          values.length == 1 && values.contains(ConnectivityResult.none),
+        );
         final physical =
             values
                 .where(
@@ -69,6 +74,7 @@ class XboardNetworkObserver {
   );
   final EndpointRaceController _race;
   final void Function(bool? previous, bool active)? onEffectiveVpnChanged;
+  final void Function()? onProbeRound;
   late final ProviderSubscription<bool> _vpn;
   late final ProviderSubscription<AsyncValue<List<ConnectivityResult>>>
   _network;
@@ -85,7 +91,9 @@ class XboardNetworkObserver {
     }
     _timer = Timer(const Duration(milliseconds: 300), () {
       if (!_disposed) {
+        _race.armNetworkRecovery();
         _race.refreshRaceInBackground();
+        onProbeRound?.call();
       }
     });
   }

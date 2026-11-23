@@ -13,6 +13,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/order_summary.dart';
 import '../models/xb_result.dart';
 import '../providers/pending_order_provider.dart';
+import '../providers/xboard_connectivity_provider.dart';
+import '../widgets/xb_network_read_recovery.dart';
 import '../providers/auth_state_provider.dart';
 import '../sdk/xboard_service.dart';
 import '../models/xb_domain_error.dart';
@@ -25,6 +27,7 @@ import '../widgets/xb_submit_guard.dart';
 import '../widgets/xb_theme.dart' show xbPush;
 import '../util/format.dart';
 import 'order_payment_page.dart';
+import 'commerce_read_recovery.dart';
 
 class PendingOrderSection extends ConsumerStatefulWidget {
   const PendingOrderSection({super.key});
@@ -38,6 +41,8 @@ class _PendingOrderSectionState extends ConsumerState<PendingOrderSection>
     with XbSubmitGuard<PendingOrderSection> {
   // 已取消的订单号（乐观隐藏：取消成功后立即不再显示该单，不等后端重查落定）。
   final Set<String> _cancelledTradeNos = {};
+  Object? _owner;
+  OrderSummary? _last;
 
   @override
   void initState() {
@@ -54,7 +59,39 @@ class _PendingOrderSectionState extends ConsumerState<PendingOrderSection>
 
   @override
   Widget build(BuildContext context) {
+    final auth = ref.watch(authStateProvider);
+    final owner = (auth, ref.read(authStateProvider.notifier).sessionRevision,
+      auth == AuthState.authenticated ? ref.watch(xboardServiceProvider) : null);
+    if (_owner != owner) {
+      _owner = owner;
+      _last = null;
+      _cancelledTradeNos.clear();
+    }
     final async = ref.watch(pendingOrderProvider);
+    if (auth != AuthState.authenticated) return const SizedBox.shrink();
+    final offline = ref.watch(isOfflineProvider);
+    xbListenForReadRecovery(context, ref, () {
+      final latest = ref.read(pendingOrderProvider);
+      recoverCommerceRead(context: context,
+        current: () => _owner == owner && ref.read(authStateProvider) == AuthState.authenticated &&
+            ref.read(authStateProvider.notifier).sessionRevision == owner.$2 &&
+            identical(ref.read(xboardServiceProvider), owner.$3),
+        pending: latest.isLoading ? ref.read(pendingOrderProvider.future) : null,
+        retryIfFailed: () async {
+          final pending = ref.read(pendingOrderProvider);
+          if (!pending.isLoading && xbIsRecoverableReadError(pending.error)) ref.invalidate(pendingOrderProvider);
+        });
+    });
+    if (async.hasError && !xbIsRecoverableReadError(async.error)) _last = null;
+    if (!async.isLoading && !async.hasError && async.hasValue) _last = async.asData?.value;
+    if (async.hasError || (offline || async.isLoading) && _last != null) {
+      final previous = _last;
+      return Column(children: [
+        Text(previous == null ? '待支付订单状态待核实' : '上次待支付：${_subtitle(previous)}（状态待核实）'),
+        TextButton(onPressed: offline || async.isLoading ? null : () => ref.invalidate(pendingOrderProvider),
+          child: const Text('重新查询订单')),
+      ]);
+    }
     final order = async.asData?.value;
     // 无订单 / 该单已被本地取消 → 收起。
     if (order == null || !order.canContinuePayment || _cancelledTradeNos.contains(order.tradeNo)) {
@@ -99,10 +136,10 @@ class _PendingOrderSectionState extends ConsumerState<PendingOrderSection>
   }
 
   Future<void> _confirmCancel(OrderSummary o) async {
-    if (!mounted || submitting) return;
+    if (!mounted || submitting || ref.read(isOfflineProvider)) return;
     final service = ref.read(xboardServiceProvider);
     final revision = ref.read(authStateProvider.notifier).sessionRevision;
-    bool current() => mounted &&
+    bool current() => mounted && ref.read(authStateProvider) == AuthState.authenticated &&
         ref.read(authStateProvider.notifier).sessionRevision == revision &&
         identical(ref.read(xboardServiceProvider), service);
     final ok = await xbConfirm(
@@ -113,7 +150,9 @@ class _PendingOrderSectionState extends ConsumerState<PendingOrderSection>
       cancelLabel: '再想想',
       destructive: true,
     );
-    if (!ok || !current()) return;
+    if (!ok || !current() || ref.read(isOfflineProvider)) return;
+    final pending = ref.read(pendingOrderProvider);
+    if (pending.isLoading || pending.hasError || pending.asData?.value?.tradeNo != o.tradeNo) return;
     await _doCancel(o, service, current);
   }
 
@@ -124,10 +163,14 @@ class _PendingOrderSectionState extends ConsumerState<PendingOrderSection>
       final result = await service.cancelOrder(o.tradeNo);
       if (!current()) return;
       switch (result) {
-        case XbSuccess():
-          _cancelledTradeNos.add(o.tradeNo); // 乐观隐藏，立即消失
+        case XbSuccess(data: true):
+          _cancelledTradeNos.add(o.tradeNo);
+          _last = null;
           ref.invalidate(pendingOrderProvider); // 后台重查对齐后端
           xbToastSafe('订单已取消');
+        case XbSuccess():
+          ref.invalidate(pendingOrderProvider);
+          xbToastSafe('取消结果待核实，请重新查询订单');
         case XbFailure(:final error):
           if (error is XbUnconfirmed) ref.invalidate(pendingOrderProvider);
           xbToastSafe(

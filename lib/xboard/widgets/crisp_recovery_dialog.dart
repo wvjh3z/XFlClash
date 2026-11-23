@@ -1,14 +1,32 @@
 import 'package:material_ui/material_ui.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../services/crisp_chat_driver.dart';
+import 'xb_network_read_recovery.dart';
 
 enum CrispRecovery { retry, browser, runtime }
 
 class CrispRecoveryDialog extends StatelessWidget {
-  const CrispRecoveryDialog({super.key, required this.failure});
+  const CrispRecoveryDialog({super.key, required this.failure, this.sessionIsCurrent});
   final CrispChatFailure? failure;
+  final bool Function()? sessionIsCurrent;
 
   @override
-  Widget build(BuildContext context) => AlertDialog(
+  Widget build(BuildContext context) {
+    final dialog = _dialog(context);
+    final current = sessionIsCurrent;
+    if (current == null ||
+        (failure != CrispChatFailure.sessionNotReady && failure != CrispChatFailure.startupTimeout)) {
+      return dialog;
+    }
+    return Consumer(builder: (context, ref, _) {
+      xbListenForReadRecovery(context, ref, () {
+        if (current()) Navigator.pop(context, CrispRecovery.retry);
+      });
+      return dialog;
+    });
+  }
+
+  Widget _dialog(BuildContext context) => AlertDialog(
     title: Text(
       failure == CrispChatFailure.webView2Unavailable
           ? '需要安装客服运行组件'

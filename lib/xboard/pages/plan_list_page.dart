@@ -8,6 +8,10 @@ import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../widgets/xb_async_view.dart';
+import '../widgets/xb_network_read_recovery.dart';
+import '../providers/auth_state_provider.dart';
+import '../providers/xboard_connectivity_provider.dart';
+import '../models/xb_domain_error.dart';
 import '../widgets/xb_components.dart';
 import '../widgets/xb_feedback.dart' show xbBrandColor;
 import '../widgets/xb_theme.dart' show xbPush, XbTokens;
@@ -21,16 +25,33 @@ import '../util/period_label.dart';
 import '../widgets/xb_ui_kit.dart';
 import 'pending_order_section.dart';
 import 'plan_detail_page.dart';
+import 'commerce_read_recovery.dart';
 
-class PlanListPage extends ConsumerStatefulWidget {
-  const PlanListPage({super.key});
-
+class PlanListPage extends ConsumerWidget {
+  const PlanListPage({super.key, this.initialPlans});
+  final List<PlanItem>? initialPlans;
   @override
-  ConsumerState<PlanListPage> createState() => _PlanListPageState();
+  Widget build(BuildContext context, WidgetRef ref) {
+    final auth = ref.watch(authStateProvider);
+    final owner = (auth, ref.read(authStateProvider.notifier).sessionRevision, ref.watch(xboardServiceProvider));
+    return _OwnedPlanList(key: ValueKey(owner), initialPlans: initialPlans,
+      current: () => ref.read(authStateProvider) == owner.$1 &&
+        ref.read(authStateProvider.notifier).sessionRevision == owner.$2 && identical(ref.read(xboardServiceProvider), owner.$3));
+  }
 }
 
-class _PlanListPageState extends ConsumerState<PlanListPage> {
+class _OwnedPlanList extends ConsumerStatefulWidget {
+  const _OwnedPlanList({super.key, this.initialPlans, required this.current});
+  final List<PlanItem>? initialPlans;
+  final bool Function() current;
+
+  @override
+  ConsumerState<_OwnedPlanList> createState() => _PlanListPageState();
+}
+
+class _PlanListPageState extends ConsumerState<_OwnedPlanList> {
   late Future<List<PlanItem>> _plansFuture;
+  Object? _lastError;
 
   /// 重试中（点「重试」后到结果返回前）：顶部显示「正在刷新服务」黄条，告知用户后台在切域名重拉。
   bool _retrying = false;
@@ -38,11 +59,15 @@ class _PlanListPageState extends ConsumerState<PlanListPage> {
   @override
   void initState() {
     super.initState();
-    _plansFuture = _loadPlans();
+    _plansFuture = widget.initialPlans == null ? _loadPlans() : Future.value(widget.initialPlans!);
   }
 
   Future<List<PlanItem>> _loadPlans() async {
-    final result = await ref.read(xboardServiceProvider).getPlans();
+    _lastError = null;
+    final result = ref.read(isOfflineProvider)
+        ? const XbFailure<List<PlanItem>>(XbNetwork(XbNetworkKind.connectionFailed, '当前离线'))
+        : await ref.read(xboardServiceProvider).getPlans();
+    _lastError = result.errorOrNull;
     return switch (result) {
       XbSuccess(:final data) => data,
       XbFailure(:final error) =>
@@ -51,7 +76,7 @@ class _PlanListPageState extends ConsumerState<PlanListPage> {
   }
 
   Future<void> _reload() async {
-    if (!mounted) return;
+    if (!mounted || _retrying) return;
     final request = _loadPlans();
     setState(() {
       _retrying = true;
@@ -71,6 +96,13 @@ class _PlanListPageState extends ConsumerState<PlanListPage> {
 
   @override
   Widget build(BuildContext context) {
+    xbListenForReadRecovery(context, ref, () {
+      if (_retrying) return;
+      recoverCommerceRead(context: context, current: () => mounted && widget.current(), pending: _plansFuture,
+        retryIfFailed: () async {
+          if (!_retrying && xbIsRecoverableReadError(_lastError)) await _reload();
+        });
+    });
     return XbBrandScaffold(
       title: '购买 / 更改套餐',
       // 桌面套餐卡双列网格（原型屏4 .ngrid）；移动 <1000 不受影响。

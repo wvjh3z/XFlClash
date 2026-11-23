@@ -17,12 +17,15 @@ import 'dart:async';
 
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/scheduler.dart' show SchedulerBinding;
+import 'dart:ui' show AppLifecycleState;
 import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 
 import 'sentry_bootstrap.dart';
 import 'xb_appimage_install.dart';
 import 'xb_update_lease.dart';
+import 'xb_update_source_download.dart';
 import '../storage/brand_paths.dart';
 import 'xboard_release_dio.dart';
 
@@ -116,13 +119,18 @@ class XbApkDownloader {
 
       bool downloaded = false;
       try {
-        for (final url in urls) {
+        bool foreground() {
+          final state = SchedulerBinding.instance.lifecycleState;
+          return state == null || state == AppLifecycleState.resumed;
+        }
+        for (final (index, url) in urls.indexed) {
+          if (cancelToken?.isCancelled ?? false) return DownloadResult.networkError;
+          if (index > 0 && !foreground()) return DownloadResult.networkError;
           try {
-            await dio.download(
-              url,
-              filePath,
-              onReceiveProgress: onProgress,
-              cancelToken: cancelToken,
+            if (index > 0) onProgress(0, -1);
+            await xbDownloadUpdateSource(
+              dio, url, File(filePath), onProgress: onProgress,
+              canRecover: foreground, cancelToken: cancelToken,
             );
             downloaded = true;
             break;

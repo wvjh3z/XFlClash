@@ -23,8 +23,8 @@ class XbTrafficNotice extends ConsumerWidget {
       return const SizedBox.shrink();
     }
     final profile = ref.watch(userProfileProvider);
-    if (profile.isLoading || profile.hasError) return const SizedBox.shrink();
-    final sub = profile.asData?.value;
+    final stale = profile.isLoading || profile.hasError;
+    final sub = stale ? ref.watch(staleAccountDisplayProvider) : profile.asData?.value;
     if (sub == null || sub.planId == null) return const SizedBox.shrink();
     final level = trafficNoticeLevel(sub.usedBytes, sub.totalBytes);
     if (level == null) return const SizedBox.shrink();
@@ -36,14 +36,14 @@ class XbTrafficNotice extends ConsumerWidget {
             .toStringAsFixed(1);
     return XbPlanNoticeCard(
       title: '${level == 100 ? '流量已用尽' : '流量将用尽'} · 已用 $percent%',
-      desc: level == 100
+      desc: stale ? '上次资料 · 更新后可重置流量' : level == 100
           ? '查看套餐，及时补充流量'
           : '剩余 ${xbGb(sub.totalBytes - sub.usedBytes)} GB，请留意用量',
       icon: Icons.data_usage,
       urgent: level >= 95,
       actionLabel: '重置流量',
       centered: centered,
-      onTap: () => openCurrentTrafficReset(context, ref),
+      onTap: stale ? null : () => openCurrentTrafficReset(context, ref),
     );
   }
 }

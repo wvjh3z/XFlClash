@@ -3,7 +3,7 @@
 /// 用于「我的 / 续费 / 购买 / 流量重置」四处顶部的待支付横幅（[XbPendingOrderBanner]）：
 /// 有 pending 订单才显示横幅，提供「取消订单 / 立即支付」两个操作。
 ///
-/// **永不抛**：失败/无订单 → 返回 null（横幅不显示），不打断主流程。
+/// 查询失败进入 AsyncError；只有成功查询无待付才返回 null。
 library;
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -11,6 +11,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/order_summary.dart';
 import '../models/xb_result.dart';
 import 'xboard_providers.dart';
+import 'auth_state_provider.dart';
+import 'xboard_connectivity_provider.dart';
+import '../models/xb_domain_error.dart';
 
 /// 当前待支付订单（最近一个 pending；无则 null）。autoDispose：进页拉、离页回收。
 ///
@@ -19,12 +22,14 @@ import 'xboard_providers.dart';
 final pendingOrderProvider = FutureProvider.autoDispose<OrderSummary?>((
   ref,
 ) async {
+  if (ref.watch(authStateProvider) != AuthState.authenticated) return null;
+  if (ref.read(isOfflineProvider)) throw const XbNetwork(XbNetworkKind.connectionFailed, '当前离线');
   final result = await ref
       .watch(xboardServiceProvider)
       .getOrders(forceRefresh: true);
   return switch (result) {
     XbSuccess(:final data) => _firstPending(data.items),
-    XbFailure() => null, // 失败静默，横幅不显示
+    XbFailure(:final error) => throw error,
   };
 }, retry: (retryCount, error) => null);
 

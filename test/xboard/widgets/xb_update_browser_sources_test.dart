@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:flutter/rendering.dart' show RenderParagraph;
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -7,6 +8,8 @@ import 'package:flutter_xboard_sdk/flutter_xboard_sdk.dart';
 // ignore: depend_on_referenced_packages
 import 'package:url_launcher_platform_interface/url_launcher_platform_interface.dart';
 import 'package:fl_clash/xboard/config/xboard_config.dart';
+import 'package:fl_clash/xboard/providers/xboard_connectivity_provider.dart';
+import '../../_fixtures/fake_connectivity.dart';
 import 'package:fl_clash/xboard/services/xb_apk_downloader.dart';
 import 'package:fl_clash/xboard/services/xb_update_probe.dart';
 import 'package:fl_clash/xboard/services/xb_update_region.dart';
@@ -52,18 +55,21 @@ void main() {
   Future<void> pump(WidgetTester tester, _Probe probe, {
     bool inApp = false, int count = 3, void Function()? lookupStarted,
     void Function(List<String>)? downloaded,
-    Future<DownloadResult> Function(DownloadProgress)? holdDownload,
+    XbUpdateDownload? download,
+    FakeConnectivity? connectivity,
     Brightness brightness = Brightness.light,
     ValueNotifier<double>? textScale,
     List<String>? urls,
   }) async {
+    final links = connectivity ?? FakeConnectivity();
+    if (connectivity == null) addTearDown(links.close);
     await tester.pumpWidget(ProviderScope(overrides: [
+      xboardConnectivityClientProvider.overrideWithValue(links),
       xbUpdateRegionLookupFactoryProvider.overrideWithValue(() { lookupStarted?.call(); return _Lookup(); }),
       xbUpdateSourceProbeFactoryProvider.overrideWithValue(() => probe),
       xbInAppUpdateSupportedProvider.overrideWithValue(inApp),
-      xbUpdateDownloadProvider.overrideWithValue(({required urls, required onProgress, cancelToken, requestLinuxExit}) async {
+      xbUpdateDownloadProvider.overrideWithValue(download ?? ({required urls, required onProgress, cancelToken, requestLinuxExit}) async {
         downloaded?.call(urls);
-        if (holdDownload != null) return holdDownload(onProgress);
         return DownloadResult.networkError;
       }),
     ], child: MaterialApp(theme: ThemeData(brightness: brightness),
@@ -179,7 +185,7 @@ void main() {
         // The larger sample puts it over the gradient.
         final pct = brightness == Brightness.light ? 5 : 65;
         await pump(tester, _Probe(), inApp: true, brightness: brightness,
-          textScale: scale, holdDownload: (onProgress) {
+          textScale: scale, download: ({required urls, required onProgress, cancelToken, requestLinuxExit}) {
             onProgress(pct * 1024 * 1024, 100 * 1024 * 1024);
             return done.future;
           },
@@ -225,6 +231,125 @@ void main() {
     expect(launcher.urls, isEmpty); expect(tester.takeException(), isNull);
   });
 
+  for (final offline in [true, false]) {
+    testWidgets('下载中切网停止，恢复不自动下载，蜂窝确认后重新开始 offline=$offline', (tester) async {
+      final links = FakeConnectivity();
+      addTearDown(links.close);
+      final results = <Completer<DownloadResult>>[];
+      late bool Function() cancelled;
+      await pump(tester, _Probe(), inApp: true, connectivity: links,
+          download: ({required urls, required onProgress, cancelToken, requestLinuxExit}) {
+            cancelled = () => cancelToken!.isCancelled;
+            final done = Completer<DownloadResult>();
+            results.add(done);
+            onProgress(1024 * 1024, -1);
+            return done.future;
+          });
+      if (offline) { links.goOffline(); } else { links.goMobile(); }
+      await tester.pump();
+      expect(cancelled(), isTrue);
+      results.single.complete(DownloadResult.networkError);
+      await tester.pumpAndSettle();
+      expect(find.textContaining('将从头下载'), findsOneWidget);
+      links.goMobile();
+      await tester.pumpAndSettle();
+      expect(results, hasLength(1));
+      await tester.tap(find.text('重试'));
+      await tester.pumpAndSettle();
+      expect(find.text('使用蜂窝网络下载'), findsOneWidget);
+      expect(results, hasLength(1));
+      await tester.tap(find.text('使用蜂窝网络下载'));
+      await tester.pump();
+      expect(results, hasLength(2));
+      await tester.pumpWidget(const SizedBox());
+      results.last.complete(DownloadResult.networkError);
+      await tester.pump();
+    });
+  }
+
+  for (final brightness in Brightness.values) {
+    testWidgets('unknown download size, retry isolation and final sample ($brightness)', (tester) async {
+      tester.view.physicalSize = const Size(320, 480);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final scale = ValueNotifier(1.0);
+      final callbacks = <DownloadProgress>[];
+      final results = <Completer<DownloadResult>>[];
+      final cancelled = <bool Function()>[];
+      const mib = 1024 * 1024;
+      try {
+        await pump(tester, _Probe(), inApp: true, brightness: brightness, textScale: scale,
+          download: ({required urls, required onProgress, cancelToken, requestLinuxExit}) {
+            callbacks.add(onProgress);
+            cancelled.add(() => cancelToken!.isCancelled);
+            final result = Completer<DownloadResult>();
+            results.add(result);
+            return result.future;
+          },
+        );
+        callbacks.single(0, -1);
+        scale.value = 1.4;
+        await tester.pump();
+        expect(find.text('正在准备下载…'), findsOneWidget);
+        callbacks.single(100, 0);
+        await tester.pump();
+        expect(find.textContaining('已接收 100 B'), findsOneWidget);
+        callbacks.single(1024, -1);
+        await tester.pump();
+        expect(find.textContaining('已接收 1.0 KiB'), findsOneWidget);
+        callbacks.single(5 * mib, -1);
+        await tester.pump(const Duration(milliseconds: 101));
+        expect(find.textContaining('已接收 5.0 MiB（总大小未知）'), findsOneWidget);
+        expect(find.byType(CircularProgressIndicator), findsOneWidget);
+        expect(find.textContaining('%'), findsNothing);
+        expect(find.text('正在准备下载…'), findsNothing);
+
+        results.single.complete(DownloadResult.networkError);
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('重试'));
+        await tester.pump();
+        expect(callbacks, hasLength(2));
+        callbacks.first(9 * mib, 10 * mib); // 上次请求的迟到回调。
+        await tester.pump();
+        expect(find.text('正在准备下载…'), findsOneWidget);
+        expect(find.textContaining('已接收'), findsNothing);
+        callbacks.last(0, 10 * mib);
+        await tester.pump();
+        expect(find.text('0%'), findsNWidgets(2));
+        callbacks.last(mib, 10 * mib);
+        callbacks.last(10 * mib, 10 * mib);
+        await tester.pump();
+        expect(find.text('100%'), findsNWidgets(2));
+        expect(find.text('正在下载 · 10.0 / 10.0 MB'), findsOneWidget);
+        if (brightness == Brightness.dark) {
+          // 无 Content-Length 的新镜像也只能依据真实成功结果结束下载。
+          callbacks.last(5 * mib, -1);
+          await tester.pump();
+          results.last.complete(DownloadResult.success);
+          await tester.pump();
+          await tester.pump();
+          expect(find.text('下载完成，已交给安装程序'), findsOneWidget);
+          expect(find.textContaining('%'), findsNothing);
+          // 非 Linux 主机还会等待系统安装器唤起后再收起弹窗。
+          await tester.pump(const Duration(milliseconds: 501));
+          await tester.pumpAndSettle();
+        }
+        expect(tester.takeException(), isNull);
+      } finally {
+        await tester.pumpWidget(const SizedBox());
+        if (results.length == 2 && !results.last.isCompleted) {
+          expect(cancelled.last(), isTrue);
+          callbacks.last(1, -1);
+        }
+        for (final result in results) {
+          if (!result.isCompleted) result.complete(DownloadResult.networkError);
+        }
+        await tester.pump();
+        scale.dispose();
+      }
+    }, variant: const TargetPlatformVariant({TargetPlatform.linux}));
+  }
+
   testWidgets('browser displays host but never URL path/query/fragment', (tester) async {
     const url = 'https://mirror.invalid/private-file-name?token=fixture-query-token#fixture-fragment';
     await pump(tester, _Probe(), urls: [url]); await tester.pumpAndSettle();
@@ -254,6 +379,16 @@ void main() {
           await tester.pumpAndSettle();
           expect(find.text('重新打开'), findsOneWidget);
           expect(find.text('换下一条'), findsOneWidget);
+          if (scale == 1.4) {
+            for (final label in ['重新打开', '换下一条']) {
+              final paragraph = tester.renderObject<RenderParagraph>(find.text(label));
+              final boxes = paragraph.getBoxesForSelection(TextSelection(
+                baseOffset: 0, extentOffset: label.length,
+              ));
+              expect(boxes.map((box) => box.top).toSet(), hasLength(1),
+                  reason: '$label should fit on one line at 320dp / 1.4');
+            }
+          }
           expect(tester.takeException(), isNull);
           final calls = launcher.urls.length;
           await tester.ensureVisible(find.text('换下一条'));

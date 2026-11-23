@@ -16,6 +16,7 @@ import 'package:flutter_xboard_sdk/flutter_xboard_sdk.dart' show AppUpdateModel;
 import 'package:url_launcher/url_launcher.dart';
 
 import '../providers/xboard_providers.dart';
+import '../providers/xboard_connectivity_provider.dart';
 import '../services/xb_apk_downloader.dart';
 import '../services/xb_update_service.dart';
 import '../services/xb_update_sources.dart';
@@ -50,7 +51,7 @@ final xbUpdateDownloadProvider = Provider<XbUpdateDownload>(
   (_) => XbApkDownloader.downloadAndInstall,
 );
 
-enum _DialogState { initial, selecting, downloading, failed, browser }
+enum _DialogState { initial, mobileConsent, selecting, downloading, handedOff, failed, browser }
 
 class _UpdateDialog extends ConsumerStatefulWidget {
   const _UpdateDialog({required this.info});
@@ -62,7 +63,6 @@ class _UpdateDialog extends ConsumerStatefulWidget {
 
 class _UpdateDialogState extends ConsumerState<_UpdateDialog> {
   _DialogState _state = _DialogState.initial;
-  double _progress = 0;
   int _receivedBytes = 0;
   int _totalBytes = 0;
   String? _errorMsg;
@@ -72,31 +72,58 @@ class _UpdateDialogState extends ConsumerState<_UpdateDialog> {
   List<String> _browserUrls = const [];
   int _browserIndex = 0;
   bool _browserOpening = false;
+  bool _transferActive = false;
+  bool _mobileAllowed = false;
+  String? _interrupted;
   String? _browserMessage;
   bool get _busy =>
-      _state == _DialogState.selecting || _state == _DialogState.downloading || _browserOpening;
+      _state == _DialogState.selecting || _state == _DialogState.downloading ||
+      _state == _DialogState.handedOff || _browserOpening;
 
   /// 当前生效的更新信息（初始为传入值；下载前会重拉刷新，取得最新下载地址和版本信息）。
   late AppUpdateModel _info = widget.info;
 
-  /// 节流：上次 UI 更新时间。
-  DateTime _lastUiUpdate = DateTime(2000);
+  Timer? _progressPaint;
 
   @override
   void dispose() {
+    _progressPaint?.cancel();
     _cancelToken?.cancel('dialog dismissed');
     _regionLookup?.cancel();
     _sourceProbe?.cancel();
     super.dispose();
   }
 
-  /// 档2：重拉最新版本信息与下载地址，下载完成后交给平台安装流程。
-  /// 不在客户端比对安装包摘要；失败时保留浏览器下载入口。
-  Future<void> _onUpdate() async {
+  static bool _offline(List<ConnectivityResult>? links) =>
+      links != null && links.isNotEmpty && links.every((v) => v == ConnectivityResult.none);
+
+  // Mobile may appear alongside VPN/Wi-Fi. Unknown and VPN-only cannot
+  // establish that the underlying route is unmetered either.
+  static bool _needsDataConsent(List<ConnectivityResult>? links) =>
+      links == null || links.contains(ConnectivityResult.mobile) ||
+      (!links.contains(ConnectivityResult.wifi) && !links.contains(ConnectivityResult.ethernet));
+
+  /// 档2：重拉最新清单。保持安装校验策略，失败时保留浏览器下载入口。
+  Future<void> _onUpdate({bool allowMobile = false}) async {
     if (_busy) return;
+    final links = ref.read(xboardConnectivityProvider).asData?.value;
+    if (_offline(links)) {
+      setState(() {
+        _state = _DialogState.failed;
+        _errorMsg = '当前无网络，请联网后重试。';
+      });
+      return;
+    }
+    _transferActive = ref.read(xbInAppUpdateSupportedProvider);
+    if (_transferActive && _needsDataConsent(links) && !allowMobile) {
+      _transferActive = false;
+      setState(() => _state = _DialogState.mobileConsent);
+      return;
+    }
+    _mobileAllowed = allowMobile && _needsDataConsent(links);
+    _interrupted = null;
     setState(() {
       _state = _DialogState.selecting;
-      _progress = 0;
       _receivedBytes = 0;
       _totalBytes = 0;
       _errorMsg = null;
@@ -107,7 +134,15 @@ class _UpdateDialogState extends ConsumerState<_UpdateDialog> {
       if (mounted) {
         setState(() {
           _state = _DialogState.failed;
-          _errorMsg = '无法准备更新，请重试';
+          _errorMsg = _interrupted ?? '无法准备更新，请重试';
+        });
+      }
+    } finally {
+      _transferActive = false;
+      if (mounted && _interrupted != null && _state == _DialogState.selecting) {
+        setState(() {
+          _state = _DialogState.failed;
+          _errorMsg = _interrupted;
         });
       }
     }
@@ -118,7 +153,7 @@ class _UpdateDialogState extends ConsumerState<_UpdateDialog> {
     _regionLookup = lookup;
     final country = await lookup.run();
     if (identical(_regionLookup, lookup)) _regionLookup = null;
-    if (!mounted) return const [];
+    if (!mounted || (_transferActive && _interrupted != null)) return const [];
     final urls = xbRandomizedUpdateUrls(_info, countryCode: country);
     if (urls.isEmpty) return urls;
     final probe = ref.read(xbUpdateSourceProbeFactoryProvider)();
@@ -140,7 +175,7 @@ class _UpdateDialogState extends ConsumerState<_UpdateDialog> {
     if (sdk != null) {
       final race = ref.read(injectedRaceControllerProvider);
       final result = await XbUpdateService.check(sdk, endpoints: race);
-      if (!mounted) return;
+      if (!mounted || _interrupted != null) return;
       if (result is UpdateAvailable) {
         _info = result.info;
         // 同步刷新全局 provider（徽章/关于行/下次弹窗都用最新）。
@@ -151,44 +186,40 @@ class _UpdateDialogState extends ConsumerState<_UpdateDialog> {
 
     // 地区优先/组内随机后做有界GET；确认可访问的源优先，其他源保留为后备。
     final urls = await _selectUrls();
-    if (!mounted) return;
+    if (!mounted || _interrupted != null) return;
     if (urls.isEmpty) {
       await _openBrowser(urls);
       return;
     }
 
     setState(() => _state = _DialogState.downloading);
-    _cancelToken = CancelToken();
+    final token = CancelToken();
+    _cancelToken = token;
 
     // Capture the long-lived action before awaiting download. Installation
     // must not depend on this dialog still being mounted at completion.
     final exitAction = Platform.isLinux
         ? ref.read(systemActionProvider.notifier)
         : null;
-    final result = await ref.read(xbUpdateDownloadProvider)(
-      requestLinuxExit: exitAction == null
-          ? null
-          : () => exitAction.handleExit(),
-      urls: urls,
-      onProgress: (received, total) {
-        if (!mounted) return;
-        // 节流：100ms 内只更新一次 UI
-        final now = DateTime.now();
-        if (now.difference(_lastUiUpdate).inMilliseconds < 100) return;
-        _lastUiUpdate = now;
-        setState(() {
-          _receivedBytes = received;
-          _totalBytes = total;
-          _progress = total > 0 ? received / total : 0;
-        });
-      },
-      cancelToken: _cancelToken,
-    );
+    final DownloadResult result;
+    try {
+      result = await ref.read(xbUpdateDownloadProvider)(
+        requestLinuxExit: exitAction == null ? null : () => exitAction.handleExit(),
+        urls: urls,
+        onProgress: (received, total) => _recordProgress(token, received, total),
+        cancelToken: token,
+      );
+    } finally {
+      _progressPaint?.cancel();
+      _progressPaint = null;
+      _cancelToken = null;
+    }
 
     if (!mounted) return;
 
     switch (result) {
       case DownloadResult.success:
+        setState(() => _state = _DialogState.handedOff);
         // Windows follows upstream: the interactive installer owns shutdown.
         // Cancelling its UAC/wizard must not make this client exit prematurely.
         if (Platform.isLinux) return;
@@ -198,7 +229,7 @@ class _UpdateDialogState extends ConsumerState<_UpdateDialog> {
       case DownloadResult.networkError:
         setState(() {
           _state = _DialogState.failed;
-          _errorMsg = '下载失败，网络异常';
+          _errorMsg = _interrupted ?? '下载失败，网络异常';
         });
       case DownloadResult.busy:
         setState(() {
@@ -213,9 +244,33 @@ class _UpdateDialogState extends ConsumerState<_UpdateDialog> {
     }
   }
 
+  void _recordProgress(CancelToken token, int received, int total) {
+    if (!mounted || token.isCancelled || !identical(token, _cancelToken)) return;
+    final changedPhase = total != _totalBytes ||
+        (_receivedBytes == 0 && received > 0) ||
+        received < _receivedBytes || (total > 0 && received >= total);
+    _receivedBytes = received;
+    _totalBytes = total;
+    if (changedPhase) {
+      _progressPaint?.cancel();
+      _progressPaint = null;
+      setState(() {});
+    } else {
+      // 合并中间样本，但保留最后一笔；服务器暂时不再发送也能显示已收字节。
+      _progressPaint ??= Timer(const Duration(milliseconds: 100), () {
+        _progressPaint = null;
+        if (mounted && identical(token, _cancelToken)) setState(() {});
+      });
+    }
+  }
+
   /// 档1 兜底：浏览器打开。
   Future<void> _fallbackToBrowser() async {
     if (_busy) return;
+    if (_offline(ref.read(xboardConnectivityProvider).asData?.value)) {
+      setState(() => _errorMsg = '当前无网络，请联网后再打开浏览器下载。');
+      return;
+    }
     setState(() {
       _state = _DialogState.selecting;
       _errorMsg = null;
@@ -273,6 +328,21 @@ class _UpdateDialogState extends ConsumerState<_UpdateDialog> {
 
   @override
   Widget build(BuildContext context) {
+    ref.listen(xboardConnectivityProvider, (_, next) {
+      if (!_transferActive || _interrupted != null) return;
+      final links = next.asData?.value;
+      if (!next.hasValue) return; // No new interface report yet.
+      if (!_offline(links) && !(_needsDataConsent(links) && !_mobileAllowed)) {
+        if (!_needsDataConsent(links)) _mobileAllowed = false;
+        return;
+      }
+      final reason = _offline(links) ? '网络已断开'
+          : (links?.contains(ConnectivityResult.mobile) ?? false) ? '已切换到蜂窝网络' : '网络类型已变化';
+      setState(() => _interrupted = '$reason，下载已中断。请确认网络后重试，将从头下载。');
+      _regionLookup?.cancel();
+      _sourceProbe?.cancel();
+      _cancelToken?.cancel(reason);
+    });
     final t = XbTokens.of(context);
     final scheme = Theme.of(context).colorScheme;
 
@@ -306,8 +376,10 @@ class _UpdateDialogState extends ConsumerState<_UpdateDialog> {
           ],
         ),
         content: _state == _DialogState.browser ||
+                _state == _DialogState.mobileConsent ||
                 _state == _DialogState.selecting ||
                 _state == _DialogState.downloading ||
+                _state == _DialogState.handedOff ||
                 (_state == _DialogState.initial && _info.force)
             ? SingleChildScrollView(child: _buildContent(t, scheme))
             : _buildContent(t, scheme),
@@ -354,6 +426,15 @@ class _UpdateDialogState extends ConsumerState<_UpdateDialog> {
   /// 原有状态底部高72；浏览器状态按文字与按钮内容自适应。
   Widget _buildFooter(XbTokens t, ColorScheme scheme) {
     switch (_state) {
+      case _DialogState.mobileConsent:
+        return Column(mainAxisSize: MainAxisSize.min, children: [
+          const Text('当前网络可能使用蜂窝流量，是否继续下载安装包？', textAlign: TextAlign.center),
+          const SizedBox(height: 8),
+          XbGradientAction(onPressed: () => _onUpdate(allowMobile: true),
+              child: const Text('使用蜂窝网络下载')),
+          TextButton(onPressed: () => setState(() => _state = _DialogState.initial),
+              child: const Text('暂不下载')),
+        ]);
       case _DialogState.initial:
         return Column(
           mainAxisSize: MainAxisSize.min,
@@ -377,6 +458,9 @@ class _UpdateDialogState extends ConsumerState<_UpdateDialog> {
       case _DialogState.selecting:
       case _DialogState.downloading:
         return _downloadingFooter(scheme);
+      case _DialogState.handedOff:
+        return Text('下载完成，已交给安装程序', textAlign: TextAlign.center,
+            style: TextStyle(fontSize: 11, color: scheme.onSurfaceVariant));
       case _DialogState.browser:
         return _browserFooter(scheme);
       case _DialogState.failed:
@@ -399,6 +483,8 @@ class _UpdateDialogState extends ConsumerState<_UpdateDialog> {
 
   Widget _browserFooter(ColorScheme scheme) {
     final host = Uri.parse(_browserUrls[_browserIndex]).host;
+    const padding = EdgeInsets.symmetric(horizontal: 8, vertical: 12);
+    const labelStyle = TextStyle(fontSize: 14, fontWeight: FontWeight.w600);
     return Column(
       mainAxisSize: MainAxisSize.min,
       mainAxisAlignment: MainAxisAlignment.center,
@@ -413,14 +499,15 @@ class _UpdateDialogState extends ConsumerState<_UpdateDialog> {
         const SizedBox(height: 8),
         Row(children: [
           Expanded(child: ConstrainedBox(constraints: const BoxConstraints(minHeight: 46), child: FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: XbTokens.of(context).sfc, foregroundColor: XbTokens.of(context).on),
+            style: FilledButton.styleFrom(padding: padding, backgroundColor: XbTokens.of(context).sfc, foregroundColor: XbTokens.of(context).on),
             onPressed: _busy ? null : _launchBrowser,
-            child: const Text('重新打开', textAlign: TextAlign.center),
+            child: const Text('重新打开', textAlign: TextAlign.center, style: labelStyle),
           ))),
           const SizedBox(width: 11),
           Expanded(child: ConstrainedBox(constraints: const BoxConstraints(minHeight: 46), child: XbGradientAction(
+            padding: padding,
             onPressed: _busy || _browserUrls.length < 2 ? null : _nextBrowserSource,
-            child: const Text('换下一条', textAlign: TextAlign.center),
+            child: const Text('换下一条', textAlign: TextAlign.center, style: labelStyle),
           ))),
         ]),
       ],
@@ -505,10 +592,25 @@ class _UpdateDialogState extends ConsumerState<_UpdateDialog> {
   }
 
   Widget _downloadingFooter(ColorScheme scheme) {
-    final progress = _progress.clamp(0.0, 1.0);
-    final pct = (progress * 100).toInt();
-    final hasProgress = _state != _DialogState.selecting && _progress > 0;
-    if (!hasProgress) {
+    if (_transferActive && _interrupted != null) {
+      return Text(_interrupted!, textAlign: TextAlign.center);
+    }
+    if (_state == _DialogState.selecting || _totalBytes <= 0) {
+      final transferring = _state == _DialogState.downloading && _receivedBytes > 0;
+      final String status;
+      if (_state == _DialogState.selecting) {
+        status = '选择线路中…';
+      } else if (transferring) {
+        final bytes = _receivedBytes;
+        final size = switch (bytes) {
+          < 1024 => '$bytes B',
+          < 1048576 => '${(bytes / 1024).toStringAsFixed(1)} KiB',
+          _ => '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MiB',
+        };
+        status = '正在下载 · 已接收 $size（总大小未知）';
+      } else {
+        status = '正在准备下载…';
+      }
       return Column(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -522,9 +624,9 @@ class _UpdateDialogState extends ConsumerState<_UpdateDialog> {
           ),
           const SizedBox(height: 18), // 10px flex gap + 8px status margin
           Text(
-            _state == _DialogState.selecting ? '选择线路中…' : '正在准备下载…',
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
+            status,
+            maxLines: transferring ? null : 1,
+            overflow: transferring ? TextOverflow.visible : TextOverflow.ellipsis,
             textAlign: TextAlign.center,
             style: TextStyle(fontSize: 11, color: scheme.onSurfaceVariant),
           ),
@@ -532,10 +634,10 @@ class _UpdateDialogState extends ConsumerState<_UpdateDialog> {
       );
     }
     // 原型 15f2：胶囊进度条(品牌红填充 + 内嵌白字百分比) + 下方「正在下载 · 已下载/总大小」
+    final progress = (_receivedBytes / _totalBytes).clamp(0.0, 1.0);
+    final pct = (progress * 100).toInt();
     final receivedMb = (_receivedBytes / (1024 * 1024)).toStringAsFixed(1);
-    final totalMb = _totalBytes > 0
-        ? (_totalBytes / (1024 * 1024)).toStringAsFixed(1)
-        : '?';
+    final totalMb = (_totalBytes / (1024 * 1024)).toStringAsFixed(1);
     final brand = scheme.primary;
     final highlight = brand == const Color(0xffd92e1a)
         ? const Color(0xffff5a44)

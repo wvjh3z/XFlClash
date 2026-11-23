@@ -148,6 +148,7 @@ void main() {
     await pumpNodes(
       t,
       auth: AuthState.authenticated,
+      sub: const XbDomainSubscription(email: 'fixture@example.invalid', uuid: 'fixture', totalBytes: 0, usedBytes: 0),
       tab: const ProxiesTabState(
         groups: [],
         currentGroupName: null,

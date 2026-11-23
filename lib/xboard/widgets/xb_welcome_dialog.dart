@@ -72,14 +72,14 @@ class _WelcomeDialogBodyState extends State<_WelcomeDialogBody> {
 
     return Dialog(
       backgroundColor: t.card,
-      insetPadding: const EdgeInsets.symmetric(horizontal: 28, vertical: 40),
+      insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(XbTokens.rLg),
       ),
       child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 420),
+        constraints: const BoxConstraints(maxWidth: 336),
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(22, 24, 22, 20),
+          padding: const EdgeInsets.fromLTRB(22, 26, 22, 20),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -131,7 +131,7 @@ class _WelcomeDialogBodyState extends State<_WelcomeDialogBody> {
               const SizedBox(height: 6),
               Text.rich(
                 TextSpan(
-                  style: TextStyle(fontSize: 11.5, height: 1.65, color: t.onv),
+                  style: TextStyle(fontSize: 11, height: 1.65, color: t.onv),
                   children: [
                     const TextSpan(text: '继续使用即表示你已阅读并同意 '),
                     TextSpan(
@@ -156,37 +156,23 @@ class _WelcomeDialogBodyState extends State<_WelcomeDialogBody> {
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 16),
-              Row(
-                children: [
-                  Expanded(
-                    child: SizedBox(
-                      height: 46,
-                      child: FilledButton(
-                        onPressed: () => Navigator.of(context).pop(false),
-                        style: FilledButton.styleFrom(
-                          backgroundColor: t.sfc,
-                          foregroundColor: t.on,
-                          elevation: 0,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(XbTokens.rMd),
-                          ),
-                        ),
-                        child: const Text('退出'),
-                      ),
-                    ),
+              IntrinsicHeight(child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                Expanded(child: FilledButton(
+                  onPressed: () => Navigator.of(context).pop(false),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: t.sfc, foregroundColor: t.on, elevation: 0,
+                    minimumSize: const Size(0, 46), padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(XbTokens.rMd)),
                   ),
-                  const SizedBox(width: 11),
-                  Expanded(
-                    child: SizedBox(
-                      height: 46,
-                      child: XbGradientAction(
-                        onPressed: () => Navigator.of(context).pop(true),
-                        child: const Text('同意并开始'),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
+                  child: const Text('退出', textAlign: TextAlign.center),
+                )),
+                const SizedBox(width: 11),
+                Expanded(child: XbGradientAction(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
+                  onPressed: () => Navigator.of(context).pop(true),
+                  child: const Text('同意并开始', textAlign: TextAlign.center),
+                )),
+              ])),
             ],
           ),
         ),
@@ -208,22 +194,22 @@ class _Feature extends StatelessWidget {
     final t = XbTokens.of(context);
     final scheme = Theme.of(context).colorScheme;
     return Padding(
-      padding: const EdgeInsets.only(bottom: 15),
+      padding: const EdgeInsets.only(bottom: 14),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Container(
-            width: 40,
-            height: 40,
+            width: 38,
+            height: 38,
             alignment: Alignment.center,
             decoration: BoxDecoration(
               color: Color.alphaBlend(
                 scheme.primary.withValues(alpha: 0.12),
                 t.card,
               ),
-              borderRadius: BorderRadius.circular(11),
+              borderRadius: BorderRadius.circular(10),
             ),
-            child: Icon(icon, size: 21, color: scheme.primary),
+            child: Icon(icon, size: 20, color: scheme.primary),
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -233,7 +219,7 @@ class _Feature extends StatelessWidget {
                 Text(
                   title,
                   style: TextStyle(
-                    fontSize: 14.5,
+                    fontSize: 14,
                     fontWeight: FontWeight.w600,
                     color: t.on,
                   ),
@@ -241,7 +227,7 @@ class _Feature extends StatelessWidget {
                 const SizedBox(height: 3),
                 Text(
                   desc,
-                  style: TextStyle(fontSize: 12.5, height: 1.65, color: t.onv),
+                  style: TextStyle(fontSize: 12, height: 1.6, color: t.onv),
                 ),
               ],
             ),

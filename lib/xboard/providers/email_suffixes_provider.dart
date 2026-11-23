@@ -13,20 +13,35 @@
 library;
 
 import 'package:riverpod_annotation/riverpod_annotation.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart' show Notifier, NotifierProvider;
 
 import '../models/xb_result.dart';
 import 'xboard_providers.dart';
+import 'network_recovery_provider.dart';
 
 part '../generated/providers/email_suffixes_provider.g.dart';
 
 /// 邮箱注册白名单后缀列表（R5.6）。
 ///
 /// 成功 → 后缀列表（可空 = 白名单禁用）；失败 → `const []`（fail-open，不阻塞注册）。
+final suffixLookupFailedProvider = NotifierProvider<SuffixLookupFailed, bool>(SuffixLookupFailed.new);
+class SuffixLookupFailed extends Notifier<bool> {
+  @override
+  bool build() => false;
+  void set(bool value) => state = value;
+}
+
 @Riverpod(keepAlive: true)
 Future<List<String>> emailSuffixes(Ref ref) async {
+  final recovery = retryReadOnRecovery(ref);
   final result = await ref.watch(xboardServiceProvider).getEmailSuffixes();
-  return switch (result) {
-    XbSuccess(:final data) => data,
-    XbFailure() => const <String>[], // fail-open：配置接口故障不阻塞注册（R5.6/F208）
-  };
+  switch (result) {
+    case XbSuccess(:final data):
+      if (ref.mounted) ref.read(suffixLookupFailedProvider.notifier).set(false);
+      return data;
+    case XbFailure(:final error):
+      recovery(error);
+      if (ref.mounted) ref.read(suffixLookupFailedProvider.notifier).set(true);
+      return const [];
+  }
 }

@@ -9,6 +9,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:fl_clash/xboard/models/xb_result.dart';
 import 'package:fl_clash/xboard/models/xb_domain_error.dart';
+import 'auth_network_hint.dart';
+import '../../providers/xboard_connectivity_provider.dart';
 import 'package:fl_clash/xboard/providers/email_suffixes_provider.dart';
 import 'package:fl_clash/xboard/providers/xboard_providers.dart';
 import 'package:fl_clash/xboard/util/error_text.dart';
@@ -44,6 +46,7 @@ class _ForgotPwdSheetState extends ConsumerState<ForgotPwdSheet>
   String? _suffix;
   bool _obscure = true;
   String? _banner;
+  bool _offerProbe = false;
 
   @override
   void dispose() {
@@ -58,6 +61,7 @@ class _ForgotPwdSheetState extends ConsumerState<ForgotPwdSheet>
 
   Future<void> _sendCode(List<String> suffixes) async {
     if (cooling) return;
+    if (_offline()) return;
     final email = _composeEmail(suffixes);
     if (email == null) {
       setState(() => _banner = xbEmailValidationMessage(suffixes));
@@ -77,6 +81,7 @@ class _ForgotPwdSheetState extends ConsumerState<ForgotPwdSheet>
       ),
     };
     if (error != null) {
+      _offerProbe = error is XbNetwork || error is XbServer || error is XbUnconfirmed;
       // A lost response may still have delivered mail; preserve the cooldown.
       if (error is! XbUnconfirmed &&
           error is! XbRateLimit &&
@@ -89,6 +94,7 @@ class _ForgotPwdSheetState extends ConsumerState<ForgotPwdSheet>
   }
 
   Future<void> _submit(List<String> suffixes) async {
+    if (_offline()) return;
     final email = _composeEmail(suffixes);
     final code = _codeCtrl.text.trim();
     final pw = _pwCtrl.text;
@@ -121,6 +127,7 @@ class _ForgotPwdSheetState extends ConsumerState<ForgotPwdSheet>
         case XbSuccess():
           setState(() => _banner = '操作结果尚未确认，请先核对结果。如问题持续，请向客服反馈此问题。');
         case XbFailure(:final error):
+          _offerProbe = error is XbNetwork || error is XbServer || error is XbUnconfirmed;
           setState(
             () => _banner = resolveErrorText(error, fallback: '重置失败，请重试'),
           );
@@ -131,8 +138,8 @@ class _ForgotPwdSheetState extends ConsumerState<ForgotPwdSheet>
   @override
   Widget build(BuildContext context) {
     final ready = ref.watch(bootstrapReadyProvider);
-    final suffixes =
-        ref.watch(emailSuffixesProvider).asData?.value ?? const <String>[];
+    final suffixState = ref.watch(emailSuffixesProvider);
+    final suffixes = suffixState.asData?.value ?? const <String>[];
 
     return XbSheetScaffold(
       title: '重置密码',
@@ -142,13 +149,15 @@ class _ForgotPwdSheetState extends ConsumerState<ForgotPwdSheet>
         ('返回登录', submitting ? null : () => switchXbAuthSheet(context, showLoginSheet)),
       ]),
       children: [
+        if (_offerProbe && !submitting && _banner != null) const AuthNetworkHint(),
         XbEmailAccountField(
           prefixController: _prefixCtrl,
           suffixes: suffixes,
           selectedSuffix: _suffix,
           onSuffixChanged: (v) => setState(() => _suffix = v),
         ),
-        if (suffixes.isNotEmpty) Text('请选择注册时使用的邮箱后缀', style: Theme.of(context).textTheme.bodySmall),
+        if (suffixState.hasError || ref.watch(suffixLookupFailedProvider)) const XbEmailSuffixHint('邮箱后缀暂未加载，请输入完整邮箱；网络恢复后会重新获取。'),
+        if (suffixes.isNotEmpty) const XbEmailSuffixHint('请选择注册时使用的邮箱后缀'),
         const SizedBox(height: 12),
         XbVerifyCodeField(
           controller: _codeCtrl,
@@ -184,5 +193,11 @@ class _ForgotPwdSheetState extends ConsumerState<ForgotPwdSheet>
         ),
       ],
     );
+  }
+
+  bool _offline() {
+    if (!ref.read(interfaceUnavailableProvider)) return false;
+    setState(() { _offerProbe = true; _banner = '未检测到网络连接，本次请求尚未发送。'; });
+    return true;
   }
 }

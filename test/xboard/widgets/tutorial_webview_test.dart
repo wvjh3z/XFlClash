@@ -1,4 +1,6 @@
 import 'dart:io';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:fl_clash/xboard/providers/network_recovery_provider.dart';
 
 import 'package:fl_clash/xboard/widgets/tutorial_webview.dart';
 import 'package:fl_clash/xboard/services/xboard_release_dio.dart';
@@ -37,14 +39,14 @@ void main() {
 
   Future<void> pumpReader(WidgetTester tester, String html) async {
     await tester.pumpWidget(
-      MaterialApp(
+      ProviderScope(child: MaterialApp(
         home: TutorialWebView(
           html: html,
           resourceBase: Uri.parse('https://docs.example.invalid/'),
           articleUrl: Uri.parse('https://docs.example.invalid/#/docs/21'),
           onOpenTutorial: (_) async {},
         ),
-      ),
+      )),
     );
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 1));
@@ -110,6 +112,19 @@ void main() {
       expect(params.initialSettings?.domStorageEnabled, isFalse);
       expect(params.onReceivedError, isNotNull);
       expect(params.shouldOverrideUrlLoading, isNotNull);
+      params.onReceivedHttpError!(
+        controller,
+        WebResourceRequest(url: WebUri('https://self-signed.invalid/image'), isForMainFrame: false),
+        WebResourceResponse(statusCode: 503, reasonPhrase: 'Unavailable'),
+      );
+      await tester.pump();
+      expect(find.textContaining('部分图片或样式未能加载'), findsOneWidget);
+      final readerKey = tester.widget<InAppWebView>(find.byType(InAppWebView)).key;
+      final container = ProviderScope.containerOf(tester.element(find.byType(TutorialWebView)));
+      container.read(networkRecoveryProvider.notifier).publish();
+      await tester.pump();
+      expect(tester.widget<InAppWebView>(find.byType(InAppWebView)).key, readerKey,
+          reason: '局部资源失败，不在网络恢复时销毁当前可读的正文');
       await tester.pumpWidget(const SizedBox.shrink());
       final stale = await trust!(
         controller,

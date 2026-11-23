@@ -39,6 +39,7 @@ class EndpointRaceController {
     this.onApiSwitch,
     this.onSubscriptionSwitch,
     this.onSubscriptionAvailable,
+    this.onVerifiedNetwork,
     Dio? dio,
     bool vpnActive = false,
   }) : _vpnActive = vpnActive,
@@ -51,9 +52,61 @@ class EndpointRaceController {
   late final EndpointProbe _probe;
   Dio? _ownedProbeDio;
   int _networkGeneration = 0;
+  int get networkGeneration => _networkGeneration;
   final OnEndpointSwitch? onApiSwitch;
   final OnEndpointSwitch? onSubscriptionSwitch;
   final void Function()? onSubscriptionAvailable;
+  final void Function()? onVerifiedNetwork;
+  int _verificationWindow = 0, _publishedWindow = 0;
+  int? _armedNetwork;
+  Timer? _nodeRace;
+  int? _nodeProbeGeneration;
+
+  /// Unlike a physical network reset, this only supersedes API probes.
+  /// The SDK and its in-flight business requests keep their working base.
+  void confirmedNodeChanged() {
+    if (_disposed || !_vpnActive || _apiEndpoints.isEmpty) return;
+    _nodeRace?.cancel();
+    _apiGeneration++;
+    final generation = _nodeProbeGeneration = _apiGeneration;
+    _nodeRace = Timer(const Duration(milliseconds: 300), () async {
+      if (_disposed || generation != _apiGeneration || !_vpnActive) return;
+      armExplicitRecovery();
+      _nodeProbeGeneration = generation + 1;
+      try {
+        await raceApi(_apiEndpoints);
+      } finally {
+        if (_nodeProbeGeneration == generation + 1) _nodeProbeGeneration = null;
+      }
+    });
+  }
+
+  void forgetNodeChange() {
+    _nodeRace?.cancel();
+    _nodeRace = null;
+    if (_nodeProbeGeneration == _apiGeneration) _apiGeneration++;
+    _nodeProbeGeneration = null;
+  }
+
+  /// A burst of physical/VPN events shares the debounced verification window.
+  void armNetworkRecovery() {
+    if (_armedNetwork != _networkGeneration) armExplicitRecovery();
+  }
+
+  /// An explicit guest-config recheck or a genuine foreground transition can
+  /// verify recovery even where the OS only reports Wi-Fi -> Wi-Fi.
+  void armExplicitRecovery() {
+    if (_armedNetwork == _networkGeneration && _verificationWindow != _publishedWindow) return;
+    _armedNetwork = _networkGeneration;
+    _verificationWindow++;
+  }
+
+  void _verifiedNetwork() {
+    SentryBootstrap.tagConnectivity(online: true);
+    if (_armedNetwork != _networkGeneration || _publishedWindow == _verificationWindow) return;
+    _publishedWindow = _verificationWindow;
+    onVerifiedNetwork?.call();
+  }
 
   /// 可注入的时钟（测试用），默认 wall clock。
   DateTime Function() _now;
@@ -101,6 +154,7 @@ class EndpointRaceController {
 
   /// 完整 endpoint 列表（含 region，failOver / 重竞速复用）。
   List<BootstrapEndpoint> _apiEndpoints = const [];
+  List<BootstrapEndpoint> get apiCandidates => List.unmodifiable(_apiEndpoints);
   List<BootstrapEndpoint> _subEndpoints = const [];
 
   /// 30 分钟滚动窗口内的切换时间戳（R15.C.19）。
@@ -225,13 +279,17 @@ class EndpointRaceController {
   /// Keep the last API for existing requests; only a successful probe replaces it.
   void networkChanged({bool? vpnActive, bool rerace = true}) {
     if (_disposed) return;
+    forgetNodeChange();
     if (vpnActive != null) _vpnActive = vpnActive;
     _networkGeneration++;
     _apiGeneration++;
     _subGeneration++;
     _currentSub = null;
     resetApiEndpointHealth?.call();
-    if (rerace) refreshRaceInBackground();
+    if (rerace) {
+      armNetworkRecovery();
+      refreshRaceInBackground();
+    }
   }
 
   ({Object token, bool Function() valid})? _manualRound;
@@ -263,9 +321,11 @@ class EndpointRaceController {
       ).timeout(timeout);
       if (!valid()) return null;
       if (winner == null) return false;
+      armExplicitRecovery();
       onManualApiReachable?.call(winner);
       _currentApi = winner;
       onApiSwitch?.call(winner);
+      _verifiedNetwork();
       _releaseApiWaiters();
       return true;
     } on TimeoutException {
@@ -287,26 +347,31 @@ class EndpointRaceController {
     }
     final generation = ++_apiGeneration;
     // DD-23：累计竞速次数 tag（W5.7 / 5.7.2 endpoint.race_attempts）。
+    final verifyWindow = _armedNetwork == _networkGeneration && _publishedWindow != _verificationWindow;
     _raceAttempts++;
     SentryBootstrap.tagEndpoint(raceAttempts: _raceAttempts);
     final winner = await _raceRegionAware(
       apiEndpoints
-          .where((e) => apiEndpointAvailable?.call(e.url) ?? true)
+          .where((e) => verifyWindow || (apiEndpointAvailable?.call(e.url) ?? true))
           .toList(),
     );
     if (_disposed ||
         generation != _apiGeneration ||
-        (winner != null && !(apiEndpointAvailable?.call(winner) ?? true))) {
+        (!verifyWindow && winner != null && !(apiEndpointAvailable?.call(winner) ?? true))) {
       return;
     }
+    if (verifyWindow && winner != null) onManualApiReachable?.call(winner);
     if (winner != null && winner != _currentApi) {
+      final previouslySelected = _currentApi != null;
       _currentApi = winner;
       onApiSwitch?.call(winner);
+      if (previouslySelected) _recordSwitch(alreadyRaced: true);
     } else if (_currentApi == null && winner != null) {
       _currentApi = winner;
       onApiSwitch?.call(winner);
     }
     if (_currentApi != null) _releaseApiWaiters();
+    if (winner != null) _verifiedNetwork();
   }
 
   /// Subscription endpoint 竞速（R15.C.23 + R4.9 地区感知）。
@@ -435,14 +500,14 @@ class EndpointRaceController {
   }
 
   /// 记录切换 + 30min 窗口内 ≥5 次则重新完整竞速（R15.C.19）。
-  void _recordSwitch() {
+  void _recordSwitch({bool alreadyRaced = false}) {
     final now = _now();
     _switchTimes.add(now);
     _switchTimes.removeWhere((t) => now.difference(t) > kEndpointRaceWindow);
     if (_switchTimes.length >= kEndpointReraceThreshold) {
       _switchTimes.clear();
       // 异步重竞速（不阻塞当前切换）。
-      unawaited(raceApi(_apiEndpoints));
+      if (!alreadyRaced) unawaited(raceApi(_apiEndpoints));
     }
   }
 
@@ -531,6 +596,7 @@ class EndpointRaceController {
   }
 
   void dispose() {
+    forgetNodeChange();
     _disposed = true;
     _networkGeneration++;
     _ownedProbeDio?.close(force: true);

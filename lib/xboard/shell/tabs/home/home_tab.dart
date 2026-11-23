@@ -6,12 +6,17 @@
 /// **适配层铁律**：全部内核交互经 adapters；游客态读形态 B `authStateProvider`（◇）。
 library;
 
+import 'dart:async';
 import 'package:fl_clash/xboard/widgets/xb_emoji_text.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:fl_clash/xboard/config/xboard_config.dart';
 import 'package:fl_clash/xboard/providers/auth_state_provider.dart';
+import '../../../providers/subscription_sync_status.dart';
+import '../../../providers/user_profile_provider.dart';
+import '../../../providers/xboard_connectivity_provider.dart';
+import '../../../services/xboard_subscription_service.dart';
 import 'package:fl_clash/xboard/providers/xboard_providers.dart';
 import 'package:fl_clash/xboard/util/format.dart' show xbLatencyDisplay;
 import 'package:fl_clash/xboard/widgets/xb_center_toast.dart';
@@ -64,6 +69,8 @@ class HomeTab extends ConsumerStatefulWidget {
 }
 
 class _HomeTabState extends ConsumerState<HomeTab> {
+  int _sampleView = 0;
+  bool _sampleScheduled = false;
   bool _blockedWithoutNodes = false;
 
   @override
@@ -108,9 +115,12 @@ class _HomeTabState extends ConsumerState<HomeTab> {
       return XbConnectBlock.preparing;
     }
     if (!_blockedWithoutNodes) setState(() => _blockedWithoutNodes = true);
+    final rejected = ref.read(subscriptionSyncStatusProvider)?.outcome;
     XbCenterToast.show(
       context,
-      '当前无可用线路，请前往「节点」刷新或购买套餐',
+      rejected == XbSyncOutcome.noSubscription || rejected == XbSyncOutcome.subscriptionExpired
+          ? '当前无可用线路，请前往「节点」刷新或购买套餐'
+          : '暂未获取可用线路，请检查网络并刷新节点',
       icon: Icons.warning_amber_rounded,
     );
     return XbConnectBlock.noNodes;
@@ -128,6 +138,25 @@ class _HomeTabState extends ConsumerState<HomeTab> {
     // 首页延迟：读独立的 homeLatencyProvider（仅「连接/切换节点」时由 measureCurrentNodeBest
     // 现测 3 次取最低写入），不读节点列表的全局延迟表。游客 → null（显示「--」）。
     final homeLatency = ref.watch(homeLatencyProvider);
+    final active = !isGuest && TickerMode.valuesOf(context).enabled &&
+        ModalRoute.isCurrentOf(context) != false &&
+        ref.watch(xbConnectAdapterProvider).isConnected(ref);
+    if (!active) {
+      _sampleView++;
+    } else if (!homeLatency.attempted && !_sampleScheduled) {
+      final nodes = ref.watch(xbNodesAdapterProvider);
+      // Observe the selection too: a restored profile may arrive after VPN start.
+      if (nodes.currentSelection(ref).node != null) {
+        final view = _sampleView;
+        _sampleScheduled = true;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          _sampleScheduled = false;
+          if (mounted && _sampleView == view) {
+            unawaited(nodes.measureVisibleHome(ref, () => mounted && _sampleView == view));
+          }
+        });
+      }
+    }
     final latencyMs = isGuest ? null : homeLatency.ms;
 
     // C-分支：按「内容区自身可用宽度」决定单列/双栏（而非全局 isMobileView）——
@@ -167,6 +196,8 @@ class _HomeTabState extends ConsumerState<HomeTab> {
         children: [
           // AppBar 标题「MyClient」+ 右侧更新提示（有新版时）。
           const _HomeHeader(),
+          if (ref.watch(interfaceUnavailableProvider)) const Text('未检测到网络连接，请检查网络设置。'),
+          if (!isGuest) const _HomeAccountRetry(),
           if (preparing) ...[
             const XbSyncBanner(text: '正在准备服务，请稍候…'),
             const SizedBox(height: 12),
@@ -183,8 +214,7 @@ class _HomeTabState extends ConsumerState<HomeTab> {
               alignment: Alignment.center,
               children: [
                 // 品牌红光晕（原型 `.aura`）：球后径向辉光，未连接也显示（与桌面 hero 一致）。
-                if (Theme.of(context).platform != TargetPlatform.android ||
-                    !ref.watch(xbConnectAdapterProvider).isConnected(ref))
+                if (Theme.of(context).platform != TargetPlatform.android)
                   Positioned.fill(
                   child: IgnorePointer(
                     child: DecoratedBox(
@@ -274,6 +304,7 @@ class _HomeTabState extends ConsumerState<HomeTab> {
                       ),
                       const SizedBox(height: 12),
                     ],
+                    if (!isGuest) const _HomeAccountRetry(),
                     XbExpiryCard(onTapRenew: widget.onTapRenew, centered: true),
                     const XbTrafficNotice(centered: true),
                     const SizedBox(height: 8),
@@ -369,6 +400,19 @@ class _HomeTabState extends ConsumerState<HomeTab> {
 }
 
 /// 首页头部（移动端）：标题「MyClient」+ 右侧「有新版本」绿色胶囊（点击弹更新弹窗）。
+class _HomeAccountRetry extends ConsumerWidget {
+  const _HomeAccountRetry();
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final profile = ref.watch(userProfileProvider);
+    if (!profile.hasError || profile.isLoading) return const SizedBox.shrink();
+    return Wrap(alignment: WrapAlignment.center, crossAxisAlignment: WrapCrossAlignment.center, children: [
+      const Text('账号资料暂未更新'),
+      TextButton(onPressed: () => ref.invalidate(userProfileProvider), child: const Text('重试资料')),
+    ]);
+  }
+}
+
 class _HomeHeader extends StatelessWidget {
   const _HomeHeader();
 

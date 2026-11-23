@@ -50,6 +50,7 @@ class XboardLifecycleObserver with WidgetsBindingObserver {
   final bool _isMobile;
   final bool _isWindows;
   bool _attached = false;
+  bool _foreground = false;
 
   /// 挂到 WidgetsBinding（bootstrap step 7）。
   void attach() {
@@ -62,6 +63,7 @@ class XboardLifecycleObserver with WidgetsBindingObserver {
   void didChangeAppLifecycleState(AppLifecycleState state) {
     switch (state) {
       case AppLifecycleState.paused:
+        _foreground = false;
         if (_isMobile) {
           debugPrint('[XboardLifecycle] paused (mobile) → 暂停 Timer');
           onPauseTimers?.call();
@@ -69,6 +71,8 @@ class XboardLifecycleObserver with WidgetsBindingObserver {
           debugPrint('[XboardLifecycle] paused (desktop) → Timer 保持运行');
         }
       case AppLifecycleState.resumed:
+        if (!_foreground) _race.armExplicitRecovery();
+        _foreground = true;
         onRecoverPending?.call();
         if (_isMobile || _isWindows) onForegroundRefresh?.call();
         if (_isMobile) {
@@ -81,6 +85,7 @@ class XboardLifecycleObserver with WidgetsBindingObserver {
       case AppLifecycleState.inactive:
       case AppLifecycleState.detached:
       case AppLifecycleState.hidden:
+        _foreground = false;
         break;
     }
   }

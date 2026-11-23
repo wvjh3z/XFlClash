@@ -8,6 +8,7 @@ import 'package:fl_clash/xboard/pages/invite_commission_page.dart';
 import 'package:fl_clash/xboard/pages/withdraw_commission_dialog.dart';
 import 'package:fl_clash/xboard/providers/auth_state_provider.dart';
 import 'package:fl_clash/xboard/providers/invite_provider.dart';
+import 'package:fl_clash/xboard/providers/network_recovery_provider.dart';
 import 'package:fl_clash/xboard/providers/share_link_provider.dart';
 import 'package:fl_clash/xboard/providers/xboard_providers.dart';
 import 'package:fl_clash/xboard/sdk/xboard_service.dart';
@@ -115,6 +116,31 @@ final _continue = find.widgetWithText(FilledButton, '提交提现申请');
 final _submit = find.widgetWithText(FilledButton, '提交申请');
 
 void main() {
+  testWidgets('恢复只补失败的提现条件和方式，不能触发申请', (tester) async {
+    final service = _Service();
+    when(service.getInviteInfo).thenAnswer((_) async => XbSuccess(_invite(200)));
+    var reads = 0, methods = 0;
+    when(() => service.getCommissionRecords(page: 1, pageSize: 10)).thenAnswer((_) async =>
+      ++reads == 1 ? const XbFailure(XbNetwork(XbNetworkKind.timeout, 'offline'))
+          : XbSuccess(_records(10)));
+    when(service.getWithdrawMethods).thenAnswer((_) async =>
+      ++methods == 1 ? const XbFailure(XbNetwork(XbNetworkKind.timeout, 'offline'))
+          : const XbSuccess(['USDT-TRC20']));
+    final container = await _setup(tester, service, 'brand_a');
+    expect(tester.widget<FilledButton>(_continue).onPressed, isNull);
+    container.read(networkRecoveryProvider.notifier).publish();
+    await tester.pumpAndSettle();
+    expect(tester.widget<FilledButton>(_continue).onPressed, isNotNull);
+    await tester.tap(_continue);
+    await tester.pumpAndSettle();
+    container.read(networkRecoveryProvider.notifier).publish();
+    await tester.pumpAndSettle();
+    expect(find.byType(DropdownButton<String>), findsOneWidget);
+    expect(reads, 2);
+    expect(methods, 2);
+    verify(service.getInviteInfo).called(1);
+    verifyNever(() => service.withdrawCommission(method: any(named: 'method'), account: any(named: 'account')));
+  });
   testWidgets('320dp 大字号提现：金额保留左右列，键盘缩小视口后仍可确认', (tester) async {
     final service = _Service();
     when(() => service.getInviteInfo()).thenAnswer((_) async => XbSuccess(_invite(268.50)));
@@ -152,7 +178,29 @@ void main() {
     expect(tester.getSize(cancel).width, closeTo(tester.getSize(_continue).width, 0.1));
     await tester.tap(_continue);
     await tester.pumpAndSettle();
-    expectAmountRow('提现金额（整笔佣金）');
+    const formLabel = '整笔提现额';
+    expectAmountRow(formLabel);
+    final nameParagraph = tester.renderObject<RenderParagraph>(find.text(formLabel));
+    expect(nameParagraph.getBoxesForSelection(
+      TextSelection(baseOffset: 0, extentOffset: formLabel.length),
+    ).map((box) => box.top).toSet(), hasLength(1));
+    // Measure the rendered field, not the padding formula. A one-dp wider
+    // screen used to remove ~80dp of usable content at the 360dp boundary.
+    double? previous;
+    for (final width in [359.0, 360.0, 361.0, 390.0]) {
+      tester.view.physicalSize = Size(width, 640);
+      await tester.pumpAndSettle();
+      final fieldWidth = tester.getSize(find.ancestor(
+        of: find.text(formLabel), matching: find.byType(Table),
+      ).first).width;
+      if (previous != null) {
+        expect(fieldWidth, greaterThanOrEqualTo(previous - .01));
+        if (width <= 361) expect(fieldWidth - previous, lessThanOrEqualTo(1.01));
+      }
+      previous = fieldWidth;
+    }
+    tester.view.physicalSize = const Size(320, 640);
+    await tester.pumpAndSettle();
     final methodLabel = tester.getRect(find.text('收款方式'));
     final accountLabel = tester.getRect(find.text('收款账户'));
     final methodControl = tester.getRect(find.byType(DropdownButton<String>));
@@ -323,7 +371,7 @@ void main() {
       final container = await _setup(tester, service, 'brand_b');
       await tester.tap(_continue);
       await tester.pumpAndSettle();
-      final amountLabel = find.text('提现金额（整笔佣金）');
+      final amountLabel = find.text('整笔提现额');
       final amountValue = find.descendant(of: _dialog, matching: find.text('¥200.00'));
       expect(tester.getCenter(amountValue).dx, greaterThan(tester.getCenter(amountLabel).dx));
       expect(tester.getTopLeft(amountLabel).dy, greaterThan(
@@ -396,6 +444,15 @@ void main() {
       } else {
         expect(find.textContaining('申请结果尚未确认'), findsOneWidget);
         expect(_submit, findsNothing);
+        await tester.tap(find.text('关闭'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('佣金提现'));
+        await tester.pumpAndSettle();
+        expect(find.textContaining('申请结果尚未确认'), findsOneWidget);
+        expect(_continue, findsNothing);
+        container.read(networkRecoveryProvider.notifier).publish();
+        await tester.pumpAndSettle();
+        verifyNever(() => service.withdrawCommission(method: any(named: 'method'), account: any(named: 'account')));
       }
       expect(tester.takeException(), isNull);
       if (outcome == 'success') await tester.pump(const Duration(seconds: 3));

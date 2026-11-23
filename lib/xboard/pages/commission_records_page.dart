@@ -16,7 +16,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/xb_invite.dart';
 import '../providers/invite_provider.dart';
 import '../util/format.dart';
-import '../widgets/xb_async_view.dart';
+import 'commission_read_view.dart';
 import '../widgets/xb_components.dart';
 import '../widgets/xb_theme.dart' show XbTokens;
 import '../widgets/xb_ui_kit.dart' show XbBrandScaffold;
@@ -39,22 +39,13 @@ class _RecordsBody extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final async = ref.watch(commissionRecordsProvider);
-    return RefreshIndicator(
-      onRefresh: () async {
+    return CommissionReadView<List<XbCommissionRecord>>(
+      data: async, errorText: '加载返佣记录失败', skeleton: XbSkeletonKind.list,
+      content: _content,
+      reload: () async {
         ref.invalidate(commissionRecordsProvider);
-        // 等本次重拉落定再收起转圈；失败吞掉（错误态由 XbAsyncView 接管，不重复弹）。
-        await ref
-            .read(commissionRecordsProvider.future)
-            .catchError((_) => const <XbCommissionRecord>[]);
+        await ref.read(commissionRecordsProvider.future);
       },
-      child: XbAsyncView(
-        loading: async.isLoading,
-        error: async.hasError ? async.error : null,
-        errorFallback: '加载返佣记录失败',
-        skeleton: XbSkeletonKind.list,
-        onRetry: () => ref.invalidate(commissionRecordsProvider),
-        builder: (context) => _content(context, async.requireValue),
-      ),
     );
   }
 

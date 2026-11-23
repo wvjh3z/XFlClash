@@ -14,6 +14,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:fl_clash/xboard/widgets/xb_theme.dart' show XbTokens;
 import '../../adapters/xb_nodes_adapter.dart';
+import '../../../providers/subscription_sync_status.dart';
+import '../../../services/xboard_subscription_service.dart';
 
 /// 当前线路卡。
 class XbLineCard extends ConsumerWidget {
@@ -49,8 +51,10 @@ class XbLineCard extends ConsumerWidget {
           selection.group != null ? '当前分组：${selection.group}' : '当前线路';
     } else {
       title = '未选择线路';
+      final rejection = unavailable ? ref.watch(subscriptionSyncStatusProvider)?.outcome : null;
       subtitle = unavailable
-          ? '当前套餐无可用线路'
+          ? (rejection == XbSyncOutcome.noSubscription || rejection == XbSyncOutcome.subscriptionExpired
+              ? '当前套餐无可用线路' : '请检查网络并刷新节点')
           : '连接后自动优选';
     }
 

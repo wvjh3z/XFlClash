@@ -13,6 +13,7 @@ import 'dart:io' show Platform;
 import 'package:fl_clash/xboard/config/xboard_config.dart';
 import 'package:fl_clash/xboard/services/crisp_navigation.dart';
 import 'package:fl_clash/xboard/widgets/crisp_recovery_dialog.dart';
+import 'package:fl_clash/xboard/widgets/xb_network_read_recovery.dart';
 
 import 'package:fl_clash/xboard/widgets/xb_emoji_text.dart';
 import 'package:material_ui/material_ui.dart';
@@ -21,6 +22,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'package:fl_clash/xboard/models/xb_domain_subscription.dart';
+import 'package:fl_clash/xboard/models/xb_result.dart';
+import '../../../providers/network_recovery_provider.dart';
+import '../../../providers/xboard_connectivity_provider.dart';
 import 'package:fl_clash/xboard/pages/invite_commission_page.dart';
 import 'package:fl_clash/xboard/pages/legal_pages.dart' show PrivacyPage, TermsPage;
 import 'package:fl_clash/xboard/pages/order_list_page.dart';
@@ -52,7 +56,9 @@ const _resetThreshold = 0.90;
 // 我的只读取返佣比例。自动生成邀请码仍由邀请返佣详情页负责。
 final _rebateRateProvider = FutureProvider.autoDispose<int?>((ref) async {
   if (ref.watch(authStateProvider) != AuthState.authenticated) return null;
+  final recovery = retryReadOnRecovery(ref);
   final result = await ref.watch(xboardServiceProvider).getInviteInfo();
+  if (result case XbFailure(:final error)) recovery(error);
   return result.dataOrNull?.commissionRate;
 }, retry: (_, _) => null);
 
@@ -90,47 +96,40 @@ class _MineTabState extends ConsumerState<MineTab> with XbRefreshThrottleGuard {
   bool get _accountBusy =>
       _refreshing || _retrying || _skeletonLoading(ref.read(userProfileProvider));
 
-  Future<void> _retryAccount() async {
-    if (ref.read(authStateProvider) != AuthState.authenticated || _accountBusy) return;
-    final revision = ref.read(authStateProvider.notifier).sessionRevision;
-    setState(() => _retrying = true);
-    try {
-      await ref.read(xboardServiceProvider).getSubscription();
-    } finally {
-      if (mounted &&
-          ref.read(authStateProvider) == AuthState.authenticated &&
-          ref.read(authStateProvider.notifier).sessionRevision == revision) {
-        ref.invalidate(userProfileProvider);
-        setState(() => _retrying = false);
-      }
-    }
-  }
+  Future<void> _retryAccount() => _reload(retry: true);
 
-  Future<void> _onRefresh() async {
+  Future<void> _onRefresh() => _reload(retry: false);
+  Future<void> _reload({required bool retry}) async {
     if (ref.read(authStateProvider) != AuthState.authenticated || _accountBusy) {
       return;
     }
-    if (throttled) {
+    if (ref.read(interfaceUnavailableProvider)) {
+      xbToast(context, '未检测到网络连接，请连接网络后重试');
+      return;
+    }
+    if (!retry && throttled) {
       xbToast(context, '信息刚刷新过，请稍后再试');
       return;
     }
     final revision = ref.read(authStateProvider.notifier).sessionRevision;
-    setState(() => _refreshing = true);
-    // 并行：① 刷新账号订阅（反腐层 getSubscription，内置 apiFailover + 5s 超时，永不抛）
-    //       ② 检查应用更新（带 failover；检测到则点亮徽章/触发弹窗）。
-    await Future.wait<void>([
-      ref.read(xboardServiceProvider).getSubscription().then((_) {}),
-      _checkAppUpdate(),
-    ]);
-    if (!mounted ||
-        ref.read(authStateProvider.notifier).sessionRevision != revision ||
-        ref.read(authStateProvider) != AuthState.authenticated) {
-      return;
+    setState(() { _retrying = retry; _refreshing = true; });
+    try {
+      ref.invalidate(userProfileProvider);
+      await Future.wait<void>([
+        ref.read(userProfileProvider.future).then((_) {}),
+        if (!retry) _checkAppUpdate(),
+      ]);
+      if (mounted && ref.read(authStateProvider.notifier).sessionRevision == revision) {
+        ref.invalidate(_rebateRateProvider);
+        if (!retry) startThrottle();
+      }
+    } catch (_) {
+      // The shared provider displays the failure; do not throttle a failed read.
+    } finally {
+      if (mounted && ref.read(authStateProvider.notifier).sessionRevision == revision) {
+        setState(() { _refreshing = _retrying = false; });
+      }
     }
-    ref.invalidate(userProfileProvider);
-    ref.invalidate(_rebateRateProvider);
-    startThrottle();
-    setState(() => _refreshing = false);
   }
 
   /// 检查应用更新（刷新信息附带）：带 failover，检测到更新写入 provider（点亮徽章 + shell 弹窗）。
@@ -160,7 +159,9 @@ class _MineTabState extends ConsumerState<MineTab> with XbRefreshThrottleGuard {
     });
     final isGuest = ref.watch(authStateProvider) != AuthState.authenticated;
     final profile = isGuest ? null : ref.watch(userProfileProvider);
-    final skeleton = _retrying || (profile != null && _skeletonLoading(profile));
+    final stale = profile != null && (profile.hasError || profile.isLoading)
+        ? ref.watch(staleAccountDisplayProvider) : null;
+    final skeleton = stale == null && (_retrying || (profile != null && _skeletonLoading(profile)));
     final busy = _refreshing || skeleton;
 
     final content = SafeArea(
@@ -175,6 +176,11 @@ class _MineTabState extends ConsumerState<MineTab> with XbRefreshThrottleGuard {
           final isDesktop = xbIsDesktopWidth(constraints.maxWidth);
           final accountBlock = isGuest
               ? _GuestCard(onTapLogin: widget.onTapLogin)
+              : stale != null
+                  ? Column(children: [
+                      IgnorePointer(child: _AccountCard(sub: stale, active: widget.active, now: widget.now, large: isDesktop)),
+                      Text(profile!.isLoading ? '正在更新 · 显示上次资料' : '更新失败 · 显示上次资料，请刷新重试'),
+                    ])
               : skeleton
                   ? const _AccountSkeleton()
                   : profile!.when(
@@ -1169,11 +1175,13 @@ class _SupportRow extends ConsumerStatefulWidget {
 
 class _SupportRowState extends ConsumerState<_SupportRow>
     with XbSubmitGuard<_SupportRow> {
+  int? _pendingSessionRevision;
   /// 在线客服：AppImage 使用隔离环境的系统浏览器；内嵌模式透传账号资料，游客匿名。
   /// 永不抛（失败 toast）。
   Future<void> _openSupport(BuildContext context, WidgetRef ref) async {
     final notifier = ref.read(authStateProvider.notifier);
     final revision = notifier.sessionRevision;
+    _pendingSessionRevision = null;
     bool current() => context.mounted && notifier.sessionRevision == revision;
     try {
       if (CrispSupportService.usesExternalBrowser) {
@@ -1201,7 +1209,9 @@ class _SupportRowState extends ConsumerState<_SupportRow>
           if (!context.mounted || !current()) return;
           sub = result.dataOrNull;
           if (sub == null) {
-            xbToast(context, '账号资料暂时无法加载，请稍后再打开客服');
+            if (xbIsRecoverableReadError(result.errorOrNull)) _pendingSessionRevision = revision;
+            xbToast(context, _pendingSessionRevision == null
+                ? '账号资料暂时无法加载，请稍后再打开客服' : '网络暂不可用，恢复后将重试打开客服');
             return;
           }
         }
@@ -1220,6 +1230,11 @@ class _SupportRowState extends ConsumerState<_SupportRow>
         if (!await _showSupportFailure(context, result.failure, current)) {
           return;
         }
+      }
+    } on TimeoutException {
+      if (context.mounted && current()) {
+        _pendingSessionRevision = revision;
+        xbToast(context, '客服连接超时，网络恢复后将重试');
       }
     } catch (_) {
       if (context.mounted && current()) xbToast(context, '客服暂时无法打开，请稍后再试');
@@ -1240,7 +1255,7 @@ class _SupportRowState extends ConsumerState<_SupportRow>
       final action = await xbShowDialog<CrispRecovery>(
         context: context,
         brandColor: xbBrandColor(),
-        builder: (_) => CrispRecoveryDialog(failure: failure),
+        builder: (_) => CrispRecoveryDialog(failure: failure, sessionIsCurrent: current),
       );
       if (!context.mounted || !current()) return false;
       if (action == CrispRecovery.retry) return true;
@@ -1297,6 +1312,9 @@ class _SupportRowState extends ConsumerState<_SupportRow>
         }
         return false;
       default:
+        if (failure == CrispChatFailure.sessionNotReady || failure == CrispChatFailure.startupTimeout) {
+          _pendingSessionRevision = ref.read(authStateProvider.notifier).sessionRevision;
+        }
         final message = switch (failure) {
           CrispChatFailure.webViewUnavailable => '当前系统的客服组件不可用，请检查应用安装是否完整',
           CrispChatFailure.profileUnavailable => '客服数据无法保存，请检查应用的存储权限或可用空间后重试',
@@ -1315,6 +1333,14 @@ class _SupportRowState extends ConsumerState<_SupportRow>
 
   @override
   Widget build(BuildContext context) {
+    xbListenForReadRecovery(context, ref, () {
+      final revision = _pendingSessionRevision;
+      if (revision == null || submitting) return;
+      _pendingSessionRevision = null;
+      if (revision == ref.read(authStateProvider.notifier).sessionRevision) {
+        runSubmit(() => _openSupport(context, ref));
+      }
+    });
     final open = submitting ? null : () => runSubmit(() => _openSupport(context, ref));
     if (widget.floating) {
       final brand = xbBrandColor();

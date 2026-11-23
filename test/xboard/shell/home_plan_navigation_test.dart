@@ -34,6 +34,7 @@ import 'package:fl_clash/xboard/shell/widgets/xb_bottom_bar.dart';
 import 'package:fl_clash/xboard/shell/widgets/xb_nav_rail.dart';
 
 import '_net_detection_stub.dart';
+import '_fixture_delay_core.dart';
 
 class _FakeAuth extends AuthStateNotifier {
   _FakeAuth(this._initial);
@@ -92,6 +93,7 @@ void main() {
           when(service.getPlans).thenAnswer((_) => catalog.future);
           final container = ProviderContainer(
             overrides: [
+              fixtureDelayCoreOverride(),
               xboardServiceProvider.overrideWithValue(service),
               isMobileViewProvider.overrideWith(
                 (ref) => ref.watch(_mobileProvider),

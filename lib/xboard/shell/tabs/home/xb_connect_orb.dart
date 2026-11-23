@@ -26,7 +26,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../widgets/xb_motion.dart';
 import '../../../widgets/xb_feedback.dart';
 import '../../adapters/xb_connect_adapter.dart';
-import '../../adapters/xb_nodes_adapter.dart';
 
 /// 连接拦截原因（首页连接球点击 gate）：未登录 / 无可用线路 / 线路准备中。
 enum XbConnectBlock {
@@ -164,13 +163,15 @@ class _XbConnectOrbState extends ConsumerState<XbConnectOrb>
               alignment: Alignment.center,
               clipBehavior: Clip.none,
               children: [
-                if (mobileOrb && state == XbConnState.connected)
+                if (mobileOrb)
                   Positioned(
                     // The 255px aura begins 24px above the 177px orb.
                     top: -size * 24 / 177,
                     width: size * 255 / 177,
                     height: size * 255 / 177,
-                    child: !reduced && TickerMode.valuesOf(context).enabled &&
+                    child: state != XbConnState.connected
+                        ? const _AuraGradient(color: Color(0xff788296), neutral: true)
+                        : !reduced && TickerMode.valuesOf(context).enabled &&
                             ModalRoute.isCurrentOf(context) != false
                         ? _ConnectedAura(color: scheme.primary)
                         : _AuraGradient(color: scheme.primary),
@@ -288,11 +289,7 @@ class _XbConnectOrbState extends ConsumerState<XbConnectOrb>
       );
       return;
     }
-    if (!mounted || generation != _actionGeneration) return;
-    // 发起连接时测一次当前生效节点延迟（3 次取最低，刷到首页速度卡）。fire-and-forget。
-    if (initiatingConnect) {
-      unawaited(ref.read(xbNodesAdapterProvider).measureCurrentNodeBest(ref));
-    }
+    // Home observes the actual connected state, regardless of start source.
     // Exit IP follows actual running/suspend/route changes in its notifier.
   }
 
@@ -307,8 +304,9 @@ class _XbConnectOrbState extends ConsumerState<XbConnectOrb>
 
 /// One full breath takes 3.6 seconds. Only the decorative layer repaints.
 class _AuraGradient extends StatelessWidget {
-  const _AuraGradient({required this.color});
+  const _AuraGradient({required this.color, this.neutral = false});
   final Color color;
+  final bool neutral;
 
   @override
   Widget build(BuildContext context) => RepaintBoundary(
@@ -318,10 +316,10 @@ class _AuraGradient extends StatelessWidget {
           // CSS circle uses the farthest corner; soften its outer tail
           // without a live blur filter or an off-screen layer per frame.
           radius: .7071,
-          stops: const [0, .42, .66, .80],
+          stops: [0, .42, neutral ? .64 : .66, .80],
           colors: [
-            color.withValues(alpha: .22), color.withValues(alpha: .08),
-            color.withValues(alpha: .015), color.withValues(alpha: 0),
+            color.withValues(alpha: neutral ? .10 : .22), color.withValues(alpha: neutral ? .035 : .08),
+            color.withValues(alpha: neutral ? .007 : .015), color.withValues(alpha: 0),
           ],
         ),
       ),

@@ -16,6 +16,7 @@ import 'package:fl_clash/providers/providers.dart'
 import 'package:fl_clash/xboard/config/xboard_config.dart';
 import 'package:fl_clash/xboard/models/xb_domain_subscription.dart';
 import 'package:fl_clash/xboard/providers/auth_state_provider.dart';
+import 'package:fl_clash/xboard/providers/notice_provider.dart';
 import 'package:fl_clash/xboard/providers/user_profile_provider.dart';
 import 'package:fl_clash/xboard/providers/xboard_providers.dart';
 import 'package:fl_clash/xboard/shell/xboard_app_shell.dart';
@@ -23,6 +24,7 @@ import 'package:fl_clash/xboard/shell/tabs/home/xb_expiry_card.dart';
 import 'package:fl_clash/xboard/sdk/xboard_service.dart';
 
 import '../shell/_net_detection_stub.dart';
+import '../shell/_fixture_delay_core.dart';
 
 class _FakeAuth extends AuthStateNotifier {
   _FakeAuth(this._initial);
@@ -111,9 +113,13 @@ Future<void> pumpShell(
       if (expiryNow != null) expiryClockProvider.overrideWithValue(() => expiryNow),
       isMobileViewProvider.overrideWith((ref) => mobile),
       authStateProvider.overrideWith(() => _FakeAuth(auth)),
+      // Ordinary shell snapshots model a successful empty notice response,
+      // independently of whichever account/commerce service a case injects.
+      noticeStateProvider.overrideWith((_) async => XbNoticeState.empty),
       isStartProvider.overrideWith((ref) => core == CoreStatus.connected),
       proxiesTabStateProvider.overrideWith((ref) => tab),
       netDetectionOverride(ip: core == CoreStatus.connected ? '47.243.10.20' : '113.96.10.20', countryCode: core == CoreStatus.connected ? 'HK' : 'CN'),
+      fixtureDelayCoreOverride(),
       if (service != null) xboardServiceProvider.overrideWithValue(service),
       userProfileProvider.overrideWith(
         (ref) => Future.value(subscription ?? _sub(expired: expired)),
@@ -172,4 +178,6 @@ Future<void> pumpShell(
   });
   await tester.pump();
   await tester.pump(const Duration(milliseconds: 400));
+  expect(find.text('公告重试', skipOffstage: false), findsNothing,
+      reason: '普通业务金图建立在公告读取成功的夹具上；错误交给公告恢复专项验证');
 }

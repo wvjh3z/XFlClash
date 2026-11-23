@@ -36,7 +36,7 @@ void main() {
       ]);
       expect(
         SentryBootstrap.tagsSnapshot[SentryTagKeys.connectivityOnline],
-        'true',
+        'unknown',
       );
     },
   );
@@ -65,7 +65,7 @@ void main() {
       ]);
       expect(
         SentryBootstrap.tagsSnapshot[SentryTagKeys.connectivityOnline],
-        'true',
+        'unknown',
       );
 
       connectivity.emit(const [
@@ -75,7 +75,7 @@ void main() {
       await pumpEventQueue();
       expect(
         SentryBootstrap.tagsSnapshot[SentryTagKeys.connectivityOnline],
-        'false',
+        'unknown',
       );
     },
   );
@@ -88,7 +88,7 @@ void main() {
       expect(container.read(isOfflineProvider), isFalse);
       expect(
         SentryBootstrap.tagsSnapshot[SentryTagKeys.connectivityOnline],
-        'false',
+        'unknown',
       );
       await pumpEventQueue();
       connectivity.goWifi();
@@ -98,7 +98,7 @@ void main() {
       ]);
       expect(
         SentryBootstrap.tagsSnapshot[SentryTagKeys.connectivityOnline],
-        'true',
+        'unknown',
       );
     },
   );

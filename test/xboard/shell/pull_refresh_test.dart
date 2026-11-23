@@ -91,6 +91,7 @@ class _Fixture {
   int syncCalls = 0;
   int profileLoads = 0;
   String account = 'A';
+  String? lastProfileAccount;
   late ProviderContainer container;
 
   XbDomainSubscription get data => XbDomainSubscription(
@@ -141,6 +142,11 @@ Future<_Fixture> _pump(
         xbNodesAdapterProvider.overrideWithValue(nodesAdapter),
       userProfileProvider.overrideWith((ref) async {
         f.profileLoads++;
+        if (f.lastProfileAccount == f.account && page != _Page.nodes) {
+          final result = await f.service.getSubscription();
+          return result.when(success: (value) => value, failure: (error) => throw error);
+        }
+        f.lastProfileAccount = f.account;
         return f.data;
       }),
       inviteInfoProvider.overrideWith(
@@ -307,7 +313,7 @@ void main() {
       await tester.tap(_inside(false, find.text('刷新中…')));
       await tester.pump(const Duration(seconds: 5));
       expect(f.accountCalls, 1);
-      expect(f.profileLoads, 1);
+      expect(f.profileLoads, 2);
       _expectBusy(tester, nodes: false);
 
       response.complete(XbResult.success(f.data));
@@ -423,7 +429,7 @@ void main() {
     });
   }
 
-  testWidgets('我的：按钮返回网络失败后，下拉仍遵循原有 60 秒 CD', (tester) async {
+  testWidgets('我的：按钮网络失败后可下拉立即重试', (tester) async {
     final f = _Fixture();
     when(f.service.getSubscription).thenAnswer((_) async {
       f.accountCalls++;
@@ -436,9 +442,9 @@ void main() {
     await _finishAnimations(tester);
     expect(f.accountCalls, 1);
     expect(f.profileLoads, 2);
-    expect(_cooldown(false), findsOneWidget);
+    expect(_cooldown(false), findsNothing);
     await _pull(tester, nodes: false);
-    expect(f.accountCalls, 1);
+    expect(f.accountCalls, 2);
     expect(tester.takeException(), isNull);
   });
 
@@ -453,7 +459,7 @@ void main() {
     expect(find.text('可用测试节点', findRichText: true), findsNothing);
   });
 
-  testWidgets('节点：按钮同步失败后保留旧节点，下拉也受同一 CD 限制', (tester) async {
+  testWidgets('节点：同步失败保留旧节点，下拉可立即重试', (tester) async {
     final f = _Fixture();
     when(() => f.sync.sync(force: true)).thenAnswer((_) async {
       f.syncCalls++;
@@ -465,9 +471,9 @@ void main() {
     expect(f.syncCalls, 1);
     expect(find.text('可用测试节点', findRichText: true), findsOneWidget);
     expect(find.text('刷新失败，请稍后重试'), findsOneWidget);
-    expect(_cooldown(true), findsOneWidget);
+    expect(_cooldown(true), findsNothing);
     await _pull(tester, nodes: true);
-    expect(f.syncCalls, 1);
+    expect(f.syncCalls, 2);
     expect(tester.takeException(), isNull);
   });
 

@@ -19,6 +19,7 @@ import '../util/format.dart' show xbDate;
 import '../util/html_link.dart';
 import '../util/html_text.dart' show wrapEmojiForHtml, htmlRenderableBody, kXbEmojiClass;
 import 'xb_ui_kit.dart' show XbGradientAction;
+import 'xb_network_read_recovery.dart';
 import 'xb_html_contrast.dart' show xbReadableHtmlColor;
 import 'xb_theme.dart' show XbTokens;
 
@@ -35,6 +36,40 @@ class XbNoticePill extends ConsumerStatefulWidget {
 
 class _XbNoticePillState extends ConsumerState<XbNoticePill> {
   bool _opening = false;
+  bool _visible = false;
+  final _age = Stopwatch()..start();
+  late final AppLifecycleListener _lifecycle;
+
+  @override
+  void initState() {
+    super.initState();
+    _lifecycle = AppLifecycleListener(onResume: _refreshIfStale);
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final visible = TickerMode.valuesOf(context).enabled && ModalRoute.of(context)?.isCurrent != false;
+    if (visible && !_visible) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _refreshIfStale());
+    }
+    _visible = visible;
+  }
+
+  void _refreshIfStale() {
+    if (!mounted || !_visible || _opening || _age.elapsed < const Duration(minutes: 1)) return;
+    final current = ref.read(noticeStateProvider);
+    if (!current.isLoading && !current.hasError) {
+      _age.reset();
+      ref.invalidate(noticeStateProvider);
+    }
+  }
+
+  @override
+  void dispose() {
+    _lifecycle.dispose();
+    super.dispose();
+  }
 
   Future<void> _open(XbNoticeState notice) async {
     if (!mounted || _opening) return;
@@ -54,11 +89,22 @@ class _XbNoticePillState extends ConsumerState<XbNoticePill> {
 
   @override
   Widget build(BuildContext context) {
-    final s = ref.watch(noticeStateProvider).asData?.value;
-    if (s == null || !s.hasUnread) return const SizedBox.shrink();
+    final result = ref.watch(noticeStateProvider);
+    ref.listen(noticeStateProvider, (_, next) {
+      if (!next.isLoading) _age.reset();
+    });
+    xbListenForReadRecovery(context, ref, () {
+      final current = ref.read(noticeStateProvider);
+      if (!current.isLoading && xbIsRecoverableReadError(current.error)) {
+        ref.invalidate(noticeStateProvider);
+      }
+    });
+    final s = result.asData?.value;
+    final failed = result.hasError && !result.isLoading;
+    if (!failed && (s == null || !s.hasUnread)) return const SizedBox.shrink();
     final scheme = Theme.of(context).colorScheme;
     return GestureDetector(
-      onTap: () => _open(s),
+      onTap: failed ? () => ref.invalidate(noticeStateProvider) : () => _open(s!),
       child: Container(
         padding: widget.large
             ? const EdgeInsets.symmetric(horizontal: 14, vertical: 7)
@@ -74,7 +120,7 @@ class _XbNoticePillState extends ConsumerState<XbNoticePill> {
             Icon(Icons.campaign_outlined,
                 size: widget.large ? 16 : 14, color: scheme.primary),
             const SizedBox(width: 4),
-            Text('有新公告',
+            Text(failed ? '公告重试' : '有新公告',
                 style: TextStyle(
                     fontSize: widget.large ? 13 : 11,
                     fontWeight: FontWeight.w600,

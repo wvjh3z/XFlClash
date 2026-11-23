@@ -6,8 +6,16 @@ import 'package:fl_clash/xboard/config/xboard_config.dart';
 import 'package:fl_clash/xboard/models/xb_notice.dart';
 import 'package:fl_clash/xboard/providers/notice_provider.dart';
 import 'package:fl_clash/xboard/providers/auth_state_provider.dart';
+import 'package:fl_clash/xboard/providers/network_recovery_provider.dart';
+import 'package:fl_clash/xboard/providers/xboard_providers.dart';
+import 'package:fl_clash/xboard/models/xb_domain_error.dart';
+import 'package:fl_clash/xboard/models/xb_result.dart';
+import 'package:fl_clash/xboard/sdk/xboard_service.dart';
+import 'package:mocktail/mocktail.dart';
 import 'package:fl_clash/xboard/util/notice_read_store.dart';
 import 'package:fl_clash/xboard/widgets/xb_announcement.dart';
+
+class _Service extends Mock implements XboardService {}
 
 class _Store extends NoticeReadStore {
   final requests = <Completer<void>>[];
@@ -21,6 +29,29 @@ class _Store extends NoticeReadStore {
   }
 }
 void main() {
+  testWidgets('公告读取失败显示重试，恢复后的成功空列表才隐藏提示', (tester) async {
+    final service = _Service();
+    var calls = 0;
+    when(service.getNotices).thenAnswer((_) async => ++calls == 1
+        ? const XbFailure<List<XbNotice>>(XbNetwork(XbNetworkKind.connectionFailed, 'offline'))
+        : const XbSuccess(<XbNotice>[]));
+    final container = ProviderContainer(overrides: [xboardServiceProvider.overrideWithValue(service)]);
+    addTearDown(container.dispose);
+    container.read(bootstrapReadyProvider.notifier).set(true);
+    container.read(authStateProvider.notifier).markAuthenticated();
+    await tester.pumpWidget(UncontrolledProviderScope(container: container,
+        child: const MaterialApp(home: Scaffold(body: XbNoticePill()))));
+    await tester.pumpAndSettle();
+    expect(find.text('公告重试'), findsOneWidget);
+    container.read(networkRecoveryProvider.notifier).publish();
+    await tester.pumpAndSettle();
+    expect(find.text('公告重试'), findsNothing);
+    expect(find.text('有新公告'), findsNothing);
+    container.read(networkRecoveryProvider.notifier).publish();
+    await tester.pumpAndSettle();
+    expect(calls, 2);
+    await tester.pumpWidget(const SizedBox());
+  });
   for (final brand in ['brand_a', 'brand_b']) {
     for (final platform in [TargetPlatform.android, TargetPlatform.windows, TargetPlatform.macOS, TargetPlatform.linux]) {
       for (final mode in ['dispose', 'repeat', 'remount', 'logout-kept']) {

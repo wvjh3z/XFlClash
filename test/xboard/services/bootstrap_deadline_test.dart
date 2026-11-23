@@ -34,6 +34,23 @@ class _DelayedDecryptor extends BootstrapDecryptor {
 }
 
 void main() {
+  test('ending an owner cancels the active bootstrap mirror without fallback', () async {
+    final owner = CancelToken(), dispatched = Completer<void>();
+    var calls = 0;
+    final dio = Dio()..httpClientAdapter = _Adapter((_, cancel) async {
+      calls++;
+      dispatched.complete();
+      await cancel;
+      return ResponseBody.fromString('{}', 200);
+    });
+    addTearDown(() => dio.close(force: true));
+    final pending = BootstrapFetcher(decryptor: BootstrapDecryptor(aesKey: testAesKey), dio: dio)
+        .fetchRemote(['https://a.test', 'https://b.test'], owner: owner);
+    await dispatched.future;
+    owner.cancel('session ended');
+    expect((await pending).isSuccess, isFalse);
+    expect(calls, 1);
+  });
   test(
     'total deadline cancels in-flight request and starts no fallback',
     () async {

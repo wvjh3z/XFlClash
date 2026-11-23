@@ -109,69 +109,79 @@ class XbSheetScaffold extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final bottomInset = MediaQuery.of(context).viewInsets.bottom;
-    return Padding(
-      padding: EdgeInsets.only(bottom: bottomInset),
-      child: SingleChildScrollView(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              if (badge != null) ...[
-                Center(child: badge!),
-                const SizedBox(height: 11),
-              ],
-              Text(
-                title,
-                textAlign: TextAlign.center,
-                style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                      fontWeight: FontWeight.w800,
-                    ),
-              ),
-              if (subtitle != null) ...[
-                const SizedBox(height: 5),
+    final fieldBorder = OutlineInputBorder(
+      borderRadius: BorderRadius.circular(XbTokens.rMd),
+      borderSide: BorderSide(color: XbTokens.of(context).line, width: 1.5),
+    );
+    final theme = Theme.of(context);
+    return Theme(
+      data: theme.copyWith(inputDecorationTheme: theme.inputDecorationTheme.copyWith(
+        border: fieldBorder, enabledBorder: fieldBorder,
+      )),
+      child: Padding(
+        padding: EdgeInsets.only(bottom: bottomInset),
+        child: SingleChildScrollView(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                if (badge != null) ...[
+                  Center(child: badge!),
+                  const SizedBox(height: 11),
+                ],
                 Text(
-                  subtitle!,
+                  title,
                   textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontSize: 13.5,
-                    color: scheme.onSurfaceVariant,
-                  ),
-                ),
-              ],
-              if (banner != null) ...[
-                const SizedBox(height: 12),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 12, vertical: 10),
-                  decoration: BoxDecoration(
-                    color: scheme.errorContainer,
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(Icons.error_outline,
-                          size: 18, color: scheme.onErrorContainer),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          banner!,
-                          style: TextStyle(
-                              fontSize: 13, color: scheme.onErrorContainer),
-                        ),
+                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.w800,
                       ),
-                    ],
-                  ),
                 ),
+                if (subtitle != null) ...[
+                  const SizedBox(height: 5),
+                  Text(
+                    subtitle!,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 13.5,
+                      color: scheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+                if (banner != null) ...[
+                  const SizedBox(height: 12),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 12, vertical: 10),
+                    decoration: BoxDecoration(
+                      color: scheme.errorContainer,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(Icons.error_outline,
+                            size: 18, color: scheme.onErrorContainer),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            banner!,
+                            style: TextStyle(
+                                fontSize: 13, color: scheme.onErrorContainer),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 18),
+                ...children,
+                if (footer != null) ...[
+                  const SizedBox(height: 12),
+                  footer!,
+                ],
               ],
-              const SizedBox(height: 18),
-              ...children,
-              if (footer != null) ...[
-                const SizedBox(height: 12),
-                footer!,
-              ],
-            ],
+            ),
           ),
         ),
       ),
@@ -321,6 +331,24 @@ class XbEmailAccountField extends StatelessWidget {
   }
 }
 
+class XbEmailSuffixHint extends StatelessWidget {
+  const XbEmailSuffixHint(this.message, {super.key});
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = XbTokens.of(context).onv;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(2, 7, 2, 0),
+      child: Row(children: [
+        Icon(Icons.info_outline, size: 14, color: color),
+        const SizedBox(width: 5),
+        Expanded(child: Text(message, style: TextStyle(color: color, fontSize: 11.5))),
+      ]),
+    );
+  }
+}
+
 /// 验证码输入（短输入框 + 获取按钮并排，R5.8）。
 class XbVerifyCodeField extends StatelessWidget {
   const XbVerifyCodeField({
@@ -343,7 +371,16 @@ class XbVerifyCodeField extends StatelessWidget {
       controller: controller, keyboardType: TextInputType.number, maxLength: 6,
       decoration: const InputDecoration(labelText: '邮箱验证码', counterText: ''),
     );
+    final t = XbTokens.of(context);
+    final brand = Theme.of(context).colorScheme.primary;
     final send = OutlinedButton(
+      style: OutlinedButton.styleFrom(
+        minimumSize: const Size(0, 50), padding: const EdgeInsets.symmetric(horizontal: 16),
+        foregroundColor: brand, backgroundColor: Color.lerp(t.sfc, brand, .09),
+        disabledForegroundColor: t.onv, disabledBackgroundColor: t.sfc,
+        side: BorderSide(color: Color.lerp(t.line, brand, .28)!, width: 1.5),
+        textStyle: Theme.of(context).textTheme.labelLarge?.copyWith(fontSize: 13.5, fontWeight: FontWeight.w600),
+      ),
       onPressed: cooldownSeconds > 0 ? null : onSend,
       child: Text(cooldownSeconds > 0 ? '${cooldownSeconds}s' : '获取验证码'),
     );

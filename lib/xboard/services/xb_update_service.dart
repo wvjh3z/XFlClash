@@ -18,7 +18,7 @@ import 'dart:io' show Platform, Process;
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_xboard_sdk/flutter_xboard_sdk.dart'
-    show AppUpdateModel, XBoardSDK;
+    show AppUpdateModel, XBoardSDK, NetworkException;
 
 import '../providers/xboard_providers.dart';
 import 'endpoint_race_controller.dart';
@@ -39,7 +39,9 @@ class UpdateNotAvailable extends UpdateCheckResult {}
 /// 检查失败（网络/服务端错误），静默不打扰用户。
 class UpdateCheckFailed extends UpdateCheckResult {
   final Object error;
-  UpdateCheckFailed(this.error);
+  final bool endpointNotReady;
+  UpdateCheckFailed(this.error, {this.endpointNotReady = false});
+  bool get mayRecover => endpointNotReady || error is NetworkException || error is TimeoutException;
 }
 
 class _UpdateFlight {
@@ -77,7 +79,7 @@ class XbUpdateService {
     required EndpointRaceController? endpoints,
   }) {
     if (endpoints == null) {
-      return Future.value(UpdateCheckFailed(StateError('API is not ready')));
+      return Future.value(UpdateCheckFailed(StateError('API is not ready'), endpointNotReady: true));
     }
     // Manual and pre-download checks only join a request that is still running.
     _automatic[endpoints]?.startupSuccess = null;
@@ -122,7 +124,7 @@ class XbUpdateService {
     try {
       if (!await endpoints.waitForApiReady() ||
           !endpoints.isApiReadyFor(sdk.baseUrl)) {
-        return UpdateCheckFailed(StateError('API is not ready'));
+        return UpdateCheckFailed(StateError('API is not ready'), endpointNotReady: true);
       }
       // 编译期注入的原始 build number（不受 ABI split 前缀影响）。
       const buildNumber = int.fromEnvironment(
@@ -136,7 +138,7 @@ class XbUpdateService {
       final abi = await _resolveAbi();
 
       if (!endpoints.isApiReadyFor(sdk.baseUrl)) {
-        return UpdateCheckFailed(StateError('API is not ready'));
+        return UpdateCheckFailed(StateError('API is not ready'), endpointNotReady: true);
       }
       final attemptedBase = sdk.baseUrl;
       AppUpdateModel? info;

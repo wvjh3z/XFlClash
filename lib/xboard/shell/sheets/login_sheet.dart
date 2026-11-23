@@ -6,12 +6,15 @@
 /// + token 存储，全链路零重写（自有代码不经 adapter）。
 library;
 
+import 'dart:async';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:fl_clash/xboard/config/xboard_config.dart';
 import 'package:fl_clash/xboard/models/xb_result.dart';
 import 'package:fl_clash/xboard/models/xb_domain_error.dart';
+import '../../providers/network_recovery_provider.dart';
+import '../../providers/xboard_connectivity_provider.dart';
 import 'package:fl_clash/xboard/providers/auth_state_provider.dart';
 import 'package:fl_clash/xboard/providers/xboard_providers.dart';
 import 'package:fl_clash/xboard/sdk/xboard_service.dart';
@@ -49,6 +52,7 @@ class _LoginSheetState extends ConsumerState<LoginSheet>
   bool _checking = false;
   bool _checkSucceeded = false;
   int _checkGeneration = 0;
+  VoidCallback? _cancelLogin;
 
   @override
   void initState() {
@@ -128,6 +132,10 @@ class _LoginSheetState extends ConsumerState<LoginSheet>
 
   Future<void> _submit() async {
     if (_checking || submitting || !ref.read(bootstrapReadyProvider)) return;
+    if (ref.read(interfaceUnavailableProvider)) {
+      setState(() { _canRecheck = true; _banner = '未检测到网络连接，请连接网络后重新登录。'; });
+      return;
+    }
     _checkGeneration++;
     _canRecheck = false;
     _checkSucceeded = false;
@@ -151,11 +159,25 @@ class _LoginSheetState extends ConsumerState<LoginSheet>
       final service = ref.read(xboardServiceProvider);
       final scoped = service is XboardAuthenticationRequestControl
           ? service as XboardAuthenticationRequestControl : null;
-      final result = scoped != null
-          ? await scoped.loginForRequest(email, pw,
+      final cancelled = Completer<XbResult<String>>();
+      if (mounted) {
+        setState(() {
+        _cancelLogin = () {
+          if (!auth.isAuthenticationCurrent(attempt) || cancelled.isCompleted) return;
+          auth.failAuthentication(attempt);
+          cancelled.complete(const XbFailure(XbNetwork(XbNetworkKind.cancelled, '已停止等待')));
+          setState(() { _cancelLogin = null; _banner = '已停止本次登录。'; });
+        };
+        });
+      }
+      final request = scoped != null
+          ? scoped.loginForRequest(email, pw,
               isActive: () => auth.isAuthenticationCurrent(attempt),
               establish: (token) => auth.completeAuthentication(token: token, attempt: attempt))
-          : await service.login(email, pw);
+          : service.login(email, pw);
+      final result = await Future.any([request, cancelled.future]).timeout(const Duration(seconds: 15),
+          onTimeout: () => const XbFailure<String>(XbNetwork(XbNetworkKind.timeout, '登录请求超时')));
+      _cancelLogin = null;
       // The service may already have saved a new SDK revision. Complete the
       // owned attempt even if this sheet was closed while login was in flight.
       switch (result) {
@@ -195,6 +217,11 @@ class _LoginSheetState extends ConsumerState<LoginSheet>
   Widget build(BuildContext context) {
     // R5.2 gate：bootstrap 未就绪 → 登录禁用。
     final ready = ref.watch(bootstrapReadyProvider);
+    ref.listen(networkRecoveryProvider, (_, _) {
+      if (_canRecheck && !_checking && !submitting && ModalRoute.isCurrentOf(context) != false) {
+        setState(() { _checkSucceeded = true; _banner = '网络已恢复，请重新登录。'; });
+      }
+    });
     ref.listen(authStateProvider, (_, _) => _invalidateCheck());
     ref.listen(authStateProvider.notifier, (_, _) => _invalidateCheck());
     ref.listen(xboardServiceProvider, (_, _) => _invalidateCheck());
@@ -210,6 +237,7 @@ class _LoginSheetState extends ConsumerState<LoginSheet>
         ('忘记密码？', submitting ? null : () => switchXbAuthSheet(context, showForgotPwdSheet)),
       ]),
       children: [
+        if (ref.watch(interfaceUnavailableProvider)) const Text('未检测到网络连接，请检查网络设置。'),
         if (_canRecheck && _banner != null) ...[
           Container(
             padding: const EdgeInsets.all(12),
@@ -270,6 +298,8 @@ class _LoginSheetState extends ConsumerState<LoginSheet>
           ),
         ),
         const SizedBox(height: 20),
+        if (submitting && _cancelLogin != null)
+          TextButton(onPressed: _cancelLogin, child: const Text('停止等待')),
         SizedBox(
           width: double.infinity,
           child: XbGradientAction(

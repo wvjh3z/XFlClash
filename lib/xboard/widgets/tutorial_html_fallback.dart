@@ -4,12 +4,14 @@ library;
 import 'package:dio/dio.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_html/flutter_html.dart';
 
 import '../services/xboard_release_dio.dart';
 import '../util/html_link.dart' show resolveHtmlLink;
 import '../util/html_text.dart';
 import 'xb_theme.dart' show XbTokens;
+import 'xb_network_read_recovery.dart';
 
 class TutorialHtmlFallback extends StatelessWidget {
   const TutorialHtmlFallback({
@@ -195,7 +197,22 @@ class _DirectImageState extends State<_DirectImage> {
             fit: BoxFit.contain,
             errorBuilder: (_, _, _) => const Icon(Icons.broken_image_outlined),
           )
-        : const Padding(
+        : snapshot.connectionState == ConnectionState.done && snapshot.hasError
+            ? Consumer(builder: (ctx, ref, _) {
+                final failed = _bytes;
+                void retry() {
+                  if (mounted && identical(failed, _bytes)) setState(_load);
+                }
+                xbListenForReadRecovery(ctx, ref, () {
+                  final error = snapshot.error;
+                  if (error is DioException &&
+                      (error.response == null || (error.response?.statusCode ?? 0) >= 500)) {
+                    retry();
+                  }
+                });
+                return TextButton(onPressed: retry, child: const Text('图片加载失败 · 重试'));
+              })
+            : const Padding(
             padding: EdgeInsets.all(12),
             child: Icon(Icons.image_outlined),
           ),

@@ -10,6 +10,7 @@ import 'package:fl_clash/xboard/pages/order_list_page.dart';
 import 'package:fl_clash/xboard/pages/plan_detail_page.dart';
 import 'package:fl_clash/xboard/pages/plan_list_page.dart';
 import 'package:fl_clash/xboard/providers/pending_order_provider.dart';
+import 'package:fl_clash/xboard/providers/network_recovery_provider.dart';
 import 'package:fl_clash/xboard/providers/xboard_providers.dart';
 import 'package:fl_clash/xboard/providers/auth_state_provider.dart';
 import 'package:fl_clash/xboard/sdk/xboard_service.dart';
@@ -161,6 +162,50 @@ void _platformTest(
 }
 
 void main() {
+  for (final page in _Page.values) {
+    testWidgets('leaving ${page.name} while first read settles cancels queued recovery', (t) async {
+      final h = _Harness(page, 'brand_a');
+      await h.mount(t, TargetPlatform.android);
+      final container = ProviderScope.containerOf(t.element(find.byType(Scaffold).first));
+      container.read(networkRecoveryProvider.notifier).publish();
+      await t.pumpWidget(const SizedBox.shrink());
+      h.fail(0);
+      await settleView(t);
+      expect(h.count, 1);
+      expect(t.takeException(), isNull);
+    });
+    testWidgets('verified change before late ${page.name} error is consumed once', (t) async {
+      final h = _Harness(page, 'brand_a');
+      await h.mount(t, TargetPlatform.android);
+      final container = ProviderScope.containerOf(t.element(find.byType(Scaffold).first));
+      container.read(networkRecoveryProvider.notifier).publish();
+      await t.pump();
+      expect(h.count, 1);
+      h.fail(0);
+      await settleView(t);
+      expect(h.count, 2);
+      h.fail(1);
+      await settleView(t);
+      expect(h.count, 2);
+      expect(view(t).error, isA<XbNetwork>());
+    });
+    testWidgets('verified recovery retries only the failed ${page.name} read once', (t) async {
+      final h = _Harness(page, 'brand_a');
+      await h.mount(t, TargetPlatform.android);
+      final container = ProviderScope.containerOf(t.element(find.byType(Scaffold).first));
+      h.fail(0);
+      await settleView(t);
+      container.read(networkRecoveryProvider.notifier).publish();
+      container.read(networkRecoveryProvider.notifier).publish();
+      await t.pump();
+      expect(h.count, 2);
+      h.succeed(1);
+      await settleView(t);
+      container.read(networkRecoveryProvider.notifier).publish();
+      expect(h.count, 2);
+      expect(find.textContaining(h.successText, findRichText: true), findsWidgets);
+    });
+  }
   for (final brand in ['brand_a', 'brand_b']) {
     for (final platform in [
       TargetPlatform.android,
@@ -217,9 +262,8 @@ void main() {
           expect(tester.takeException(), isNull);
         },
       );
-      for (final olderFinishesFirst in [true, false]) {
         _platformTest(
-          '$brand ${page.name}: overlapping retry oldFirst=$olderFinishesFirst',
+          '$brand ${page.name}: overlapping retries join one read',
           TargetPlatform.windows,
           (tester) async {
             final h = _Harness(page, brand);
@@ -230,22 +274,9 @@ void main() {
             retry();
             retry();
             await tester.pump();
-            expect(h.count, 3);
-            if (olderFinishesFirst) {
-              h.fail(1);
-              await settleView(tester);
-              expect(view(tester).retrying, isTrue);
-            }
-            h.succeed(2);
+            expect(h.count, 2);
+            h.succeed(1);
             await settleView(tester);
-            expect(
-              find.textContaining(h.successText, findRichText: true),
-              findsWidgets,
-            );
-            if (!olderFinishesFirst) {
-              h.fail(1);
-              await settleView(tester);
-            }
             expect(
               find.textContaining(h.successText, findRichText: true),
               findsWidgets,
@@ -253,7 +284,6 @@ void main() {
             expect(tester.takeException(), isNull);
           },
         );
-      }
     }
     for (final platform in [TargetPlatform.android, TargetPlatform.windows]) {
       _platformTest(
@@ -278,7 +308,8 @@ void main() {
           await settleView(tester);
           await refresh;
           expect(finished, isTrue);
-          expect(view(tester).error, isA<XbNetwork>());
+          expect(find.text('订单未更新，显示上次记录'), findsOneWidget);
+          expect(find.text('上次未查询到订单'), findsOneWidget);
           expect(tester.takeException(), isNull);
         },
       );

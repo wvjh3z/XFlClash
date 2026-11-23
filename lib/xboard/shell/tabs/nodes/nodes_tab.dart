@@ -7,7 +7,10 @@
 /// 内核数据（延迟/选中/选择/测速）经 [XbNodesAdapter] 收口（适配层铁律），不直接碰 `lib/views/**`。
 library;
 
+import 'dart:async';
 import '../../../providers/subscription_sync_status.dart';
+import '../../../providers/xboard_connectivity_provider.dart';
+import '../../../providers/network_recovery_provider.dart';
 
 import 'package:fl_clash/xboard/widgets/xb_emoji_text.dart';
 import 'package:material_ui/material_ui.dart';
@@ -73,6 +76,26 @@ class _NodesTabState extends ConsumerState<NodesTab>
   /// 正在刷新节点（重拉订阅 + 解密 + 写入新 profile）。期间刷新按钮禁用并显示忙态；
   /// 旧节点保留显示（不清空），写入成功后 profile 重载自动覆盖。
   bool _refreshing = false;
+  int _refreshGeneration = 0;
+  int _sampledEpoch = 0;
+  Object? _readOwner;
+  Timer? _waitTimer;
+  Completer<void>? _uiWait;
+
+  void _releaseReadWait() {
+    _waitTimer?.cancel();
+    _waitTimer = null;
+    final wait = _uiWait;
+    _uiWait = null;
+    if (wait != null && !wait.isCompleted) wait.complete();
+  }
+
+  @override
+  void dispose() {
+    _readOwner = null;
+    _releaseReadWait();
+    super.dispose();
+  }
 
   /// 当前选中的分组名（顶部 tab）。null = 用首个可见分组。
   String? _selectedGroup;
@@ -111,34 +134,93 @@ class _NodesTabState extends ConsumerState<NodesTab>
   /// 刷新 = 重拉订阅并解密写入新节点（2-A）。await sync(force) 拿状态码：
   /// ok=写入新 profile；subscriptionExpired/noSubscription/trafficExhausted/authExpired=
   /// 加密订阅端点的服务端真相（插件 40304/40305/40307/4030x）。据此出文案并发布共享结果，
-  /// 让 build() 渲染对应空态。**不再回查用户信息**——状态完全由订阅接口决定。
-  Future<void> _refreshNodes() async {
+  /// A successful sync only rechecks account data when a local denial still blocks the list.
+  Future<void> _refreshNodes() {
+    if (_readOwner != null) {
+      if (!_refreshing) xbToast(context, '线路同步仍在后台进行，请稍候');
+      return Future.value();
+    }
+    final owner = _readOwner = Object();
+    final wait = _uiWait = Completer<void>();
+    _waitTimer = Timer(const Duration(seconds: 20), () {
+      if (!mounted || !identical(owner, _readOwner)) return;
+      _releaseReadWait();
+      setState(() => _refreshing = false);
+      xbToast(context, '网络响应较慢，线路将在后台继续同步');
+    });
+    unawaited(_runRefreshNodes().whenComplete(() {
+      if (identical(owner, _readOwner)) {
+        _readOwner = null;
+        _releaseReadWait();
+      }
+    }));
+    return wait.future;
+  }
+
+  Future<void> _runRefreshNodes() async {
     if (ref.read(authStateProvider) != AuthState.authenticated) return;
     if (_refreshing) return;
+    if (ref.read(interfaceUnavailableProvider)) {
+      xbToast(context, '未检测到网络连接，请连接网络后重试');
+      return;
+    }
     if (throttled) {
       xbToast(context, '节点刚刷新过，请稍后再试');
       return;
     }
-    final revision = ref.read(authStateProvider.notifier).sessionRevision;
+    final auth = ref.read(authStateProvider.notifier);
+    final revision = auth.sessionRevision;
+    final ticket = ++_refreshGeneration;
+    bool ownsPage() => mounted && ticket == _refreshGeneration &&
+        identical(ref.read(authStateProvider.notifier), auth) && auth.sessionRevision == revision &&
+        ref.read(authStateProvider) == AuthState.authenticated;
     setState(() => _refreshing = true);
     var outcome = XbSyncOutcome.failed;
+    final status = ref.read(subscriptionSyncStatusProvider.notifier);
+    final before = status.completion;
+    XboardSubscriptionService? sync;
     try {
-      outcome = await ref.read(subscriptionServiceProvider).sync(force: true);
+      final currentSync = ref.read(subscriptionServiceProvider);
+      sync = currentSync;
+      outcome = await currentSync.sync(force: true);
     } catch (_) {
       // 永不抛（Property 1）；当作失败处理。
     }
-    if (!mounted ||
-        ref.read(authStateProvider.notifier).sessionRevision != revision ||
-        ref.read(authStateProvider) != AuthState.authenticated) {
-      return;
+    try {
+      if (!ownsPage()) return;
+      if (sync != null && !identical(sync, ref.read(subscriptionServiceProvider))) return;
+      final latest = ref.read(subscriptionSyncStatusProvider);
+      if (outcome != XbSyncOutcome.ok || status.completion == before || latest?.outcome == XbSyncOutcome.ok) {
+        status.publish(outcome, revision);
+      }
+      if (outcome == XbSyncOutcome.ok && ref.read(subscriptionSyncStatusProvider)?.outcome == XbSyncOutcome.ok) {
+        final hold = ref.read(nodeProfileHoldProvider.notifier);
+        final sub = hold.forRevision(revision) ?? ref.read(userProfileProvider).asData?.value;
+        if (sub != null && (_isExpired(sub) || _isExhausted(sub))) {
+          hold.hold(sub);
+          final accountService = ref.read(xboardServiceProvider);
+          bool ownsRecheck() => ownsPage() &&
+              identical(sync, ref.read(subscriptionServiceProvider)) &&
+              identical(accountService, ref.read(xboardServiceProvider));
+          try {
+            ref.invalidate(userProfileProvider);
+            await ref.read(userProfileProvider.future);
+            if (!ownsRecheck()) return;
+          } catch (_) {
+            if (!ownsRecheck()) return;
+            if (mounted && ref.read(subscriptionSyncStatusProvider)?.outcome == XbSyncOutcome.ok) {
+              xbToast(context, '账号资料未能更新，请稍后重试');
+            }
+            return;
+          }
+        }
+      }
+      if (!ownsPage() || (sync != null && !identical(sync, ref.read(subscriptionServiceProvider)))) return;
+      if (outcome == XbSyncOutcome.ok) startThrottle();
+    } finally {
+      if (mounted && ticket == _refreshGeneration) setState(() => _refreshing = false);
     }
-    startThrottle();
-    setState(() {
-      _refreshing = false;
-      // 记录服务端订阅状态供 build() 渲染空态；failed/skipped 不覆盖（保留上次有效状态 + 旧节点）。
-      ref.read(subscriptionSyncStatusProvider.notifier).publish(outcome, revision);
-    });
-    if (outcome != XbSyncOutcome.ok) {
+    if (mounted && outcome != XbSyncOutcome.ok) {
       final msg = switch (outcome) {
         XbSyncOutcome.subscriptionExpired => '套餐已过期，请前往续费 / 购买',
         XbSyncOutcome.trafficExhausted => '本周期流量已用尽，请重置流量或更改套餐',
@@ -153,6 +235,8 @@ class _NodesTabState extends ConsumerState<NodesTab>
   /// 套餐是否已过期（expiredAt 非空且不在未来）。expiredAt==null = 长期有效（不算过期）。
   bool _isExpired(XbDomainSubscription sub) =>
       sub.expiredAt != null && !sub.expiredAt!.isAfter(DateTime.now());
+  bool _isExhausted(XbDomainSubscription sub) =>
+      !sub.hasNoPlan && sub.totalBytes > 0 && sub.usedBytes >= sub.totalBytes;
 
   /// 决定是否渲染空态及哪一种（清空节点）。综合两路信号，取「更差」者，优先级 过期 > 无套餐 > 用尽：
   /// ① 当前会话共享同步结果：加密订阅端点的服务端真相（手动或后台）；
@@ -164,22 +248,19 @@ class _NodesTabState extends ConsumerState<NodesTab>
         ? status?.outcome : null;
     final localExpired = sub != null && _isExpired(sub);
     // 用尽判定带 totalBytes>0 守卫：避免「不限量套餐 totalBytes==0」被误判为用尽。
-    final localExhausted =
-        sub != null &&
-        !sub.hasNoPlan &&
-        sub.totalBytes > 0 &&
-        sub.usedBytes >= sub.totalBytes;
+    final localExhausted = sub != null && _isExhausted(sub);
 
     // 过期（最高优先）：服务端 40304 或本地过期。
-    if (o == XbSyncOutcome.subscriptionExpired || localExpired) {
-      return _EmptyNodes(onTapRenew: _openShop);
+    if (o == XbSyncOutcome.authExpired) {
+      return const XbEmptyState(icon: Icons.lock_outline, title: '登录已过期', description: '请重新登录后同步线路。');
     }
-    // 无套餐：仅采信服务端 40305（本地 hasNoPlan 可能因 totalBytes==0 不限量误判，不据此强制空态）。
-    if (o == XbSyncOutcome.noSubscription) {
+    if (o == XbSyncOutcome.subscriptionExpired || o == XbSyncOutcome.noSubscription) {
       return _EmptyNodes(onTapRenew: _openShop);
     }
     // 流量用尽：服务端 40307 或本地用尽。
-    if (o == XbSyncOutcome.trafficExhausted || localExhausted) {
+    if (o == XbSyncOutcome.trafficExhausted) return _exhaustedBody();
+    if (localExpired) return _EmptyNodes(onTapRenew: _openShop);
+    if (localExhausted) {
       return _exhaustedBody();
     }
     return null;
@@ -227,6 +308,9 @@ class _NodesTabState extends ConsumerState<NodesTab>
     ref.listen<AuthState>(authStateProvider, (previous, next) {
       if (previous != next) {
         setState(() {
+          _refreshGeneration++;
+          _readOwner = null;
+          _releaseReadWait();
           _refreshing = false;
           _groupScrollStorage = PageStorageBucket();
           ref.read(subscriptionSyncStatusProvider.notifier).clear();
@@ -267,7 +351,11 @@ class _NodesTabState extends ConsumerState<NodesTab>
 
     // 节点可用性以当前会话的共享同步结果为准，辅以本地 userProfile。
     // 兜底（冷启动尚无刷新结果时）。取两者「更差」的信号 → 任一指示过期/无套餐/用尽即清空节点。
-    final sub = ref.watch(userProfileProvider).asData?.value;
+    final profile = ref.watch(userProfileProvider);
+    ref.watch(nodeProfileHoldProvider);
+    final sub = ref.read(nodeProfileHoldProvider.notifier)
+            .forRevision(ref.read(authStateProvider.notifier).sessionRevision) ??
+        profile.asData?.value;
     final emptyBody = _resolveEmptyBody(sub);
     if (emptyBody != null) return _emptyShell(emptyBody);
 
@@ -285,6 +373,16 @@ class _NodesTabState extends ConsumerState<NodesTab>
 
     // 无节点时保留空态，刷新状态由顶部按钮表达。
     if (view.isEmpty) {
+      final phase = ref.watch(nodeReadPhaseProvider);
+      if (phase != NodeReadPhase.idle || ref.watch(interfaceUnavailableProvider) ||
+          profile.hasError || profile.isLoading) {
+        final loading = phase == NodeReadPhase.loading || (phase != NodeReadPhase.failed && profile.isLoading);
+        return _emptyShell(XbEmptyState(
+          icon: loading ? Icons.sync : Icons.cloud_off,
+          title: loading ? '正在同步线路' : '线路暂未同步',
+          description: loading ? '请稍候，正在获取当前账号的线路。' : '请检查网络后刷新节点。',
+        ));
+      }
       return _emptyShell(_EmptyNodes(onTapRenew: _openShop));
     }
 
@@ -312,6 +410,25 @@ class _NodesTabState extends ConsumerState<NodesTab>
     );
     final revision = ref.read(authStateProvider.notifier).sessionRevision;
 
+    final epoch = ref.watch(verifiedRouteEpochProvider);
+    if (epoch > _sampledEpoch && current.nodes.isNotEmpty &&
+        TickerMode.valuesOf(context).enabled && ModalRoute.isCurrentOf(context) != false) {
+      _sampledEpoch = epoch;
+      final target = current.nodes.firstWhere((node) => node.name == current.currentSelected,
+          orElse: () => current.nodes.first);
+      WidgetsBinding.instance.addPostFrameCallback((_) async {
+        if (!mounted || ref.read(verifiedRouteEpochProvider) != epoch ||
+            ref.read(authStateProvider.notifier).sessionRevision != revision ||
+            !TickerMode.valuesOf(context).enabled || ModalRoute.isCurrentOf(context) == false) {
+          return;
+        }
+        try {
+          await adapter.testNode(ref, proxyName: target.name, type: target.type, testUrl: target.testUrl);
+        } catch (_) {
+          // Leave it unmeasured; never start a group-wide storm on reconnect.
+        }
+      });
+    }
     final nativeMobileGroups = Theme.of(context).platform == TargetPlatform.android;
     return LayoutBuilder(
       builder: (context, constraints) {

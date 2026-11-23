@@ -291,7 +291,7 @@ void main() {
     },
   );
 
-  test('永不抛：无缓存 + 无镜像 → 无竞速候选，安全返回（沿用出厂 endpoint）', () async {
+  test('无缓存时仅 seed 可信出厂地址；已替换后不能重新加入撤回的出厂地址', () async {
     bindTestConfig();
     SharedPreferences.setMockInitialValues({}); // 无缓存
     await XboardModule.bootstrap(
@@ -302,11 +302,6 @@ void main() {
     );
     // loadLocal fallback 资产在测试环境不存在 → null → 用出厂 endpoint。
     expect(container.read(apiEndpointProvider), 'https://factory.example.com');
-    await XboardModule.bootstrapAsync(container);
-    // 无 payload → 不竞速，endpoint 不变。
-    expect(container.read(apiEndpointProvider), 'https://factory.example.com');
-    await Future<void>.delayed(Duration.zero);
-    verifyNever(() => sdk.appUpdate);
     final updateApi = _MockAppUpdateApi();
     final requested = Completer<void>();
     var checks = 0;
@@ -323,7 +318,8 @@ void main() {
       return null;
     });
     final race = container.read(injectedRaceControllerProvider)!;
-    await race.raceApi([const BootstrapEndpoint(url: _apiA)]);
+    expect(race.recoveryCandidates(), ['https://factory.example.com']);
+    await XboardModule.bootstrapAsync(container);
     await requested.future.timeout(const Duration(seconds: 5));
     await Future<void>.delayed(Duration.zero);
     expect(
@@ -333,6 +329,7 @@ void main() {
     );
     XbUpdateService.resetThrottle();
     await race.raceApi([const BootstrapEndpoint(url: _apiB)]);
+    expect(race.recoveryCandidates(), [_apiB]);
     await Future<void>.delayed(Duration.zero);
     expect(
       checks,

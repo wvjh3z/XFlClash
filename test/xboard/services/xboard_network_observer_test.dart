@@ -24,6 +24,49 @@ class _UnknownConnectivity extends FakeConnectivity {
 }
 
 void main() {
+  test('接口变化、门户失败均不算恢复；同一地址成功每代只发布一次', () async {
+    var reachable = true, recovered = 0, switched = 0;
+    final race = EndpointRaceController(probe: (_) async => reachable,
+        onVerifiedNetwork: () => recovered++, onApiSwitch: (_) => switched++);
+    addTearDown(race.dispose);
+    const endpoints = [BootstrapEndpoint(url: 'https://fixture.invalid')];
+    await race.raceApi(endpoints);
+    race.networkChanged(rerace: false);
+    expect(recovered, 0);
+    race.armNetworkRecovery();
+    reachable = false;
+    await race.raceApi(endpoints);
+    expect(recovered, 0);
+    reachable = true;
+    await race.raceApi(endpoints);
+    await race.raceApi(endpoints);
+    expect(switched, 1);
+    expect(recovered, 1);
+    race.networkChanged(rerace: false);
+    await race.raceApi(endpoints);
+    expect(recovered, 1);
+    race.armNetworkRecovery();
+    await race.raceApi(endpoints);
+    expect(recovered, 2);
+    // Portal login or Wi-Fi A -> Wi-Fi B may not notify connectivity_plus.
+    // A foreground round alone is not success; repeat races consume it once.
+    race.armExplicitRecovery();
+    reachable = false;
+    await race.raceApi(endpoints);
+    expect(recovered, 2);
+    reachable = true;
+    await race.raceApi(endpoints);
+    await race.raceApi(endpoints);
+    expect(recovered, 3);
+    expect(await race.recheckApi(current: () => true), isTrue);
+    expect(recovered, 4);
+    race.setVpnActive(true, rerace: false);
+    await race.raceApi(endpoints);
+    expect(recovered, 4);
+    race.armNetworkRecovery();
+    await race.raceApi(endpoints);
+    expect(recovered, 5);
+  });
   for (final brand in ['brand_a', 'brand_b']) {
     testWidgets('$brand unknown platform status does not block VPN rerace', (
       tester,

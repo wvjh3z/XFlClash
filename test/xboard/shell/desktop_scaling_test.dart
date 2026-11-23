@@ -32,6 +32,7 @@ import 'package:fl_clash/xboard/shell/tabs/home/xb_line_card.dart';
 import 'package:fl_clash/xboard/shell/tabs/mine/mine_tab.dart';
 
 import '_net_detection_stub.dart';
+import '_fixture_delay_core.dart';
 
 class _FakeAuth extends AuthStateNotifier {
   _FakeAuth(this._initial);
@@ -92,6 +93,7 @@ Future<ProviderContainer> pumpAt(
 
   final tab = _tab();
   final container = ProviderContainer(overrides: [
+    fixtureDelayCoreOverride(),
     if (!useWidthGate) isMobileViewProvider.overrideWith((ref) => false),
     authStateProvider.overrideWith(() => _FakeAuth(AuthState.authenticated)),
     isStartProvider.overrideWith((ref) => true),

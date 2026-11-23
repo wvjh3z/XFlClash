@@ -20,6 +20,7 @@ import 'package:fl_clash/xboard/widgets/xb_theme.dart' show xbPush;
 import 'package:fl_clash/xboard/widgets/xb_ui_kit.dart' show XbBrandScaffold, XbGradientAction;
 import 'package:fl_clash/xboard/widgets/xb_update_dialog.dart';
 import 'legal_pages.dart';
+import '../widgets/xb_network_read_recovery.dart';
 
 /// 自定义关于页。
 class XbAboutPage extends ConsumerWidget {
@@ -38,13 +39,16 @@ class _AboutBody extends ConsumerStatefulWidget {
 
 class _AboutBodyState extends ConsumerState<_AboutBody> {
   bool _checking = false;
+  bool _pendingNetworkCheck = false;
 
   Future<void> _checkForUpdate() async {
     if (_checking) return;
+    _pendingNetworkCheck = false;
     setState(() => _checking = true);
     try {
       final sdk = ref.read(xboardSdkProvider);
       if (sdk == null) {
+        _pendingNetworkCheck = true;
         if (mounted) {
           XbCenterToast.show(context, '服务未就绪，请稍后再试');
         }
@@ -56,7 +60,7 @@ class _AboutBodyState extends ConsumerState<_AboutBody> {
       switch (result) {
         case UpdateAvailable(:final info):
           ref.read(availableUpdateProvider.notifier).set(info);
-          showXbUpdateDialog(context, info);
+          if (ModalRoute.of(context)?.isCurrent != false) showXbUpdateDialog(context, info);
         case UpdateNotAvailable():
           ref.read(availableUpdateProvider.notifier).clear();
           XbCenterToast.show(
@@ -64,8 +68,9 @@ class _AboutBodyState extends ConsumerState<_AboutBody> {
             '已是最新版本 ✓',
             icon: Icons.check_circle_outline,
           );
-        case UpdateCheckFailed():
-          XbCenterToast.show(context, '检查失败，请稍后重试', icon: Icons.error_outline);
+        case UpdateCheckFailed(:final mayRecover):
+          _pendingNetworkCheck = mayRecover;
+          XbCenterToast.show(context, mayRecover ? '网络暂不可用，恢复后将重试检查' : '检查失败，请稍后重试', icon: Icons.error_outline);
       }
     } finally {
       if (mounted) setState(() => _checking = false);
@@ -74,6 +79,9 @@ class _AboutBodyState extends ConsumerState<_AboutBody> {
 
   @override
   Widget build(BuildContext context) {
+    xbListenForReadRecovery(context, ref, () {
+      if (_pendingNetworkCheck && !_checking) _checkForUpdate();
+    });
     final scheme = Theme.of(context).colorScheme;
     final hasUpdate = ref.watch(availableUpdateProvider) != null;
 

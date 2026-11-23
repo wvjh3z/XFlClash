@@ -8,6 +8,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../widgets/xb_async_view.dart';
+import '../widgets/xb_network_read_recovery.dart';
+import '../providers/xboard_connectivity_provider.dart';
+import '../models/xb_domain_error.dart';
 import '../widgets/xb_components.dart';
 import '../widgets/xb_feedback.dart' show xbBrandColor;
 import '../widgets/xb_theme.dart' show xbPush, XbTokens;
@@ -22,6 +25,7 @@ import '../util/format.dart';
 import '../util/period_label.dart';
 import '../widgets/xb_ui_kit.dart';
 import 'order_payment_page.dart';
+import 'commerce_read_recovery.dart';
 
 class OrderListPage extends ConsumerWidget {
   const OrderListPage({super.key});
@@ -54,6 +58,9 @@ class _OrderListPageState extends ConsumerState<_OwnedOrderList> {
   /// 重试中：顶部「正在刷新服务」黄条（后台切域名重拉）。
   bool _retrying = false;
   bool _openingOrder = false;
+  List<OrderSummary>? _snapshot;
+  Object? _lastError;
+  bool _reading = false;
 
   @override
   void initState() {
@@ -62,6 +69,24 @@ class _OrderListPageState extends ConsumerState<_OwnedOrderList> {
   }
 
   Future<List<OrderSummary>> _loadOrders() async {
+    _reading = true;
+    try {
+      if (ref.read(isOfflineProvider)) throw const XbNetwork(XbNetworkKind.connectionFailed, '当前离线');
+      final rows = await _fetchOrders();
+      if (_current) { _snapshot = rows; _lastError = null; }
+      return rows;
+    } catch (error) {
+      if (_current) {
+        _lastError = error;
+        if (!xbIsRecoverableReadError(error)) _snapshot = null;
+      }
+      rethrow;
+    } finally {
+      _reading = false;
+    }
+  }
+
+  Future<List<OrderSummary>> _fetchOrders() async {
     if (!_current) return const [];
     final service = widget.service;
     final orders = <OrderSummary>[];
@@ -90,6 +115,7 @@ class _OrderListPageState extends ConsumerState<_OwnedOrderList> {
 
   Future<void> _reload() async {
     if (!_current) return;
+    if (_reading) { try { await _ordersFuture; } catch (_) {} return; }
     final request = _loadOrders();
     setState(() {
       _retrying = true;
@@ -109,6 +135,13 @@ class _OrderListPageState extends ConsumerState<_OwnedOrderList> {
 
   @override
   Widget build(BuildContext context) {
+    final offline = ref.watch(isOfflineProvider);
+    xbListenForReadRecovery(context, ref, () {
+      recoverCommerceRead(context: context, current: () => _current, pending: _reading && !_retrying ? _ordersFuture : null,
+        retryIfFailed: () async {
+          if (!_reading && xbIsRecoverableReadError(_lastError)) await _reload();
+        });
+    });
     return XbBrandScaffold(
       title: '我的订单',
       // 桌面订单页用更宽（双列网格，原型屏7）；移动端 <1000 不受影响。
@@ -119,6 +152,15 @@ class _OrderListPageState extends ConsumerState<_OwnedOrderList> {
           future: _ordersFuture,
           builder: (context, snap) {
             final done = snap.connectionState == ConnectionState.done;
+            if (_snapshot != null && (offline || _lastError != null || _retrying)) {
+              return Column(children: [
+                Text(_retrying ? '正在刷新订单，显示上次记录' : '订单未更新，显示上次记录'),
+                if (!offline && !_retrying) TextButton(onPressed: _reload, child: const Text('重新查询订单')),
+                Expanded(child: _snapshot!.isEmpty
+                    ? const Center(child: Text('上次未查询到订单'))
+                    : _OrderGroups(orders: _snapshot!, onOpen: (o) => _openOrder(context, o))),
+              ]);
+            }
             return XbAsyncView(
               loading: !done && !_retrying,
               retrying: _retrying,

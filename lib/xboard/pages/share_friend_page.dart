@@ -16,7 +16,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/xb_invite.dart';
 import '../providers/share_link_provider.dart';
-import '../widgets/xb_async_view.dart';
+import 'commission_read_view.dart';
 import '../widgets/xb_components.dart';
 import '../widgets/xb_share_links.dart';
 import '../widgets/xb_theme.dart' show XbTokens;
@@ -40,23 +40,16 @@ class _ShareBody extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final async = ref.watch(shareLinkProvider);
-    return RefreshIndicator(
-      onRefresh: () async {
+    if (async.error is ShareServicePreparing) {
+      return const Center(child: Text('分享服务准备中…'));
+    }
+    return CommissionReadView<XbShareLink>(
+      data: async, errorText: '加载分享地址失败', skeleton: XbSkeletonKind.list,
+      content: _content,
+      reload: () async {
         ref.invalidate(shareLinkProvider);
-        // 等本次重拉落定再收起转圈；失败吞掉（错误态由 XbAsyncView 接管，不重复弹）。
-        await ref.read(shareLinkProvider.future).catchError(
-              (_) =>
-                  const XbShareLink(enabled: false, primaryUrl: '', backupUrl: ''),
-            );
+        await ref.read(shareLinkProvider.future);
       },
-      child: XbAsyncView(
-        loading: async.isLoading,
-        error: async.hasError ? async.error : null,
-        errorFallback: '加载分享地址失败',
-        skeleton: XbSkeletonKind.list,
-        onRetry: () => ref.invalidate(shareLinkProvider),
-        builder: (context) => _content(context, async.requireValue),
-      ),
     );
   }
 

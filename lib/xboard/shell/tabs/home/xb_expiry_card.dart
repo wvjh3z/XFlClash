@@ -37,7 +37,9 @@ class XbExpiryCard extends ConsumerWidget {
       return const SizedBox.shrink();
     }
     // 订阅未就绪 / 失败 → 不显示（不打扰；账号卡自己有错误态）。
-    final sub = ref.watch(userProfileProvider).asData?.value;
+    final profile = ref.watch(userProfileProvider);
+    final stale = profile.isLoading || profile.hasError;
+    final sub = stale ? ref.watch(staleAccountDisplayProvider) : profile.asData?.value;
     if (sub == null) return const SizedBox.shrink();
 
     final expiredAt = sub.expiredAt;
@@ -55,12 +57,12 @@ class XbExpiryCard extends ConsumerWidget {
 
     return XbPlanNoticeCard(
       title: title,
-      desc: desc,
+      desc: stale ? '上次资料 · $desc' : desc,
       icon: expired ? Icons.error_outline : Icons.schedule,
       urgent: urgent,
       actionLabel: '去续费',
       centered: centered,
-      onTap: onTapRenew ?? () => openCurrentPlanRenew(context, ref),
+      onTap: stale ? null : onTapRenew ?? () => openCurrentPlanRenew(context, ref),
     );
   }
 

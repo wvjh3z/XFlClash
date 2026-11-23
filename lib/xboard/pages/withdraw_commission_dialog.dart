@@ -15,6 +15,8 @@ import '../util/format.dart';
 import '../widgets/xb_feedback.dart' show XbStateToast;
 import '../widgets/xb_purchase_confirmation.dart' show XbPurchaseActions;
 import '../widgets/xb_theme.dart' show XbTokens;
+import '../widgets/xb_network_read_recovery.dart';
+import 'commission_pending_review.dart';
 
 /// Preflight and application are separate steps. Neither a passing preflight
 /// nor a successful application indicates that commission has been paid out.
@@ -39,8 +41,10 @@ class _WithdrawCommissionDialogState
   ModalRoute<dynamic>? _route;
   int _generation = 0;
   bool _closed = false;
-  bool _balanceChecking = true;
-  bool _recordsChecking = true;
+  bool _balanceChecking = false;
+  bool _recordsChecking = false;
+  Object? _balanceError, _recordsError, _methodsError;
+  bool _recoveryPending = false;
   int? _balanceCents;
   int? _paidRecords;
   bool _form = false;
@@ -108,41 +112,52 @@ class _WithdrawCommissionDialogState
         : request();
   }
 
-  void _checkEligibility() {
-    if (!_current || _form) return;
+  void _checkEligibility({bool failedOnly = false}) {
+    if (!_current || _form || _checking || _submitting) return;
+    final balance = !failedOnly || xbIsRecoverableReadError(_balanceError);
+    final records = !failedOnly || xbIsRecoverableReadError(_recordsError);
+    final session = ref.read(commissionSessionProvider);
+    if ((!balance && !records) || !session.acquire()) return;
     final generation = ++_generation;
     setState(() {
-      _balanceChecking = true;
-      _recordsChecking = true;
-      _balanceCents = null;
-      _paidRecords = null;
+      if (balance) { _balanceChecking = true; _balanceCents = null; _balanceError = null; }
+      if (records) { _recordsChecking = true; _paidRecords = null; _recordsError = null; }
     });
     bool active() => _current && generation == _generation && !_form;
-    unawaited(_checkBalance(active));
-    unawaited(_checkRecords(active));
+    unawaited(Future.wait([
+      if (balance) session.readersDone.then((_) async { if (active()) await _checkBalance(active); }),
+      if (records) session.readersDone.then((_) async { if (active()) await _checkRecords(active); }),
+    ]).then<void>((_) {}).whenComplete(() {
+      session.release();
+      _drainRecovery();
+    }));
   }
 
   Future<void> _checkBalance(bool Function() active) async {
     int? cents;
+    Object? failure;
     try {
       // Read directly from the service, not the painted card or inviteInfoProvider
       // (the provider may generate an invitation code as a side effect).
       final result = await _withValidity(active, widget.owner.getInviteInfo);
+      failure = result.errorOrNull;
       if (result case XbSuccess(:final data)) {
         cents = withdrawBalanceCents(data.commissionBalanceYuan);
       }
-    } catch (_) {
-      // Unknown is not a zero balance.
+    } catch (error) {
+      failure = error;
     }
     if (!active()) return;
     setState(() {
       _balanceChecking = false;
       _balanceCents = cents;
+      _balanceError = failure;
     });
   }
 
   Future<void> _checkRecords(bool Function() active) async {
     int? count;
+    Object? failure;
     try {
       final result = await _withValidity(
         active,
@@ -151,16 +166,18 @@ class _WithdrawCommissionDialogState
           pageSize: withdrawMinimumPaidRecords,
         ),
       );
+      failure = result.errorOrNull;
       if (result case XbSuccess(:final data)) {
         count = withdrawPaidRecordCount(data);
       }
-    } catch (_) {
-      // Unknown is not zero records and cannot pass the gate.
+    } catch (error) {
+      failure = error;
     }
     if (!active()) return;
     setState(() {
       _recordsChecking = false;
       _paidRecords = count;
+      _recordsError = failure;
     });
   }
 
@@ -171,47 +188,85 @@ class _WithdrawCommissionDialogState
   }
 
   Future<void> _loadMethods() async {
-    if (!_current || !_form || _methodsChecking) return;
+    if (!_current || !_form || _methodsChecking || _submitting) return;
+    final session = ref.read(commissionSessionProvider);
+    if (!session.acquire()) return;
     final generation = ++_generation;
     setState(() {
       _methodsChecking = true;
+      _methodsError = null;
       _methods = const [];
       _method = null;
       _confirmed = false;
     });
     bool active() => _current && _form && generation == _generation;
     List<String> methods = const [];
+    Object? failure;
     try {
+      await session.readersDone;
+      if (!active()) return;
       final result = await _withValidity(active, widget.owner.getWithdrawMethods);
+      failure = result.errorOrNull;
       if (result case XbSuccess(:final data)) {
         methods = data
             .where((method) => method.trim().isNotEmpty)
             .toSet()
             .toList();
       }
-    } catch (_) {
-      // No guessed payout method when the server list cannot be verified.
+    } catch (error) {
+      failure = error;
+    } finally {
+      session.release();
     }
     if (!active()) return;
     setState(() {
       _methods = methods;
       _methodsChecking = false;
+      _methodsError = failure;
     });
+    _drainRecovery();
+  }
+
+  void _drainRecovery() {
+    if (!_recoveryPending || _checking || _methodsChecking) return;
+    _recoveryPending = false;
+    if (!_current || _route?.isCurrent != true || _submitting || _unconfirmed ||
+        (WidgetsBinding.instance.lifecycleState != null &&
+         WidgetsBinding.instance.lifecycleState != AppLifecycleState.resumed) ||
+        !TickerMode.valuesOf(context).enabled) {
+      return;
+    }
+    if (!_form) {
+      _checkEligibility(failedOnly: true);
+    } else if (_methods.isEmpty && xbIsRecoverableReadError(_methodsError)) {
+      unawaited(_loadMethods());
+    }
   }
 
   Future<void> _submit() async {
     if (!_current || !_canSubmit) return;
+    final session = ref.read(commissionSessionProvider);
+    if (!session.acquire()) return;
+    final cents = _balanceCents!;
     final method = _method!;
     final account = _account.text.trim();
     setState(() => _submitting = true);
     try {
+      await session.readersDone;
+      if (!_current) return;
       final result = await _withValidity(
         () => _current && _submitting,
         () => widget.owner.withdrawCommission(method: method, account: account),
       );
+      if (commissionWriteNeedsReview(result)) {
+        session.markUnknown('提现申请', cents);
+      }
       if (!_current) return;
       switch (result) {
         case XbSuccess(data: true):
+          session.allowCodeGeneration = false;
+          ref.invalidate(inviteInfoProvider);
+          ref.invalidate(commissionRecordsProvider);
           xbToastSafe('提现申请已提交，请等待人工审核。');
           _close();
         case XbSuccess():
@@ -221,15 +276,15 @@ class _WithdrawCommissionDialogState
           xbToastSafe(resolveErrorText(error, fallback: '提现失败，请重试'));
       }
     } catch (_) {
+      session.markUnknown('提现申请', cents);
       if (_current) _showUnconfirmed();
     } finally {
+      session.release();
       if (_current) setState(() => _submitting = false);
     }
   }
 
   void _showUnconfirmed() {
-    ref.invalidate(inviteInfoProvider);
-    ref.invalidate(commissionRecordsProvider);
     setState(() => _unconfirmed = true);
   }
 
@@ -250,7 +305,23 @@ class _WithdrawCommissionDialogState
     ref.watch(authStateProvider);
     ref.watch(xboardServiceProvider);
     final current = _current;
-    final compact = MediaQuery.sizeOf(context).width < 360;
+    final session = ref.watch(commissionSessionProvider);
+    xbListenForReadRecovery(context, ref, () {
+      if (!_current || _submitting || _unconfirmed ||
+          session.pendingOperation != null) {
+        return;
+      }
+      _recoveryPending = true;
+      _drainRecovery();
+    });
+    if (current && session.pendingOperation != null) {
+      return CommissionPendingReview(owner: widget.owner, session: session);
+    }
+    // Grow margins more slowly than the viewport, so a wider phone never
+    // has less usable width. Both ends retain comfortable minimum padding.
+    final space = ((MediaQuery.sizeOf(context).width - 320) / 240)
+        .clamp(0.0, 1.0).toDouble();
+    final inner = 12 + 12 * space;
     return PopScope(
       canPop: !_submitting || !current,
       onPopInvokedWithResult: (didPop, _) {
@@ -258,20 +329,21 @@ class _WithdrawCommissionDialogState
       },
       child: AlertDialog(
         backgroundColor: XbTokens.of(context).sf2,
-        insetPadding: compact ? const EdgeInsets.symmetric(horizontal: 10, vertical: 10) : null,
-        titlePadding: compact ? const EdgeInsets.fromLTRB(12, 14, 12, 0) : null,
-        contentPadding: compact ? const EdgeInsets.fromLTRB(12, 8, 12, 0) : null,
-        actionsPadding: compact ? const EdgeInsets.fromLTRB(12, 8, 12, 12) : null,
+        insetPadding: EdgeInsets.symmetric(horizontal: 10 + 30 * space, vertical: 10 + 14 * space),
+        titlePadding: EdgeInsets.fromLTRB(inner, 14 + 10 * space, inner, 0),
+        contentPadding: EdgeInsets.fromLTRB(inner, 8 + 12 * space, inner, 0),
+        actionsPadding: EdgeInsets.fromLTRB(inner, 8 + 8 * space, inner, inner),
         scrollable: true,
         title: const Text('佣金提现', textAlign: TextAlign.center),
         content: !current
             ? const Text('账号状态已变化，请关闭后重新检测。')
             : _form
-            ? _applicationForm(context, compact: compact)
-            : _preflight(context, compact: compact),
+            ? _applicationForm(context, space)
+            : _preflight(context, space),
         actions: [
           if (current && (!_form || !_unconfirmed))
             XbPurchaseActions(
+              labelSize: _form ? 15 : 13,
               cancelLabel: _form ? '取消' : '关闭',
               onCancel: _submitting ? null : _close,
               confirmLabel: !_form ? '提交提现申请' : _submitting ? '提交中…' : '提交申请',
@@ -285,7 +357,7 @@ class _WithdrawCommissionDialogState
     );
   }
 
-  Widget _preflight(BuildContext context, {required bool compact}) {
+  Widget _preflight(BuildContext context, double space) {
     final balance = _balanceCents;
     final records = _paidRecords;
     final muted = XbTokens.of(context).onv;
@@ -295,21 +367,21 @@ class _WithdrawCommissionDialogState
       children: [
         Center(child: Text('满足两项条件后可提交申请',
           style: TextStyle(fontSize: 13, color: muted))),
-        SizedBox(height: compact ? 8 : 12),
+        SizedBox(height: 8 + 4 * space),
         _amountRow(context, '可用佣金', balance, prominent: true),
-        SizedBox(height: compact ? 4 : 12),
+        SizedBox(height: 4 + 8 * space),
         _condition(
           context,
-          compact: compact,
+          space: space,
           label: '可用佣金 ≥ ¥${withdrawMinimumCents ~/ 100}',
           checking: _balanceChecking,
           known: balance != null,
           passed: balance != null && balance >= withdrawMinimumCents,
         ),
-        Divider(height: 1, thickness: 1, color: XbTokens.of(context).hair),
+        Divider(height: 1, thickness: 1, color: XbTokens.of(context).line),
         _condition(
           context,
-          compact: compact,
+          space: space,
           label: '成功邀请 ≥$withdrawMinimumPaidRecords 次',
           checking: _recordsChecking,
           known: records != null,
@@ -320,11 +392,15 @@ class _WithdrawCommissionDialogState
               : '$records 次',
           passed: records != null && records >= withdrawMinimumPaidRecords,
         ),
-        SizedBox(height: compact ? 8 : 12),
+        SizedBox(height: 8 + 4 * space),
         Text(_checking ? '正在检测提现条件…' : balance == null || records == null ? '暂时无法核实提现条件。' : _eligible ? '两项条件均已满足。' : '暂未满足提现条件。',
           style: TextStyle(fontSize: 12, color: muted)),
         if (!_checking && (balance == null || records == null))
-          TextButton(onPressed: _checkEligibility, child: const Text('重新检测')),
+          ...[
+            if (xbIsRecoverableReadError(_balanceError) || xbIsRecoverableReadError(_recordsError))
+              const Text('网络暂时不可用，恢复连接后会重新核对失败项。'),
+            TextButton(onPressed: () => _checkEligibility(), child: const Text('重新检测')),
+          ],
         const SizedBox(height: 8),
         Text('提现前请先联系在线客服。提交后由人工审核。',
           style: TextStyle(fontSize: 12, color: muted)),
@@ -334,7 +410,7 @@ class _WithdrawCommissionDialogState
 
   Widget _condition(
     BuildContext context, {
-    required bool compact,
+    required double space,
     required String label,
     required bool checking,
     required bool known,
@@ -350,7 +426,7 @@ class _WithdrawCommissionDialogState
         ? (Icons.check_circle, XbTokens.ok, '已达标')
         : (Icons.cancel, XbTokens.bad, '未达标');
     return Padding(
-      padding: EdgeInsets.symmetric(vertical: compact ? 6 : 9),
+      padding: EdgeInsets.symmetric(vertical: 6 + 3 * space),
       child: Table(
         defaultVerticalAlignment: TableCellVerticalAlignment.middle,
         columnWidths: const {
@@ -392,6 +468,7 @@ class _WithdrawCommissionDialogState
       decoration: BoxDecoration(
         color: t.sfc,
         borderRadius: BorderRadius.circular(XbTokens.rMd),
+        border: prominent ? null : Border.all(color: t.line, width: 1.5),
       ),
       child: Table(
         defaultVerticalAlignment: TableCellVerticalAlignment.middle,
@@ -422,7 +499,7 @@ class _WithdrawCommissionDialogState
     );
   }
 
-  Widget _applicationForm(BuildContext context, {required bool compact}) {
+  Widget _applicationForm(BuildContext context, double space) {
     final editing = !_submitting && !_unconfirmed;
     final t = XbTokens.of(context);
     return Column(
@@ -434,22 +511,23 @@ class _WithdrawCommissionDialogState
           textAlign: TextAlign.center,
           style: TextStyle(fontSize: 13, height: 1.4, color: t.onv),
         ),
-        SizedBox(height: compact ? 8 : 12),
-        _amountRow(context, '提现金额（整笔佣金）', _balanceCents),
-        SizedBox(height: compact ? 8 : 12),
+        SizedBox(height: 8 + 4 * space),
+        _amountRow(context, '整笔提现额', _balanceCents),
+        SizedBox(height: 8 + 4 * space),
         if (_methodsChecking)
           const LinearProgressIndicator()
         else if (_methods.isEmpty) ...[
-          const Text('暂时无法核实可用收款方式。'),
+          Text(xbIsRecoverableReadError(_methodsError)
+              ? '网络异常，暂时无法核实可用收款方式。' : '暂时无法核实可用收款方式。'),
           TextButton(onPressed: _loadMethods, child: const Text('重试')),
         ] else ...[
           _payoutField(context, '收款方式',
             child: DropdownButtonHideUnderline(
               child: DropdownButton<String>(
                 value: _method,
-                style: TextStyle(color: t.on, fontSize: 13),
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: t.on, fontSize: 13),
                 hint: Text('请选择收款方式',
-                  style: TextStyle(color: t.onv, fontSize: 13)),
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: t.onv, fontSize: 13)),
                 isExpanded: true,
                 isDense: false,
                 onChanged: editing
@@ -465,7 +543,7 @@ class _WithdrawCommissionDialogState
               ),
             ),
           ),
-          SizedBox(height: compact ? 8 : 12),
+          SizedBox(height: 8 + 4 * space),
           _payoutField(context, '收款账户', child: TextField(
             controller: _account,
             enabled: editing,
@@ -517,6 +595,7 @@ class _WithdrawCommissionDialogState
       decoration: BoxDecoration(
         color: t.sfc,
         borderRadius: BorderRadius.circular(XbTokens.rMd),
+        border: Border.all(color: t.line, width: 1.5),
       ),
       child: Row(children: [
         Text(label, style: TextStyle(fontSize: 13, color: t.onv)),

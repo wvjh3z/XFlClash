@@ -16,6 +16,7 @@ import 'package:fl_clash/xboard/models/xb_domain_types.dart';
 import 'package:fl_clash/xboard/models/xb_result.dart';
 import 'package:fl_clash/xboard/pages/order_payment_page.dart';
 import 'package:fl_clash/xboard/providers/auth_state_provider.dart';
+import 'package:fl_clash/xboard/providers/network_recovery_provider.dart';
 import 'package:fl_clash/xboard/providers/user_profile_provider.dart';
 import 'package:fl_clash/xboard/providers/xboard_providers.dart';
 import 'package:fl_clash/xboard/sdk/xboard_service.dart';
@@ -239,6 +240,60 @@ Future<void> tap(WidgetTester tester, String label) async {
 Finder text(String label) => find.text(label, findRichText: true);
 
 void main() {
+  _paymentTest('detail remains visible during channel load; verified recovery only retries reads', (t,h) async {
+    final methods = Completer<XbResult<List<PaymentMethodItem>>>();
+    h.service.onMethods = () => methods.future;
+    await h.mount(t);
+    expect(text('标准套餐'), findsOneWidget);
+    expect(text('正在加载支付方式…'), findsOneWidget);
+    final pay = find.widgetWithText(FilledButton, '立即支付');
+    expect(t.widget<FilledButton>(pay).onPressed, isNull);
+    methods.complete(const XbFailure(XbNetwork(XbNetworkKind.timeout, 'fixture')));
+    await t.pump();
+    await t.pump(const Duration(milliseconds: 350));
+    h.service.onRead = (_) async => const XbFailure(XbNetwork(XbNetworkKind.timeout, 'fixture'));
+    await tap(t, '检测支付状态');
+    final reads = h.service.reads;
+    await t.pump(const Duration(seconds: 12));
+    expect(h.service.reads, reads);
+    h.service.onRead = (_) async => XbSuccess(order(XbOrderStatus.pending));
+    h.service.onMethods = null;
+    h.container.read(networkRecoveryProvider.notifier).publish();
+    await t.pumpAndSettle();
+    expect(h.service.reads, reads + 1);
+    expect(h.service.methodsReads, 2);
+    expect(t.widget<FilledButton>(pay).onPressed, isNotNull);
+    expect(h.service.checkouts, 0);
+    expect(h.service.cancellations, 0);
+    final profileReads = h.service.subscriptionReads;
+    await h.unmount(t);
+    expect(h.service.subscriptionReads, profileReads);
+  });
+
+  _paymentTest('business denial on order load is not retried by network recovery', (t,h) async {
+    h.service.onRead = (_) async => const XbFailure(XbUnauthorized('fixture'));
+    await h.mount(t);
+    h.container.read(networkRecoveryProvider.notifier).publish();
+    await t.pumpAndSettle();
+    expect(h.service.reads, 1);
+    expect(h.service.methodsReads, 0);
+    expect(h.service.checkouts, 0);
+  });
+
+  _paymentTest('recovery does not load channels for a pending order that was cancelled remotely', (t,h) async {
+    h.service.onMethods = () async => const XbFailure(XbNetwork(XbNetworkKind.timeout, 'fixture'));
+    await h.mount(t);
+    expect(text('支付方式加载失败'), findsOneWidget);
+    h.service.onRead = (_) async => XbSuccess(order(XbOrderStatus.cancelled));
+    h.container.read(networkRecoveryProvider.notifier).publish();
+    await t.pumpAndSettle();
+    expect(text('已取消'), findsOneWidget);
+    expect(text('立即支付'), findsNothing);
+    expect(h.service.methodsReads, 1);
+    expect(h.service.checkouts, 0);
+    expect(h.service.cancellations, 0);
+    expect(h.subscription.calls, 0);
+  });
   for (final missing in [true, false]) {
     _paymentTest(
       'invalid detail (${missing ? 'missing' : 'wrong order'}) preserves previous order',

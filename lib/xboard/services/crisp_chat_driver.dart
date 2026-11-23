@@ -760,11 +760,22 @@ String desktopCrispHtml(String websiteId, String? segment, bool reset) {
   return '''<!doctype html><html><head><meta charset="utf-8">
 <title>在线客服</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<style>html,body{height:100%;margin:0}body{font:14px system-ui;color:#555}#status{padding:24px}</style></head>
-<body><p id="status">正在加载客服，请稍候…</p><script>
+<style>html,body{height:100%;margin:0}body{font:14px system-ui;color:#555}#status{padding:24px}#connection{position:fixed;top:0;left:0;right:0;z-index:2147483647;padding:8px 12px;background:#fff3d1;color:#593d00;pointer-events:none}</style></head>
+<body><aside id="connection" role="status" hidden></aside><p id="status">正在加载客服，请稍候…</p><script>
 window.CRISP_RUNTIME_CONFIG={lock_maximized:true,lock_full_view:true};
 window.\$crisp=[];window.CRISP_WEBSITE_ID=${js(websiteId)};
 window.__xbCrispReady=false;window.__xbCrispLoadFailed=false;
+var connection=document.getElementById("connection"),hideConnection;
+function showOffline(){
+  clearTimeout(hideConnection);connection.hidden=false;
+  connection.textContent="网络已断开，消息是否送达请以会话中的状态为准。";
+}
+window.addEventListener("offline",showOffline);
+window.addEventListener("online",function(){
+  connection.hidden=false;connection.textContent="网络已连接，请核对消息状态。";
+  clearTimeout(hideConnection);hideConnection=setTimeout(function(){connection.hidden=true;},5000);
+});
+if(navigator.onLine===false)showOffline();
 var resetPending=${reset ? 'true' : 'false'};
 \$crisp.push(["do","chat:hide"]);
 \$crisp.push(["on","session:loaded",function(id){

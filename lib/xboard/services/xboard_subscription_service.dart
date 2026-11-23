@@ -71,6 +71,7 @@ class XboardSubscriptionService {
     void Function(String)? Function()? captureWinnerRecorder,
     int Function()? sessionRevision,
     void Function(XbSyncOutcome outcome, int revision)? onOutcome,
+    void Function()? onStarted,
     String flavorId = 'default',
   }) : _service = service,
        _encrypted = encrypted,
@@ -85,6 +86,7 @@ class XboardSubscriptionService {
        _captureWinnerRecorder = captureWinnerRecorder,
        _sessionRevision = sessionRevision ?? (() => 0),
        _onOutcome = onOutcome,
+       _onStarted = onStarted,
        _flavorId = flavorId;
 
   final XboardService _service;
@@ -100,6 +102,7 @@ class XboardSubscriptionService {
   final String _flavorId;
   final int Function() _sessionRevision;
   final void Function(XbSyncOutcome outcome, int revision)? _onOutcome;
+  final void Function()? _onStarted;
 
   final List<BootstrapEndpoint> Function()? _endpoints;
   final bool Function() _vpnActive;
@@ -110,6 +113,24 @@ class XboardSubscriptionService {
   int _retryGeneration = 0;
   int _retryAttempt = 0;
   bool _retryable = false;
+  bool _transportFailure = false;
+  int? _failedNetworkRevision;
+  int _recoveryEpoch = 0;
+
+  /// A verified API on a new network may renew a spent backoff budget, but
+  /// only for this session's last transport failure, never a business denial.
+  Future<void> recoverNetwork(int epoch) async {
+    if (_disposed || epoch <= _recoveryEpoch) return;
+    _recoveryEpoch = epoch;
+    final revision = _sessionRevision();
+    final pending = _inFlight;
+    if (pending != null) await pending.future;
+    if (!_isCurrent(revision) || _recoveryEpoch != epoch ||
+        _failedNetworkRevision != revision || _inFlight != null) {
+      return;
+    }
+    await sync(force: false);
+  }
   bool _disposed = false;
   CancelToken? _downloadCancel;
   String _stage = 'idle';
@@ -204,6 +225,7 @@ class XboardSubscriptionService {
     final watch = Stopwatch()..start();
     final completer = Completer<XbSyncOutcome>();
     _inFlight = completer;
+    _onStarted?.call();
     var outcome = XbSyncOutcome.failed;
     try {
       final token = await _tokenStorage.readToken();
@@ -229,6 +251,7 @@ class XboardSubscriptionService {
       );
     } finally {
       if (_isCurrent(revision)) {
+        _failedNetworkRevision = outcome == XbSyncOutcome.failed && _transportFailure ? revision : null;
         try {
           _onOutcome?.call(outcome, revision);
         } catch (_) {
@@ -252,13 +275,16 @@ class XboardSubscriptionService {
 
   Future<XbSyncOutcome> _doSync(String ownerHash, int revision) async {
     _retryable = false;
+    _transportFailure = false;
     _stage = 'get_url';
     if (!await _ownsSession(ownerHash, revision)) return XbSyncOutcome.skipped;
     // 1. 拿订阅 URL（含 token）。失败 → 用 getSubscription 区分无套餐 / 鉴权过期。
     final subUrlResult = await _service.getSubscribeUrl();
     if (!await _ownsSession(ownerHash, revision)) return XbSyncOutcome.skipped;
     if (subUrlResult case XbFailure(:final error)) {
+      if (_isUnauthorized(error)) return XbSyncOutcome.authExpired;
       _retryable = error is XbNetwork;
+      _transportFailure = _retryable;
       final sub = await _service.getSubscription();
       if (!await _ownsSession(ownerHash, revision)) {
         return XbSyncOutcome.skipped;
@@ -291,6 +317,7 @@ class XboardSubscriptionService {
     if (!await _ownsSession(ownerHash, revision)) return XbSyncOutcome.skipped;
     if (!result.isSuccess) {
       _retryable = result.failure == EncryptedSubscriptionFailure.network;
+      _transportFailure = _retryable;
       return _mapFetchFailure(result.failure!);
     }
 

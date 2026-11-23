@@ -1,9 +1,32 @@
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:fl_clash/xboard/providers/network_recovery_provider.dart';
 import 'package:fl_clash/xboard/services/crisp_chat_driver.dart';
 import 'package:fl_clash/xboard/widgets/crisp_recovery_dialog.dart';
 
 void main() {
+  testWidgets('可达信号只恢复当前账号的失败客服会话', (tester) async {
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+    var current = false;
+    CrispRecovery? result;
+    await tester.pumpWidget(UncontrolledProviderScope(container: container, child: MaterialApp(home:
+      Builder(builder: (ctx) => TextButton(onPressed: () async {
+        result = await showDialog<CrispRecovery>(context: ctx, builder: (_) =>
+          CrispRecoveryDialog(failure: CrispChatFailure.sessionNotReady, sessionIsCurrent: () => current));
+      }, child: const Text('客服'))))));
+    await tester.tap(find.text('客服'));
+    await tester.pumpAndSettle();
+    container.read(networkRecoveryProvider.notifier).publish();
+    await tester.pumpAndSettle();
+    expect(result, isNull);
+    current = true;
+    container.read(networkRecoveryProvider.notifier).publish();
+    await tester.pumpAndSettle();
+    expect(result, CrispRecovery.retry);
+    await tester.pumpWidget(const SizedBox());
+  });
   for (final action in {
     '重试': CrispRecovery.retry,
     '浏览器打开': CrispRecovery.browser,

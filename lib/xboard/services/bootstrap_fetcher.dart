@@ -113,6 +113,7 @@ class BootstrapFetcher {
   /// 全失败 → payload=null（调用方沿用本地 endpoint）。永不抛。
   Future<BootstrapFetchResult> fetchRemote(
     List<String> mirrors, {
+    CancelToken? owner,
     Duration budget = kBootstrapTotalBudget,
     Duration attemptTimeout = kBootstrapPerMirrorTimeout,
   }) async {
@@ -122,13 +123,14 @@ class BootstrapFetcher {
     final clock = Stopwatch()..start();
     final requests = <CancelToken>{};
     var active = true;
-    bool current() => active && clock.elapsed < budget;
+    bool current() => active && owner?.isCancelled != true && clock.elapsed < budget;
     void cancel() {
       active = false;
       for (final token in requests.toList()) {
         token.cancel('Bootstrap deadline or completion');
       }
     }
+    if (owner != null) unawaited(owner.whenCancel.then((_) => cancel()));
 
     try {
       final result =

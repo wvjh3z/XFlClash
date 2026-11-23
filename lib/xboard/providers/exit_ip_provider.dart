@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/foundation.dart' show mapEquals;
 
 import '../services/exit_ip_probe.dart';
+import 'network_recovery_provider.dart';
 
 class XbExitIpState {
   const XbExitIpState({this.loading = false, this.result, this.failed = false});
@@ -38,6 +39,7 @@ class XbExitIpNotifier extends Notifier<XbExitIpState> {
       if (attached) tracker.detach();
     });
     ref.listen(isStartProvider, (_, _) => refresh());
+    ref.listen(verifiedRouteEpochProvider, (_, _) => refresh(preserveResult: true));
     ref.listen(suspendProvider, (_, _) => refresh());
     ref.listen(
       patchClashConfigProvider.select((s) => s.mode),
@@ -79,9 +81,7 @@ class XbExitIpNotifier extends Notifier<XbExitIpState> {
     });
     ref.listen(appVisibleProvider, (_, visible) {
       if (visible) {
-        if (_needsRefresh) {
-          refresh(preserveResult: true);
-        }
+        if (_needsRefresh) refresh(preserveResult: true);
       } else {
         _cancel();
         state = XbExitIpState(result: state.result, failed: state.failed);
@@ -107,10 +107,10 @@ class XbExitIpNotifier extends Notifier<XbExitIpState> {
 
   /// Automatic triggers coalesce as in 0.8.93. Manual retry is immediate.
   void refresh({bool immediate = false, bool preserveResult = false}) {
+    _needsRefresh = true;
     final previousResult = preserveResult ? state.result : null;
     // Route changes remain pending while hidden. Visibility alone does not
     // invalidate a successful result; cancelled/failed rounds still need work.
-    _needsRefresh = true;
     _cancel();
     final generation = _generation;
     if (!ref.read(appVisibleProvider)) {

@@ -1,4 +1,6 @@
 import 'dart:async';
+import '../../_fixtures/fake_connectivity.dart';
+import 'package:fl_clash/xboard/providers/xboard_connectivity_provider.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -26,7 +28,10 @@ void main() {
         testWidgets('D11 $brand force=$force back during $phase', (tester) async {
           final lookup = DelayedLookup();
           await tester.pumpWidget(ProviderScope(
-            overrides: [xbUpdateRegionLookupFactoryProvider.overrideWithValue(() => lookup)],
+            overrides: [
+              xboardConnectivityClientProvider.overrideWithValue(FakeConnectivity()),
+              xbUpdateRegionLookupFactoryProvider.overrideWithValue(() => lookup),
+            ],
             child: MaterialApp(home: Builder(builder: (context) => Scaffold(
               body: TextButton(onPressed: () => showXbUpdateDialog(context,
                 AppUpdateModel(versionCode: 999, versionName: 'fixture', region: 'unknown',
@@ -78,6 +83,7 @@ void main() {
         await tester.pumpWidget(
           ProviderScope(
             overrides: [
+              xboardConnectivityClientProvider.overrideWithValue(FakeConnectivity()),
               xbUpdateRegionLookupFactoryProvider.overrideWithValue(() {
                 final probe = DelayedLookup();
                 probes.add(probe);

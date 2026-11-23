@@ -8,12 +8,15 @@ import '../../../models/xb_domain_subscription.dart';
 import '../../../models/xb_domain_types.dart';
 import '../../../models/xb_result.dart';
 import '../../../pages/plan_detail_page.dart';
+import '../../../pages/commerce_read_recovery.dart';
 import '../../../providers/auth_state_provider.dart';
 import '../../../providers/user_profile_provider.dart';
 import '../../../providers/xboard_providers.dart';
 import '../../../sdk/guest_catalog.dart' show XboardGuestCatalogControl;
 import '../../../util/period_label.dart';
 import '../../../widgets/xb_async_view.dart';
+import '../../../widgets/xb_network_read_recovery.dart';
+import '../../../providers/xboard_connectivity_provider.dart';
 import '../../../widgets/xb_components.dart';
 import '../../../widgets/xb_emoji_text.dart';
 import '../../../widgets/xb_feedback.dart' show xbBrandColor;
@@ -28,6 +31,7 @@ import 'xb_shop_navigation.dart';
 // A different login must start a new read, not reuse a previous account's list.
 final _catalogProvider = FutureProvider.autoDispose.family<List<PlanItem>, int>(
   (ref, _) async {
+    if (ref.read(isOfflineProvider)) throw const XbNetwork(XbNetworkKind.connectionFailed, '当前离线');
     final result = await ref.watch(xboardServiceProvider).getPlans();
     return switch (result) {
       XbSuccess(:final data) => data,
@@ -37,11 +41,18 @@ final _catalogProvider = FutureProvider.autoDispose.family<List<PlanItem>, int>(
   retry: noAutomaticAccountRetry,
 );
 
+// Identity only: unavailable SDK/service errors belong in the catalog's
+// AsyncValue, not in the shop's widget build.
+final _catalogOwnerProvider = Provider.autoDispose<Object?>((ref) {
+  try { return ref.watch(xboardServiceProvider); } catch (_) { return null; }
+});
+
 final _guestCatalogProvider = FutureProvider.autoDispose<List<PlanItem>>((
   ref,
 ) async {
   // A brand endpoint switch invalidates the prior anonymous response.
   ref.watch(apiEndpointProvider);
+  if (ref.read(isOfflineProvider)) throw const XbNetwork(XbNetworkKind.connectionFailed, '当前离线');
   final service = ref.watch(xboardServiceProvider);
   final result = service is XboardGuestCatalogControl
       ? await (service as XboardGuestCatalogControl).getGuestCatalog()
@@ -86,6 +97,9 @@ class _ShopTabState extends ConsumerState<ShopTab> {
   XbShopIntent? _handled;
   (AuthState, int)? _owner;
   bool _openingCheckout = false;
+  Object? _catalogOwner;
+  List<PlanItem>? _lastCatalog;
+  XbDomainSubscription? _lastProfile;
   DialogRoute<bool>? _confirmation;
 
   @override
@@ -120,6 +134,7 @@ class _ShopTabState extends ConsumerState<ShopTab> {
   }) {
     final intent = widget.intent;
     if (!widget.active ||
+        ref.read(isOfflineProvider) ||
         !ready ||
         intent == null ||
         identical(intent, _handled) ||
@@ -169,7 +184,7 @@ class _ShopTabState extends ConsumerState<ShopTab> {
     XbPlanPeriod period,
     int revision,
   ) async {
-    if (!widget.active ||
+    if (!widget.active || ref.read(isOfflineProvider) ||
         _openingCheckout ||
         ref.read(authStateProvider) != AuthState.authenticated ||
         ref.read(authStateProvider.notifier).sessionRevision != revision) {
@@ -185,7 +200,7 @@ class _ShopTabState extends ConsumerState<ShopTab> {
 
     bool current() {
       if (!mounted ||
-          !widget.active ||
+          !widget.active || ref.read(isOfflineProvider) ||
           ref.read(authStateProvider) != AuthState.authenticated ||
           ref.read(authStateProvider.notifier).sessionRevision != revision ||
           !identical(ref.read(xboardServiceProvider), service)) {
@@ -197,7 +212,7 @@ class _ShopTabState extends ConsumerState<ShopTab> {
           latestProfile.hasValue &&
           !latestProfile.hasError &&
           _activeId(latestProfile.asData?.value) == activeId &&
-          !latestCatalog.isLoading &&
+          !latestCatalog.isLoading && !latestCatalog.hasError &&
           (latestCatalog.asData?.value.contains(plan) ?? false) &&
           (ModalRoute.of(context)?.isCurrent ?? true);
     }
@@ -246,10 +261,18 @@ class _ShopTabState extends ConsumerState<ShopTab> {
     final auth = ref.watch(authStateProvider);
     final revision = ref.read(authStateProvider.notifier).sessionRevision;
     final authenticated = auth == AuthState.authenticated;
+    final offline = ref.watch(isOfflineProvider);
+    final ready = ref.watch(bootstrapReadyProvider);
+    final source = (auth, revision, ready && auth != AuthState.authenticating ? ref.watch(_catalogOwnerProvider) : null);
+    if (_catalogOwner != source) {
+      _lastCatalog = null;
+      _lastProfile = null;
+      _catalogOwner = source;
+    }
     _observeOwner(auth, revision);
 
     Widget body;
-    if (auth == AuthState.authenticating || !ref.watch(bootstrapReadyProvider)) {
+    if (auth == AuthState.authenticating || !ready) {
       body = const Center(child: CircularProgressIndicator());
     } else {
       final provider = authenticated
@@ -257,22 +280,46 @@ class _ShopTabState extends ConsumerState<ShopTab> {
           : _guestCatalogProvider;
       final catalog = ref.watch(provider);
       final profile = authenticated ? ref.watch(userProfileProvider) : null;
+      if (!catalog.isLoading && !catalog.hasError) _lastCatalog = catalog.asData?.value;
+      if (profile != null && !profile.isLoading && !profile.hasError) _lastProfile = profile.asData?.value;
+      if (catalog.hasError && !xbIsRecoverableReadError(catalog.error)) _lastCatalog = null;
+      if (profile?.hasError == true && !xbIsRecoverableReadError(profile?.error)) _lastProfile = null;
+      final visibleCatalog = _lastCatalog;
+      final stale = offline || catalog.isLoading || catalog.hasError;
+      xbListenForReadRecovery(context, ref, () {
+        bool current() => widget.active && _catalogOwner == source &&
+            ref.read(authStateProvider.notifier).sessionRevision == revision;
+        if (!current()) return;
+        final latest = ref.read(provider);
+        recoverCommerceRead(context: context, current: current,
+          pending: latest.isLoading ? ref.read(provider.future) : null,
+          retryIfFailed: () async {
+            final state = ref.read(provider);
+            if (!state.isLoading && xbIsRecoverableReadError(state.error)) ref.invalidate(provider);
+          });
+        if (authenticated) {
+          final account = ref.read(userProfileProvider);
+          if (!account.isLoading && xbIsRecoverableReadError(account.error)) ref.invalidate(userProfileProvider);
+        }
+      }, active: widget.active);
       body = XbAsyncView(
         // Do not animate an outgoing account's catalog into the next state.
         key: ValueKey((auth, revision, catalog.isLoading, catalog.hasError)),
-        loading: catalog.isLoading,
-        error: catalog.asError?.error,
+        loading: catalog.isLoading && visibleCatalog == null,
+        error: visibleCatalog == null ? catalog.asError?.error : null,
         errorFallback: '加载套餐失败',
-        onRetry: () => ref.invalidate(provider),
+        onRetry: () {
+          if (!ref.read(isOfflineProvider) && !ref.read(provider).isLoading) ref.invalidate(provider);
+        },
         builder: (_) {
           final offers = <_PlanOffer>[];
           final ids = <int>{};
-          for (final plan in catalog.requireValue) {
+          for (final plan in visibleCatalog ?? const <PlanItem>[]) {
             final offer = _PlanOffer.from(plan);
             if (offer != null && ids.add(plan.id)) offers.add(offer);
           }
           final sub = profile == null || profile.isLoading || profile.hasError
-              ? null
+              ? _lastProfile
               : profile.asData?.value;
           final intent = widget.intent;
           _scheduleLocation(
@@ -287,6 +334,14 @@ class _ShopTabState extends ConsumerState<ShopTab> {
                 : intent?.planId,
           );
           if (offers.isEmpty) {
+            if (stale) {
+              return Center(child: Column(mainAxisSize: MainAxisSize.min, children: [
+                const Text('目录未更新，上次没有可购买套餐'),
+                if (!offline && catalog.hasError) TextButton(onPressed: () {
+                  if (!ref.read(provider).isLoading) ref.invalidate(provider);
+                }, child: const Text('重新加载套餐')),
+              ]));
+            }
             return const Center(child: Text('暂无可购买套餐'));
           }
           return SizedBox.expand(child: _catalog(
@@ -295,7 +350,9 @@ class _ShopTabState extends ConsumerState<ShopTab> {
             authenticated: authenticated,
             activeId: _activeId(sub),
             ownedId: sub?.planId,
-            canCheckout: !authenticated || sub != null && !_openingCheckout,
+            canCheckout: !stale && (!authenticated || sub != null && profile?.isLoading == false && profile?.hasError == false && !_openingCheckout),
+            catalogNotice: stale ? '套餐目录未更新，显示上次记录' : profile?.isLoading == true ? '正在读取当前套餐' : null,
+            retryCatalog: !offline && catalog.hasError && !catalog.isLoading ? () => ref.invalidate(provider) : null,
             profileFailed: profile != null &&
                 profile.hasError &&
                 !profile.isLoading,
@@ -330,6 +387,8 @@ class _ShopTabState extends ConsumerState<ShopTab> {
     required int? ownedId,
     required bool canCheckout,
     required bool profileFailed,
+    required String? catalogNotice,
+    required VoidCallback? retryCatalog,
   }) {
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -350,6 +409,8 @@ class _ShopTabState extends ConsumerState<ShopTab> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
+                  if (catalogNotice != null) Text(catalogNotice),
+                  if (retryCatalog != null) TextButton(onPressed: retryCatalog, child: const Text('重新加载套餐')),
                   if (profileFailed) ...[
                     XbErrorRetry(
                       message: '无法读取当前套餐，请重试后继续',

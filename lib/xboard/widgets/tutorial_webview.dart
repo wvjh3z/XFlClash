@@ -9,6 +9,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:path/path.dart' as p;
 import 'package:url_launcher/url_launcher.dart';
@@ -18,8 +19,9 @@ import '../services/tutorial_webview_environment.dart';
 import '../services/xboard_release_dio.dart';
 import 'tutorial_html_fallback.dart';
 import 'xb_components.dart';
+import 'xb_network_read_recovery.dart';
 
-class TutorialWebView extends StatefulWidget {
+class TutorialWebView extends ConsumerStatefulWidget {
   const TutorialWebView({
     super.key,
     required this.html,
@@ -33,15 +35,17 @@ class TutorialWebView extends StatefulWidget {
   final Uri articleUrl;
 
   @override
-  State<TutorialWebView> createState() => _TutorialWebViewState();
+  ConsumerState<TutorialWebView> createState() => _TutorialWebViewState();
 }
 
-class _TutorialWebViewState extends State<TutorialWebView> {
+class _TutorialWebViewState extends ConsumerState<TutorialWebView> {
   WebViewEnvironment? _environment;
   Directory? _profile;
   bool _ready = false;
   bool _missingRuntime = false;
   String? _error;
+  bool _resourceFailed = false;
+  bool _retryOnRecovery = false;
   int _generation = 0;
   int _progress = 0;
   Key _nativeKey = UniqueKey();
@@ -146,6 +150,7 @@ class _TutorialWebViewState extends State<TutorialWebView> {
       _loadDeadline = Timer(const Duration(seconds: 20), () {
         if (_current(generation) && _progress < 100) {
           ++_generation;
+          _retryOnRecovery = true;
           setState(() => _error = '教程阅读器加载超时，请重试。');
         }
       });
@@ -193,6 +198,8 @@ class _TutorialWebViewState extends State<TutorialWebView> {
       _ready = false;
       _missingRuntime = false;
       _error = null;
+      _resourceFailed = false;
+      _retryOnRecovery = false;
       _progress = 0;
       _nativeKey = UniqueKey();
     });
@@ -239,6 +246,9 @@ class _TutorialWebViewState extends State<TutorialWebView> {
 
   @override
   Widget build(BuildContext context) {
+    xbListenForReadRecovery(context, ref, () {
+      if (_retryOnRecovery && _error != null) _retry();
+    });
     if (!_supported) {
       final generation = _generation;
       return TutorialHtmlFallback(
@@ -279,6 +289,8 @@ class _TutorialWebViewState extends State<TutorialWebView> {
     final generation = _generation;
     return Column(
       children: [
+        if (_resourceFailed)
+          TextButton(onPressed: _retry, child: const Text('部分图片或样式未能加载 · 重新加载')),
         if (_progress < 100)
           LinearProgressIndicator(
             value: _progress > 0 ? _progress / 100 : null,
@@ -362,9 +374,20 @@ class _TutorialWebViewState extends State<TutorialWebView> {
               }
             },
             onReceivedError: (_, request, _) {
-              if (_current(generation) && request.isForMainFrame == true) {
+              if (!_current(generation)) return;
+              if (request.isForMainFrame == true) {
                 _loadDeadline?.cancel();
+                _retryOnRecovery = true;
                 setState(() => _error = '教程加载失败，请重试。');
+              } else if (request.isForMainFrame == false && !_resourceFailed &&
+                  const {'http', 'https'}.contains(request.url.scheme)) {
+                setState(() => _resourceFailed = true);
+              }
+            },
+            onReceivedHttpError: (_, request, response) {
+              if (_current(generation) && request.isForMainFrame == false &&
+                  (response.statusCode ?? 0) >= 400 && !_resourceFailed) {
+                setState(() => _resourceFailed = true);
               }
             },
             shouldOverrideUrlLoading: (_, action) async {

@@ -32,6 +32,11 @@ import 'package:fl_clash/xboard/shell/tabs/home/xb_line_card.dart';
 import 'package:fl_clash/xboard/shell/tabs/home/xb_speed_card.dart';
 import 'package:fl_clash/xboard/shell/tabs/home/xb_mode_segment.dart';
 import '../_net_detection_stub.dart';
+import '../_fixture_delay_core.dart';
+import 'package:fl_clash/core/controller.dart';
+import 'package:fl_clash/common/constant.dart' show renderThrottleDuration;
+import 'package:fl_clash/providers/core.dart';
+import 'package:fl_clash/xboard/providers/home_latency_provider.dart';
 
 class _FakeAuth extends AuthStateNotifier {
   _FakeAuth(this._initial);
@@ -67,11 +72,14 @@ Future<void> pumpHome(
   SetupAction? setup,
   bool running = false,
   bool ready = true,
+  bool Function()? runningNow,
+  FixtureDelayCore? delayCore,
 }) async {
   final container = ProviderContainer(
     overrides: [
       authStateProvider.overrideWith(() => _FakeAuth(auth)),
-      isStartProvider.overrideWith((ref) => running),
+      isStartProvider.overrideWith((ref) => runningNow?.call() ?? running),
+      coreHandlerProvider.overrideWithValue(CoreController.scoped(delayCore ?? FixtureDelayCore())),
       proxiesTabStateProvider.overrideWith((ref) => tab ?? _tab()),
       netDetectionOverride(),
       if (setup != null) setupActionProvider.overrideWith(() => setup),
@@ -117,6 +125,38 @@ class _RecordingSetup extends SetupAction {
 }
 
 void main() {
+  testWidgets('外部已连接、快捷开关和重连各测一轮；无重绘轮询', (tester) async {
+    var running = true;
+    final core = FixtureDelayCore();
+    await pumpHome(tester, auth: AuthState.authenticated, runningNow: () => running, delayCore: core);
+    final c = ProviderScope.containerOf(tester.element(find.byType(HomeTab)), listen: false);
+    final delay = c.listen(delayProvider(proxyName: '香港01', testUrl: c.read(realTestUrlProvider(null))), (_, _) {});
+    addTearDown(delay.close);
+    await tester.pump();
+    expect(core.calls, 3);
+    expect(c.read(homeLatencyProvider).ms, 48);
+    await tester.pump(const Duration(seconds: 5));
+    expect(core.calls, 3);
+    running = false;
+    c.invalidate(isStartProvider);
+    await tester.pump();
+    expect(c.read(homeLatencyProvider).ms, isNull);
+    running = true;
+    c.invalidate(isStartProvider);
+    await tester.pump();
+    await tester.pump();
+    expect(core.calls, 6);
+    c.read(coreStatusProvider.notifier).value = CoreStatus.connecting;
+    await tester.pump();
+    core.sample = 72;
+    c.read(coreStatusProvider.notifier).value = CoreStatus.connected;
+    await tester.pump();
+    await tester.pump();
+    expect(core.calls, 9);
+    await tester.pump(renderThrottleDuration);
+    expect(delay.read(), 72);
+    expect(core.calls, 9);
+  });
   testWidgets('移动首页准备阶段不显示可操作的游客登录邀请', (tester) async {
     tester.view.physicalSize = const Size(390, 844);
     tester.view.devicePixelRatio = 1;
@@ -199,8 +239,8 @@ void main() {
             scenario == 'logout' ? findsOneWidget : findsNothing,
           );
           if (scenario == 'login-empty') {
-            expect(find.text('当前无可用线路，请前往「节点」刷新或购买套餐'), findsOneWidget);
-            expect(find.text('当前套餐无可用线路', findRichText: true), findsOneWidget);
+            expect(find.text('暂未获取可用线路，请检查网络并刷新节点'), findsOneWidget);
+            expect(find.text('请检查网络并刷新节点', findRichText: true), findsOneWidget);
             expect(find.text('连接后自动优选', findRichText: true), findsNothing);
           }
           await tester.pump(const Duration(seconds: 3));
@@ -293,7 +333,7 @@ void main() {
       await tester.tap(find.byType(XbConnectOrb));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 250));
-      expect(find.text('当前无可用线路，请前往「节点」刷新或购买套餐'), findsOneWidget);
+      expect(find.text('暂未获取可用线路，请检查网络并刷新节点'), findsOneWidget);
       await tester.pump(const Duration(seconds: 3));
       await tester.pumpAndSettle();
     });

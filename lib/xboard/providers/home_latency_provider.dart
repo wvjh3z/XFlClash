@@ -8,10 +8,13 @@ library;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:fl_clash/providers/providers.dart';
 import 'auth_state_provider.dart';
+import 'network_recovery_provider.dart';
+import 'package:fl_clash/enum/enum.dart' show CoreStatus;
 
 /// 首页延迟状态。
 class HomeLatencyState {
-  const HomeLatencyState({this.ms, this.measuring = false});
+  const HomeLatencyState({this.ms, this.measuring = false, this.attempted = false});
+  final bool attempted;
 
   /// 最近一次测得的延迟（ms，>0 有效）；null = 尚未测 / 测速失败。
   final int? ms;
@@ -23,6 +26,7 @@ class HomeLatencyState {
       HomeLatencyState(
         ms: clearMs ? null : (ms ?? this.ms),
         measuring: measuring ?? this.measuring,
+        attempted: attempted,
       );
 }
 
@@ -34,6 +38,10 @@ class HomeLatencyNotifier extends Notifier<HomeLatencyState> {
   HomeLatencyState build() {
     ref.onDispose(() => _generation++);
     ref.listen(isStartProvider, (_, _) => reset());
+    ref.listen(verifiedRouteEpochProvider, (_, _) => reset());
+    ref.listen(coreStatusProvider, (_, next) {
+      if (next == CoreStatus.connecting) reset();
+    });
     ref.listen(suspendProvider, (_, _) => reset());
     ref.listen(authStateProvider, (_, _) => reset());
     ref.listen(currentProfileIdProvider, (_, _) => reset());
@@ -52,7 +60,7 @@ class HomeLatencyNotifier extends Notifier<HomeLatencyState> {
 
   /// 开始测速：置 measuring=true（保留上次 ms，避免闪烁；UI 可据 measuring 显示转圈）。
   int startMeasuring() {
-    state = state.copyWith(measuring: true);
+    state = HomeLatencyState(ms: state.ms, measuring: true, attempted: true);
     return ++_generation;
   }
 
@@ -60,8 +68,8 @@ class HomeLatencyNotifier extends Notifier<HomeLatencyState> {
   void setResult(int? ms) {
     _generation++;
     state = (ms != null && ms > 0)
-        ? HomeLatencyState(ms: ms, measuring: false)
-        : const HomeLatencyState(ms: null, measuring: false);
+        ? HomeLatencyState(ms: ms, attempted: true)
+        : const HomeLatencyState(attempted: true);
   }
 
   /// 重置（如断开连接 / 退登）。

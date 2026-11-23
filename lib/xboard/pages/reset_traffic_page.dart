@@ -7,6 +7,8 @@ import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../widgets/xb_async_view.dart';
+import '../widgets/xb_network_read_recovery.dart';
+import '../providers/xboard_connectivity_provider.dart';
 import '../widgets/xb_components.dart';
 import '../widgets/xb_feedback.dart' show xbBrandColor, XbStateToast;
 import '../widgets/xb_theme.dart' show xbDialogRoute, xbPush, XbTokens;
@@ -28,6 +30,7 @@ import '../util/format.dart';
 import '../widgets/xb_ui_kit.dart';
 import '../widgets/xb_purchase_confirmation.dart';
 import 'order_payment_page.dart';
+import 'commerce_read_recovery.dart';
 
 final _resetDialogs = Expando<DialogRoute<Widget>>();
 
@@ -109,8 +112,10 @@ class _ResetTrafficPageState extends ConsumerState<ResetTrafficPage> {
   PlanItem? _plan;
   int? _resetCents;
   XbDomainError? _loadError; // 领域错误对象（交由 XbAsyncView 经 resolveErrorText 解析）
+  XbDomainSubscription? _lastMatching;
   bool _loading = true;
   bool _retrying = false; // 重试中 → 顶部「正在刷新服务」黄条
+  Future<void>? _quoteRead;
   bool _submitting = false;
   int _loadGeneration = 0;
   bool _closed = false;
@@ -157,7 +162,7 @@ class _ResetTrafficPageState extends ConsumerState<ResetTrafficPage> {
     _ownerService = widget._owner ?? ref.read(xboardServiceProvider);
     _ownerRevision =
         widget._revision ?? ref.read(authStateProvider.notifier).sessionRevision;
-    _load();
+    _quoteRead = _load();
   }
 
   @override
@@ -169,7 +174,7 @@ class _ResetTrafficPageState extends ConsumerState<ResetTrafficPage> {
   @override
   void didUpdateWidget(covariant ResetTrafficPage oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.planId != widget.planId) _load();
+    if (oldWidget.planId != widget.planId) _quoteRead = _load();
   }
 
   @override
@@ -179,19 +184,20 @@ class _ResetTrafficPageState extends ConsumerState<ResetTrafficPage> {
   }
 
   Future<void> _load({bool retry = false}) async {
-    if (!_ownerCurrent) return;
+    if (!_ownerCurrent || retry && _loading) return;
     final generation = ++_loadGeneration;
     final planId = widget.planId;
     setState(() {
       _loading = true;
       _retrying = retry;
       _loadError = null;
-      _plan = null;
-      _resetCents = null;
+      if (_plan?.id != planId) { _plan = null; _resetCents = null; }
     });
     XbResult<List<PlanItem>> result;
     try {
-      result = await _ownerService.getPlans();
+      result = ref.read(isOfflineProvider)
+          ? const XbFailure(XbNetwork(XbNetworkKind.connectionFailed, '当前离线'))
+          : await _ownerService.getPlans();
     } catch (error, stack) {
       if (!_ownerCurrent ||
           generation != _loadGeneration ||
@@ -251,11 +257,28 @@ class _ResetTrafficPageState extends ConsumerState<ResetTrafficPage> {
     ref.watch(authStateProvider);
     ref.watch(xboardServiceProvider);
     final profile = _ownerCurrent ? ref.watch(userProfileProvider) : null;
+    final offline = ref.watch(isOfflineProvider);
+    xbListenForReadRecovery(context, ref, () {
+      if (!_ownerCurrent || _submitting) return;
+      final account = ref.read(userProfileProvider);
+      if (!account.isLoading && xbIsRecoverableReadError(account.error)) ref.invalidate(userProfileProvider);
+      if (!_retrying) {
+        final id = widget.planId;
+        recoverCommerceRead(context: context, current: () => _ownerCurrent && widget.planId == id && !_submitting,
+          pending: _loading ? _quoteRead : null,
+          retryIfFailed: () async {
+            if (!_loading && xbIsRecoverableReadError(_loadError)) await _load(retry: true);
+          });
+      }
+    });
     final subscription = profile == null ? null : _matchingSubscription(profile);
     final profileRefreshing = profile?.isLoading ?? false;
+    final staleAccount = _ownerCurrent && profile != null && xbIsRecoverableReadError(profile.error);
+    if (!profileRefreshing && !staleAccount) _lastMatching = subscription;
     if (_inline) {
       return _trackClose(
-        _dialog(context, subscription, profileRefreshing: profileRefreshing),
+        _dialog(context, staleAccount ? _lastMatching ?? widget._subscription : subscription,
+          profileRefreshing: profileRefreshing, staleAccount: staleAccount),
       );
     }
     if (!_ownerCurrent) {
@@ -272,7 +295,8 @@ class _ResetTrafficPageState extends ConsumerState<ResetTrafficPage> {
     }
     // 桌面（原型屏37）：内容单列居中限宽 560 + 提交按钮内联列底；窄屏维持固定底栏。
     final wide = xbIsDesktopWidth(MediaQuery.sizeOf(context).width);
-    final VoidCallback? onSubmit = subscription == null || profileRefreshing
+    final VoidCallback? onSubmit = subscription == null || profileRefreshing || offline ||
+        _loadError != null || _loading || _resetCents == null
         ? null
         : () => _submitOrder(subscription);
     return _trackClose(
@@ -337,6 +361,7 @@ class _ResetTrafficPageState extends ConsumerState<ResetTrafficPage> {
     BuildContext context,
     XbDomainSubscription? subscription, {
     required bool profileRefreshing,
+    required bool staleAccount,
   }) {
     final ownerCurrent = _ownerCurrent;
     final cents = _resetCents;
@@ -344,8 +369,9 @@ class _ResetTrafficPageState extends ConsumerState<ResetTrafficPage> {
     final offerAvailable =
         subscription != null && _offerAvailable(subscription, now);
     final canSubmit =
-        ownerCurrent &&
+        ownerCurrent && !ref.read(isOfflineProvider) &&
         offerAvailable &&
+        !staleAccount &&
         !profileRefreshing &&
         !_loading &&
         !_submitting &&
@@ -403,7 +429,9 @@ class _ResetTrafficPageState extends ConsumerState<ResetTrafficPage> {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          if (!ownerCurrent || (subscription == null && !profileRefreshing))
+          if (ownerCurrent && ref.read(userProfileProvider).hasError)
+            Text(staleAccount ? '套餐资料未更新，显示上次记录。请重新读取后确认。' : '当前套餐资料未更新，请重新读取后确认。')
+          else if (!ownerCurrent || (subscription == null && !profileRefreshing))
             const Text('账号或套餐状态已变化，请关闭后重新打开。'),
           if (subscription != null)
             DecoratedBox(
@@ -442,7 +470,8 @@ class _ResetTrafficPageState extends ConsumerState<ResetTrafficPage> {
                     _impactRow(
                       context,
                       label: '重置包价格',
-                      value: _loading
+                      value: _loadError != null && cents != null
+                          ? '${xbYuan(cents / 100)}（上次报价）' : _loading
                           ? '查询中…'
                           : cents == null
                           ? '未提供'
@@ -502,9 +531,13 @@ class _ResetTrafficPageState extends ConsumerState<ResetTrafficPage> {
         ],
       ),
       actions: [
-        if (ownerCurrent && subscription != null && _loadError != null)
+        if (ownerCurrent && (_loadError != null || ref.read(userProfileProvider).hasError))
           TextButton(
-            onPressed: _loading ? null : () => _load(retry: true),
+            onPressed: _loading || ref.read(isOfflineProvider) ? null : () {
+              final account = ref.read(userProfileProvider);
+              if (account.hasError && !account.isLoading) ref.invalidate(userProfileProvider);
+              if (_loadError != null) _load(retry: true);
+            },
             child: const Text('重试'),
           ),
         XbPurchaseActions(
@@ -698,7 +731,7 @@ class _ResetTrafficPageState extends ConsumerState<ResetTrafficPage> {
         plan.id != widget.planId) {
       return;
     }
-    if (!_ownerCurrent) return;
+    if (!_ownerCurrent || ref.read(isOfflineProvider)) return;
     final planId = widget.planId;
     final expectedSubscription = ConfirmedOrderSubscription(
       planId: displayedSubscription.planId,

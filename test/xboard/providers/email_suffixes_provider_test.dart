@@ -10,6 +10,7 @@ import 'package:mocktail/mocktail.dart';
 import 'package:fl_clash/xboard/models/xb_domain_error.dart';
 import 'package:fl_clash/xboard/models/xb_result.dart';
 import 'package:fl_clash/xboard/providers/email_suffixes_provider.dart';
+import 'package:fl_clash/xboard/providers/network_recovery_provider.dart';
 import 'package:fl_clash/xboard/providers/xboard_providers.dart';
 import 'package:fl_clash/xboard/sdk/xboard_service.dart';
 
@@ -33,12 +34,23 @@ void main() {
     expect(suffixes, ['gmail.com', 'qq.com']);
   });
 
-  test('反腐层失败 → fail-open 返回空列表（不阻塞注册）', () async {
+  test('网络失败与无白名单分开；只有可信恢复后才重新读取', () async {
+    var calls = 0;
     when(() => service.getEmailSuffixes()).thenAnswer(
-        (_) async => XbResult.failure(XbDomainError.unexpected('getEmailSuffixes', 'boom')));
+        (_) async => ++calls == 1
+            ? XbResult.failure(const XbNetwork(XbNetworkKind.connectionFailed, 'down'))
+            : XbResult.success(const ['test.invalid']));
     final container = makeContainer();
     addTearDown(container.dispose);
-    final suffixes = await container.read(emailSuffixesProvider.future);
-    expect(suffixes, isEmpty);
+    final keep = container.listen(emailSuffixesProvider, (_, _) {});
+    addTearDown(keep.close);
+    expect(await container.read(emailSuffixesProvider.future), isEmpty);
+    expect(container.read(suffixLookupFailedProvider), isTrue);
+    container.read(networkRecoveryProvider.notifier).publish();
+    expect(await container.read(emailSuffixesProvider.future), ['test.invalid']);
+    expect(container.read(suffixLookupFailedProvider), isFalse);
+    container.read(networkRecoveryProvider.notifier).publish();
+    expect(await container.read(emailSuffixesProvider.future), ['test.invalid']);
+    expect(calls, 2);
   });
 }

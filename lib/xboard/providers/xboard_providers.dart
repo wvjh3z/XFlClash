@@ -191,6 +191,7 @@ XboardSubscriptionService subscriptionService(Ref ref) {
     tokenStorage: tokenStorage,
     flavorId: XboardConfig.current.flavorId,
     sessionRevision: () => ref.read(authStateProvider.notifier).sessionRevision,
+    onStarted: () => ref.read(nodeReadPhaseProvider.notifier).set(NodeReadPhase.loading),
     onOutcome: (outcome, revision) {
       if (ref.mounted &&
           ref.read(authStateProvider.notifier).sessionRevision == revision) {

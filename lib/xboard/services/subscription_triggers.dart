@@ -18,6 +18,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/foundation.dart' show visibleForTesting;
 
 import '../providers/auth_state_provider.dart';
+import '../providers/network_recovery_provider.dart';
+import '../providers/xboard_connectivity_provider.dart';
+import 'dart:async';
 import '../providers/user_profile_provider.dart';
 import '../providers/xboard_providers.dart';
 
@@ -27,6 +30,20 @@ const Duration kSubscriptionResumeThrottle = Duration(hours: 24);
 class SubscriptionTriggers {
   SubscriptionTriggers._();
 
+  static void onVerifiedNetwork(ProviderContainer container) {
+    if (!_readyContainer(container)) return;
+    final rev = container.read(authStateProvider.notifier).sessionRevision;
+    if (_deferred == (container, rev)) {
+      _deferred = null;
+      onAuthenticated(container);
+      return;
+    }
+    unawaited(container.read(subscriptionServiceProvider)
+        .recoverNetwork(container.read(networkRecoveryProvider)));
+  }
+  static (ProviderContainer, int)? _deferred;
+  static Object? _resumeOwner;
+
   /// onResume 节流单调时钟（θ-7：距上次 resume 触发 ≥24h 才真拉；防改系统时间绕过）。
   /// null = 从未刷新过（首次 onResume 直接放行）。
   static Stopwatch? _resumeThrottle;
@@ -35,7 +52,7 @@ class SubscriptionTriggers {
   /// 注入单调计时器以覆盖 24h 临界点；生产仍使用真实 Stopwatch。
   @visibleForTesting
   static void debugSetResumeStopwatchFactory(Stopwatch Function()? factory) {
-    _resumeThrottle = null;
+    resetResumeThrottle();
     _createResumeStopwatch = factory ?? Stopwatch.new;
   }
 
@@ -50,21 +67,6 @@ class SubscriptionTriggers {
     required void Function() refreshAccount,
   }) {
     if (!ready) return;
-    fireSync();
-    refreshAccount();
-  }
-
-  static void _coreOnResume({
-    required bool ready,
-    required void Function() fireSync,
-    required void Function() refreshAccount,
-  }) {
-    if (!ready) return;
-    final sw = _resumeThrottle;
-    if (sw != null && sw.elapsed < kSubscriptionResumeThrottle) {
-      return; // 节流窗口内，跳过。
-    }
-    _resumeThrottle = _createResumeStopwatch()..start();
     fireSync();
     refreshAccount();
   }
@@ -115,20 +117,42 @@ class SubscriptionTriggers {
   }
 
   /// T1 登录成功 / T2 已登录冷启动：force 同步订阅 + 刷新账号信息。
-  static void onAuthenticated(ProviderContainer container) =>
-      _coreOnAuthenticated(
+  static void onAuthenticated(ProviderContainer container) {
+    if (_readyContainer(container) && container.read(interfaceUnavailableProvider)) {
+      _deferred = (container, container.read(authStateProvider.notifier).sessionRevision);
+      return;
+    }
+    _coreOnAuthenticated(
         ready: _readyContainer(container),
         fireSync: () => _fireSyncContainer(container, force: true),
         refreshAccount: () => container.invalidate(userProfileProvider),
       );
+  }
 
   /// onResume（切前台）：24h 节流——距上次 resume 触发 ≥24h 才真拉订阅 + 刷新账号信息。
-  static void onResume(ProviderContainer container) => _coreOnResume(
-    ready: _readyContainer(container),
-    fireSync: () => _fireSyncContainer(container, force: false),
-    refreshAccount: () => container.invalidate(userProfileProvider),
-  );
+  static void onResume(ProviderContainer container) {
+    if (!_readyContainer(container) || container.read(interfaceUnavailableProvider) || _resumeOwner != null ||
+        (_resumeThrottle?.elapsed ?? kSubscriptionResumeThrottle) < kSubscriptionResumeThrottle) {
+      return;
+    }
+    final owner = _resumeOwner = Object();
+    final revision = container.read(authStateProvider.notifier).sessionRevision;
+    _fireSyncContainer(container, force: false);
+    container.invalidate(userProfileProvider);
+    unawaited(container.read(userProfileProvider.future).then<void>((_) {
+      if (identical(owner, _resumeOwner) && _readyContainer(container) &&
+          container.read(authStateProvider.notifier).sessionRevision == revision) {
+        _resumeThrottle = _createResumeStopwatch()..start();
+      }
+    }, onError: (Object _, StackTrace _) {}).whenComplete(() {
+      if (identical(owner, _resumeOwner)) _resumeOwner = null;
+    }));
+  }
 
   /// 重置 onResume 节流时钟（退出登录调，避免下个账号被上个账号的节流窗口挡住；测试 teardown 同用）。
-  static void resetResumeThrottle() => _resumeThrottle = null;
+  static void resetResumeThrottle() {
+    _resumeOwner = null;
+    _deferred = null;
+    _resumeThrottle = null;
+  }
 }

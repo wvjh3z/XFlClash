@@ -11,6 +11,8 @@ import 'package:fl_clash/xboard/sdk/xboard_service.dart';
 
 import 'package:fl_clash/xboard/models/xb_result.dart';
 import 'package:fl_clash/xboard/models/xb_domain_error.dart';
+import 'auth_network_hint.dart';
+import '../../providers/xboard_connectivity_provider.dart';
 import 'package:fl_clash/xboard/providers/auth_state_provider.dart';
 import 'package:fl_clash/xboard/providers/email_suffixes_provider.dart';
 import 'package:fl_clash/xboard/providers/xboard_providers.dart';
@@ -48,6 +50,7 @@ class _RegisterSheetState extends ConsumerState<RegisterSheet>
   String? _suffix;
   bool _obscure = true;
   String? _banner;
+  bool _offerProbe = false;
 
   @override
   void dispose() {
@@ -62,6 +65,7 @@ class _RegisterSheetState extends ConsumerState<RegisterSheet>
 
   Future<void> _sendCode(List<String> suffixes) async {
     if (cooling) return;
+    if (_offline()) return;
     final email = _composeEmail(suffixes);
     if (email == null) {
       setState(() => _banner = xbEmailValidationMessage(suffixes));
@@ -81,6 +85,7 @@ class _RegisterSheetState extends ConsumerState<RegisterSheet>
       ),
     };
     if (error != null) {
+      _offerProbe = error is XbNetwork || error is XbServer || error is XbUnconfirmed;
       // A lost response may still have delivered mail; preserve the cooldown.
       if (error is! XbUnconfirmed &&
           error is! XbRateLimit &&
@@ -93,6 +98,7 @@ class _RegisterSheetState extends ConsumerState<RegisterSheet>
   }
 
   Future<void> _submit(List<String> suffixes) async {
+    if (_offline()) return;
     final email = _composeEmail(suffixes);
     final code = _codeCtrl.text.trim();
     final pw = _pwCtrl.text;
@@ -166,6 +172,7 @@ class _RegisterSheetState extends ConsumerState<RegisterSheet>
           setState(() => _banner = '操作结果尚未确认，请先核对结果。如问题持续，请向客服反馈此问题。');
         case XbFailure(:final error):
           if (!auth.isAuthenticationCurrent(attempt)) return;
+          _offerProbe = error is XbNetwork || error is XbServer || error is XbUnconfirmed;
           auth.failAuthentication(attempt);
           setState(
             () => _banner = resolveErrorText(error, fallback: '注册失败，请重试'),
@@ -178,8 +185,8 @@ class _RegisterSheetState extends ConsumerState<RegisterSheet>
   Widget build(BuildContext context) {
     final ready = ref.watch(bootstrapReadyProvider);
     // 白名单后缀（fail-open：失败/加载中 → 空 = 任意后缀，不阻塞）。
-    final suffixes =
-        ref.watch(emailSuffixesProvider).asData?.value ?? const <String>[];
+    final suffixState = ref.watch(emailSuffixesProvider);
+    final suffixes = suffixState.asData?.value ?? const <String>[];
 
     return XbSheetScaffold(
       title: '注册 ${XboardConfig.current.appName}',
@@ -189,6 +196,7 @@ class _RegisterSheetState extends ConsumerState<RegisterSheet>
         ('返回登录', submitting ? null : () => switchXbAuthSheet(context, showLoginSheet)),
       ]),
       children: [
+        if (_offerProbe && !submitting && _banner != null) const AuthNetworkHint(),
         // 邮箱账号（前缀 + 后缀下拉，R5.5/R5.6/R5.7）。
         XbEmailAccountField(
           prefixController: _prefixCtrl,
@@ -196,7 +204,8 @@ class _RegisterSheetState extends ConsumerState<RegisterSheet>
           selectedSuffix: _suffix,
           onSuffixChanged: (v) => setState(() => _suffix = v),
         ),
-        if (suffixes.isNotEmpty) Text('邮箱后缀由服务端提供，请从列表中选择', style: Theme.of(context).textTheme.bodySmall),
+        if (suffixState.hasError || ref.watch(suffixLookupFailedProvider)) const XbEmailSuffixHint('邮箱后缀暂未加载，请输入完整邮箱；网络恢复后会重新获取。'),
+        if (suffixes.isNotEmpty) const XbEmailSuffixHint('邮箱后缀由服务端提供，请从列表中选择'),
         const SizedBox(height: 12),
         // 验证码在密码上方（R5.7），短框 + 获取按钮（R5.8）。
         XbVerifyCodeField(
@@ -233,5 +242,11 @@ class _RegisterSheetState extends ConsumerState<RegisterSheet>
         ),
       ],
     );
+  }
+
+  bool _offline() {
+    if (!ref.read(interfaceUnavailableProvider)) return false;
+    setState(() { _offerProbe = true; _banner = '未检测到网络连接，本次请求尚未发送。'; });
+    return true;
   }
 }

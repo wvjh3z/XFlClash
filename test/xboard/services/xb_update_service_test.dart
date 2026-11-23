@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:fl_clash/xboard/providers/xboard_providers.dart';
+import 'package:fl_clash/xboard/providers/network_recovery_provider.dart';
 import 'package:fl_clash/xboard/services/xb_update_service.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -139,6 +140,38 @@ void main() {
       await tester.pumpAndSettle();
     });
   }
+
+  testWidgets('可见关于页只补读网络失败的手动检查，保留缓存直至明确无更新', (tester) async {
+    final container = makeContainer();
+    when(() => http.endpointRecoveryEnabled).thenReturn(true);
+    container.read(availableUpdateProvider.notifier).set(update);
+    respond = () async => throw NetworkException('offline');
+    await tester.pumpWidget(UncontrolledProviderScope(container: container,
+        child: const material.MaterialApp(home: XbAboutPage())));
+    await tester.runAsync(() async {
+      await tester.tap(find.text('检查更新'));
+      await XbUpdateService.check(sdk, endpoints: race);
+    });
+    await tester.pumpAndSettle();
+    expect(container.read(availableUpdateProvider), same(update));
+    respond = () async => null;
+    await tester.runAsync(() async {
+      final cleared = Completer<void>();
+      final watch = container.listen(availableUpdateProvider, (_, value) {
+        if (value == null && !cleared.isCompleted) cleared.complete();
+      });
+      container.read(networkRecoveryProvider.notifier).publish();
+      try {
+        await cleared.future.timeout(const Duration(seconds: 5));
+      } finally {
+        watch.close();
+      }
+    });
+    await tester.pumpAndSettle();
+    expect(container.read(availableUpdateProvider), isNull);
+    expect(requests, 2);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
 
   group('API readiness and failover', () {
     for (final malformed in <Object>[[], <String, dynamic>{}]) {

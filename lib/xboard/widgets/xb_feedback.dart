@@ -56,6 +56,9 @@ Future<bool> xbConfirm(
       final badgeColor = destructive ? XbTokens.bad : XbTokens.warn;
       final hasIcon = icon != null;
       return AlertDialog(
+        insetPadding: centered && MediaQuery.sizeOf(ctx).width < 600
+            ? const EdgeInsets.symmetric(horizontal: 32, vertical: 24)
+            : null,
         title: hasIcon
             ? Column(
                 mainAxisSize: MainAxisSize.min,

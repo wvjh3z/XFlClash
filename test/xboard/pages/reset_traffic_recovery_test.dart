@@ -13,6 +13,7 @@ import 'package:fl_clash/xboard/pages/reset_traffic_page.dart';
 import 'package:fl_clash/xboard/providers/xboard_providers.dart';
 import 'package:fl_clash/xboard/providers/auth_state_provider.dart';
 import 'package:fl_clash/xboard/providers/user_profile_provider.dart';
+import 'package:fl_clash/xboard/providers/network_recovery_provider.dart';
 import 'package:fl_clash/xboard/sdk/xboard_service.dart';
 import 'package:fl_clash/xboard/widgets/xb_async_view.dart';
 
@@ -35,6 +36,42 @@ const _ready = XbSuccess<List<PlanItem>>([
   ),
 ]);
 void main() {
+  for (final staleFirst in [false, true]) {
+    testWidgets('changed plan owns its quote even when old read settles first=$staleFirst', (t) async {
+      final first = Completer<XbResult<List<PlanItem>>>();
+      final second = Completer<XbResult<List<PlanItem>>>();
+      final service = _Service();
+      var reads = 0;
+      when(service.getPlans).thenAnswer((_) => ++reads == 1 ? first.future : second.future);
+      final id = ValueNotifier<int>(6);
+      addTearDown(id.dispose);
+      await t.pumpWidget(ProviderScope(overrides: [
+        authStateProvider.overrideWith(_Auth.new),
+        xboardServiceProvider.overrideWithValue(service),
+        userProfileProvider.overrideWith((_) async => const XbDomainSubscription(
+          email: 'fixture@example.invalid', uuid: 'fixture', planId: 7, usedBytes: 10, totalBytes: 10)),
+      ], child: MaterialApp(home: ValueListenableBuilder<int>(
+        valueListenable: id, builder: (_, planId, _) => ResetTrafficPage(planId: planId)))));
+      await t.pump();
+      id.value = 7;
+      await t.pump();
+      expect(reads, 2);
+      if (staleFirst) {
+        first.complete(_failed);
+        await t.pump();
+        expect(find.text('重试'), findsNothing);
+      }
+      second.complete(_ready);
+      await t.pumpAndSettle();
+      if (!staleFirst) {
+        first.complete(_failed);
+        await t.pumpAndSettle();
+      }
+      expect(find.text('流量重置包'), findsOneWidget);
+      expect(find.text('重试'), findsNothing);
+      verifyNever(() => service.cancelOrder(any()));
+    });
+  }
   for (final brand in ['brand_a', 'brand_b']) {
     for (final platform in [
       TargetPlatform.android,
@@ -48,8 +85,7 @@ void main() {
         'unsupported',
         'dispose-success',
         'dispose-failure',
-        'old-first',
-        'old-last',
+        'verified-recovery',
         'latest-failure',
       ]) {
         testWidgets('$brand $platform reset $scenario', (tester) async {
@@ -108,7 +144,17 @@ void main() {
           final retry = tester
               .widget<XbAsyncView>(find.byType(XbAsyncView))
               .onRetry;
-          await tester.tap(find.text('重试'));
+          final container = ProviderScope.containerOf(tester.element(find.byType(ResetTrafficPage)));
+          if (scenario == 'verified-recovery') {
+            container.read(networkRecoveryProvider.notifier).publish();
+          } else {
+            if (scenario == 'initial-throw') {
+              container.read(networkRecoveryProvider.notifier).publish();
+              await tester.pump();
+              expect(pending.length, 1);
+            }
+            await tester.tap(find.text('重试'));
+          }
           await tester.pump();
           expect(pending.length, 2);
           if (scenario.startsWith('dispose')) {
@@ -116,29 +162,11 @@ void main() {
             pending[1].complete(
               scenario == 'dispose-success' ? _ready : _failed,
             );
-          } else if (scenario.startsWith('old-') ||
-              scenario == 'latest-failure') {
-            // A second queued retry races the still outstanding previous callback.
+          } else if (scenario == 'verified-recovery' || scenario == 'latest-failure') {
             retry();
             await tester.pump();
-            expect(pending.length, 3);
-            if (scenario == 'old-first') {
-              pending[1].complete(_failed);
-              await tester.pump();
-              expect(
-                tester.widget<XbAsyncView>(find.byType(XbAsyncView)).retrying,
-                isTrue,
-              );
-              pending[2].complete(_ready);
-            } else {
-              pending[2].complete(
-                scenario == 'latest-failure' ? _failed : _ready,
-              );
-              await tester.pumpAndSettle();
-              pending[1].complete(
-                scenario == 'latest-failure' ? _ready : _failed,
-              );
-            }
+            expect(pending.length, 2);
+            pending[1].complete(scenario == 'latest-failure' ? _failed : _ready);
           } else {
             pending[1].complete(
               scenario == 'unsupported' ? const XbSuccess([]) : _ready,

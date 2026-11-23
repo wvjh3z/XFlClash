@@ -41,7 +41,7 @@ class _Adapter extends XbNodesAdapter {
   ({String proxyName, String testUrl})? resolveMeasureTarget(
     WidgetRef ref, {
     String? explicitNode,
-  }) => (proxyName: explicitNode!, testUrl: 'https://example.invalid');
+  }) => (proxyName: explicitNode ?? 'A', testUrl: 'https://example.invalid');
 }
 
 const url = 'https://example.invalid';
@@ -67,6 +67,7 @@ void main() {
       'write_failure',
       'core_failure',
       'same_node',
+      'hidden_home',
       'success',
       'unanswered_then_success',
       'empty_then_success',
@@ -132,12 +133,14 @@ void main() {
         final homeSubscription = c.listen(homeLatencyProvider, (_, _) {});
         addTearDown(homeSubscription.close);
         final adapter = _Adapter();
-        final first = adapter.measureCurrentNodeBest(
-          ref,
-          explicitNode: 'A',
-          rounds: 3,
-        );
+        var visible = true;
+        final first = scenario == 'hidden_home'
+            ? adapter.measureVisibleHome(ref, () => visible)
+            : adapter.measureCurrentNodeBest(ref, explicitNode: 'A', rounds: 3);
         expect(c.read(xbMeasuringNodesProvider), contains('A'));
+        await adapter.measureVisibleHome(ref, () => true);
+        expect(callsA, 1, reason: 'showing Home does not duplicate a selection/connection sample');
+        if (scenario == 'hidden_home') visible = false;
         if (scenario == 'newer' ||
             scenario == 'old_failure' ||
             scenario == 'same_node') {
@@ -198,6 +201,11 @@ void main() {
         await first;
         expect(tester.takeException(), isNull);
         if (!disposed) {
+          if (scenario == 'hidden_home') {
+            expect(callsA, 1);
+            expect(c.read(homeLatencyProvider).attempted, isFalse);
+            expect(actions.writes, isEmpty);
+          }
           expect(c.read(xbMeasuringNodesProvider), isEmpty);
           final expected =
               ['newer', 'old_failure', 'same_node'].contains(scenario)

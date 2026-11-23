@@ -9,11 +9,19 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/xb_invite.dart';
 import '../models/xb_result.dart';
 import 'xboard_providers.dart';
+import 'invite_provider.dart' show commissionSessionProvider;
 
+class ShareServicePreparing implements Exception {
+  const ShareServicePreparing();
+}
 /// 分享落地页地址（主/备）。autoDispose：进页拉、离页回收。
 ///
 /// 成功且 `enabled=false`（后台关闭/未配置）也是 data 态（非 error）——UI 据 enabled 显示未配置态。
 final shareLinkProvider = FutureProvider.autoDispose<XbShareLink>((ref) async {
+  ref.watch(commissionSessionProvider);
+  if (!ref.watch(bootstrapReadyProvider) && ref.watch(xboardSdkProvider) == null) {
+    throw const ShareServicePreparing();
+  }
   final result = await ref.watch(xboardServiceProvider).getShareLink();
   return switch (result) {
     XbSuccess(:final data) => data,

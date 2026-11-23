@@ -634,9 +634,6 @@ void main() {
             () => _FakeAuth(AuthState.authenticated),
           ),
           xboardServiceProvider.overrideWithValue(svc),
-          userProfileProvider.overrideWith(
-            (ref) async => throw Exception('down'),
-          ),
         ],
         child: const MaterialApp(home: Scaffold(body: MineTab())),
       ),
@@ -666,7 +663,7 @@ void main() {
     expect(tester.widget<TextButton>(find.ancestor(
       of: find.text('刷新中…'), matching: find.byWidgetPredicate((w) => w is TextButton),
     )).onPressed, isNull);
-    verify(svc.getSubscription).called(1);
+    verify(svc.getSubscription).called(2); // initial read + one user retry
     // _retry等待service结果，失败也必须退出骨架忙态。
     try {
       await tester.pumpAndSettle(const Duration(milliseconds: 100));

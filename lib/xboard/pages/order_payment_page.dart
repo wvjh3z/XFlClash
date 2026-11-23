@@ -20,7 +20,9 @@ import '../models/xb_domain_error.dart';
 import '../models/xb_result.dart';
 import '../providers/auth_state_provider.dart';
 import '../providers/xboard_providers.dart';
-import '../providers/user_profile_provider.dart';
+import '../providers/xboard_connectivity_provider.dart';
+import '../widgets/xb_network_read_recovery.dart';
+import 'commerce_read_recovery.dart';
 import '../services/subscription_triggers.dart';
 import '../sdk/xboard_service.dart';
 import '../shell/widgets/xb_responsive.dart';
@@ -65,6 +67,10 @@ class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage>
   final _methodsFocus = FocusNode(skipTraversal: true);
   final _retryLabel = GlobalKey();
   bool _methodsReloading = false;
+  Future<void>? _channelRead;
+  Future<void>? _initialRead;
+  Object? _methodsFailure;
+  Object? _statusFailure;
   bool _paying = false;
   final _firstMethodFocus = FocusNode();
   Object? _loadError;
@@ -77,6 +83,7 @@ class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage>
   int _loadAttempt = 0;
   bool _checking = false;
   bool _checkFailed = false;
+  bool _requiresNetworkCheck = false;
   bool _completionTriggered = false;
   bool _qrVisible = false;
   bool _launchingPayment = false;
@@ -88,17 +95,15 @@ class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage>
   ProviderSubscription<XboardService>? _serviceSubscription;
   VoidCallback? _dismissFeedback;
 
-  bool get _actionsBusy => submitting || _checking || _checkingReturn || _loading;
+  bool get _actionsBusy => submitting || _checking || _checkingReturn || _loading ||
+      _methodsReloading || ref.read(isOfflineProvider);
   bool get _canMutate =>
-      !_actionsBusy && !_redirectNeedsCheck && !_checkFailed &&
+      !_actionsBusy && !_requiresNetworkCheck && !_redirectNeedsCheck && !_checkFailed &&
       _detail?.summary.status == XbOrderStatus.pending;
   bool get _canPay =>
       _canMutate &&
       !_methodsError &&
       _methods.any((m) => m.id.trim().isNotEmpty && m.id == _selectedMethodId);
-
-  /// 依赖变化时更新缓存，dispose 时不再查询已 deactivated 的 context。
-  late ProviderContainer _container;
 
   @override
   void initState() {
@@ -122,12 +127,6 @@ class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage>
   }
 
   @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    _container = ProviderScope.containerOf(context, listen: false);
-  }
-
-  @override
   void dispose() {
     ++_contextVersion;
     WidgetsBinding.instance.removeObserver(this);
@@ -137,9 +136,6 @@ class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage>
     _firstMethodFocus.dispose();
     _methodsFocus.dispose();
     _dismissFeedback?.call();
-    // 缺口 1 兜底：用户从支付页 pop 回 Tab 时 invalidate userProfileProvider,
-    // 确保三张卡(账号卡/到期卡/流量卡)最终刷新。幂等(多一次 getSubscription 无害)。
-    _container.invalidate(userProfileProvider);
     super.dispose();
   }
 
@@ -160,6 +156,8 @@ class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage>
       _dismissFeedback?.call();
       return;
     }
+    if (ref.read(isOfflineProvider)) return;
+    if (ModalRoute.of(context)?.isCurrent == false && !_qrVisible) return;
     if (_detail != null && !_isTerminal(_detail!.summary.status)) {
       if (_launchingPayment) {
         _returnedDuringLaunch = true;
@@ -173,6 +171,8 @@ class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage>
   }
 
   void _resetContext({Object? error}) {
+    _channelRead = null;
+    _initialRead = null;
     ++_contextVersion;
     ++_readVersion;
     ++_loadAttempt;
@@ -184,6 +184,8 @@ class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage>
       _methods = const [];
       _methodsError = false;
       _methodsReloading = false;
+      _methodsFailure = null;
+      _statusFailure = null;
       _paying = false;
       _selectedMethodId = null;
       _loadError = error;
@@ -191,6 +193,7 @@ class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage>
       _retrying = false;
       _checking = false;
       _checkFailed = false;
+      _requiresNetworkCheck = false;
       _completionTriggered = false;
       _qrVisible = false;
       _launchingPayment = false;
@@ -220,7 +223,9 @@ class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage>
         (() async {
           XbResult<OrderDetail?> result;
           try {
-            result = await service.getOrder(tradeNo);
+            result = ref.read(isOfflineProvider)
+                ? const XbFailure(XbNetwork(XbNetworkKind.connectionFailed, '当前离线'))
+                : await service.getOrder(tradeNo);
             if (result case XbSuccess(
               :final data,
             ) when data != null && (data.summary.tradeNo != tradeNo || data.summary.needsVerification)) {
@@ -273,7 +278,17 @@ class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage>
     SubscriptionTriggers.onOrderCompleted(ref);
   }
 
-  Future<void> _initialLoad({bool retry = false}) async {
+  Future<void> _initialLoad({bool retry = false}) {
+    final existing = _initialRead;
+    if (existing != null) return existing;
+    final request = _loadInitialDetail(retry: retry);
+    _initialRead = request;
+    return request.whenComplete(() {
+      if (identical(_initialRead, request)) _initialRead = null;
+    });
+  }
+
+  Future<void> _loadInitialDetail({required bool retry}) async {
     final attempt = ++_loadAttempt;
     setState(() {
       _loading = true;
@@ -281,31 +296,14 @@ class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage>
       _loadError = null;
     });
     try {
-      final service = ref.read(xboardServiceProvider);
       final read = await _readOrder();
       if (!_isCurrentRead(read) || attempt != _loadAttempt) return;
       final detail = switch (read.result) {
         XbSuccess(:final data) => data,
         XbFailure(:final error) => throw error, // 抛领域错误，_errorRetry 还原文案
       };
-      // 支付方式（仅 pending 需要）。失败不阻塞整页（订单信息仍可看），但记录失败态 → 支付方式区显示重试。
-      var methods = const <PaymentMethodItem>[];
-      var methodsError = false;
-      if (detail != null && detail.summary.status == XbOrderStatus.pending) {
-        final mRes = await service.getPaymentMethods();
-        switch (mRes) {
-          case XbSuccess(:final data):
-            methods = data;
-          case XbFailure():
-            methodsError = true;
-        }
-      }
-      if (!_isCurrentRead(read) || attempt != _loadAttempt) return;
       setState(() {
         _detail = detail == null ? null : _acceptedDetail(detail);
-        _methods = methods;
-        _methodsError = methodsError;
-        _selectedMethodId = methods.isNotEmpty ? methods.first.id : null;
         _loading = false;
         _retrying = false;
         _loadError = null;
@@ -313,6 +311,7 @@ class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage>
       });
       _observeCompletion();
       _maybeStartPolling();
+      if (_detail?.summary.status == XbOrderStatus.pending) unawaited(_reloadMethods());
     } catch (e) {
       if (!mounted || attempt != _loadAttempt) return;
       setState(() {
@@ -324,33 +323,55 @@ class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage>
   }
 
   /// 仅重拉支付方式（支付方式加载失败重试，#11）：不重载整页订单，只补支付方式区。
-  Future<void> _reloadMethods() async {
-    if (_actionsBusy) return;
+  Future<void> _reloadMethods() {
+    final existing = _channelRead;
+    if (existing != null) return existing;
+    final request = _readMethods();
+    _channelRead = request;
+    return request.whenComplete(() {
+      if (identical(_channelRead, request)) _channelRead = null;
+    });
+  }
+
+  Future<void> _readMethods() async {
+    if (ref.read(isOfflineProvider)) {
+      setState(() {
+        _methodsError = true;
+        _methodsFailure = const XbNetwork(XbNetworkKind.connectionFailed, '当前离线');
+      });
+      return;
+    }
+    if (_actionsBusy || _detail?.summary.status != XbOrderStatus.pending) return;
     final owner = _contextVersion;
     final label = _retryLabel.currentContext;
     final restoreFocus = label != null && Focus.of(label).hasPrimaryFocus;
     if (restoreFocus) _methodsFocus.requestFocus();
-    await runSubmit(() async {
-      setState(() => _methodsReloading = true);
-      try {
-        final mRes = await ref.read(xboardServiceProvider).getPaymentMethods();
-        if (!mounted || owner != _contextVersion) return;
+    setState(() => _methodsReloading = true);
+    try {
+      final mRes = await ref.read(xboardServiceProvider).getPaymentMethods();
+      if (!mounted || owner != _contextVersion) return;
+      setState(() {
+        switch (mRes) {
+          case XbSuccess(:final data):
+            _methods = data;
+            _methodsError = false;
+            _methodsFailure = null;
+            _selectedMethodId = data.isNotEmpty ? data.first.id : null;
+          case XbFailure(:final error):
+            _methodsError = true;
+            _methodsFailure = error;
+        }
+      });
+    } catch (e) {
+      if (mounted && owner == _contextVersion) {
         setState(() {
-          switch (mRes) {
-            case XbSuccess(:final data):
-              _methods = data;
-              _methodsError = false;
-              _selectedMethodId = data.isNotEmpty ? data.first.id : null;
-            case XbFailure():
-              _methodsError = true;
-          }
+          _methodsError = true;
+          _methodsFailure = e;
         });
-      } catch (_) {
-        if (mounted && owner == _contextVersion) setState(() => _methodsError = true);
-      } finally {
-        if (mounted && owner == _contextVersion) setState(() => _methodsReloading = false);
       }
-    });
+    } finally {
+      if (mounted && owner == _contextVersion) setState(() => _methodsReloading = false);
+    }
     if (restoreFocus && mounted && owner == _contextVersion) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted || owner != _contextVersion || !_methodsFocus.hasPrimaryFocus) return;
@@ -371,20 +392,28 @@ class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage>
         setState(() {
           _detail = _acceptedDetail(data);
           _checkFailed = false;
+          _requiresNetworkCheck = ref.read(isOfflineProvider);
+          _statusFailure = _requiresNetworkCheck
+              ? const XbNetwork(XbNetworkKind.connectionFailed, '当前离线') : null;
           _redirectNeedsCheck = false;
         });
         _observeCompletion();
         _maybeStartPolling();
         return XbResult.success(_detail);
       }
-      setState(() => _checkFailed = true);
+      setState(() {
+        _checkFailed = true;
+        _statusFailure = read.result.errorOrNull;
+      });
+      _maybeStartPolling();
       if (read.result case XbFailure()) return read.result;
       return XbResult<OrderDetail?>.failure(
         const XbUnexpected('getOrder', '暂未获取到最新订单状态。'),
       );
-    } catch (_) {
+    } catch (error) {
       if (!mounted || owner != _contextVersion) return null;
-      setState(() => _checkFailed = true);
+      setState(() { _checkFailed = true; _statusFailure = error; });
+      _maybeStartPolling();
       return XbResult<OrderDetail?>.failure(
         const XbUnexpected('getOrder', '暂未获取到最新订单状态。'),
       );
@@ -406,11 +435,21 @@ class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage>
     final owner = _contextVersion;
     setState(() => _checkingReturn = true);
     try {
-      await _refreshAfterMutation();
+      if (_redirectNeedsCheck || submitting) {
+        await _refreshAfterMutation();
+      } else {
+        await _refreshStatus();
+      }
     } finally {
       if (mounted && owner == _contextVersion) {
         setState(() => _checkingReturn = false);
       }
+    }
+    if (mounted && owner == _contextVersion && _foreground &&
+        ModalRoute.of(context)?.isCurrent != false &&
+        _detail?.summary.status == XbOrderStatus.pending &&
+        xbIsRecoverableReadError(_methodsFailure)) {
+      await _reloadMethods();
     }
   }
 
@@ -492,13 +531,14 @@ class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage>
     if (status == null) return;
     final shouldPoll =
         _foreground &&
+        !ref.read(isOfflineProvider) && _statusFailure == null &&
         (status == XbOrderStatus.pending || status == XbOrderStatus.processing);
     if (shouldPoll && (_pollTimer == null || !_pollTimer!.isActive)) {
       _pollTimer = Timer.periodic(_kPollInterval, (_) {
-        if (!_loading &&
-            (!submitting || _qrVisible) &&
+        if (!_loading && (ModalRoute.of(context)?.isCurrent != false || _qrVisible) &&
+            (!submitting || _qrVisible) && !_methodsReloading &&
             !_checking && !_checkingReturn &&
-            _orderRead == null) {
+            !ref.read(isOfflineProvider) && _orderRead == null) {
           unawaited(_refreshStatus());
         }
       });
@@ -514,6 +554,57 @@ class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage>
 
   @override
   Widget build(BuildContext context) {
+    final offline = ref.watch(isOfflineProvider);
+    ref.listen(isOfflineProvider, (_, next) {
+      if (next) {
+        _pollTimer?.cancel();
+        if (_detail != null && !_isTerminal(_detail!.summary.status) &&
+            (_statusFailure == null || xbIsRecoverableReadError(_statusFailure))) {
+          setState(() {
+            _checkFailed = true;
+            _requiresNetworkCheck = true;
+            _statusFailure = const XbNetwork(XbNetworkKind.connectionFailed, '当前离线');
+          });
+        }
+      }
+    });
+    xbListenForReadRecovery(context, ref, () async {
+      final owner = _contextVersion;
+      bool current() => mounted && owner == _contextVersion && _foreground &&
+          ref.read(authStateProvider) == AuthState.authenticated && !ref.read(isOfflineProvider);
+      if (!current() || submitting) return;
+      final initial = _initialRead;
+      final channel = _channelRead;
+      final detail = _orderRead;
+      await recoverCommerceRead(context: context, current: current,
+        pending: Future.wait<void>([
+          ?initial,
+          ?channel,
+          if (detail != null) detail.then<void>((_) {}),
+        ]),
+        retryIfFailed: () async {
+          if (_actionsBusy) return;
+          if (xbIsRecoverableReadError(_loadError)) {
+            await _initialLoad(retry: true);
+            return;
+          }
+          final retryChannels = xbIsRecoverableReadError(_methodsFailure);
+          if (_statusFailure != null && !xbIsRecoverableReadError(_statusFailure)) return;
+          if (_requiresNetworkCheck || xbIsRecoverableReadError(_statusFailure) ||
+              retryChannels && _detail?.summary.status == XbOrderStatus.pending) {
+            // A missing channel list is meaningful only if this very order
+            // still needs payment. Don't fetch channels for a newly closed order.
+            final latest = await _refreshStatus();
+            if (latest is! XbSuccess<OrderDetail?>) return;
+          }
+          if (!context.mounted || !current() || ModalRoute.of(context)?.isCurrent == false) return;
+          if (_detail?.summary.status == XbOrderStatus.pending &&
+              xbIsRecoverableReadError(_methodsFailure)) {
+            await _reloadMethods();
+          }
+          if (current()) _maybeStartPolling();
+        });
+    });
     // 按页面实际可用宽度排布，桌面侧栏与嵌套 Navigator 已占用的空间不参与双栏判断。
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -529,7 +620,10 @@ class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage>
             onRetry: () => _initialLoad(retry: true),
             builder: (context) => _detail == null
                 ? const Center(child: Text('订单不存在'))
-                : _content(context, _detail!, wide),
+                : offline ? Column(children: [
+                  const Text('当前离线，显示上次读取的订单'),
+                  Expanded(child: _content(context, _detail!, wide)),
+                ]) : _content(context, _detail!, wide),
           ),
         );
       },
@@ -688,7 +782,7 @@ class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage>
   Widget _methodChoices(BuildContext context, {required int netCents, required bool compact}) {
     final scheme = Theme.of(context).colorScheme;
     // 加载失败 → 小重试块（替代「暂无支付方式」死胡同，原型 17b）。仅重拉支付方式，不动订单。
-    if (_methodsError) {
+    if (_methodsError || _methodsReloading) {
       return SizedBox(
         width: double.infinity,
         child: Padding(

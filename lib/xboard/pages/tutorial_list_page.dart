@@ -19,6 +19,7 @@ import '../providers/auth_state_provider.dart';
 import '../providers/tutorial_provider.dart';
 import '../util/format.dart';
 import '../widgets/xb_components.dart';
+import '../widgets/xb_network_read_recovery.dart';
 import '../widgets/xb_feedback.dart' show xbBrandColor;
 import '../widgets/xb_theme.dart' show xbPush, XbTokens;
 import '../widgets/xb_ui_kit.dart'
@@ -35,7 +36,7 @@ class TutorialListPage extends ConsumerWidget {
     return XbBrandScaffold(
       title: '使用教程',
       body: authenticated
-          ? const _TutorialListBody()
+          ? _TutorialListBody(key: ValueKey(ref.read(authStateProvider.notifier).sessionRevision))
           : const XbEmptyState(
               icon: Icons.lock_outline,
               title: '请先登录',
@@ -45,18 +46,61 @@ class TutorialListPage extends ConsumerWidget {
   }
 }
 
-class _TutorialListBody extends ConsumerWidget {
-  const _TutorialListBody();
+class _TutorialListBody extends ConsumerStatefulWidget {
+  const _TutorialListBody({super.key});
+  @override
+  ConsumerState<_TutorialListBody> createState() => _TutorialListBodyState();
+}
+
+class _TutorialListBodyState extends ConsumerState<_TutorialListBody> {
+  List<XbTutorial>? _last;
+  final _age = Stopwatch()..start();
+  late final AppLifecycleListener _lifecycle;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  void initState() {
+    super.initState();
+    _lifecycle = AppLifecycleListener(onResume: () {
+      if (!mounted || _age.elapsed < const Duration(minutes: 1) ||
+          !TickerMode.valuesOf(context).enabled || ModalRoute.of(context)?.isCurrent == false) {
+        return;
+      }
+      final current = ref.read(tutorialsProvider);
+      if (!current.isLoading && !current.hasError && current.hasValue) _reload(ref);
+    });
+  }
+
+  @override
+  void dispose() {
+    _lifecycle.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final async = ref.watch(tutorialsProvider);
-    if (async.isLoading) {
+    ref.listen(tutorialsProvider, (_, next) {
+      if (!next.isLoading) _age.reset();
+    });
+    xbListenForReadRecovery(context, ref, () {
+      final current = ref.read(tutorialsProvider);
+      if (!current.isLoading && xbIsRecoverableReadError(current.error)) _reload(ref);
+    });
+    if (async is AsyncData<List<XbTutorial>>) _last = async.value;
+    if (async.hasError && !xbIsRecoverableReadError(async.error)) _last = null;
+    final saved = _last;
+    if (async.isLoading && (saved == null || saved.isEmpty)) {
       return const XbSkeletonView(kind: XbSkeletonKind.list);
     }
     return RefreshIndicator(
       onRefresh: () => _reload(ref),
-      child: async.hasError
+      child: saved != null && saved.isNotEmpty
+          ? Column(children: [
+              if (async.hasError && !async.isLoading)
+                TextButton(onPressed: () => _reload(ref), child: const Text('刷新失败，显示上次目录 · 重试')),
+              Expanded(child: _content(context, saved, () => _reload(ref))),
+            ])
+          : async.hasError
           ? _error(async.error, () => _reload(ref))
           : _content(context, async.requireValue, () => _reload(ref)),
     );
@@ -129,6 +173,7 @@ class _TutorialListBody extends ConsumerWidget {
                           Divider(
                             height: 1,
                             thickness: 1,
+                            indent: MediaQuery.sizeOf(context).width < 600 ? 48 : 0,
                             color: XbTokens.of(context).hair,
                           ),
                         _TutorialRow(tutorial: tutorials[i]),
@@ -250,6 +295,7 @@ class _TutorialRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = XbTokens.of(context);
+    final compact = MediaQuery.sizeOf(context).width < 600;
     return InkWell(
       onTap: () => xbPush(
         context,
@@ -258,18 +304,16 @@ class _TutorialRow extends StatelessWidget {
       ),
       borderRadius: BorderRadius.circular(XbTokens.rSm),
       child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 11),
+        padding: EdgeInsets.symmetric(vertical: compact ? 9 : 11, horizontal: compact ? 4 : 0),
         child: Row(
           children: [
-            Container(
-              width: 38,
-              height: 38,
-              alignment: Alignment.center,
-              decoration: BoxDecoration(
-                color: t.sfc,
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Icon(Icons.article_outlined, size: 19, color: t.onv),
+            XbIconBadge(
+              icon: Icons.article_outlined,
+              size: compact ? 32 : 38,
+              radius: XbTokens.rSm,
+              background: t.sfc,
+              iconSize: compact ? 17 : 19,
+              iconColor: compact ? t.on : t.onv,
             ),
             const SizedBox(width: 12),
             Expanded(
@@ -282,12 +326,12 @@ class _TutorialRow extends StatelessWidget {
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600,
+                      fontSize: compact ? 14.5 : 14,
+                      fontWeight: compact ? FontWeight.w400 : FontWeight.w600,
                       color: t.on,
                     ),
                   ),
-                  const SizedBox(height: 3),
+                  SizedBox(height: compact ? 2 : 3),
                   Text(
                     '更新于 ${xbDate(tutorial.updatedAt)}',
                     style: TextStyle(fontSize: 11.5, color: t.onv),
@@ -295,8 +339,8 @@ class _TutorialRow extends StatelessWidget {
                 ],
               ),
             ),
-            const SizedBox(width: 8),
-            Icon(Icons.chevron_right, size: 20, color: t.onv),
+            SizedBox(width: compact ? 12 : 8),
+            Icon(Icons.chevron_right, size: compact ? 18 : 20, color: t.onv),
           ],
         ),
       ),

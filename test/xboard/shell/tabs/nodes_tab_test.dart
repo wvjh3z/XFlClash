@@ -190,7 +190,11 @@ void main() {
   });
 
   testWidgets('已登录 + 无分组 → 空态引导续费（R4.6）', (tester) async {
-    await pumpNodes(tester, auth: AuthState.authenticated);
+    await pumpNodes(tester, auth: AuthState.authenticated, extraOverrides: [
+      userProfileProvider.overrideWith((_) async => const XbDomainSubscription(
+        email: 'fixture@example.invalid', uuid: 'fixture', totalBytes: 0, usedBytes: 0,
+      )),
+    ]);
     expect(find.text('当前无可用线路', findRichText: true), findsOneWidget);
     // 按钮文案：续费 / 购买（用户可能无套餐需新购）。
     expect(find.text('前往续费 / 购买', findRichText: true), findsOneWidget);
@@ -200,6 +204,16 @@ void main() {
     expect(find.text('刷新节点', findRichText: true), findsOneWidget);
     expect(find.byKey(const ValueKey('nodes-guest-badge')), findsNothing);
     expect(find.byKey(const ValueKey('nodes-guest-login-gradient')), findsNothing);
+  });
+
+  testWidgets('空列表且资料读取失败不引导购买', (tester) async {
+    await pumpNodes(tester, auth: AuthState.authenticated, extraOverrides: [
+      userProfileProvider.overrideWith((_) async => throw StateError('offline')),
+    ]);
+    await tester.pump();
+    expect(find.text('线路暂未同步'), findsOneWidget);
+    expect(find.text('前往续费 / 购买'), findsNothing);
+    expect(find.text('刷新节点'), findsOneWidget);
   });
 
   testWidgets('多分组 → 顶部 tab 列全部分组名，只显示选中组节点', (tester) async {

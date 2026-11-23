@@ -11,6 +11,8 @@ import '../util/tutorial_html.dart';
 import '../util/tutorial_resource_base.dart';
 import '../widgets/tutorial_webview.dart';
 import '../widgets/xb_async_view.dart';
+import '../models/xb_tutorial.dart';
+import '../widgets/xb_network_read_recovery.dart';
 import '../widgets/xb_components.dart';
 import '../widgets/xb_feedback.dart' show xbBrandColor;
 import '../widgets/xb_theme.dart' show xbPush;
@@ -85,28 +87,64 @@ class TutorialDetailPage extends ConsumerWidget {
   }
 }
 
-class _DetailBody extends ConsumerWidget {
+class _DetailBody extends ConsumerStatefulWidget {
   const _DetailBody({super.key, required this.id});
   final int id;
-
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_DetailBody> createState() => _DetailBodyState();
+}
+
+class _DetailBodyState extends ConsumerState<_DetailBody> {
+  XbTutorialDetail? _last;
+  Widget? _article;
+  @override
+  Widget build(BuildContext context) {
+    final id = widget.id;
     final async = ref.watch(tutorialDetailProvider(id));
+    xbListenForReadRecovery(context, ref, () {
+      final current = ref.read(tutorialDetailProvider(id));
+      if (_article == null && !current.isLoading && xbIsRecoverableReadError(current.error)) {
+        ref.invalidate(tutorialDetailProvider(id));
+      }
+    });
+    if (async is AsyncData<XbTutorialDetail> && !identical(_last, async.value)) {
+      _last = async.value;
+      _article = _last!.body.trim().isEmpty ? null : _Article(id: id, detail: _last!);
+    } else if (async.hasError && !xbIsRecoverableReadError(async.error)) {
+      _article = null;
+      _last = null;
+    }
+    final article = _article;
+    if (article != null) {
+      return Column(children: [
+        Expanded(child: article),
+        if (async.hasError && !async.isLoading)
+          TextButton(onPressed: () => ref.invalidate(tutorialDetailProvider(id)),
+              child: const Text('刷新失败，保留当前正文 · 重试')),
+      ]);
+    }
     return XbAsyncView(
       loading: async.isLoading,
       loadingWidget: const _ArticleSkeleton(),
       error: async.hasError ? async.error : null,
       errorFallback: '加载教程失败',
       onRetry: () => ref.invalidate(tutorialDetailProvider(id)),
-      builder: (context) {
-        final detail = async.requireValue;
-        if (detail.body.trim().isEmpty) {
-          return const XbEmptyState(
+      builder: (_) => const XbEmptyState(
             icon: Icons.menu_book_outlined,
             title: '教程暂无内容',
             description: '请稍后刷新重试。',
-          );
-        }
+          ),
+    );
+  }
+}
+
+class _Article extends ConsumerWidget {
+  const _Article({required this.id, required this.detail});
+  final int id;
+  final XbTutorialDetail detail;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
         final resourceBase =
             tutorialResourceBase(detail.resourceBase) ??
             tutorialResourceBase(ref.read(apiEndpointProvider)) ??
@@ -143,8 +181,6 @@ class _DetailBody extends ConsumerWidget {
           )),
           child: ref.watch(tutorialReaderBuilderProvider)(context, content),
         );
-      },
-    );
   }
 }
 

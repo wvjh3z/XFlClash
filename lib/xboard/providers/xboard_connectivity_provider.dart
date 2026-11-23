@@ -15,6 +15,7 @@ library;
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
+import 'package:flutter/services.dart' show MissingPluginException;
 
 import '../services/sentry_bootstrap.dart';
 
@@ -28,6 +29,16 @@ final xboardConnectivityClientProvider = Provider<Connectivity>(
   (ref) => Connectivity(),
 );
 
+/// Passive UI signal. The application observer alone owns the platform
+/// subscription. Embedded pages/tests do not independently open EventChannels.
+final interfaceUnavailableProvider =
+    NotifierProvider<InterfaceUnavailable, bool>(InterfaceUnavailable.new);
+class InterfaceUnavailable extends Notifier<bool> {
+  @override
+  bool build() => false;
+  void set(bool absent) => state = absent;
+}
+
 /// 网络连接状态流（首帧 `checkConnectivity()` 当前值 + 后续 `onConnectivityChanged`）。
 ///
 /// keepAlive：与 App 同寿（连接状态全局共享，避免每个 widget 各自订阅）。
@@ -37,21 +48,29 @@ Stream<List<ConnectivityResult>> xboardConnectivity(Ref ref) async* {
   // 首帧：当前连接状态（避免 stream 首次事件前 UI 无数据）。
   try {
     final results = await connectivity.checkConnectivity();
-    SentryBootstrap.tagConnectivity(
-      online: !results.contains(ConnectivityResult.none),
-    );
+    _tagInterface(results);
     yield results;
+  } on MissingPluginException {
+    SentryBootstrap.setTag('connectivity.interface', 'unknown');
+    SentryBootstrap.setTag(SentryTagKeys.connectivityOnline, 'unknown');
+    yield const <ConnectivityResult>[];
+    return;
   } catch (_) {
-    SentryBootstrap.tagConnectivity(online: false);
+    SentryBootstrap.setTag('connectivity.interface', 'unknown');
+    SentryBootstrap.setTag(SentryTagKeys.connectivityOnline, 'unknown');
     // A platform/permission failure is unknown, not a confirmed disconnection.
     yield const <ConnectivityResult>[];
   }
   await for (final results in connectivity.onConnectivityChanged) {
-    SentryBootstrap.tagConnectivity(
-      online: !results.contains(ConnectivityResult.none),
-    );
+    _tagInterface(results);
     yield results;
   }
+}
+
+void _tagInterface(List<ConnectivityResult> results) {
+  final absent = results.length == 1 && results.single == ConnectivityResult.none;
+  SentryBootstrap.setTag('connectivity.interface', absent ? 'none' : 'present');
+  SentryBootstrap.setTag(SentryTagKeys.connectivityOnline, absent ? 'false' : 'unknown');
 }
 
 /// 是否离线（派生）—— `none` 在结果集中即视为离线（ζ9 跨平台一致）。
@@ -61,7 +80,7 @@ Stream<List<ConnectivityResult>> xboardConnectivity(Ref ref) async* {
 bool isOffline(Ref ref) {
   final conn = ref.watch(xboardConnectivityProvider);
   return conn.maybeWhen(
-    data: (results) => results.contains(ConnectivityResult.none),
+    data: (results) => results.length == 1 && results.single == ConnectivityResult.none,
     orElse: () => false,
   );
 }

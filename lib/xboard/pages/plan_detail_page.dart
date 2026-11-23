@@ -10,6 +10,8 @@ import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../widgets/xb_async_view.dart';
+import '../widgets/xb_network_read_recovery.dart';
+import '../providers/xboard_connectivity_provider.dart';
 import '../widgets/xb_components.dart';
 import '../widgets/xb_feedback.dart' show xbBrandColor, XbStateToast;
 import '../widgets/xb_theme.dart' show xbPush, xbShowDialog, XbTokens;
@@ -35,6 +37,7 @@ import '../widgets/xb_plan_details.dart';
 import '../widgets/xb_purchase_confirmation.dart';
 import 'order_payment_page.dart';
 import 'plan_list_page.dart';
+import 'commerce_read_recovery.dart';
 
 /// 是否需弹「更换套餐」确认（纯函数，可单测）。同时满足才弹：
 /// ① 非续费模式；② 当前有套餐（planId 非空、有流量）；③ 未到期（expiredAt==null 长期有效
@@ -59,18 +62,33 @@ bool shouldConfirmPlanSwitch({
 /// **交互统一**（§11 系统化修复）：续费与「购买/更改」走同一模式——点击**立即跳转**，由目标
 /// 页用 [XbAsyncView] 自己加载转圈，而非在「我的」页预拉数据 + 弹遮罩。找不到当前套餐（已下架）
 /// → 回退展示套餐列表（不阻断续费意图）。
-class PlanRenewLoader extends ConsumerStatefulWidget {
+class PlanRenewLoader extends ConsumerWidget {
   const PlanRenewLoader({super.key, required this.planId});
 
   final int planId;
 
   @override
-  ConsumerState<PlanRenewLoader> createState() => _PlanRenewLoaderState();
+  Widget build(BuildContext context, WidgetRef ref) {
+    final auth = ref.watch(authStateProvider);
+    final owner = (auth, ref.read(authStateProvider.notifier).sessionRevision, ref.watch(xboardServiceProvider), planId);
+    return _OwnedRenewLoader(key: ValueKey(owner), planId: planId,
+      current: () => ref.read(authStateProvider) == owner.$1 &&
+        ref.read(authStateProvider.notifier).sessionRevision == owner.$2 && identical(ref.read(xboardServiceProvider), owner.$3));
+  }
 }
 
-class _PlanRenewLoaderState extends ConsumerState<PlanRenewLoader> {
+class _OwnedRenewLoader extends ConsumerStatefulWidget {
+  const _OwnedRenewLoader({super.key, required this.planId, required this.current});
+  final int planId;
+  final bool Function() current;
+  @override
+  ConsumerState<_OwnedRenewLoader> createState() => _PlanRenewLoaderState();
+}
+
+class _PlanRenewLoaderState extends ConsumerState<_OwnedRenewLoader> {
   late Future<List<PlanItem>> _future;
   bool _retrying = false;
+  Object? _lastError;
 
   @override
   void initState() {
@@ -79,7 +97,11 @@ class _PlanRenewLoaderState extends ConsumerState<PlanRenewLoader> {
   }
 
   Future<List<PlanItem>> _load() async {
-    final result = await ref.read(xboardServiceProvider).getPlans();
+    _lastError = null;
+    final result = ref.read(isOfflineProvider)
+        ? const XbFailure<List<PlanItem>>(XbNetwork(XbNetworkKind.connectionFailed, '当前离线'))
+        : await ref.read(xboardServiceProvider).getPlans();
+    _lastError = result.errorOrNull;
     return switch (result) {
       XbSuccess(:final data) => data,
       XbFailure(:final error) => throw error,
@@ -87,7 +109,7 @@ class _PlanRenewLoaderState extends ConsumerState<PlanRenewLoader> {
   }
 
   Future<void> _reload() async {
-    if (!mounted) return;
+    if (!mounted || _retrying) return;
     final request = _load();
     setState(() {
       _retrying = true;
@@ -107,6 +129,13 @@ class _PlanRenewLoaderState extends ConsumerState<PlanRenewLoader> {
 
   @override
   Widget build(BuildContext context) {
+    xbListenForReadRecovery(context, ref, () {
+      if (_retrying) return;
+      recoverCommerceRead(context: context, current: () => mounted && widget.current(), pending: _future,
+        retryIfFailed: () async {
+          if (!_retrying && xbIsRecoverableReadError(_lastError)) await _reload();
+        });
+    });
     return FutureBuilder<List<PlanItem>>(
       future: _future,
       builder: (context, snap) {
@@ -117,7 +146,7 @@ class _PlanRenewLoaderState extends ConsumerState<PlanRenewLoader> {
           final current = plans.where((p) => p.id == widget.planId).firstOrNull;
           return current != null && current.renewable
               ? PlanDetailPage(plan: current, renew: true)
-              : const PlanListPage();
+              : PlanListPage(initialPlans: plans);
         }
         // 加载 / 重试 / 错误：用带返回栏的脚手架 + XbAsyncView 转圈（与购买页转圈口径一致）。
         return XbBrandScaffold(
@@ -169,6 +198,7 @@ class _PlanDetailPageState extends ConsumerState<PlanDetailPage> {
   final _couponController = TextEditingController();
   CouponInfo? _coupon; // 已校验通过的券
   String? _couponError;
+  Object? _couponReadFailure;
   bool _checkingCoupon = false;
   bool _submitting = false;
   XboardService? _ownerService;
@@ -256,6 +286,7 @@ class _PlanDetailPageState extends ConsumerState<PlanDetailPage> {
 
   void _invalidateCoupon() {
     _couponGeneration++;
+    _couponReadFailure = null;
     setState(() {
       _coupon = null;
       _couponError = null;
@@ -292,6 +323,13 @@ class _PlanDetailPageState extends ConsumerState<PlanDetailPage> {
 
   @override
   Widget build(BuildContext context) {
+    ref.watch(isOfflineProvider);
+    xbListenForReadRecovery(context, ref, () {
+      if (_ownerCurrent && !_submitting && !_checkingCoupon &&
+          xbIsRecoverableReadError(_couponReadFailure)) {
+        _checkCoupon();
+      }
+    });
     final auth = ref.watch(authStateProvider);
     if (_ownerService != null && auth == AuthState.authenticated) {
       ref.watch(xboardServiceProvider);
@@ -361,7 +399,7 @@ class _PlanDetailPageState extends ConsumerState<PlanDetailPage> {
     final theme = Theme.of(context);
     final t = XbTokens.of(context);
     final brand = theme.colorScheme.primary;
-    final enabled = !_checkingCoupon && !_submitting;
+    final enabled = !_checkingCoupon && !_submitting && !ref.read(isOfflineProvider);
     var gradientStart = Color.lerp(brand, Colors.white, 0.16)!;
     // Preserve at least 4.66:1 against white, including the bright end.
     while (gradientStart.computeLuminance() > 0.175) {
@@ -795,6 +833,7 @@ class _PlanDetailPageState extends ConsumerState<PlanDetailPage> {
       return;
     }
     final generation = ++_couponGeneration;
+    _couponReadFailure = null;
     final period = _selected.period;
     final planId = plan.id;
     final code = _couponController.text.trim();
@@ -814,7 +853,9 @@ class _PlanDetailPageState extends ConsumerState<PlanDetailPage> {
       _coupon = null;
     });
     try {
-      final result = await _ownerService!.checkCoupon(code, planId, period);
+      final result = ref.read(isOfflineProvider)
+          ? const XbFailure<CouponInfo?>(XbNetwork(XbNetworkKind.connectionFailed, '当前离线'))
+          : await _ownerService!.checkCoupon(code, planId, period);
       if (!_ownerCurrent ||
           generation != _couponGeneration ||
           plan.id != planId ||
@@ -836,12 +877,14 @@ class _PlanDetailPageState extends ConsumerState<PlanDetailPage> {
             setState(() => _coupon = data);
           }
         case XbFailure(:final error):
+          _couponReadFailure = error;
           setState(
             () => _couponError = resolveErrorText(error, fallback: '优惠码验证失败'),
           );
       }
     } catch (error, stack) {
       if (_ownerCurrent && generation == _couponGeneration) {
+        _couponReadFailure = error;
         SentryBootstrap.captureException(
           error,
           stackTrace: stack,
@@ -857,7 +900,7 @@ class _PlanDetailPageState extends ConsumerState<PlanDetailPage> {
   }
 
   Future<void> _submitOrder() async {
-    if (!mounted || _submitting || _checkingCoupon || _selection == null) return;
+    if (!mounted || _submitting || _checkingCoupon || _selection == null || ref.read(isOfflineProvider)) return;
     if (!_ownerCurrent) {
       xbToastSafe('账号状态已变化，请登录后重新进入结算。');
       return;

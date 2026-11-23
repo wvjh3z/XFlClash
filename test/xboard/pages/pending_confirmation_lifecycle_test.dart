@@ -13,6 +13,10 @@ import 'package:fl_clash/xboard/providers/auth_state_provider.dart';
 import 'package:fl_clash/xboard/providers/pending_order_provider.dart';
 import 'package:fl_clash/xboard/sdk/xboard_service.dart';
 class _Service extends Mock implements XboardService {}
+class _SignedIn extends AuthStateNotifier {
+  @override
+  AuthState build() => AuthState.authenticated;
+}
 void main() {
  for(final brand in ['brand_a','brand_b']) {
   for(final platform in [TargetPlatform.android,TargetPlatform.windows,TargetPlatform.macOS,TargetPlatform.linux]) {
@@ -28,7 +32,7 @@ void main() {
       when(()=>b.cancelOrder(any())).thenAnswer((_)async=>const XbSuccess(true));
       final visible=ValueNotifier(true);addTearDown(visible.dispose);
       final order=OrderSummary(tradeNo:'fixture',planName:'fixture',period:XbPlanPeriod.monthly,totalAmountYuan:1,status:XbOrderStatus.pending,createdAt:DateTime(2026));
-      await tester.pumpWidget(ProviderScope(overrides:[xboardServiceProvider.overrideWith((ref)=>current),pendingOrderProvider.overrideWith((ref)async=>order)],
+      await tester.pumpWidget(ProviderScope(overrides:[authStateProvider.overrideWith(_SignedIn.new),xboardServiceProvider.overrideWith((ref)=>current),pendingOrderProvider.overrideWith((ref)async=>order)],
        child:MaterialApp(theme:ThemeData(platform:platform),home:Scaffold(body:ValueListenableBuilder<bool>(valueListenable:visible,builder:(context,value,_)=>value?const PendingOrderSection():const SizedBox())))));
       await tester.pumpAndSettle();
       final container=ProviderScope.containerOf(tester.element(find.byType(PendingOrderSection)));

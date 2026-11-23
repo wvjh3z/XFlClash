@@ -640,6 +640,11 @@ void main() {
     s.recoverPending();
     await Future<void>.delayed(const Duration(milliseconds: 30));
     expect(requests, 3);
+    await s.recoverNetwork(1);
+    await Future<void>.delayed(const Duration(milliseconds: 120));
+    expect(requests, 6, reason: 'new verified network grants one bounded retry budget');
+    await s.recoverNetwork(1);
+    expect(requests, 6);
   });
 
   test('等待重试期间换会话，不再发旧请求', () async {
@@ -673,6 +678,7 @@ void main() {
       retryDelays: const [Duration(milliseconds: 10)],
     );
     expect(await s.sync(), XbSyncOutcome.noSubscription);
+    await s.recoverNetwork(1);
     s.recoverPending();
     await Future<void>.delayed(const Duration(milliseconds: 40));
     expect(requests, 1);

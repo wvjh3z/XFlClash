@@ -11,9 +11,12 @@ import 'package:fl_clash/xboard/pages/tutorial_detail_page.dart';
 import 'package:fl_clash/xboard/pages/tutorial_list_page.dart';
 import 'package:fl_clash/xboard/providers/auth_state_provider.dart';
 import 'package:fl_clash/xboard/providers/tutorial_provider.dart';
+import 'package:fl_clash/xboard/providers/network_recovery_provider.dart';
 import 'package:fl_clash/xboard/providers/xboard_providers.dart';
 import 'package:fl_clash/xboard/sdk/xboard_service.dart';
 import 'package:fl_clash/xboard/sdk/xboard_service_impl.dart';
+import 'package:fl_clash/xboard/widgets/xb_theme.dart' show XbTokens;
+import 'package:fl_clash/xboard/widgets/xb_ui_kit.dart' show XbIconBadge;
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -764,6 +767,30 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  for (final brightness in Brightness.values) {
+    testWidgets('教程窄屏目录徽标、标题和日期层级（$brightness）', (tester) async {
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = const Size(320, 640);
+      addTearDown(tester.view.reset);
+      final service = _Service();
+      when(service.getTutorials).thenAnswer((_) async => XbResult.success([_tutorial()]));
+      await _pumpList(tester, service, brightness: brightness);
+      final title = find.text(_listTitle);
+      final t = XbTokens.of(tester.element(title));
+      final style = tester.widget<Text>(title).style!;
+      expect(style.fontSize, 14.5);
+      expect(style.fontWeight, FontWeight.w400);
+      expect(style.color, t.on);
+      final icon = find.byIcon(Icons.article_outlined);
+      expect(tester.getSize(find.ancestor(of: icon, matching: find.byType(XbIconBadge))),
+          const Size.square(32));
+      expect(tester.widget<Icon>(icon).size, 17);
+      expect(tester.widget<Icon>(icon).color, t.on);
+      expect(tester.widget<Text>(find.textContaining('更新于')).style?.color, t.onv);
+      expect(tester.takeException(), isNull);
+    });
+  }
+
   for (final state in [
     _ListState.empty,
     _ListState.failure,
@@ -839,8 +866,8 @@ void main() {
       (widget) => widget is IconButton && widget.tooltip == '刷新教程',
     );
     expect(tester.widget<IconButton>(refreshButton).onPressed, isNull);
-    expect(find.bySemanticsLabel('正在加载教程正文'), findsOneWidget);
-    expect(find.byKey(const Key('native-reader-placeholder')), findsNothing);
+    expect(find.bySemanticsLabel('正在加载教程正文'), findsNothing);
+    expect(find.byKey(const Key('native-reader-placeholder')), findsOneWidget);
     await tester.tap(find.byTooltip('刷新教程'));
     await _finish(tester);
     expect(calls, 2, reason: '正文请求在途时重复点击不能发起新请求');
@@ -860,6 +887,66 @@ void main() {
     expect(f.inputs, isEmpty);
     expect(find.byKey(const Key('native-reader-placeholder')), findsNothing);
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('可达信号只恢复失败的正文读取，不重建已打开的阅读器', (tester) async {
+    final f = _DetailFixture();
+    var calls = 0;
+    when(() => f.service.getTutorialDetail(21)).thenAnswer((_) async {
+      return ++calls == 1
+          ? const XbFailure<XbTutorialDetail>(XbNetwork(XbNetworkKind.connectionFailed, 'offline'))
+          : XbResult.success(_detail('<p>已恢复的正文</p>'));
+    });
+    await f.pump(tester);
+    expect(find.text('重试'), findsOneWidget);
+    f.container.read(networkRecoveryProvider.notifier).publish();
+    await _finish(tester);
+    expect(f.inputs.last.html, contains('已恢复的正文'));
+    final renders = f.inputs.length;
+    f.container.read(networkRecoveryProvider.notifier).publish();
+    await _finish(tester);
+    expect(calls, 2);
+    expect(f.inputs.length, renders);
+    expect(f.nativeDisposals, 0);
+  });
+
+  testWidgets('目录刷新失败保留旧标题，一次可达信号恢复目录', (tester) async {
+    var calls = 0;
+    final service = _Service();
+    when(service.getTutorials).thenAnswer((_) async => ++calls == 2
+        ? const XbFailure<List<XbTutorial>>(XbNetwork(XbNetworkKind.connectionFailed, 'offline'))
+        : XbResult.success([_tutorial(title: '目录$calls')]));
+    final container = await _pumpList(tester, service);
+    await _pullList(tester);
+    expect(find.text('目录1'), findsOneWidget);
+    expect(find.textContaining('显示上次目录'), findsOneWidget);
+    container.read(networkRecoveryProvider.notifier).publish();
+    await _finish(tester);
+    expect(find.text('目录3'), findsOneWidget);
+    expect(calls, 3);
+  });
+
+  testWidgets('隐藏路由与未认证错误不在网络恢复时补读', (tester) async {
+    final service = _Service();
+    var calls = 0;
+    when(service.getTutorials).thenAnswer((_) async => ++calls == 1
+        ? const XbFailure<List<XbTutorial>>(XbNetwork(XbNetworkKind.connectionFailed, 'offline'))
+        : const XbFailure<List<XbTutorial>>(XbUnauthorized('expired')));
+    final container = await _pumpList(tester, service);
+    final nav = tester.state<NavigatorState>(find.byType(Navigator).first);
+    unawaited(nav.push<void>(MaterialPageRoute(builder: (_) => const Scaffold(body: Text('其他页')))));
+    await tester.pumpAndSettle();
+    container.read(networkRecoveryProvider.notifier).publish();
+    await _finish(tester);
+    expect(calls, 1);
+    nav.pop();
+    await tester.pumpAndSettle();
+    container.read(networkRecoveryProvider.notifier).publish();
+    await _finish(tester);
+    expect(find.textContaining('登录已过期'), findsOneWidget);
+    container.read(networkRecoveryProvider.notifier).publish();
+    await _finish(tester);
+    expect(calls, 2);
   });
 
   testWidgets('退出立即销毁旧阅读器；重新登录重新取正文', (tester) async {

@@ -12,9 +12,15 @@ import 'package:fl_clash/xboard/models/xb_domain_types.dart';
 import 'package:fl_clash/xboard/models/xb_result.dart';
 import 'package:fl_clash/xboard/pages/pending_order_section.dart';
 import 'package:fl_clash/xboard/providers/xboard_providers.dart';
+import 'package:fl_clash/xboard/providers/auth_state_provider.dart';
+import 'package:fl_clash/xboard/providers/network_recovery_provider.dart';
 import 'package:fl_clash/xboard/sdk/xboard_service.dart';
 
 class _MockService extends Mock implements XboardService {}
+class _SignedIn extends AuthStateNotifier {
+  @override
+  AuthState build() => AuthState.authenticated;
+}
 
 OrderSummary _order(XbOrderStatus status) => OrderSummary(
       tradeNo: 'T-1',
@@ -28,7 +34,7 @@ OrderSummary _order(XbOrderStatus status) => OrderSummary(
 Future<void> pump(WidgetTester tester, XboardService svc) async {
   await tester.pumpWidget(
     ProviderScope(
-      overrides: [xboardServiceProvider.overrideWithValue(svc)],
+      overrides: [xboardServiceProvider.overrideWithValue(svc), authStateProvider.overrideWith(_SignedIn.new)],
       child: const MaterialApp(
         home: Scaffold(body: PendingOrderSection()),
       ),
@@ -82,7 +88,7 @@ void main() {
     expect(find.text('有待支付订单'), findsNothing);
   });
 
-  testWidgets('订单查询失败 → 横幅不显示（永不打断）', (tester) async {
+  testWidgets('未知待付没有取消权限，恢复只读后才确认为空', (tester) async {
     final svc = _MockService();
     when(() => svc.getOrders(
         page: any(named: 'page'),
@@ -91,5 +97,15 @@ void main() {
         .thenAnswer((_) async => XbResult.failure(const XbServer(500, 'x')));
     await pump(tester, svc);
     expect(find.text('有待支付订单'), findsNothing);
+    expect(find.text('待支付订单状态待核实'), findsOneWidget);
+    expect(find.text('取消订单'), findsNothing);
+    when(() => svc.getOrders(forceRefresh: true)).thenAnswer((_) async => const XbSuccess(
+      XbPagedList<OrderSummary>(items: [], page: 1, pageSize: 20, total: 0)));
+    final container = ProviderScope.containerOf(tester.element(find.byType(PendingOrderSection)));
+    container.read(networkRecoveryProvider.notifier).publish();
+    await tester.pumpAndSettle();
+    expect(find.text('待支付订单状态待核实'), findsNothing);
+    expect(find.text('有待支付订单'), findsNothing);
+    verifyNever(() => svc.cancelOrder(any()));
   });
 }

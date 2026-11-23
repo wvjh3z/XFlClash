@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_html/flutter_html.dart';
@@ -42,7 +43,7 @@ void main() {
     Future<void> Function(int) open,
   ) async {
     await tester.pumpWidget(
-      MaterialApp(
+      ProviderScope(child: MaterialApp(
         home: Scaffold(
           body: TutorialWebView(
             html: buildTutorialHtml(body, resourceBase: base, isDark: false),
@@ -51,7 +52,7 @@ void main() {
             onOpenTutorial: open,
           ),
         ),
-      ),
+      )),
     );
     await tester.pumpAndSettle();
   }

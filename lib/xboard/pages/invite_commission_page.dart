@@ -15,16 +15,16 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/xb_invite.dart';
 import '../models/xb_result.dart';
-import '../models/xb_domain_error.dart';
 import '../providers/auth_state_provider.dart';
 import '../providers/invite_provider.dart';
 import '../providers/share_link_provider.dart';
 import '../providers/xboard_providers.dart';
+import '../sdk/xboard_service.dart';
 import '../services/withdraw_eligibility.dart' show withdrawPaidRecordCount;
 import '../util/error_text.dart';
 import '../util/format.dart';
 import '../util/money_input.dart';
-import '../widgets/xb_async_view.dart';
+import '../widgets/xb_network_read_recovery.dart';
 import '../widgets/xb_components.dart';
 import '../widgets/xb_feedback.dart' show xbBrandColor, xbToast;
 import '../widgets/xb_share_links.dart';
@@ -32,6 +32,8 @@ import '../widgets/xb_theme.dart'
     show xbDialogRoute, xbPush, xbShowDialog, XbTokens;
 import '../widgets/xb_ui_kit.dart' show XbBrandScaffold, XbGradientAction;
 import 'commission_records_page.dart';
+import 'commission_read_view.dart';
+import 'commission_pending_review.dart';
 import 'withdraw_commission_dialog.dart';
 
 final _withdrawDialogs = Expando<DialogRoute<void>>();
@@ -55,39 +57,20 @@ class _InviteBody extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final async = ref.watch(inviteInfoProvider);
-    // 分享链接是另一个 guest 异步源。之前只 gate inviteInfo → inviteInfo 一快返回骨架就消失，
-    // 分享卡还在单独加载、随后才弹入（两现象同根）。把它纳入加载门：两者都就绪才出内容，骨架覆盖
-    // 整段加载、分享卡与其余卡同时出现。分享失败/禁用也算就绪（不阻塞页面，分享区自隐）。
-    final shareAsync = ref.watch(shareLinkProvider);
-    final shareSettled = !shareAsync.isLoading;
-    return RefreshIndicator(
-      onRefresh: () async {
-        ref.invalidate(inviteInfoProvider);
-        ref.invalidate(shareLinkProvider);
-        ref.invalidate(commissionRecordsProvider);
-        // 等两者本次重拉都落定再收起转圈；失败吞掉（错误态由 XbAsyncView 接管，不重复弹）。
-        try {
-          await Future.wait([
-            ref.read(inviteInfoProvider.future),
-            ref.read(shareLinkProvider.future),
-          ]);
-        } catch (_) {
-          // 错误由 XbAsyncView 的 error 态 / 分享区自隐处理，此处仅需等待 future 落定。
-        }
+    return CommissionReadView<XbInviteInfo>(
+      data: async, errorText: '加载邀请信息失败', skeleton: XbSkeletonKind.invite,
+      content: _content,
+      onPull: () {
+        if (!ref.read(shareLinkProvider).isLoading) ref.invalidate(shareLinkProvider);
+        if (!ref.read(commissionRecordsProvider).isLoading) ref.invalidate(commissionRecordsProvider);
       },
-      child: XbAsyncView(
-        // 主数据加载中 或 分享链接尚未落定 → 都显示骨架（覆盖整段加载）。
-        loading: async.isLoading || !shareSettled,
-        // 错误只 gate 主数据：分享失败不该挡住整页（分享区会自隐）。
-        error: async.hasError ? async.error : null,
-        errorFallback: '加载邀请信息失败',
-        skeleton: XbSkeletonKind.invite,
-        onRetry: () {
-          ref.invalidate(inviteInfoProvider);
-          ref.invalidate(shareLinkProvider);
-        },
-        builder: (context) => _content(context, async.requireValue),
-      ),
+      reload: () async {
+        final session = ref.read(commissionSessionProvider);
+        if (session.busy) return;
+        session.allowCodeGeneration = false;
+        ref.invalidate(inviteInfoProvider);
+        await ref.read(inviteInfoProvider.future);
+      },
     );
   }
 
@@ -165,6 +148,14 @@ class _RecordsEntry extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final records = ref.watch(commissionRecordsProvider);
+    final owner = ref.watch(commissionReadOwnerProvider);
+    xbListenForReadRecovery(context, ref, () {
+      final actual = ref.read(commissionRecordsProvider);
+      if (owner == ref.read(commissionReadOwnerProvider) && !owner.$1.busy &&
+          !actual.isLoading && xbIsRecoverableReadError(actual.error)) {
+        ref.invalidate(commissionRecordsProvider);
+      }
+    });
     final rows = records.isLoading ? null : records.asData?.value;
     final count = rows == null ? null : withdrawPaidRecordCount(rows);
     final tokens = XbTokens.of(context);
@@ -288,7 +279,7 @@ class _BalanceCard extends ConsumerWidget {
                   label: '划转到余额',
                   solid: true,
                   brand: brand,
-                  onTap: () => _openTransfer(context),
+                  onTap: () => _openTransfer(context, ref),
                 ),
               ),
               const SizedBox(width: 9),
@@ -435,11 +426,18 @@ class _BalanceCard extends ConsumerWidget {
     );
   }
 
-  void _openTransfer(BuildContext context) {
+  void _openTransfer(BuildContext context, WidgetRef ref) {
+    if (ref.read(authStateProvider) != AuthState.authenticated) return;
+    final session = ref.read(commissionSessionProvider);
+    final owner = ref.read(xboardServiceProvider);
+    if (session.busy) return;
     xbShowDialog<void>(
       context: context,
       brandColor: xbBrandColor(),
-      builder: (_) => _TransferDialog(info: info),
+      barrierDismissible: false,
+      builder: (_) => session.pendingOperation != null
+          ? CommissionPendingReview(owner: owner, session: session)
+          : _TransferDialog(info: info, owner: owner, session: session),
     );
   }
 
@@ -448,12 +446,16 @@ class _BalanceCard extends ConsumerWidget {
     final navigator = Navigator.of(context, rootNavigator: true);
     if (_withdrawDialogs[navigator]?.isActive ?? false) return;
     final owner = ref.read(xboardServiceProvider);
+    final session = ref.read(commissionSessionProvider);
+    if (session.busy) return;
     final revision = ref.read(authStateProvider.notifier).sessionRevision;
     final route = xbDialogRoute<void>(
       context: context,
       barrierDismissible: false,
       brandColor: xbBrandColor(),
-      builder: (_) => WithdrawCommissionDialog(owner: owner, revision: revision),
+      builder: (_) => session.pendingOperation != null
+          ? CommissionPendingReview(owner: owner, session: session)
+          : WithdrawCommissionDialog(owner: owner, revision: revision),
     );
     _withdrawDialogs[navigator] = route;
     unawaited(
@@ -616,26 +618,65 @@ class _PendingTip extends StatelessWidget {
 
 // ───────────────────────── 分享链接 ─────────────────────────
 
-class _ShareLinksSection extends ConsumerWidget {
+class _ShareLinksSection extends ConsumerStatefulWidget {
   const _ShareLinksSection({this.code});
 
   /// 我的邀请码（复制分享链接时附带进文案；可空）。
   final String? code;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_ShareLinksSection> createState() => _ShareLinksState();
+}
+
+class _ShareLinksState extends ConsumerState<_ShareLinksSection> {
+  Object? owner;
+  XbShareLink? previous;
+  bool recoverAfterRead = false;
+  @override
+  Widget build(BuildContext context) {
+    final key = ref.watch(commissionReadOwnerProvider);
+    if (owner != key) { owner = key; previous = null; recoverAfterRead = false; }
     final async = ref.watch(shareLinkProvider);
-    final link = async.asData?.value;
-    // 分享地址未就绪 / 未配置 → 不展示分享区块（邀请页核心是邀请码，分享地址是附加）。
-    if (link == null || !link.enabled) return const SizedBox.shrink();
+    if (!async.isLoading && !async.hasError && async.asData != null) previous = async.requireValue;
+    void retry() {
+      if (owner == ref.read(commissionReadOwnerProvider) && !ref.read(shareLinkProvider).isLoading) {
+        ref.invalidate(shareLinkProvider);
+      }
+    }
+    xbListenForReadRecovery(context, ref, () {
+      final value = ref.read(shareLinkProvider);
+      if (value.isLoading) {
+        recoverAfterRead = true;
+      } else if (xbIsRecoverableReadError(value.error)) {
+        retry();
+      }
+    });
+    if (recoverAfterRead && !async.isLoading) {
+      recoverAfterRead = false;
+      if (xbIsRecoverableReadError(async.error)) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          final state = WidgetsBinding.instance.lifecycleState;
+          if (mounted && key == ref.read(commissionReadOwnerProvider) &&
+              ModalRoute.of(context)?.isCurrent == true && TickerMode.valuesOf(context).enabled &&
+              (state == null || state == AppLifecycleState.resumed)) {
+            retry();
+          }
+        });
+      }
+    }
+    final link = previous;
+    if (!async.hasError && !async.isLoading && link?.enabled != true) return const SizedBox.shrink();
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         const XbGroupLabel('分享链接 · 复制下载各种平台的客户端'),
-        XbShareLinksCard(
+        if (async.isLoading) const LinearProgressIndicator(minHeight: 2),
+        if (async.error is ShareServicePreparing) const Text('分享服务准备中…')
+        else if (async.hasError) TextButton(onPressed: retry, child: const Text('分享链接加载失败 · 重试')),
+        if (link != null && link.enabled) XbShareLinksCard(
           primaryUrl: link.primaryUrl,
           backupUrl: link.backupUrl,
-          inviteCode: code,
+          inviteCode: widget.code,
         ),
       ],
     );
@@ -644,12 +685,12 @@ class _ShareLinksSection extends ConsumerWidget {
 
 // ───────────────────────── 邀请码卡 ─────────────────────────
 
-class _InviteCodeCard extends StatelessWidget {
+class _InviteCodeCard extends ConsumerWidget {
   const _InviteCodeCard({required this.code});
   final String? code;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final t = XbTokens.of(context);
     final brand = Theme.of(context).colorScheme.primary;
     final hasCode = code != null && code!.isNotEmpty;
@@ -723,7 +764,7 @@ class _InviteCodeCard extends StatelessWidget {
                   children: [
                     Expanded(
                       child: Text(
-                        hasCode ? code! : '生成中…',
+                        hasCode ? code! : '邀请码暂不可用',
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
@@ -744,24 +785,44 @@ class _InviteCodeCard extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(width: 10),
-                    FilledButton.icon(
-                      onPressed: hasCode
-                          ? () {
-                              Clipboard.setData(ClipboardData(text: code!));
-                              xbToast(context, '邀请码已复制');
-                            }
-                          : null,
-                      icon: const Icon(Icons.content_copy, size: 15),
-                      label: const Text('复制'),
-                      style: FilledButton.styleFrom(
-                        minimumSize: const Size(0, 40),
-                        padding: const EdgeInsets.symmetric(horizontal: 15),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        textStyle: const TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
+                    DecoratedBox(
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(12),
+                        gradient: hasCode ? LinearGradient(
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                          colors: [
+                            brand == const Color(0xffd92e1a) ? const Color(0xffff5a44)
+                                : Color.lerp(brand, Colors.white, .16)!,
+                            brand,
+                          ],
+                        ) : null,
+                        boxShadow: hasCode ? [BoxShadow(
+                          color: brand.withValues(alpha: .5), blurRadius: 12,
+                          offset: const Offset(0, 5), spreadRadius: -6,
+                        )] : null,
+                      ),
+                      child: FilledButton.icon(
+                        onPressed: hasCode
+                            ? () {
+                                Clipboard.setData(ClipboardData(text: code!));
+                                xbToast(context, '邀请码已复制');
+                              }
+                            : null,
+                        icon: const Icon(Icons.content_copy, size: 15),
+                        label: const Text('复制'),
+                        style: FilledButton.styleFrom(
+                          backgroundColor: Colors.transparent,
+                          foregroundColor: Colors.white,
+                          minimumSize: const Size(0, 40),
+                          padding: const EdgeInsets.symmetric(horizontal: 15),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          textStyle: const TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                          ),
                         ),
                       ),
                     ),
@@ -769,6 +830,17 @@ class _InviteCodeCard extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 11),
+              if (!hasCode)
+                TextButton(
+                  onPressed: () {
+                    final session = ref.read(commissionSessionProvider);
+                    if (session.busy || ref.read(inviteInfoProvider).isLoading) return;
+                    session.allowCodeGeneration = !session.codeUnconfirmed;
+                    ref.invalidate(inviteInfoProvider);
+                  },
+                  child: Text(ref.watch(commissionSessionProvider).codeUnconfirmed
+                      ? '生成结果未确认，查询邀请码' : '重新获取邀请码'),
+                ),
               Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -780,7 +852,7 @@ class _InviteCodeCard extends StatelessWidget {
                   const SizedBox(width: 5),
                   Expanded(
                     child: Text(
-                      '该邀请码可以无限次使用',
+                      hasCode ? '该邀请码可以无限次使用' : '请在取得有效邀请码后再分享。',
                       style: TextStyle(
                         fontSize: 11.5,
                         height: 1.6,
@@ -948,8 +1020,10 @@ class _FlowSection extends StatelessWidget {
 
 /// 佣金划转弹窗：佣金余额 → 账户余额（可指定金额，默认全部）。
 class _TransferDialog extends ConsumerStatefulWidget {
-  const _TransferDialog({required this.info});
+  const _TransferDialog({required this.info, required this.owner, required this.session});
   final XbInviteInfo info;
+  final XboardService owner;
+  final CommissionSession session;
 
   @override
   ConsumerState<_TransferDialog> createState() => _TransferDialogState();
@@ -960,6 +1034,11 @@ class _TransferDialogState extends ConsumerState<_TransferDialog> {
     text: widget.info.commissionBalanceYuan.toStringAsFixed(2),
   );
   bool _submitting = false;
+  String? _feedback;
+  bool get _current => mounted &&
+      ref.read(authStateProvider) == AuthState.authenticated &&
+      ref.read(authStateProvider.notifier).sessionRevision == widget.session.revision &&
+      ref.read(commissionReadOwnerProvider) == (widget.session, widget.owner);
 
   @override
   void dispose() {
@@ -968,7 +1047,7 @@ class _TransferDialogState extends ConsumerState<_TransferDialog> {
   }
 
   Future<void> _submit() async {
-    if (_submitting) return;
+    if (_submitting || !_current || ModalRoute.of(context)?.isCurrent != true) return;
     final cents = parseYuanCents(_amount.text);
     if (cents == null || parseYuanCents((cents / 100).toString()) != cents) {
       xbToast(context, '请输入有效的划转金额，最多两位小数');
@@ -979,26 +1058,60 @@ class _TransferDialogState extends ConsumerState<_TransferDialog> {
       xbToast(context, '划转金额不能超过佣金余额');
       return;
     }
-    setState(() => _submitting = true);
-    final result = await ref
-        .read(xboardServiceProvider)
-        .transferCommissionToBalance(yuan);
-    if (!mounted) return;
-    switch (result) {
-      case XbSuccess(data: true):
-        ref.invalidate(inviteInfoProvider);
-        Navigator.of(context).pop();
-        xbToast(context, '划转成功，已转入账户余额');
-      case XbSuccess():
-        setState(() => _submitting = false);
-        xbToast(context, '操作结果尚未确认，请先核对余额和记录。如问题持续，请向客服反馈此问题。');
-      case XbFailure(:final error):
-        if (error is XbUnconfirmed) {
+    final session = widget.session;
+    final owner = widget.owner;
+    final route = ModalRoute.of(context)!;
+    if (!session.acquire()) return;
+    bool dispatched = false;
+    setState(() { _submitting = true; _feedback = '正在核对最新余额…'; });
+    try {
+      await session.readersDone;
+      if (!_current || !route.isCurrent) return;
+      // Check the actual balance before dispatch; the painted card is only
+      // an estimate. No read failure is ever a reason to send a write.
+      final latest = await (owner is XboardInviteRequestControl
+          ? (owner as XboardInviteRequestControl).withInviteRequestValidity(
+              () => _current && route.isCurrent, owner.getInviteInfo)
+          : owner.getInviteInfo());
+      if (!_current || !route.isCurrent) return;
+      final available = latest.dataOrNull?.commissionBalanceYuan;
+      if (available == null || !available.isFinite || available < yuan) {
+        _feedback = available == null || !available.isFinite
+            ? '暂时无法核实最新余额，未提交划转。' : '最新佣金余额不足，未提交划转。';
+        return;
+      }
+      setState(() => _feedback = '正在提交并核对结果，请勿重复操作。');
+      Future<XbResult<bool>> send() {
+        dispatched = true;
+        return owner.transferCommissionToBalance(yuan);
+      }
+      final result = await (owner is XboardInviteRequestControl
+          ? (owner as XboardInviteRequestControl).withInviteRequestValidity(
+              () => _current && _submitting, send)
+          : send());
+      if (commissionWriteNeedsReview(result)) {
+        session.markUnknown('划转', cents);
+      }
+      if (!mounted || !_current) return;
+      switch (result) {
+        case XbSuccess(data: true):
+          session.allowCodeGeneration = false;
           ref.invalidate(inviteInfoProvider);
           ref.invalidate(commissionRecordsProvider);
+          xbToast(context, '划转成功，已转入账户余额');
+          if (route.isCurrent) { Navigator.of(context).pop(); }
+          else { route.navigator?.removeRoute(route); }
+        case XbFailure(:final error):
+          _feedback = resolveErrorText(error, fallback: '划转失败，请重试');
+        case XbSuccess():
+          break;
         }
-        setState(() => _submitting = false);
-        xbToast(context, resolveErrorText(error, fallback: '划转失败，请重试'));
+    } catch (_) {
+      if (dispatched) session.markUnknown('划转', cents);
+      _feedback = '暂时无法核实，请检查网络。';
+    } finally {
+      session.release();
+      if (mounted) setState(() => _submitting = false);
     }
   }
 
@@ -1006,7 +1119,11 @@ class _TransferDialogState extends ConsumerState<_TransferDialog> {
   Widget build(BuildContext context) {
     final t = XbTokens.of(context);
     final brand = Theme.of(context).colorScheme.primary;
-    return AlertDialog(
+    final current = ref.watch(commissionReadOwnerProvider) == (widget.session, widget.owner);
+    if (!current || widget.session.pendingOperation != null) {
+      return CommissionPendingReview(owner: widget.owner, session: widget.session);
+    }
+    return PopScope(canPop: !_submitting, child: AlertDialog(
       backgroundColor: t.sf2,
       scrollable: true,
       insetPadding: MediaQuery.sizeOf(context).width < 360
@@ -1041,6 +1158,7 @@ class _TransferDialogState extends ConsumerState<_TransferDialog> {
                 Expanded(
                   child: TextField(
                     controller: _amount,
+                    enabled: !_submitting,
                     keyboardType: const TextInputType.numberWithOptions(
                       decimal: true,
                     ),
@@ -1063,7 +1181,7 @@ class _TransferDialogState extends ConsumerState<_TransferDialog> {
                 const SizedBox(width: 8),
                 // 「全部」：一键填入全部佣金余额（原型 .xfer-all 品牌色链接）。
                 GestureDetector(
-                  onTap: () => _amount.text = widget.info.commissionBalanceYuan
+                  onTap: _submitting ? null : () => _amount.text = widget.info.commissionBalanceYuan
                       .toStringAsFixed(2),
                   child: Text(
                     '全部',
@@ -1077,6 +1195,7 @@ class _TransferDialogState extends ConsumerState<_TransferDialog> {
               ],
             ),
           ),
+          if (_feedback != null) Text(_feedback!),
         ],
       ),
       actionsPadding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
@@ -1087,7 +1206,7 @@ class _TransferDialogState extends ConsumerState<_TransferDialog> {
           onConfirm: _submit,
         ),
       ],
-    );
+    ));
   }
 }
 

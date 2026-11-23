@@ -9,6 +9,8 @@
 ///   慢节点不阻塞其余），调单节点 `proxyDelayTest`（不碰上游 `delayTest` 的 100 并发实现）。
 library;
 
+import 'dart:collection';
+
 import 'package:fl_clash/common/compute.dart'
     show computeRealSelectedProxyState;
 import 'package:fl_clash/models/models.dart'
@@ -20,6 +22,7 @@ import 'package:fl_clash/enum/enum.dart' show GroupType, GroupName, Mode;
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter/foundation.dart' show mapEquals;
 import '../../providers/auth_state_provider.dart';
+import '../../providers/network_recovery_provider.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../tabs/home/home_latency_provider.dart';
@@ -29,6 +32,25 @@ import '../../util/pooled_concurrent.dart';
 const _kBuiltinProxies = {'DIRECT', 'REJECT', 'GLOBAL', 'PASS', 'COMPATIBLE'};
 
 final _nodesOwnerAliveProvider = Provider<bool Function()>((ref) => () => ref.mounted);
+
+typedef _SampleKey = (String, String?);
+final _verifiedNodeDelays = NotifierProvider<_VerifiedDelays, Map<_SampleKey, int>>(_VerifiedDelays.new);
+class _VerifiedDelays extends Notifier<Map<_SampleKey, int>> {
+  final _values = <_SampleKey, int>{};
+  @override
+  Map<_SampleKey, int> build() {
+    ref.watch(verifiedRouteEpochProvider);
+    ref.watch(authStateProvider);
+    ref.watch(currentProfileIdProvider);
+    _values.clear();
+    return const {};
+  }
+  void put(_SampleKey key, int value) {
+    if (_values[key] == value) return;
+    _values[key] = value;
+    state = UnmodifiableMapView(_values);
+  }
+}
 
 /// 形态 A 节点分组类型（primitive，对应 FlClash GroupType；用于选择行为）。
 enum XbGroupKind {
@@ -255,8 +277,12 @@ class XbNodesAdapter {
 
   /// 某节点当前延迟（ms）；null = 未测 / 0 = 测速中 / >0 ms / <0 超时（语义同 FlClash）。
   /// 经本 adapter 收口 `delayProvider`（适配层铁律，Tab 不直接 import FlClash provider）。
-  int? nodeDelay(WidgetRef ref, {required String proxyName, String? testUrl}) =>
-      ref.watch(delayProvider(proxyName: proxyName, testUrl: testUrl));
+  int? nodeDelay(WidgetRef ref, {required String proxyName, String? testUrl}) {
+    if (ref.watch(verifiedRouteEpochProvider) != 0) {
+      return ref.watch(_verifiedNodeDelays.select((map) => map[(proxyName, testUrl)]));
+    }
+    return ref.watch(delayProvider(proxyName: proxyName, testUrl: testUrl));
+  }
 
   bool nodeTesting(WidgetRef ref, {required String proxyName, String? testUrl}) {
     if (ref.watch(pendingDelayTestsProvider).isEmpty) return false;
@@ -274,11 +300,21 @@ class XbNodesAdapter {
     WidgetRef ref, {
     String? explicitNode,
     int rounds = 3,
+  }) => _measureHome(ref, explicitNode: explicitNode, rounds: rounds);
+
+  /// The visible home fills a missing sample once per connection. A user
+  /// selecting a node already owns a sample and supersedes an older one.
+  Future<void> measureVisibleHome(WidgetRef ref, bool Function() active) =>
+      _measureHome(ref, rounds: 3, active: active);
+
+  Future<void> _measureHome(WidgetRef ref, {
+    String? explicitNode, required int rounds, bool Function()? active,
   }) async {
     // Capture resources before awaiting; WidgetRef is not usable after disposal.
     final context = ref.context;
     final container = ProviderScope.containerOf(context, listen: false);
     final home = container.read(homeLatencyProvider.notifier);
+    if (active != null && (!active() || container.read(homeLatencyProvider).attempted)) return;
     if (!container.read(isStartProvider) ||
         container.read(suspendProvider) ||
         container.read(authStateProvider) != AuthState.authenticated) {
@@ -287,7 +323,7 @@ class XbNodesAdapter {
     }
     final target = resolveMeasureTarget(ref, explicitNode: explicitNode);
     if (target == null) {
-      home.reset();
+      if (active == null) home.reset();
       return;
     }
     final auth = container.read(authStateProvider.notifier);
@@ -296,14 +332,23 @@ class XbNodesAdapter {
     final actions = container.read(proxiesActionProvider.notifier);
     final measuring = container.read(xbMeasuringNodesProvider.notifier);
     final generation = home.startMeasuring();
+    final network = container.read(verifiedRouteEpochProvider);
     final selection = container.listen(selectedMapProvider, (previous, next) {
       if (!mapEquals(previous, next) && home.isCurrent(generation)) {
+        // The delayed commit of our explicit selection is not a new selection.
+        if (explicitNode != null && explicitNode.isNotEmpty && previous != null) {
+          final changed = {...previous.keys, ...next.keys}
+              .where((group) => previous[group] != next[group]);
+          if (changed.length == 1 && next[changed.single] == explicitNode) return;
+        }
         home.reset();
       }
     });
     bool current() =>
         home.isCurrent(generation) &&
+        container.read(verifiedRouteEpochProvider) == network &&
         context.mounted &&
+        (active == null || active()) &&
         container.read(isStartProvider) &&
         !container.read(suspendProvider) &&
         container.read(authStateProvider) == AuthState.authenticated &&
@@ -320,6 +365,9 @@ class XbNodesAdapter {
       for (var i = 0; i < rounds && current(); i++) {
         Delay? delay;
         try {
+          // Core enforces both its transport deadline and the sample timeout
+          // below. A second Future.timeout does not cancel the native call
+          // and can start another round while that call is still in flight.
           delay = await core.testDelay(TestDelayParams(
             proxyName: proxyName,
             testUrl: testUrl,
@@ -345,13 +393,18 @@ class XbNodesAdapter {
         home.finish(generation, best);
       }
     } catch (_) {
-      home.finish(generation, null);
+      if (active == null || (context.mounted && active())) home.finish(generation, null);
     } finally {
       selection.close();
       // A failed write or a disposed page must never skip reference-count release.
       measuring.finish(proxyName);
       // Disposed owner / changed session may still own the latest ticket.
-      home.finish(generation, null);
+      if (home.isCurrent(generation) && active != null &&
+          (!context.mounted || !active())) {
+        home.reset();
+      } else {
+        home.finish(generation, null);
+      }
     }
   }
 
@@ -454,7 +507,9 @@ class XbNodesAdapter {
     final ownerAlive = container.read(_nodesOwnerAliveProvider);
     final auth = container.read(authStateProvider.notifier);
     final revision = auth.sessionRevision;
+    final network = container.read(verifiedRouteEpochProvider);
     bool current() => ownerAlive() &&
+        container.read(verifiedRouteEpochProvider) == network &&
         container.read(currentProfileIdProvider) == profileId &&
         identical(container.read(authStateProvider.notifier), auth) &&
         auth.sessionRevision == revision;
@@ -488,6 +543,9 @@ class XbNodesAdapter {
           // as this round's result. The transport/action still owns real replies.
           container.read(delayDataSourceProvider.notifier).setDelay(
             Delay(name: target.proxyName, url: targetUrl, value: -1));
+        }
+        if (network != 0 && current()) {
+          container.read(_verifiedNodeDelays.notifier).put((p.name, testUrl), result?.value ?? -1);
         }
       } finally {
         measuring.finish(p.name);
@@ -528,8 +586,17 @@ class XbNodesAdapter {
     required String type,
     String? testUrl,
   }) async {
-    return testNodeInContainer(ProviderScope.containerOf(ref.context, listen: false),
-      proxyName: proxyName, type: type, testUrl: testUrl);
+    final c = ProviderScope.containerOf(ref.context, listen: false);
+    final epoch = c.read(verifiedRouteEpochProvider);
+    final alive = c.read(_nodesOwnerAliveProvider);
+    final revision = c.read(authStateProvider.notifier).sessionRevision;
+    final profile = c.read(currentProfileIdProvider);
+    final result = await testNodeInContainer(c, proxyName: proxyName, type: type, testUrl: testUrl);
+    if (epoch != 0 && alive() && c.read(verifiedRouteEpochProvider) == epoch &&
+        c.read(currentProfileIdProvider) == profile && c.read(authStateProvider.notifier).sessionRevision == revision) {
+      c.read(_verifiedNodeDelays.notifier).put((proxyName, testUrl), result?.value ?? -1);
+    }
+    return result;
   }
 
   /// A group retains the owner container, never a WidgetRef across awaits.

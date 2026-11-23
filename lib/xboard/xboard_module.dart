@@ -15,6 +15,7 @@
 library;
 
 import 'dart:async';
+import 'package:dio/dio.dart' show CancelToken;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -30,6 +31,7 @@ import 'config/xboard_config.dart';
 import 'l10n/content_language.dart';
 import 'models/bootstrap_payload.dart';
 import 'providers/auth_state_provider.dart';
+import 'providers/network_recovery_provider.dart';
 import 'providers/sentry_reporting_preference_provider.dart';
 import 'providers/xboard_providers.dart';
 import 'sdk/secure_storage_token_storage.dart';
@@ -45,6 +47,7 @@ import 'services/xb_geo_update_service.dart';
 import 'services/xb_update_service.dart';
 import 'services/xboard_lifecycle_observer.dart';
 import 'services/xboard_network_observer.dart';
+import 'shell/adapters/xb_confirmed_route.dart';
 import 'services/xboard_release_dio.dart' show XboardReleaseHttp;
 import 'widgets/xboard_consent_dialog.dart' show kXbConsentKey;
 
@@ -118,6 +121,7 @@ class XboardModule {
 
   /// Brand network/routing observer; closed before the race controller.
   static XboardNetworkObserver? _networkObserver;
+  static ProviderSubscription<XbConfirmedRoute?>? _nodeRoute;
 
   /// R4.6 step2b-fix：authState 监听句柄（登录/冷启动跃迁 → 订阅同步，dispose 时关）。
   /// **始终存活**（住 module，不依赖任何 UI 页面构建）—— 根治「不进我的服务页订阅不触发」。
@@ -132,6 +136,21 @@ class XboardModule {
 
   /// 异步阶段 single-flight 守卫（避免重复 fire）。
   static bool _asyncStarted = false;
+  static bool _bootBusy = false, _bootFailed = false;
+  static int _bootRetries = 0;
+  static CancelToken? _bootCancel;
+  static Stopwatch? _lastBootRetry;
+
+  static void _retryBoot(ProviderContainer container) {
+    if (!_bootFailed || _bootBusy || _bootRetries >= 3 ||
+        (_lastBootRetry?.elapsed ?? const Duration(minutes: 1)) < const Duration(seconds: 10)) {
+      return;
+    }
+    _bootRetries++;
+    _lastBootRetry = Stopwatch()..start();
+    _asyncStarted = false;
+    unawaited(bootstrapAsync(container));
+  }
 
   /// 同步阶段启动（接缝点 #1 调用点，DD-17 render-first，零网络）。
   ///
@@ -184,18 +203,26 @@ class XboardModule {
   static Future<void> bootstrapAsync(ProviderContainer container) async {
     if (_asyncStarted) return; // single-flight
     _asyncStarted = true;
+    _bootBusy = true;
     final race = _raceController;
+    final owner = _bootCancel = CancelToken();
     try {
-      await _bootstrapAsyncPhase(container);
+      await _bootstrapAsyncPhase(container, owner);
     } catch (e, s) {
+      if (identical(owner, _bootCancel) && !owner.isCancelled) _bootFailed = true;
       // DD-2：异步阶段任何异常全吞——失败沿用同步阶段 endpoint，绝不波及已渲染 UI。
       _reportSwallowed('bootstrapAsync swallowed', e, s);
     } finally {
+      if (identical(owner, _bootCancel)) {
+        _bootCancel = null;
+        _bootBusy = false;
+      }
+      if (!owner.isCancelled) owner.cancel('Bootstrap round complete');
       race?.finishApiInitialization();
     }
   }
 
-  static Future<void> _bootstrapAsyncPhase(ProviderContainer container) async {
+  static Future<void> _bootstrapAsyncPhase(ProviderContainer container, CancelToken owner) async {
     final config = XboardConfig.current;
     final race = _raceController;
     // Start once now: check() waits for a probed API. Early resumed joins it.
@@ -218,12 +245,15 @@ class XboardModule {
     final mirrors = _mergeMirrors(cachedNext, config.bootstrapUrls);
     if (mirrors.isNotEmpty) {
       final fetcher = BootstrapFetcher(decryptor: decryptor);
-      final result = await fetcher.fetchRemote(mirrors);
+      final result = await fetcher.fetchRemote(mirrors, owner: owner);
+      if (owner.isCancelled || !identical(race, _raceController)) return;
+      _bootFailed = !result.isSuccess;
       if (result.isSuccess) {
         payload = result.payload;
         // 2. 写缓存密文（下次冷启同步阶段 loadLocal 命中，DD-22 / R15.D.25）。
         final env = result.winnerEnvelope;
         if (env != null) await loader.writeCache(env);
+        if (owner.isCancelled || !identical(race, _raceController)) return;
         // R4.7：写 next_bootstrap_urls 缓存（地址自举滚动；payload 已 normalized）。
         await loader.writeNextBootstrapUrls(
           payload?.nextBootstrapUrls ?? const [],
@@ -232,9 +262,11 @@ class XboardModule {
     }
 
     // 远端失败 → 退回同步阶段本地 payload（cache / fallback 解出的，R15.B 三级降级）。
-    payload ??= _localPayload;
+    if (owner.isCancelled || !identical(race, _raceController)) return;
     if (payload == null || !payload.isValid) {
-      SentryBootstrap.tagBootstrap(stage: 'async_no_endpoints');
+      // Re-probe the current allowlist. Never reinsert a withdrawn local or
+      // factory endpoint simply because a later remote fetch failed.
+      await Future.wait([race.raceApi(race.apiCandidates), race.raceSubscription(race.subscriptionEndpoints())]);
       return;
     }
 
@@ -490,6 +522,7 @@ class XboardModule {
     // step 7：XboardLifecycleObserver（W5.3）—— 自挂 observer + endpoint 竞速控制器。
     // 各子步骤独立 try/catch：一个失败（如 test 无 WidgetsBinding）不阻断其余（含 seam #7）。
     try {
+      var verifiedRoute = 0;
       _raceController = EndpointRaceController(
         probe: debugProbe, // 生产 null → 默认真实 Dio 探针；测试注入 fake。
         onApiSwitch: (ep) {
@@ -499,11 +532,13 @@ class XboardModule {
           container.read(apiEndpointProvider.notifier).set(ep);
           SentryBootstrap.tagEndpoint(current: ep); // DD-23 endpoint.current
           XbUpdateService.onApiAvailable(container);
-          // R4.6 T5（endpoint 切换）：API endpoint 竞速选中可达地址后触发订阅同步。
-          // **关键修复**：冷启动 T2 sync 可能早于竞速完成 → 用初始(可能死的)endpoint 调
-          // getSubscribeUrl 失败；竞速切到可达 endpoint 后在此重试。gate(authenticated)+
-          // single-flight 保证游客不触发、不重复拉。
-          SubscriptionTriggers.onAuthenticated(container);
+          // Switching base alone is not a reason to repeat account/subscription reads.
+        },
+        onVerifiedNetwork: () {
+          final route = _raceController!.networkGeneration;
+          container.read(networkRecoveryProvider.notifier).publish(routeChanged: route != verifiedRoute);
+          verifiedRoute = route;
+          SubscriptionTriggers.onVerifiedNetwork(container);
         },
         onSubscriptionAvailable: () {
           if (container.read(authStateProvider) == AuthState.authenticated) {
@@ -528,12 +563,13 @@ class XboardModule {
           instance.httpService.endpointCandidatesChanged;
       _raceController!.beginApiInitialization();
       _raceController!.seedEndpoints(
-        _localPayload?.apiEndpoints ?? const [],
-        _localPayload?.subscriptionEndpoints ?? const [],
+        _localPayload?.apiEndpoints ?? _factorySeed(activeConfig.devApiEndpoint),
+        _localPayload?.subscriptionEndpoints ?? _factorySeed(activeConfig.devSubscriptionEndpoint),
       );
       _lifecycleObserver = XboardLifecycleObserver(
         raceController: _raceController!,
         onRecoverPending: () {
+          _retryBoot(container);
           if (container.read(authStateProvider) == AuthState.authenticated) {
             container.read(subscriptionServiceProvider).recoverPending();
           }
@@ -577,6 +613,10 @@ class XboardModule {
           // 残留上一账号的身份与会话数据（换号 / 退出客服信息不清问题，D9）。
           if (prev == AuthState.authenticated &&
               next != AuthState.authenticated) {
+            if (_bootBusy) {
+              _bootFailed = true;
+              _bootCancel?.cancel('Session ended');
+            }
             // ignore: discarded_futures
             CrispSupportService.reset();
           }
@@ -596,6 +636,7 @@ class XboardModule {
         _networkObserver = XboardNetworkObserver(
           container,
           _raceController!,
+          onProbeRound: () => _retryBoot(container),
           onEffectiveVpnChanged: (prev, next) {
             // VPN 连上跃迁（false→true）→ 触发更新检查（解决冷启动域名被墙检测失败，
             // 连上 VPN 后出口可达再查；24h 节流内部判定，fire-and-forget 不阻塞）。
@@ -615,6 +656,12 @@ class XboardModule {
         );
       } catch (e, s) {
         _reportSwallowed('vpn-state wire failed', e, s);
+      }
+      if (activeConfig.formA) {
+        _nodeRoute = listenConfirmedNodeChanges(container,
+          onChange: recoveryRace.confirmedNodeChanged,
+          onReset: recoveryRace.forgetNodeChange,
+        );
       }
     } catch (e, s) {
       _reportSwallowed('lifecycle observer wire failed', e, s);
@@ -732,12 +779,17 @@ class XboardModule {
 
   /// 释放模块自起的长生命周期资源（DD-19 顺序：摘 observer → 关监听 → race dispose）。
   static Future<void> dispose() async {
+    _bootCancel?.cancel('Module disposed');
+    _bootCancel = null;
+    SubscriptionTriggers.resetResumeThrottle();
     // 1. 先摘 observer（停止接收 lifecycle 事件，避免 race 已 dispose 后还触发竞速）。
     _lifecycleObserver?.dispose();
     _lifecycleObserver = null;
     // 2. 关 seam #7 initProvider 监听 + R4.9 VPN 状态监听 + R4.6 authState 监听。
     _initListener?.close();
     _initListener = null;
+    _nodeRoute?.close();
+    _nodeRoute = null;
     _networkObserver?.dispose();
     _networkObserver = null;
     _authStateListener?.close();
@@ -751,6 +803,15 @@ class XboardModule {
     _raceController = null;
     // 4. 重置异步阶段状态（允许下次 bootstrap 重新跑；测试 teardown 复用）。
     _asyncStarted = false;
+    _bootBusy = _bootFailed = false;
+    _bootRetries = 0;
+    _lastBootRetry = null;
     _localPayload = null;
+  }
+
+  static List<BootstrapEndpoint> _factorySeed(String base) {
+    final uri = Uri.tryParse(base.trim());
+    if (uri == null || uri.scheme != 'https' || uri.host.isEmpty || uri.userInfo.isNotEmpty) return const [];
+    return [BootstrapEndpoint(url: BootstrapPayload.normalizeEndpoint(base))];
   }
 }

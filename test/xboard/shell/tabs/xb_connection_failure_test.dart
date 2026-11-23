@@ -102,7 +102,9 @@ void main() {
               await tester.tap(find.byType(XbConnectOrb));
               await tester.pump();
               expect(setup.calls, hasLength(2));
-              expect(nodes.measured, started ? 0 : 1);
+              // Command acknowledgement is not proof of a live connection.
+              // HomeTab samples the observed connected state exactly once.
+              expect(nodes.measured, 0);
               expect(tester.takeException(), isNull);
               await tester.pump(const Duration(seconds: 3));
               await tester.pumpWidget(const SizedBox());

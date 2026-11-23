@@ -151,7 +151,7 @@ void main() {
     await settle(c);
     expect(getSubCalls, afterFirst); // 未再 invalidate（settle 的 read 命中缓存不增计数）
   });
-  test('D07 failed foreground account refresh consumes the 24h window', () async {
+  test('Failed foreground account refresh does not consume a successful 24h window', () async {
     var now = Duration.zero;
     var fail = false;
     SubscriptionTriggers.debugSetResumeStopwatchFactory(() {
@@ -176,7 +176,7 @@ void main() {
     now = const Duration(hours: 23);
     SubscriptionTriggers.onResume(c);
     await settle(c);
-    expect(getSubCalls, failedCalls);
+    expect(getSubCalls, failedCalls + 1);
     now = const Duration(hours: 24);
     SubscriptionTriggers.onResume(c);
     await c.read(userProfileProvider.future);

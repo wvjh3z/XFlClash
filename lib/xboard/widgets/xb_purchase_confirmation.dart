@@ -8,16 +8,17 @@ import 'xb_ui_kit.dart' show XbGradientAction;
 /// brand gradient as other primary actions, not an independently darkened tint.
 class XbPurchaseActions extends StatelessWidget {
   const XbPurchaseActions({super.key, required this.confirmLabel, required this.onConfirm,
-    required this.onCancel, this.cancelLabel = '再想想'});
+    required this.onCancel, this.cancelLabel = '再想想', this.labelSize = 13});
   final String confirmLabel;
   final VoidCallback? onConfirm;
   final VoidCallback? onCancel;
   final String cancelLabel;
+  final double labelSize;
 
   @override
   Widget build(BuildContext context) {
     final t = XbTokens.of(context);
-    const label = TextStyle(fontSize: 13, fontWeight: FontWeight.w600);
+    final label = TextStyle(fontSize: labelSize, fontWeight: FontWeight.w600);
     return IntrinsicHeight(child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       Expanded(child: FilledButton(
         onPressed: onCancel,
