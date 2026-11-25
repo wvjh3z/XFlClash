@@ -11,6 +11,7 @@ import 'package:fl_clash/xboard/pages/tutorial_detail_page.dart';
 import 'package:fl_clash/xboard/pages/tutorial_list_page.dart';
 import 'package:fl_clash/xboard/providers/auth_state_provider.dart';
 import 'package:fl_clash/xboard/providers/tutorial_provider.dart';
+import 'package:fl_clash/xboard/providers/catalog_read_cache.dart';
 import 'package:fl_clash/xboard/providers/network_recovery_provider.dart';
 import 'package:fl_clash/xboard/providers/xboard_providers.dart';
 import 'package:fl_clash/xboard/sdk/xboard_service.dart';
@@ -205,6 +206,42 @@ XbTutorialDetail _detail(String body, {int id = 21}) => XbTutorialDetail(
 );
 
 void main() {
+  test('directory and articles reuse successful reads until five minutes; refresh bypasses cache', () async {
+    var now = Duration.zero, lists = 0, articles = 0;
+    final service = _Service();
+    when(service.getTutorials).thenAnswer((_) async => XbSuccess([_tutorial(title: '目录${++lists}')]));
+    when(() => service.getTutorialDetail(any())).thenAnswer((i) async => XbSuccess(
+      _detail('正文${++articles}', id: i.positionalArguments.single as int)));
+    final c = ProviderContainer(overrides: [
+      catalogReadCacheProvider.overrideWithValue(CatalogReadCache(() => now)),
+      authStateProvider.overrideWith(() => _Auth(AuthState.authenticated)),
+      xboardServiceProvider.overrideWithValue(service),
+    ]);
+    addTearDown(c.dispose);
+    Future<T> visit<T>(FutureProvider<T> p) async {
+      final sub = c.listen(p, (_, _) {});
+      final result = await c.read(p.future);
+      sub.close();
+      await c.pump();
+      return result;
+    }
+    await visit(tutorialsProvider);
+    await visit(tutorialDetailProvider(21));
+    now = const Duration(minutes: 4, seconds: 59);
+    expect((await visit(tutorialsProvider)).single.title, '目录1');
+    expect((await visit(tutorialDetailProvider(21))).body, '正文1');
+    expect((await visit(tutorialDetailProvider(22))).id, 22);
+    now = CatalogReadCache.ttl;
+    expect((await visit(tutorialsProvider)).single.title, '目录2');
+    expect((await visit(tutorialDetailProvider(21))).body, '正文3');
+    final sub = c.listen(tutorialDetailProvider(21), (_, _) {});
+    await c.read(tutorialDetailProvider(21).future);
+    expect((await c.refresh(tutorialDetailProvider(21).future)).body, '正文4');
+    sub.close();
+    c.read(authStateProvider.notifier).markAuthenticated();
+    expect((await visit(tutorialsProvider)).single.title, '目录3');
+  });
+
   group('教程资源源站与正文请求', () {
     late FakeXBoardSDK instance;
     late _Knowledge knowledge;
@@ -638,6 +675,9 @@ void main() {
     await _finish(tester);
     expect(calls, 2);
     expect(find.text('刷新'), findsNothing);
+    final busy = find.widgetWithText(FilledButton, '正在刷新…');
+    expect(tester.widget<FilledButton>(busy).onPressed, isNull);
+    expect(tester.widget<Text>(find.text('正在刷新…')).style?.color, Colors.white);
     await _pullList(tester);
     expect(calls, 2);
 

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
@@ -6,6 +7,27 @@ import 'package:fl_clash/xboard/services/payment_channel_icon_loader.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test('full URL icon cache: single flight, fixed expiry, failed fetch/decode not retained', () async {
+    var now = Duration.zero, calls = 0;
+    var next = Completer<ChannelArtwork?>();
+    final cache = PaymentIconCache((_) { calls++; return next.future; }, () => now);
+    final uri = Uri.https('example.test', '/pay.svg', {'v':'1'});
+    final one = cache.load(uri), two = cache.load(uri);
+    expect(calls, 1);
+    final image = (bytes: Uint8List.fromList([1]), isSvg: true);
+    next.complete(image);
+    expect(await one, image); expect(await two, image);
+    now = const Duration(hours: 23, minutes: 59);
+    expect(await cache.load(uri), image); expect(calls, 1);
+    await cache.load(uri.replace(query: 'v=2')); expect(calls, 2);
+    now = const Duration(hours: 24);
+    next = Completer()..complete(null);
+    expect(await cache.load(uri), isNull); expect(calls, 3);
+    next = Completer()..complete(image);
+    expect(await cache.load(uri), image); expect(calls, 4);
+    cache.reject(uri, image.bytes);
+    await cache.load(uri); expect(calls, 5);
+  });
   test('SVG channel class paints retain their source colors and unsupported CSS is untouched', () {
     Uint8List icon(String css) => Uint8List.fromList(utf8.encode(
       '<svg xmlns="http://www.w3.org/2000/svg"><style>$css</style><path class="base"/><g class="mark"><path/></g></svg>',

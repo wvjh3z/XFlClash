@@ -48,7 +48,7 @@ class _Service extends Mock
     if (askAboutOldOrder) {
       acceptedOldOrder = await confirm(
         ConfirmedOrderConflict(
-          choice: replacing ? ConfirmedOrderChoice.replaceExisting : ConfirmedOrderChoice.useExisting,
+          sameSelection: !replacing,
           quote: quote,
           existingTradeNo: 'OLD',
           existingPlanName: replacing ? '旧套餐' : quote.planName,
@@ -165,7 +165,7 @@ void main() {
       expect(tester.getTopLeft(form).dy, greaterThan(tester.getTopLeft(button).dy));
       expect(find.widgetWithText(AppBar, width < 840 ? _plan.name : '购买套餐'), findsOneWidget);
       expect(find.text(_plan.name, findRichText: true), findsNWidgets(width < 840 ? 2 : 1));
-      expect(find.textContaining('10 GB', findRichText: true), findsOneWidget);
+      expect(find.textContaining('10 GB', findRichText: true), findsNothing);
       expect(find.byType(Html), findsNothing);
       expect(find.text('订单摘要'), findsNothing);
       expect(find.text('省 17%'), findsOneWidget);
@@ -180,11 +180,11 @@ void main() {
       expect(service.submittedQuote!.period, XbPlanPeriod.monthly);
       expect(service.submittedQuote!.estimatedCents, 1000);
       expect(find.text('确认更换套餐'), findsNothing);
-      expect(find.textContaining('当前预估 ¥10'), findsOneWidget);
-      final payExisting = find.text('继续支付旧单');
-      expect(find.textContaining('按旧单金额 ¥25'), findsOneWidget);
-      expect(payExisting, findsOneWidget);
-      await tester.tap(payExisting);
+      expect(find.text('月付 · ¥10.00'), findsOneWidget);
+      final replaceExisting = find.text('取消旧单并下单');
+      expect(find.text('本次套餐和周期与原订单相同。'), findsOneWidget);
+      expect(replaceExisting, findsOneWidget);
+      await tester.tap(replaceExisting);
       await tester.pumpAndSettle();
       expect(service.acceptedOldOrder, isTrue);
       service.replacing = true;
@@ -283,6 +283,16 @@ void main() {
       expect(tester.getRect(surface).contains(tester.getCenter(edit)), isTrue);
       expect(tester.widget<TextField>(field).maxLength, 64);
 
+      await tester.showKeyboard(field);
+      await tester.pumpAndSettle();
+      final shortHeight = tester.getSize(surface).height;
+      await tester.enterText(field, 'W' * 64);
+      await tester.pumpAndSettle();
+      expect(tester.getSize(surface).height, greaterThan(shortHeight));
+      expect(tester.getSize(verify).height, closeTo(tester.getSize(surface).height, .5));
+      await tester.enterText(field, '');
+      await tester.pumpAndSettle();
+      expect(tester.getSize(surface).height, shortHeight);
       await tester.ensureVisible(verify);
       await tester.tap(verify);
       await tester.pumpAndSettle();
@@ -365,7 +375,7 @@ void main() {
             findsWidgets,
           );
         }
-        expect(find.textContaining('10 GB', findRichText: true), findsOneWidget);
+        expect(find.textContaining('10 GB', findRichText: true), findsNothing);
         expect(find.text('订单摘要'), findsNothing);
         expect(find.text('总计（预估）'), findsNothing);
         expect(find.text('完整套餐说明'), findsNothing);

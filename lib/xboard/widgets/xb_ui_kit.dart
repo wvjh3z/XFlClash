@@ -134,9 +134,7 @@ class XbGradientAction extends StatelessWidget {
     final corners = BorderRadius.circular(radius);
     final progress = busyLabel;
     if (progress != null) {
-      final fill = brand == const Color(0xffd92e1a)
-          ? const Color(0xffd7857d)
-          : Color.lerp(brand, const Color(0xffddd6d5), .45)!;
+      final fill = XbTokens.busyActionFill(brand);
       final label = Text(progress, textAlign: TextAlign.center, softWrap: true,
             style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: Colors.white));
       return FilledButton(

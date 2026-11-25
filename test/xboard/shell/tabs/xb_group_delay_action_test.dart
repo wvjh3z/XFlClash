@@ -8,6 +8,7 @@ import 'package:material_ui/material_ui.dart';
 import 'package:fl_clash/xboard/shell/adapters/xb_nodes_adapter.dart';
 import 'package:fl_clash/xboard/shell/tabs/nodes/xb_group_delay_action.dart';
 import 'package:fl_clash/xboard/widgets/xb_theme.dart';
+import 'package:fl_clash/xboard/widgets/xb_components.dart' show XbSpinner;
 
 class TestAdapter extends XbNodesAdapter {
   final pending = <String, Completer<void>>{};
@@ -89,7 +90,8 @@ void main() {
     expect(adapter.calls, 1);
     adapter.progress['A']!(2, 3);
     await tester.pump();
-    expect(visibleLabel('测速中'), findsOneWidget);
+    expect(visibleLabel('测延迟'), findsOneWidget);
+    expect(tester.widget<XbSpinner>(find.descendant(of: action, matching: find.byType(XbSpinner))).color, XbTokens.warn);
     expect(advertisesAction('A · 测速中'), isTrue); // Tap reports progress.
     expect(find.text('2/3'), findsNothing);
     expect(find.byType(CircularProgressIndicator), findsNothing);
@@ -115,7 +117,8 @@ void main() {
     await tester.tap(find.descendant(of: desktop, matching: find.byType(TextButton)));
     adapter.progress['desktop']!(1, 2);
     await tester.pump();
-    expect(find.text('测速中 1/2'), findsOneWidget);
+    expect(find.text('测延迟 1/2'), findsOneWidget);
+    expect(tester.widget<XbSpinner>(find.descendant(of: desktop, matching: find.byType(XbSpinner))).color, XbTokens.warn);
     expect(tester.widget<TextButton>(
       find.descendant(of: desktop, matching: find.byType(TextButton)),
     ).onPressed, isNull);
@@ -134,7 +137,7 @@ void main() {
     expect(adapter.calls, 3);
     update(() => selected = b);
     await tester.pump();
-    expect(visibleLabel('测速中'), findsOneWidget); // Own running state wins over cooldown.
+    expect(visibleLabel('测延迟'), findsOneWidget); // Own running state wins over cooldown.
     update(() => visible = false);
     await tester.pump();
     adapter.pending['B']!.completeError(StateError('late failure'));

@@ -56,13 +56,18 @@ class _XbPaymentChannelIconState extends State<XbPaymentChannelIcon> {
                   image == null) {
                 return fallback;
               }
+              final url = Uri.tryParse(widget.url ?? '');
+              Widget onInvalid(BuildContext _, Object error, StackTrace? stack) {
+                if (url != null) rejectPaymentChannelIcon(url, image.bytes);
+                return fallback;
+              }
               return image.isSvg
                   ? SvgPicture.memory(
                       image.bytes,
                       width: size,
                       height: size,
                       placeholderBuilder: (_) => fallback,
-                      errorBuilder: (_, _, _) => fallback,
+                      errorBuilder: onInvalid,
                     )
                   : Image(
                       image: ResizeImage(
@@ -76,7 +81,7 @@ class _XbPaymentChannelIconState extends State<XbPaymentChannelIcon> {
                       fit: BoxFit.contain,
                       frameBuilder: (_, child, frame, synchronous) =>
                           synchronous || frame != null ? child : fallback,
-                      errorBuilder: (_, _, _) => fallback,
+                      errorBuilder: onInvalid,
                     );
             },
           ),

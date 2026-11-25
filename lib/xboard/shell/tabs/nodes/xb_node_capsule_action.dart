@@ -2,6 +2,7 @@ import 'package:material_ui/material_ui.dart';
 import 'package:prism_ui/prism_ui.dart' show AppRadius, AppTextStyle;
 
 import '../../../../ui/icons/icons.dart' show Glyph, GlyphIcon;
+import '../../../widgets/xb_components.dart' show XbSpinner;
 import '../../../widgets/xb_theme.dart' show XbTokens;
 
 /// One independently focusable and clipped action in the mobile node toolbar.
@@ -55,9 +56,9 @@ class _XbNodeCapsuleActionState extends State<XbNodeCapsuleAction> {
       color: color,
     );
     final countdown = widget.countdownSeconds;
-    final Widget? face;
+    final Widget face;
     if (widget.busy) {
-      face = null;
+      face = const XbSpinner(color: XbTokens.warn, size: 14, stroke: 2);
     } else if (countdown != null) {
       face = Text(
         '${countdown}s',
@@ -114,7 +115,8 @@ class _XbNodeCapsuleActionState extends State<XbNodeCapsuleAction> {
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            if (face != null) ...[face, const SizedBox(width: 4)],
+                            face,
+                            const SizedBox(width: 4),
                             Text(widget.label, maxLines: 1, style: textStyle),
                           ],
                         ),

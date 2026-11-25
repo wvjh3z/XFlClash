@@ -302,6 +302,15 @@ void main() {
             await tester.tap(confirm);
             await tester.pumpAndSettle();
             expect(service.requestActive!(), isTrue);
+            final busy = find.widgetWithText(FilledButton, '正在核对订单…');
+            final action = tester.widget<FilledButton>(busy);
+            expect(action.onPressed, isNull);
+            final brandColor = Theme.of(tester.element(busy)).colorScheme.primary;
+            expect(action.style!.backgroundColor!.resolve({WidgetState.disabled}),
+                brandColor == const Color(0xffd92e1a) ? const Color(0xffd7857d)
+                    : Color.lerp(brandColor, const Color(0xffddd6d5), .45));
+            expect(tester.widget<Text>(find.text('正在核对订单…')).style?.color, Colors.white);
+            expect(find.descendant(of: busy, matching: find.byType(CircularProgressIndicator)), findsNothing);
             await tester.binding.handlePopRoute();
             expect(service.requestActive!(), isFalse);
             service.response!.complete(const XbSuccess('stale-trade'));

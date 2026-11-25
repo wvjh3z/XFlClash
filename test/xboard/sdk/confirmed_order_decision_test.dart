@@ -316,8 +316,9 @@ void main() {
     ).called(1);
   });
 
-  test('a matching pending order beyond SDK page 1 is reused, including zero', () async {
+  test('a matching pending order beyond SDK page 1 requires consent, including zero', () async {
     final h = _Harness();
+    h.accept = () async => false;
     final zero = _wireOrder(amount: 0);
     h.fetch = () async => _success([
       for (var i = 0; i < 25; i++) _wireOrder(no: 'history-$i', status: 3),
@@ -332,27 +333,28 @@ void main() {
       planName: 'fixture',
       period: XbPlanPeriod.monthly,
       catalogCents: 0, estimatedCents: 0,
-    ))).dataOrNull, 'OLD');
-    expect(h.calls, ['fetch', 'detail:OLD']);
+    ))).dataOrNull, isNull);
+    expect(h.calls, ['fetch', 'detail:OLD', 'confirm']);
     h.noWrite();
   });
 
-  test('same product at a different price can only use the exact old order', () async {
-    final h = _Harness()..existing(_wireOrder(amount: 2500));
-    final result = await h.submit();
-    expect(result.dataOrNull, 'OLD');
-    expect(h.conflicts.single.choice, ConfirmedOrderChoice.useExisting);
-    expect(h.conflicts.single.existingPayableCents, 2500);
-    expect(h.conflicts.single.quote.estimatedCents, 1000);
-    expect(h.calls, ['fetch', 'detail:OLD', 'confirm', 'fetch', 'detail:OLD']);
-    h.noWrite();
-  });
+  for (final cents in [1000, 2500]) {
+    test('same selection ($cents) cancels verified old order before one new order', () async {
+      final h = _Harness()..existing(_wireOrder(amount: cents));
+      h.cancel = () async { h.existing(_wireOrder(amount: cents, status: 2)); return true; };
+      h.create = () async { h.detail = (_) async => _success(_wireOrder(no: 'NEW')); return 'NEW'; };
+      expect((await h.submit()).dataOrNull, 'NEW');
+      expect(h.conflicts.single.sameSelection, isTrue);
+      expect(h.calls, ['fetch','detail:OLD','confirm','fetch','detail:OLD','quote-check',
+        'cancel:OLD','detail:OLD','fetch','quote-check','create','detail:NEW']);
+    });
+  }
 
   test('same total with a balance deduction is not silently reused', () async {
     final h = _Harness()..existing(_wireOrder(balance: 400));
     h.accept = () async => false;
     expect(await h.submit(), isA<XbSuccess<String?>>());
-    expect(h.conflicts.single.choice, ConfirmedOrderChoice.useExisting);
+    expect(h.conflicts.single.sameSelection, isTrue);
     h.noWrite();
   });
 
@@ -383,7 +385,9 @@ void main() {
     final h = _Harness()
       ..existing(_wireOrder(status: null, plan: null, period: null, amount: null))
       ..detail = ((_) async => _success(_wireOrder()));
-    expect((await h.submit()).dataOrNull, 'OLD');
+    h.accept = () async => false;
+    expect((await h.submit()).dataOrNull, isNull);
+    expect(h.conflicts.single.existingTradeNo, 'OLD');
     h.noWrite();
   });
 
@@ -499,7 +503,7 @@ void main() {
       final result = await h.submit();
       expect(result.dataOrNull, isNull);
       if (mode == 'paid' || mode == 'new-price') _expectReview(result);
-      expect(h.conflicts.single.choice, ConfirmedOrderChoice.replaceExisting);
+      expect(h.conflicts.single.sameSelection, isFalse);
       h.noWrite();
     });
   }
@@ -609,8 +613,9 @@ void main() {
       final newReads = h.calls.length;
       h.existing(_wireOrder(no: 'NEW', status: recoveredStatus));
       if (recoveredStatus == 0) {
-        expect((await h.submit()).dataOrNull, 'NEW');
-        expect(h.calls.skip(newReads), ['fetch', 'detail:NEW']);
+        h.accept = () async => false;
+        expect((await h.submit()).dataOrNull, isNull);
+        expect(h.calls.skip(newReads), ['fetch', 'detail:NEW','confirm']);
       } else {
         h.create = () async => throw sdk.ApiException('unavailable', 400);
         expect((await h.submit()).errorOrNull, isA<XbBusiness>());

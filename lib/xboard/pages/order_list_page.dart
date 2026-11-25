@@ -55,7 +55,7 @@ class _OrderListPageState extends ConsumerState<_OwnedOrderList> {
       identical(ref.read(xboardServiceProvider), widget.service);
   late Future<List<OrderSummary>> _ordersFuture;
 
-  /// 重试中：顶部「正在刷新服务」黄条（后台切域名重拉）。
+  /// 重读期间保留已加载的订单列表。
   bool _retrying = false;
   bool _openingOrder = false;
   List<OrderSummary>? _snapshot;
@@ -154,7 +154,10 @@ class _OrderListPageState extends ConsumerState<_OwnedOrderList> {
             final done = snap.connectionState == ConnectionState.done;
             if (_snapshot != null && (offline || _lastError != null || _retrying)) {
               return Column(children: [
-                Text(_retrying ? '正在刷新订单，显示上次记录' : '订单未更新，显示上次记录'),
+                if (_retrying)
+                  const LinearProgressIndicator(minHeight: 2, semanticsLabel: '正在刷新订单')
+                else
+                  const Text('订单未更新，显示上次记录'),
                 if (!offline && !_retrying) TextButton(onPressed: _reload, child: const Text('重新查询订单')),
                 Expanded(child: _snapshot!.isEmpty
                     ? const Center(child: Text('上次未查询到订单'))

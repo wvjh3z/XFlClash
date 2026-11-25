@@ -83,14 +83,19 @@ void main() {
   });
 
   group('节点页延迟行：测速中屏蔽跳变', () {
-    testWidgets('手动单节点测速只显示忙态文字，重复点不重发', (tester) async {
+    testWidgets('手动单节点测速只显示黄色转圈，重复点不重发', (tester) async {
       final adapter = _ManualTest();
       await pumpNode(tester, 120, adapter: adapter);
       await tester.tap(find.text('30ms'));
       await tester.pump();
-      expect(find.text('测速中…'), findsOneWidget);
-      expect(find.byType(XbSpinner), findsNothing);
-      await tester.tap(find.text('测速中…'));
+      expect(find.text('测速中…'), findsNothing);
+      final ring = find.byType(XbSpinner);
+      expect(tester.widget<XbSpinner>(ring).color, const Color(0xFFE08A1E));
+      final rotation = find.descendant(of: ring, matching: find.byType(Transform));
+      final before = tester.widget<Transform>(rotation).transform.clone();
+      await tester.pump(const Duration(milliseconds: 200));
+      expect(tester.widget<Transform>(rotation).transform, isNot(before));
+      await tester.tap(ring);
       await tester.pump();
       expect(adapter.calls, 1);
       adapter.result.complete(null);

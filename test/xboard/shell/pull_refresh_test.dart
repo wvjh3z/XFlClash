@@ -25,6 +25,8 @@ import 'package:fl_clash/xboard/services/xboard_subscription_service.dart';
 import 'package:fl_clash/xboard/shell/adapters/xb_nodes_adapter.dart';
 import 'package:fl_clash/xboard/shell/tabs/mine/mine_tab.dart';
 import 'package:fl_clash/xboard/shell/tabs/nodes/nodes_tab.dart';
+import 'package:fl_clash/xboard/widgets/xb_components.dart' show XbSpinner;
+import 'package:fl_clash/xboard/widgets/xb_theme.dart' show XbTokens;
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -245,9 +247,12 @@ Future<void> _finishAnimations(WidgetTester tester) async {
 }
 
 void _expectBusy(WidgetTester tester, {required bool nodes}) {
-  final busy = _inside(nodes, findActionLabel('刷新中…'));
+  final busy = _inside(nodes, nodes ? find.text('刷新节点') : findActionLabel('刷新中…'));
   expect(busy, findsOneWidget);
   if (nodes) {
+    final capsule = _inside(true, find.byKey(const ValueKey('node-refresh-press-surface')));
+    final refresh = capsule.evaluate().isNotEmpty ? capsule : find.ancestor(of: busy, matching: find.byType(TextButton));
+    expect(tester.widget<XbSpinner>(find.descendant(of: refresh, matching: find.byType(XbSpinner))).color, XbTokens.warn);
     expect(find.descendant(of: busy, matching: find.byType(CircularProgressIndicator)), findsNothing);
   }
   final button = find.ancestor(
@@ -257,7 +262,7 @@ void _expectBusy(WidgetTester tester, {required bool nodes}) {
   if (button.evaluate().isNotEmpty) {
     expect(tester.widget<TextButton>(button).onPressed, isNull);
   } else {
-    final ink = find.descendant(of: busy, matching: find.byType(InkResponse));
+    final ink = find.descendant(of: _inside(true, find.byKey(const ValueKey('node-refresh-press-surface'))), matching: find.byType(InkResponse));
     expect(tester.widget<InkResponse>(ink).onTap, isNull);
   }
   expect(_cooldown(nodes), findsNothing, reason: '请求完成后才启动 60 秒 CD');
@@ -346,10 +351,10 @@ void main() {
         _expectBusy(tester, nodes: true);
         if (capsuleSize != null) {
           expect(tester.getSize(capsule), capsuleSize);
-          expect(find.descendant(of: capsule, matching: find.text('刷新中')), findsOneWidget);
+          expect(find.descendant(of: capsule, matching: find.text('刷新节点')), findsOneWidget);
           expect(find.descendant(of: capsule, matching: find.text('测延迟')), findsOneWidget);
         }
-        await tester.tap(_inside(true, findActionLabel('刷新中…')));
+        await tester.tap(_inside(true, find.text('刷新节点')));
         await tester.pump(const Duration(seconds: 5));
         expect(f.syncCalls, 1);
         _expectBusy(tester, nodes: true);

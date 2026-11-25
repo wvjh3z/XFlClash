@@ -315,7 +315,7 @@ class _AutoBadge extends StatelessWidget {
   }
 }
 
-/// 手动点击本节点显示文字忙态；外部测速只更新被动指示。
+/// 节点行的手动与被动测速使用同一黄色细环，完成后显示延迟。
 class _DelayText extends ConsumerStatefulWidget {
   const _DelayText({
     super.key,
@@ -360,17 +360,12 @@ class _DelayTextState extends ConsumerState<_DelayText> {
     final measuring = ref.watch(xbMeasuringNodesProvider).contains(proxyName) ||
         adapter.nodeTesting(ref, proxyName: proxyName, testUrl: testUrl);
 
-    if (_testing) {
-      // Claim taps without advertising an enabled action or selecting the outer row.
+    if (_testing || measuring || delay == 0) {
+      const ring = XbSpinner(color: XbTokens.warn, size: 16, stroke: 2);
+      if (!_testing) return ring;
+      // Consume repeat taps rather than forwarding them to the node row.
       return GestureDetector(onTap: () {}, excludeFromSemantics: true,
-        child: Semantics(button: true, enabled: false,
-          child: Text('测速中…', style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 12))));
-    }
-
-    if (measuring || delay == 0) {
-      // 测速中（首页多次取最低 / 分组重试 / 单次 core 占位 0）：琥珀黄转圈（原型 .spin = warn，
-      // 非品牌红 CircularProgressIndicator）。
-      return const XbSpinner(color: XbTokens.warn, size: 16, stroke: 2);
+        child: Semantics(button: true, enabled: false, label: '测速中', child: ring));
     }
     if (delay == null) {
       // 未测 → 闪电按钮触发单节点测速。

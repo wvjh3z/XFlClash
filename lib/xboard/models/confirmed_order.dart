@@ -55,13 +55,11 @@ class ConfirmedOrderSubscription {
       wasActive == (activePurchasePlanId(id, expiration) != null);
 }
 
-enum ConfirmedOrderChoice { useExisting, replaceExisting }
-
 enum ConfirmedOrderStage { checking, awaitingConfirmation, cancelling, checkingCancellation, creating, verifying }
 
 class ConfirmedOrderConflict {
   const ConfirmedOrderConflict({
-    required this.choice,
+    required this.sameSelection,
     required this.quote,
     required this.existingTradeNo,
     required this.existingPlanName,
@@ -71,7 +69,7 @@ class ConfirmedOrderConflict {
     this.existingAppliedSurplusCents = 0,
   });
 
-  final ConfirmedOrderChoice choice;
+  final bool sameSelection;
   final ConfirmedOrderQuote quote;
   final String existingTradeNo;
   final String existingPlanName;

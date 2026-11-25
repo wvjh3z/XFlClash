@@ -53,7 +53,7 @@ class XbPlanConfirmation extends StatelessWidget {
     Widget row(String label, String value) => Padding(
       padding: const EdgeInsets.symmetric(vertical: 9),
       child: Row(children: [Expanded(child: Text(label, style: TextStyle(color: t.onv, fontSize: 13))),
-        const SizedBox(width: 8), Flexible(child: Text(value, textAlign: TextAlign.end,
+        const SizedBox(width: 8), Expanded(child: Text(value, textAlign: TextAlign.end,
           style: TextStyle(color: t.on, fontSize: 13, fontWeight: FontWeight.w700)))]));
     return AlertDialog(scrollable: true, backgroundColor: t.sf2,
       insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),

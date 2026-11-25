@@ -87,10 +87,11 @@ void main() {
           final store = _Store();
           final visible = ValueNotifier(true);
           addTearDown(visible.dispose);
+          var reads = 0;
           var state = XbNoticeState(notices: [XbNotice(id: 1, title: 'fixture notice', content: '<p>fixture body</p>', createdAt: DateTime(2026), updatedAt: 1)], hasUnread: true, userIdHash: 'fixture-owner');
           await tester.pumpWidget(ProviderScope(overrides: [
             noticeReadStoreProvider.overrideWithValue(store),
-            noticeStateProvider.overrideWith((ref) async => state),
+            noticeStateProvider.overrideWith((ref) async { reads++; return state; }),
           ], child: MaterialApp(theme: ThemeData(platform: platform), home: Scaffold(body: ValueListenableBuilder<bool>(valueListenable: visible, builder: (context, value, _) => value ? const XbNoticePill() : const SizedBox())))));
           await tester.pumpAndSettle();
           final container = ProviderScope.containerOf(tester.element(find.byType(XbNoticePill)));
@@ -120,9 +121,13 @@ void main() {
             tap();await tester.pump();expect(store.requests.length, 1);
             expect(find.text('公告', skipOffstage: false), findsOneWidget);
             await tester.tap(find.text('我知道了'));await tester.pumpAndSettle();
-            tapCallback()();await tester.pump();expect(store.requests.length, 2);
-            store.requests[1].complete();await tester.pumpAndSettle();
-            expect(find.text('公告', skipOffstage: false), findsOneWidget);
+            expect(find.text('有新公告'), findsNothing);
+            expect(reads, 1, reason: 'marking the loaded snapshot read does not fetch notices');
+            state = XbNoticeState(notices: [...state.notices, XbNotice(id: 2, title: 'new',
+              content: 'new', createdAt: DateTime(2026), updatedAt: 2)], hasUnread: true, userIdHash: state.userIdHash);
+            container.invalidate(noticeStateProvider);
+            await tester.pumpAndSettle();
+            expect(find.text('有新公告'), findsOneWidget);
           } else {
             // User explicitly deferred the session check; do not change case 2.
             container.read(authStateProvider.notifier).markUnauthenticated();

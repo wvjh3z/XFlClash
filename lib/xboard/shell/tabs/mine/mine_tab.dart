@@ -1276,9 +1276,10 @@ class _SupportRowState extends ConsumerState<_SupportRow>
         borderRadius: BorderRadius.circular(24),
         clipBehavior: Clip.antiAlias,
         child: Ink(
-          decoration: BoxDecoration(gradient: LinearGradient(colors: [
-            Color.lerp(brand, Colors.white, 0.16)!, brand,
-          ])),
+          decoration: BoxDecoration(
+            color: submitting ? XbTokens.busyActionFill(brand) : null,
+            gradient: submitting ? null : LinearGradient(colors: [Color.lerp(brand, Colors.white, 0.16)!, brand]),
+          ),
           child: Row(mainAxisSize: MainAxisSize.min, children: [
             TextButton(onPressed: open, child: Text(submitting ? '正在打开客服…' : '继续聊天', style: const TextStyle(color: Colors.white))),
             Container(width: 1, height: 16, color: Colors.white38),

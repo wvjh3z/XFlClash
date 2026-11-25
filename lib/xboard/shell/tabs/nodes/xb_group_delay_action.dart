@@ -4,6 +4,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../../../../ui/icons/icons.dart' show AppGlyphs;
+import '../../../widgets/xb_components.dart' show XbSpinner;
+import '../../../widgets/xb_theme.dart' show XbTokens;
 import '../../../widgets/xb_feedback.dart' show xbToast;
 import '../../adapters/xb_nodes_adapter.dart';
 import 'xb_node_capsule_action.dart';
@@ -111,7 +113,7 @@ class _XbGroupDelayActionState extends ConsumerState<XbGroupDelayAction> {
     const busy = '测速中';
     if (!widget.compact) {
       final label = testing
-          ? '$busy ${progress.done}/${progress.total}'
+          ? '$idle ${progress.done}/${progress.total}'
           : cooling
           ? '$idle ${_seconds}s'
           : idle;
@@ -120,7 +122,7 @@ class _XbGroupDelayActionState extends ConsumerState<XbGroupDelayAction> {
           : scheme.primary;
       return TextButton.icon(
         onPressed: testing || widget.group.nodes.isEmpty ? null : _test,
-        icon: testing ? null : Icon(Icons.bolt, size: 16, color: color),
+        icon: testing ? const XbSpinner(color: XbTokens.warn, size: 16, stroke: 2) : Icon(Icons.bolt, size: 16, color: color),
         label: Text(label),
         style: TextButton.styleFrom(
           foregroundColor: color,
@@ -132,12 +134,8 @@ class _XbGroupDelayActionState extends ConsumerState<XbGroupDelayAction> {
       );
     }
 
-    final label = testing
-        ? busy
-        : cooling
-        ? '冷却'
-        : idle;
-    final description = cooling ? '测速冷却 $_seconds 秒' : label;
+    final label = cooling ? '冷却' : idle;
+    final description = testing ? busy : cooling ? '测速冷却 $_seconds 秒' : idle;
     return XbNodeCapsuleAction(
       surfaceKey: const ValueKey('node-delay-press-surface'),
       glyph: AppGlyphs.bolt,

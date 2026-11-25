@@ -6,6 +6,7 @@ import 'package:fl_clash/xboard/models/xb_domain_types.dart';
 import 'package:fl_clash/xboard/models/xb_result.dart';
 import 'package:fl_clash/xboard/pages/plan_detail_page.dart';
 import 'package:fl_clash/xboard/providers/auth_state_provider.dart';
+import 'package:fl_clash/xboard/providers/catalog_read_cache.dart';
 import 'package:fl_clash/xboard/providers/network_recovery_provider.dart';
 import 'package:fl_clash/xboard/providers/xboard_connectivity_provider.dart';
 import 'package:fl_clash/xboard/widgets/xb_plan_notice_card.dart';
@@ -18,6 +19,7 @@ import 'package:fl_clash/xboard/sdk/xboard_service.dart';
 import 'package:fl_clash/xboard/shell/tabs/shop/shop_tab.dart';
 import 'package:fl_clash/xboard/shell/tabs/shop/xb_shop_navigation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter/rendering.dart' show RenderParagraph;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:mocktail/mocktail.dart';
@@ -125,6 +127,57 @@ void _noWrites(_Service service) {
 void main() {
   setUpAll(() => registerFallbackValue(XbPlanPeriod.monthly));
 
+  testWidgets('shop re-entry reuses price for five minutes; pull refresh bypasses it', (t) async {
+    var now = Duration.zero, calls = 0;
+    final service = _Service();
+    when(service.getPlans).thenAnswer((_) async { calls++; return const XbSuccess(_plans); });
+    final c = ProviderContainer(overrides: [
+      catalogReadCacheProvider.overrideWithValue(CatalogReadCache(() => now)),
+      authStateProvider.overrideWith(() => _Auth(AuthState.authenticated)),
+      xboardServiceProvider.overrideWithValue(service),
+      userProfileProvider.overrideWith((_) async => _profile()),
+    ]);
+    addTearDown(c.dispose);
+    c.read(bootstrapReadyProvider.notifier).set(true);
+    Future<void> reopen() async {
+      await t.pumpWidget(const SizedBox()); await t.pump();
+      await t.pumpWidget(_app(c)); await t.pumpAndSettle();
+    }
+    await reopen(); expect(calls, 1);
+    now = const Duration(minutes: 4, seconds: 59);
+    await reopen(); expect(calls, 1);
+    now = CatalogReadCache.ttl;
+    await reopen(); expect(calls, 2);
+    final refresh = t.widget<RefreshIndicator>(find.byType(RefreshIndicator)).onRefresh();
+    await t.pumpAndSettle(); await refresh;
+    expect(calls, 3);
+  });
+  testWidgets('首次读价显示骨架，资料晚到时保留套餐并显示进度条', (t) async {
+    final service = _Service();
+    final prices = Completer<XbResult<List<PlanItem>>>();
+    final profile = Completer<XbDomainSubscription>();
+    when(service.getPlans).thenAnswer((_) => prices.future);
+    final c = _container(service, profile: () => profile.future);
+    await t.pumpWidget(_app(c));
+    await t.pump();
+    final skeleton = find.byKey(const ValueKey('shop-placeholder-0'));
+    expect(skeleton, findsOneWidget);
+    final placeholder = t.getRect(skeleton);
+    expect(_text('正在读取套餐价格…'), findsNothing);
+    prices.complete(const XbSuccess(_plans));
+    await t.pump();
+    await t.pump();
+    expect(skeleton, findsNothing);
+    final actual = t.getRect(find.byKey(const ValueKey(4)));
+    expect(actual.left, placeholder.left);
+    expect(actual.width, placeholder.width);
+    expect(find.byKey(const ValueKey('shop-plan-title-4')), findsOneWidget);
+    expect(find.byType(LinearProgressIndicator), findsOneWidget);
+    profile.complete(_profile());
+    await t.pumpAndSettle();
+    expect(find.byType(LinearProgressIndicator), findsNothing);
+    expect(t.getRect(find.byKey(const ValueKey(4))).topLeft, placeholder.topLeft);
+  });
   for (final scenario in ['price', 'profile', 'both']) {
     testWidgets('one refresh strip for $scenario, retries only failed sources', (t) async {
       final service = _Service();
@@ -205,9 +258,12 @@ void main() {
       final c = _container(s, profile: () => profile.future);
       if (mode != 'manual-before-profile') profile.complete(_profile(planId: 8));
       await t.pumpWidget(_app(c));
-      await t.pumpAndSettle();
+      await t.pump();
+      await t.pump();
       if (mode.startsWith('manual')) {
-        await _tap(t, '月付');
+        await t.ensureVisible(_text('月付'));
+        await t.tap(_text('月付'));
+        await t.pump();
         if (!profile.isCompleted) profile.complete(_profile(planId: 8));
         await t.pumpAndSettle();
       }
@@ -296,7 +352,7 @@ void main() {
     expect(t.getTopLeft(first).dy, t.getTopLeft(second).dy);
     expect(_text('商店'), findsNothing);
     expect(t.getTopLeft(first).dy - t.getTopLeft(find.byType(ShopTab)).dy, lessThan(80));
-    expect(_text('¥25.01  / 月'), findsOneWidget);
+    expect(_text('¥270.89  / 年'), findsOneWidget);
     expect(_text('¥359.00  一次性'), findsOneWidget);
     expect(find.textContaining('第四条完整显示', findRichText: true), findsWidgets);
     expect(_text('流量重置包'), findsNothing);
@@ -342,6 +398,14 @@ void main() {
         expect(find.byType(PlanDetailPage), findsNothing);
         final title = same ? '确认续费相同套餐' : '确认更换套餐';
         expect(_text(title), findsOneWidget);
+        double rightEdge(String value) {
+          final paragraph = t.renderObject<RenderParagraph>(find.text(value));
+          final boxes = paragraph.getBoxesForSelection(TextSelection(baseOffset: 0, extentOffset: value.length));
+          final right = boxes.map((box) => box.right).reduce((a, b) => a > b ? a : b);
+          return paragraph.localToGlobal(Offset(right, 0)).dx;
+        }
+        expect(rightEdge(same ? '不会改变' : '清零'),
+            closeTo(rightEdge(same ? '按购买周期增加' : '按购买周期重新计算'), 1));
         expect(
           find.textContaining(same ? '流量重置日不变' : '剩余流量和有效期不会保留', findRichText: true),
           findsOneWidget,
@@ -363,7 +427,7 @@ void main() {
       final page = t.widget<PlanDetailPage>(find.byType(PlanDetailPage));
       expect(page.renew, scenario == 'renew');
       expect(page.plan.id, same ? 4 : 9);
-      expect(page.initialPeriod, scenario == 'renew' ? isNull : equals(same ? XbPlanPeriod.yearly : XbPlanPeriod.onetime));
+      expect(page.initialPeriod, scenario == 'renew' ? XbPlanPeriod.monthly : same ? XbPlanPeriod.yearly : XbPlanPeriod.onetime);
       expect(page.confirmedFor, expired ? null : 4);
       Navigator.of(t.element(find.byType(PlanDetailPage))).pop();
       await t.pumpAndSettle();
@@ -385,7 +449,8 @@ void main() {
       waitForProfile: true,
     );
     await t.pumpWidget(_app(c, intent: intent, onHandled: handled.add));
-    await t.pumpAndSettle();
+    await t.pump();
+    await t.pump();
     expect(handled, isEmpty);
     response.complete(_profile(planId: 9, expired: true));
     await t.pumpAndSettle();

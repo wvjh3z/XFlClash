@@ -457,7 +457,7 @@ class _PlanDetailPageState extends ConsumerState<PlanDetailPage> {
   Widget _desktopBody(BuildContext context) {
     final periodCard = XbSectionCard(
       title: widget.renew ? '选择续费时长' : '选择计费周期',
-      child: _periodSection(context, columns: 3),
+      child: _periodSection(context),
     );
 
     return SingleChildScrollView(
@@ -505,27 +505,27 @@ class _PlanDetailPageState extends ConsumerState<PlanDetailPage> {
             ),
           ),
         ),
-        XbPlanDetails(plan: plan, compact: true, tightDescription: true),
+        XbPlanDetails(plan: plan, showQuota: false, compact: true, tightDescription: true),
       ],
     ),
   );
 
   Widget _periodSection(
     BuildContext context, {
-    int columns = 2,
     bool mobile = false,
   }) {
+    const columns = 3;
     final sorted = _purchasablePrices;
     // 显式网格（不用 Wrap——Wrap 行高内容驱动、与原型 grid 难对齐）：每行 [columns] 个
-    // Expanded 严格等宽；末行不足补等宽空占位保持卡宽一致。桌面 3 列（原型 .pgrid），移动 2 列。
-    final gap = mobile ? 8.0 : 10.0;
-    final rowGap = mobile ? 8.0 : 12.0;
+    // Expanded 严格等宽；末行不足补等宽空占位保持卡宽一致。桌面和移动均为三列。
+    const gap = 6.0;
+    const rowGap = 4.0;
     final rows = <Widget>[];
     for (var i = 0; i < sorted.length; i += columns) {
       final cells = <Widget>[];
       for (var c = 0; c < columns; c++) {
         final idx = i + c;
-        if (c > 0) cells.add(SizedBox(width: gap));
+        if (c > 0) cells.add(const SizedBox(width: gap));
         cells.add(
           Expanded(
             child: idx < sorted.length
@@ -537,7 +537,7 @@ class _PlanDetailPageState extends ConsumerState<PlanDetailPage> {
       rows.add(
         Row(crossAxisAlignment: CrossAxisAlignment.start, children: cells),
       );
-      if (i + columns < sorted.length) rows.add(SizedBox(height: rowGap));
+      if (i + columns < sorted.length) rows.add(const SizedBox(height: rowGap));
     }
     return Column(children: rows);
   }
@@ -562,23 +562,15 @@ class _PlanDetailPageState extends ConsumerState<PlanDetailPage> {
       maxLines: 1,
       overflow: TextOverflow.ellipsis,
       style: TextStyle(
-        fontSize: 13.5,
+        fontSize: 13,
         color: selected ? selectedInk : t.on,
         fontWeight: FontWeight.w500,
       ),
     );
-    final discount = savePct == null
-        ? null
-        : Text(
-            '省 $savePct%',
-            style: TextStyle(
-              fontSize: 11,
-              color: selected ? selectedInk : t.onv,
-            ),
-          );
     return XbSelectableOption(
       selected: selected,
-      compact: true,
+      tag: savePct == null ? null : '省 $savePct%',
+      tagColor: _mobileBrandInk(scheme.primary, Colors.white, Colors.black),
       onTap: () {
         if (_submitting || selected) return;
         _invalidateCoupon();
@@ -591,36 +583,21 @@ class _PlanDetailPageState extends ConsumerState<PlanDetailPage> {
       },
       child: Column(
         mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          if (largeMobileText) ...[
-            periodLabel,
-            Align(
-              alignment: AlignmentDirectional.centerEnd,
-              child: SizedBox(
-                height: textScaler.scale(11) * 1.4,
-                child: discount,
-              ),
-            ),
-          ] else
-            Row(
-              children: [
-                Expanded(child: periodLabel),
-                ?discount,
-              ],
-            ),
-          const SizedBox(height: 4),
+          Center(child: periodLabel),
+          const SizedBox(height: 1),
           // 价格恒为一行（长价格如 ¥142.50 在半宽卡里若换行 → 行高比短价格多 26px、整行变形，
           // 已被 plan_period_grid_test 尺寸断言锁定）。固定行高 26 + XbFitText 仅在放不下时等比缩，
           // 不换行；固定高消除「短价格不缩/长价格缩」的亚像素行高差，所有卡严格等高。
           SizedBox(
-            height: largeMobileText ? textScaler.scale(18) * 1.4 : 26,
+            height: largeMobileText ? textScaler.scale(16) * 1.4 : 22,
             child: XbFitText(
               xbYuan(p.amountYuan),
-              alignment: Alignment.centerLeft,
-              textAlign: TextAlign.left,
+              alignment: Alignment.center,
+              textAlign: TextAlign.center,
               style: TextStyle(
-                fontSize: 18,
+                fontSize: 16,
                 color: selected ? selectedInk : t.on,
                 fontWeight: FontWeight.w700,
                 fontFeatures: const [FontFeature.tabularFigures()],
@@ -723,6 +700,8 @@ class _PlanDetailPageState extends ConsumerState<PlanDetailPage> {
                   enableSuggestions: false,
                   textInputAction: TextInputAction.done,
                   onSubmitted: (_) => _checkCoupon(),
+                  minLines: 1,
+                  maxLines: null,
                   maxLength: 64,
                   textAlignVertical: TextAlignVertical.center,
                   style: text,

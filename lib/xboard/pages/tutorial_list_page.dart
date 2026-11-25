@@ -17,6 +17,7 @@ import '../models/xb_domain_error.dart';
 import '../models/xb_tutorial.dart';
 import '../providers/auth_state_provider.dart';
 import '../providers/tutorial_provider.dart';
+import '../providers/catalog_read_cache.dart';
 import '../util/format.dart';
 import '../widgets/xb_components.dart';
 import '../widgets/xb_network_read_recovery.dart';
@@ -54,14 +55,14 @@ class _TutorialListBody extends ConsumerStatefulWidget {
 
 class _TutorialListBodyState extends ConsumerState<_TutorialListBody> {
   List<XbTutorial>? _last;
-  final _age = Stopwatch()..start();
+  AsyncValue<List<XbTutorial>>? _buttonSource;
   late final AppLifecycleListener _lifecycle;
 
   @override
   void initState() {
     super.initState();
     _lifecycle = AppLifecycleListener(onResume: () {
-      if (!mounted || _age.elapsed < const Duration(minutes: 1) ||
+      if (!mounted || ref.read(catalogReadCacheProvider).fresh(('tutorials', ref.read(authStateProvider.notifier).sessionRevision)) ||
           !TickerMode.valuesOf(context).enabled || ModalRoute.of(context)?.isCurrent == false) {
         return;
       }
@@ -79,9 +80,6 @@ class _TutorialListBodyState extends ConsumerState<_TutorialListBody> {
   @override
   Widget build(BuildContext context) {
     final async = ref.watch(tutorialsProvider);
-    ref.listen(tutorialsProvider, (_, next) {
-      if (!next.isLoading) _age.reset();
-    });
     xbListenForPendingReadRecovery(context, ref,
       state: () => ref.read(tutorialsProvider),
       future: () => ref.read(tutorialsProvider.future),
@@ -90,35 +88,44 @@ class _TutorialListBodyState extends ConsumerState<_TutorialListBody> {
     if (async is AsyncData<List<XbTutorial>>) _last = async.value;
     if (async.hasError && !xbIsRecoverableReadError(async.error)) _last = null;
     final saved = _last;
-    if (async.isLoading && (saved == null || saved.isEmpty)) {
+    final buttonSource = _buttonSource;
+    if (async.isLoading && buttonSource == null && (saved == null || saved.isEmpty)) {
       return const XbSkeletonView(kind: XbSkeletonKind.list);
     }
     return RefreshIndicator(
       onRefresh: () => _reload(ref),
-      child: saved != null && saved.isNotEmpty
+      child: async.isLoading && buttonSource != null
+          ? buttonSource.hasError
+              ? _error(buttonSource.error, () {}, busy: true)
+              : _content(context, const [], () {}, busy: true)
+          : saved != null && saved.isNotEmpty
           ? Column(children: [
               if (async.hasError && !async.isLoading)
                 TextButton(onPressed: () => _reload(ref), child: const Text('刷新失败，显示上次目录 · 重试')),
               Expanded(child: _content(context, saved, () => _reload(ref))),
             ])
           : async.hasError
-          ? _error(async.error, () => _reload(ref))
-          : _content(context, async.requireValue, () => _reload(ref)),
+          ? _error(async.error, () => _reload(ref, button: true))
+          : _content(context, async.requireValue, () => _reload(ref, button: true)),
     );
   }
 
   /// 按钮与下拉共用；失效后立即读取 future 开始新请求，随后连点只会看到 loading。
-  Future<void> _reload(WidgetRef ref) async {
-    if (ref.read(tutorialsProvider).isLoading) return;
+  Future<void> _reload(WidgetRef ref, {bool button = false}) async {
+    final source = ref.read(tutorialsProvider);
+    if (source.isLoading || _buttonSource != null) return;
+    if (button) setState(() => _buttonSource = source);
     ref.invalidate(tutorialsProvider);
     try {
       await ref.read(tutorialsProvider.future);
     } catch (_) {
       // provider 保留失败供下一帧展示，不让 RefreshIndicator 的 future 泄漏异常。
+    } finally {
+      if (button && mounted) setState(() => _buttonSource = null);
     }
   }
 
-  Widget _error(Object? error, VoidCallback onRetry) {
+  Widget _error(Object? error, VoidCallback onRetry, {bool busy = false}) {
     if (error is XbUnauthorized) {
       return const _TutorialListStatus(
         icon: Icons.lock_outline,
@@ -133,6 +140,7 @@ class _TutorialListBodyState extends ConsumerState<_TutorialListBody> {
       title: timedOut ? '加载超时' : '教程加载失败',
       description: timedOut ? '等待时间较长，请重试。' : '暂时无法加载，请稍后重试。',
       actionLabel: '重试',
+      busyLabel: busy ? '正在重新加载…' : null,
       onAction: onRetry,
     );
   }
@@ -140,7 +148,7 @@ class _TutorialListBodyState extends ConsumerState<_TutorialListBody> {
   Widget _content(
     BuildContext context,
     List<XbTutorial> tutorials,
-    VoidCallback onRefresh,
+    VoidCallback onRefresh, {bool busy = false}
   ) {
     if (tutorials.isEmpty) {
       return _TutorialListStatus(
@@ -148,6 +156,7 @@ class _TutorialListBodyState extends ConsumerState<_TutorialListBody> {
         title: '暂无使用教程',
         description: '教程正在准备中，请稍后再来看看。',
         actionLabel: '刷新',
+        busyLabel: busy ? '正在刷新…' : null,
         onAction: onRefresh,
       );
     }
@@ -198,6 +207,7 @@ class _TutorialListStatus extends StatelessWidget {
     required this.title,
     required this.description,
     this.actionLabel,
+    this.busyLabel,
     this.onAction,
     this.failed = false,
   });
@@ -206,6 +216,7 @@ class _TutorialListStatus extends StatelessWidget {
   final String title;
   final String description;
   final String? actionLabel;
+  final String? busyLabel;
   final VoidCallback? onAction;
   final bool failed;
 
@@ -260,6 +271,7 @@ class _TutorialListStatus extends StatelessWidget {
                         width: 144,
                         child: XbGradientAction(
                           onPressed: onAction,
+                          busyLabel: busyLabel,
                           padding: const EdgeInsets.symmetric(horizontal: 8),
                           child: Row(
                             mainAxisSize: MainAxisSize.min,

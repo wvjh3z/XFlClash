@@ -73,6 +73,25 @@ _MockService _serviceWith(List<OrderSummary> orders) {
 }
 
 void main() {
+  testWidgets('刷新中保留订单，只显示细进度条，成功后替换记录', (tester) async {
+    final service = _serviceWith([_order('A', '刷新前的订单', XbOrderStatus.completed)]);
+    await _pumpOrders(tester, service);
+    final response = Completer<XbResult<XbPagedList<OrderSummary>>>();
+    when(() => service.getOrders(page: 1, pageSize: 50, forceRefresh: true))
+        .thenAnswer((_) => response.future);
+    final refresh = tester.widget<RefreshIndicator>(find.byType(RefreshIndicator)).onRefresh();
+    await tester.pump();
+    expect(find.byType(LinearProgressIndicator), findsOneWidget);
+    expect(find.text('正在刷新订单，显示上次记录'), findsNothing);
+    expect(find.text('刷新前的订单', findRichText: true), findsOneWidget);
+    response.complete(XbSuccess(XbPagedList(items: [_order('B', '刷新后的订单', XbOrderStatus.completed)],
+        page: 1, pageSize: 50, total: 1)));
+    await refresh;
+    await tester.pumpAndSettle();
+    expect(find.byType(LinearProgressIndicator), findsNothing);
+    expect(find.text('刷新后的订单', findRichText: true), findsOneWidget);
+  });
+
   testWidgets('sign-out drops A immediately; B reload cannot retain A or its actions', (tester) async {
     final a = _serviceWith([_order('A', 'A的订单', XbOrderStatus.pending)]);
     final b = _MockService();

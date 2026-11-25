@@ -65,26 +65,15 @@ Future<XbResult<String?>> submitConfirmedOrder({
   }
 }
 
-class _ExistingOrderDialog extends StatefulWidget {
+class _ExistingOrderDialog extends StatelessWidget {
   const _ExistingOrderDialog(this.conflict);
 
   final ConfirmedOrderConflict conflict;
 
   @override
-  State<_ExistingOrderDialog> createState() => _ExistingOrderDialogState();
-}
-
-class _ExistingOrderDialogState extends State<_ExistingOrderDialog> {
-  bool _expanded = false;
-
-  @override
   Widget build(BuildContext context) {
-    final conflict = widget.conflict;
-    final replace = conflict.choice == ConfirmedOrderChoice.replaceExisting;
     final due = xbYuan(conflict.existingPayableCents / 100);
     final estimate = xbYuan(conflict.quote.estimatedCents / 100);
-    final balance = conflict.existingBalanceCents;
-    final surplus = conflict.existingAppliedSurplusCents;
     final t = XbTokens.of(context);
     final note = TextStyle(color: t.onv, fontSize: 13, height: 1.4);
     final fine = TextStyle(color: t.onv, fontSize: 12, height: 1.4);
@@ -120,7 +109,7 @@ class _ExistingOrderDialogState extends State<_ExistingOrderDialog> {
               Semantics(namesRoute: true, header: true, child: Text(title, textAlign: TextAlign.center,
                   style: TextStyle(color: t.on, fontSize: 18, fontWeight: FontWeight.w700))),
               const SizedBox(height: 10),
-              Text(replace ? '本次选择与原订单不同' : '套餐和周期相同，但金额不同。',
+              Text(conflict.sameSelection ? '本次套餐和周期与原订单相同。' : '本次选择与原订单不同',
                   textAlign: TextAlign.start, style: note),
               const SizedBox(height: 10),
               Container(
@@ -134,32 +123,12 @@ class _ExistingOrderDialogState extends State<_ExistingOrderDialog> {
                   comparison('待支付订单', conflict.existingPlanName,
                       '${planPeriodLabel(conflict.existingPeriod)} · $due'),
                   Divider(height: 17, thickness: 1, color: t.line),
-                  comparison(replace ? '本次下单' : '本次结算', conflict.quote.planName,
-                      '${planPeriodLabel(conflict.quote.period)} · ${replace ? '' : '当前预估 '}$estimate'),
+                  comparison('本次下单', conflict.quote.planName,
+                      '${planPeriodLabel(conflict.quote.period)} · $estimate'),
                 ]),
               ),
               const SizedBox(height: 10),
-              Text(replace ? '确认后，将取消原订单，按本次选择重新下单。'
-                  : '将按旧单金额 $due 继续支付，不会创建新订单。', style: note),
-              if (balance > 0 || surplus != 0) Align(alignment: Alignment.centerLeft, child: TextButton.icon(
-                style: TextButton.styleFrom(foregroundColor: t.onv,
-                    padding: const EdgeInsets.symmetric(horizontal: 2),
-                    minimumSize: const Size(0, 32), tapTargetSize: MaterialTapTargetSize.shrinkWrap),
-                onPressed: () => setState(() => _expanded = !_expanded),
-                icon: Icon(_expanded ? Icons.expand_less : Icons.expand_more, size: 16),
-                label: Text(_expanded ? '收起订单明细' : '查看订单明细', style: fine),
-              )),
-              if (_expanded) ...[
-                Text('旧订单号', style: fine),
-                SelectableText(conflict.existingTradeNo, style: fine),
-                if (balance > 0)
-                  Text('账户余额已抵扣 ${xbYuan(balance / 100)}', style: fine),
-                if (surplus != null && surplus > 0)
-                  Text('旧套餐结余已抵扣 ${xbYuan(surplus / 100)}', style: fine),
-                if (surplus == null)
-                  Text('部分抵扣明细待核实。', style: fine),
-                Text('本次金额为预估；以上金额均不含支付手续费。', style: fine),
-              ],
+              Text('确认后，将取消原订单，按本次选择重新下单。', style: note),
             ]),
           )),
           const SizedBox(height: 16),
@@ -169,12 +138,12 @@ class _ExistingOrderDialogState extends State<_ExistingOrderDialog> {
                   minimumSize: const Size(0, 44), padding: buttonPadding,
                   tapTargetSize: MaterialTapTargetSize.shrinkWrap),
               onPressed: () => Navigator.of(context).pop(false),
-              child: Text(replace ? '再想想' : '返回结算', textAlign: TextAlign.center, style: buttonText),
+              child: const Text('再想想', textAlign: TextAlign.center, style: buttonText),
             )),
             const SizedBox(width: 8),
             Expanded(child: XbGradientAction(height: 44, padding: buttonPadding,
               onPressed: () => Navigator.of(context).pop(true),
-              child: Text(replace ? '取消旧单并下单' : '继续支付旧单',
+              child: const Text('取消旧单并下单',
                   textAlign: TextAlign.center, style: buttonText),
             )),
           ])),

@@ -25,8 +25,8 @@ PlanItem _plan6() => const PlanItem(
       ],
     );
 
-Future<void> _pump(WidgetTester tester, {double textScale = 1.0}) async {
-  tester.view.physicalSize = const Size(393, 852); // 典型手机宽
+Future<void> _pump(WidgetTester tester, {double width = 393, double textScale = 1.0}) async {
+  tester.view.physicalSize = Size(width, 852); // 典型手机宽
   tester.view.devicePixelRatio = 1.0;
   addTearDown(tester.view.reset);
   await tester.pumpWidget(
@@ -60,13 +60,31 @@ void main() {
     }
   });
 
+  for (final width in [393.0, 1280.0]) {
+    testWidgets('checkout $width: three columns, centered label and price, corner saving', (tester) async {
+      await _pump(tester, width: width);
+      final cards = find.byType(XbSelectableOption);
+      final card = tester.getRect(cards.at(3));
+      expect(card.top, tester.getRect(cards.at(5)).top);
+      expect(tester.getRect(cards.first).top, tester.getRect(cards.at(2)).top);
+      expect(card.top, greaterThan(tester.getRect(cards.at(1)).top));
+      for (final label in ['年付', '¥270.00']) {
+        final face = find.descendant(of: cards.at(3), matching: find.text(label, findRichText: true));
+        expect(tester.getCenter(face).dx, closeTo(card.center.dx, 1));
+      }
+      final badge = tester.getRect(find.descendant(of: cards.at(3), matching: find.text('省 10%')));
+      expect(badge.center.dx, greaterThan(card.center.dx));
+      expect(badge.bottom, lessThan(tester.getTopLeft(find.text('年付')).dy));
+    });
+  }
   testWidgets('同一行左右两卡顶端对齐（dy 相同）', (tester) async {
     await _pump(tester);
     final cards = find.byType(XbSelectableOption);
-    // 行 0：第 0、1 张；行 1：第 2、3 张；行 2：第 4、5 张。
+    // 每行三张。
     for (final pair in [
       [0, 1],
-      [2, 3],
+      [0, 2],
+      [3, 4],
       [4, 5]
     ]) {
       final a = tester.getTopLeft(cards.at(pair[0]));

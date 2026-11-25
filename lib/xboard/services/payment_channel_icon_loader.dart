@@ -16,9 +16,46 @@ bool _isNetworkImage(Uri uri) =>
     !uri.authority.contains('@') &&
     (!uri.hasPort || (uri.port > 0 && uri.port <= 65535));
 
+typedef ChannelArtwork = ({Uint8List bytes, bool isSvg});
+
+/// Bounded, process-local cache of anonymously fetched decorative bytes only.
+class PaymentIconCache {
+  PaymentIconCache(this.fetch, this.now);
+  final Future<ChannelArtwork?> Function(Uri) fetch;
+  final Duration Function() now;
+  final _images = <Uri, ({Duration until, ChannelArtwork image})>{};
+  final _pending = <Uri, Future<ChannelArtwork?>>{};
+
+  void reject(Uri uri, Uint8List bytes) {
+    if (identical(_images[uri]?.image.bytes, bytes)) _images.remove(uri);
+  }
+
+  Future<ChannelArtwork?> load(Uri uri) {
+    if (!_isNetworkImage(uri)) return Future.value();
+    final found = _images.remove(uri);
+    if (found != null && now() < found.until) {
+      _images[uri] = found;
+      return Future.value(found.image);
+    }
+    return _pending.putIfAbsent(uri, () => fetch(uri).then((image) {
+      if (image != null && image.bytes.length <= _maxBytes) {
+        if (_images.length >= 32) _images.remove(_images.keys.first);
+        _images[uri] = (until: now() + const Duration(hours: 24), image: image);
+      }
+      return image;
+    }).whenComplete(() { _pending.remove(uri); }));
+  }
+}
+
+final _clock = Stopwatch()..start();
+final _icons = PaymentIconCache(_fetchIcon, () => _clock.elapsed);
+Future<ChannelArtwork?> loadPaymentChannelIcon(Uri uri) => _icons.load(uri);
+
+void rejectPaymentChannelIcon(Uri uri, Uint8List bytes) => _icons.reject(uri, bytes);
+
 /// Decorative artwork is fetched anonymously, outside the authenticated SDK.
 /// A failed, unsafe or oversized resource is indistinguishable from no icon.
-Future<({Uint8List bytes, bool isSvg})?> loadPaymentChannelIcon(Uri uri) async {
+Future<ChannelArtwork?> _fetchIcon(Uri uri) async {
   HttpClient? client;
   try {
     if (!_isNetworkImage(uri)) return null;

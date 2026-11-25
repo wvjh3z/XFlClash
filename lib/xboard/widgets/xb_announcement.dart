@@ -1,7 +1,7 @@
 /// 公告 UI（form-a 首页）：标题旁「有新公告」胶囊 + 点击弹出公告 sheet。
 ///
 /// - 胶囊（[XbNoticePill]）：watch [noticeStateProvider]，仅 `hasUnread` 时显示（纯文字，无红点）。
-/// - 点击：**打开即已读**（用户决策）—— 标记已读 + 失效 provider（徽标消失）→ 弹 sheet。
+/// - 点击：**打开即已读**（用户决策）—— 本地标记已读（徽标消失，不重新请求正文）→ 弹 sheet。
 /// - sheet 正文用 flutter_html 渲染（复用 §6.5 框架：emoji 分流 / 正文清洗 / 主题色 / 链接），
 ///   客户端按 HTML 渲染公告，不解析 Markdown。
 library;
@@ -23,6 +23,15 @@ import 'xb_ui_kit.dart' show XbGradientAction;
 import 'xb_network_read_recovery.dart';
 import 'xb_html_contrast.dart' show xbReadableHtmlColor;
 import 'xb_theme.dart' show XbTokens;
+
+// Acknowledge only the exact snapshot that the user opened. A later server
+// response computes unread status from its own notice versions and owner.
+final _openedSnapshot = NotifierProvider.autoDispose<_OpenedSnapshot, XbNoticeState?>(_OpenedSnapshot.new);
+class _OpenedSnapshot extends Notifier<XbNoticeState?> {
+  @override
+  XbNoticeState? build() => null;
+  void acknowledge(XbNoticeState notice) => state = notice;
+}
 
 /// 「有新公告」胶囊（标题旁）。无未读 / 游客 / 未就绪 → 不占位。
 /// 桌面 [large]=true：字号 13 + 更大内距（与 `_HomeUpdatePill` 桌面态一致）。
@@ -80,7 +89,7 @@ class _XbNoticePillState extends ConsumerState<XbNoticePill> {
         notice.notices, userIdHash: notice.userIdHash,
       );
       if (!mounted) return;
-      ref.invalidate(noticeStateProvider);
+      ref.read(_openedSnapshot.notifier).acknowledge(notice);
       await showXbNoticeSheet(context, notice.notices);
     } finally {
       // No setState: disposal also safely releases this instance's guard.
@@ -101,7 +110,8 @@ class _XbNoticePillState extends ConsumerState<XbNoticePill> {
       retry: () => ref.invalidate(noticeStateProvider),
     );
     final s = result.asData?.value;
-    if (result.hasError || s == null || !s.hasUnread) return const SizedBox.shrink();
+    final opened = ref.watch(_openedSnapshot);
+    if (result.hasError || s == null || !s.hasUnread || identical(s, opened)) return const SizedBox.shrink();
     final scheme = Theme.of(context).colorScheme;
     return GestureDetector(
       onTap: () => _open(s),

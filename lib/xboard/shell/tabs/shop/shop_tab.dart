@@ -10,6 +10,7 @@ import '../../../models/xb_result.dart';
 import '../../../pages/plan_detail_page.dart';
 import '../../../pages/commerce_read_recovery.dart';
 import '../../../providers/auth_state_provider.dart';
+import '../../../providers/catalog_read_cache.dart';
 import '../../../providers/user_profile_provider.dart';
 import '../../../providers/xboard_providers.dart';
 import '../../../sdk/guest_catalog.dart' show XboardGuestCatalogControl;
@@ -29,13 +30,17 @@ import 'xb_shop_navigation.dart';
 // The authenticated panel endpoint returns plans available to this account.
 // A different login must start a new read, not reuse a previous account's list.
 final _catalogProvider = FutureProvider.autoDispose.family<List<PlanItem>, int>(
-  (ref, _) async {
+  (ref, revision) async {
+    final cache = ref.watch(catalogReadCacheProvider);
+    final key = ('shop', revision);
+    final cached = cache.lookup<List<PlanItem>>(ref, key);
+    if (cached != null) return cached;
     if (ref.read(isOfflineProvider) || ref.read(interfaceUnavailableProvider)) {
       throw const XbNetwork(XbNetworkKind.connectionFailed, '当前离线');
     }
     final result = await ref.watch(xboardServiceProvider).getPlans();
     return switch (result) {
-      XbSuccess(:final data) => data,
+      XbSuccess(:final data) => cache.remember<List<PlanItem>>(ref, key, data),
       XbFailure(:final error) => throw error,
     };
   },
@@ -52,7 +57,10 @@ final _guestCatalogProvider = FutureProvider.autoDispose<List<PlanItem>>((
   ref,
 ) async {
   // A brand endpoint switch invalidates the prior anonymous response.
-  ref.watch(apiEndpointProvider);
+  final cache = ref.watch(catalogReadCacheProvider);
+  const key = 'guest-shop';
+  final cached = cache.lookup<List<PlanItem>>(ref, key);
+  if (cached != null) return cached;
   if (ref.read(isOfflineProvider) || ref.read(interfaceUnavailableProvider)) {
     throw const XbNetwork(XbNetworkKind.connectionFailed, '当前离线');
   }
@@ -63,7 +71,7 @@ final _guestCatalogProvider = FutureProvider.autoDispose<List<PlanItem>>((
           XbUnexpected('guestCatalog', '公开套餐暂不可用'),
         );
   return switch (result) {
-    XbSuccess(:final data) => data,
+    XbSuccess(:final data) => cache.remember<List<PlanItem>>(ref, key, data),
     XbFailure(:final error) => throw error,
   };
 }, retry: noAutomaticAccountRetry);
@@ -106,8 +114,42 @@ class _ShopTabState extends ConsumerState<ShopTab> {
   XbDomainSubscription? _lastProfile;
   DialogRoute<bool>? _confirmation;
 
+  late final AppLifecycleListener _lifecycle;
+
+  @override
+  void initState() {
+    super.initState();
+    _lifecycle = AppLifecycleListener(onResume: _refreshExpired);
+    WidgetsBinding.instance.addPostFrameCallback((_) => _refreshExpired());
+  }
+
+  @override
+  void didUpdateWidget(covariant ShopTab oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.active && !oldWidget.active) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _refreshExpired());
+    }
+  }
+
+  void _refreshExpired() {
+    if (!mounted || !widget.active || !ref.read(bootstrapReadyProvider) ||
+        ref.read(isOfflineProvider) || ref.read(interfaceUnavailableProvider)) {
+      return;
+    }
+    final auth = ref.read(authStateProvider);
+    if (auth == AuthState.authenticating) return;
+    final revision = ref.read(authStateProvider.notifier).sessionRevision;
+    final user = auth == AuthState.authenticated;
+    final provider = user ? _catalogProvider(revision) : _guestCatalogProvider;
+    if (ref.read(provider) is AsyncData<List<PlanItem>> &&
+        !ref.read(catalogReadCacheProvider).fresh(user ? ('shop', revision) : 'guest-shop')) {
+      ref.invalidate(provider);
+    }
+  }
+
   @override
   void dispose() {
+    _lifecycle.dispose();
     _scroll.dispose();
     super.dispose();
   }
@@ -250,7 +292,7 @@ class _ShopTabState extends ConsumerState<ShopTab> {
         PlanDetailPage(
           plan: plan,
           renew: renew,
-          initialPeriod: renew ? null : period, // 续费由结算页默认年付；购买保留所选周期。
+          initialPeriod: period,
           confirmedFor: activeId,
         ),
         brandColor: xbBrandColor(),
@@ -275,9 +317,14 @@ class _ShopTabState extends ConsumerState<ShopTab> {
     }
     _observeOwner(auth, revision);
 
+    Widget catalogPlaceholder() => Semantics(
+      label: '正在加载套餐',
+      child: _catalog(const [], revision: revision, authenticated: authenticated,
+          activeId: null, ownedId: null, canCheckout: false, header: null, loading: true),
+    );
     Widget body;
     if (auth == AuthState.authenticating || !ready) {
-      body = const Center(child: CircularProgressIndicator());
+      body = catalogPlaceholder();
     } else {
       final provider = authenticated
           ? _catalogProvider(revision)
@@ -358,6 +405,7 @@ class _ShopTabState extends ConsumerState<ShopTab> {
           }
           final manualRefresh = _manualRefreshOwner == source;
           final showNotice = manualRefresh || pricesFailed || profileFailed || offline && !waiting;
+          if (waiting && !showNotice && offers.isEmpty) return catalogPlaceholder();
           final previous = visibleCatalog == null || !stale ? '' :
               offers.isEmpty ? '上次目录没有可购买套餐。' : '当前显示上次价格。';
           return SizedBox.expand(child: _catalog(
@@ -367,6 +415,11 @@ class _ShopTabState extends ConsumerState<ShopTab> {
             activeId: _activeId(sub),
             ownedId: sub?.planId,
             canCheckout: !stale && (!authenticated || sub != null && profile?.isLoading == false && profile?.hasError == false && !_openingCheckout),
+            onRefresh: () async {
+              if (offline || ref.read(provider).isLoading) return;
+              ref.invalidate(provider);
+              try { await ref.read(provider.future); } catch (_) { /* Render the provider error. */ }
+            },
             header: showNotice ? XbPlanNoticeCard(
               title: manualRefresh ? '正在同步商店' : offline ? '商店未同步' : '$failedSource同步失败',
               desc: manualRefresh ? '同步完成后可核对最新套餐。' : offline ? '$previous请检查网络连接后刷新。' : '$previous刷新后再选购套餐。',
@@ -377,7 +430,8 @@ class _ShopTabState extends ConsumerState<ShopTab> {
               onTap: manualRefresh || offline || source.$3 == null ? null : refreshFailed,
             ) : waiting ? Padding(
               padding: const EdgeInsets.only(bottom: 12),
-              child: Text(catalog.isLoading ? '正在读取套餐价格…' : '正在读取套餐资料…'),
+              child: LinearProgressIndicator(minHeight: 2,
+                  semanticsLabel: catalog.isLoading ? '正在同步套餐价格' : '正在同步套餐资料'),
             ) : null,
           ));
         },
@@ -395,6 +449,8 @@ class _ShopTabState extends ConsumerState<ShopTab> {
     required int? ownedId,
     required bool canCheckout,
     required Widget? header,
+    bool loading = false,
+    RefreshCallback? onRefresh,
   }) {
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -405,7 +461,8 @@ class _ShopTabState extends ConsumerState<ShopTab> {
             .clamp(0.0, _maxContentWidth - 2 * padding)
             .toDouble();
         final cardWidth = twoColumns ? (width - gap) / 2 : width;
-        return SingleChildScrollView(
+        final scroll = SingleChildScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
           key: ValueKey(('shop-catalog', revision)),
           controller: _scroll,
           padding: const EdgeInsets.fromLTRB(padding, 12, padding, 24),
@@ -420,6 +477,10 @@ class _ShopTabState extends ConsumerState<ShopTab> {
                     spacing: gap,
                     runSpacing: gap,
                     children: [
+                      if (loading)
+                        for (var i = 0; i < (twoColumns ? 4 : 3); i++)
+                          SizedBox(width: cardWidth, key: ValueKey('shop-placeholder-$i'),
+                            child: const ExcludeSemantics(child: _CatalogSkeleton())),
                       for (final offer in offers)
                         SizedBox(
                           key: ValueKey(offer.plan.id),
@@ -440,6 +501,7 @@ class _ShopTabState extends ConsumerState<ShopTab> {
             ),
           ),
         );
+        return onRefresh == null ? scroll : RefreshIndicator(onRefresh: onRefresh, child: scroll);
       },
     );
   }
@@ -453,7 +515,7 @@ class _ShopTabState extends ConsumerState<ShopTab> {
     required bool canCheckout,
   }) {
     final id = offer.plan.id;
-    final annual = activeId != null && id != activeId
+    final annual = activeId != null
         ? offer.prices.where((p) => p.period == XbPlanPeriod.yearly).firstOrNull
         : null;
     final selected = offer.prices.where((p) => p.period == _selectedPeriods[id]).firstOrNull ??
@@ -510,6 +572,42 @@ class _PlanOffer {
   }
 }
 
+const _cardPadding = EdgeInsets.symmetric(horizontal: 14, vertical: 9);
+
+/// Catalog data is not yet known. Reserve space for a typical six-row plan;
+/// once loaded, HTML descriptions still take their actual height.
+class _CatalogSkeleton extends StatelessWidget {
+  const _CatalogSkeleton();
+
+  @override
+  Widget build(BuildContext context) {
+    final scale = MediaQuery.textScalerOf(context);
+    final theme = XbTokens.of(context);
+    Widget bar(double fraction, double height) => Align(alignment: Alignment.centerLeft,
+        child: XbSkeletonBar(widthFactor: fraction, height: height));
+    return XbCard(radius: XbTokens.rLg, padding: _cardPadding,
+      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        SizedBox(height: scale.scale(26), child: bar(.36, scale.scale(17))),
+        SizedBox(height: 46, child: Align(alignment: Alignment.centerLeft,
+          child: FractionallySizedBox(widthFactor: .84, child: Row(children: [
+            for (var i = 0; i < 6; i++) ...[
+              if (i != 0) const SizedBox(width: 4),
+              const Expanded(child: XbSkeletonBar(height: 21, radius: 8)),
+            ],
+          ])),
+        )),
+        SizedBox(height: scale.scale(36), child: bar(.40, scale.scale(25))),
+        const SizedBox(height: 5),
+        const SizedBox(height: 48, child: Center(child: XbSkeletonBar(height: 44, radius: 12))),
+        const SizedBox(height: 4),
+        Divider(height: 1, color: theme.hair),
+        const SizedBox(height: 4),
+        for (final fraction in [.43, .67, .61, .75, .88, .76])
+          SizedBox(height: scale.scale(24), child: bar(fraction, scale.scale(11))),
+      ]));
+  }
+}
+
 class _PlanCard extends StatelessWidget {
   const _PlanCard({
     required this.offer,
@@ -555,7 +653,7 @@ class _PlanCard extends StatelessWidget {
         : '/ ${planPeriodUnit(selected.period)}';
     return XbCard(
       radius: XbTokens.rLg,
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+      padding: _cardPadding,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [

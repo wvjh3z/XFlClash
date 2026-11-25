@@ -49,6 +49,10 @@ class XbTokens {
 
   // —— 语义状态色（原型 --ok / --warn / --bad / --info / --conn）——
   // 浅深通用（原型深色未单独覆盖语义色），统一定义于此。
+  static Color busyActionFill(Color brand) => brand == const Color(0xffd92e1a)
+      ? const Color(0xffd7857d)
+      : Color.lerp(brand, const Color(0xffddd6d5), .45)!;
+
   static const Color ok = Color(0xFF16A34A); // 成功 / 已完成 / 已连接同族
   static const Color warn = Color(0xFFE08A1E); // 告警 / 流量将尽 / 待支付
   static const Color bad = Color(0xFFDC3B2C); // 错误 / 已取消 / 高延迟

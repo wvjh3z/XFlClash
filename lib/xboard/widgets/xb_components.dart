@@ -926,15 +926,17 @@ class XbSelectableOption extends StatelessWidget {
     final option = AnimatedContainer(
       duration: const Duration(milliseconds: 150),
       width: double.infinity, // 撑满 Expanded 宽（否则 Stack 给 loose 约束 → 卡缩成内容宽、行间宽高不一）。
-      padding: EdgeInsets.all(compact ? 9 : 16),
+      padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 9),
+      constraints: const BoxConstraints(minHeight: 64),
+      alignment: Alignment.center,
       decoration: BoxDecoration(
         color: selected
             ? Color.alphaBlend(scheme.primary.withValues(alpha: 0.07), t.card)
             : t.card,
-        borderRadius: BorderRadius.circular(17),
+        borderRadius: BorderRadius.circular(10),
         border: Border.all(
           color: selected ? scheme.primary : t.line,
-          width: 1.6,
+          width: 1.5,
         ),
       ),
       child: child,
@@ -946,16 +948,22 @@ class XbSelectableOption extends StatelessWidget {
       onTap: onTap,
       behavior: HitTestBehavior.opaque,
       child: Padding(
-        padding: EdgeInsets.only(top: compact ? 0 : 11),
+        padding: EdgeInsets.only(top: MediaQuery.textScalerOf(context).scale(10) * .55 + 2),
         child: Stack(
           clipBehavior: Clip.none,
           children: [
             option,
             if (tag != null)
               Positioned(
-                top: -9,
-                right: 8,
-                child: XbTag(tag!, color: tagColor, elevated: true),
+                top: -(MediaQuery.textScalerOf(context).scale(10) * .55 + 1),
+                right: 4,
+                child: DecoratedBox(decoration: BoxDecoration(
+                  color: selected ? tagColor ?? scheme.primary : Color.alphaBlend(scheme.primary.withValues(alpha: .08), t.card),
+                  border: Border.all(color: selected ? tagColor ?? scheme.primary : Color.lerp(scheme.primary,t.card,.73)!),
+                  borderRadius: BorderRadius.circular(9),
+                ), child: Padding(padding: const EdgeInsets.symmetric(horizontal: 5), child: Text(tag!,
+                  style: TextStyle(fontSize: 10, height: 1.1, fontWeight: FontWeight.w600,
+                      color: selected ? Colors.white : Color.lerp(scheme.primary,t.on,.48))))),
               ),
           ],
         ),

@@ -32,7 +32,6 @@ class _DecisionOrder {
   final int? surplusCents;
   final int? creditCents;
   final String? planName;
-  int get reservedCreditCents => (balanceCents ?? 0) + (surplusCents ?? 0);
   int? get appliedSurplusCents => appliedOrderSurplusCents(
     net: payableCents!, balance: balanceCents ?? 0,
     surplus: surplusCents ?? 0, credit: creditCents,
@@ -408,18 +407,10 @@ extension _ConfirmedOrderDecision on XboardServiceImpl {
     if (existing != null) {
       final sameProduct =
           existing.planId == quote.planId && existing.period == period;
-      if (sameProduct &&
-          existing.reservedCreditCents == 0 &&
-          (existing.creditCents ?? 0) == 0 &&
-          existing.payableCents == quote.estimatedCents) {
-        return XbSuccess(existing.tradeNo);
-      }
       onStage?.call(ConfirmedOrderStage.awaitingConfirmation);
       final consent = await confirm(
         ConfirmedOrderConflict(
-          choice: sameProduct
-              ? ConfirmedOrderChoice.useExisting
-              : ConfirmedOrderChoice.replaceExisting,
+          sameSelection: sameProduct,
           quote: quote,
           existingTradeNo: existing.tradeNo,
           existingPlanName: existing.planName ?? '套餐 #${existing.planId}',
@@ -439,7 +430,6 @@ extension _ConfirmedOrderDecision on XboardServiceImpl {
       if (latest == null || !existing.samePendingQuote(latest)) return review;
       snapshotTrades.addAll(checkedAgain!.tradeNos);
       if (!couponCurrent()) return expiredCoupon;
-      if (sameProduct) return XbSuccess(existing.tradeNo);
 
       if (!await quoteStillAvailable()) return changedQuote;
       if (!current()) return stopped;

@@ -880,7 +880,7 @@ class _NodesRefreshAction extends StatelessWidget {
         surfaceKey: const ValueKey('node-refresh-press-surface'),
         glyph: AppGlyphs.refresh,
         iconSize: 19,
-        label: refreshing ? '刷新中' : idle,
+        label: idle,
         description: label,
         onTap: refreshing ? null : onRefresh,
         busy: refreshing,
@@ -892,7 +892,7 @@ class _NodesRefreshAction extends StatelessWidget {
       // 真正刷新中才禁用（null）；冷却中保持可点 → 触发 _refreshNodes 内的冷却 toast。
       onPressed: refreshing ? null : onRefresh,
       icon: refreshing
-          ? null
+          ? const XbSpinner(color: XbTokens.warn, size: 16, stroke: 2)
           : Icon(
               Icons.refresh,
               size: 16,
@@ -900,7 +900,7 @@ class _NodesRefreshAction extends StatelessWidget {
                   ? scheme.onSurfaceVariant.withValues(alpha: 0.5)
                   : scheme.primary,
             ),
-      label: Text(label),
+      label: Text(refreshing ? idle : label, semanticsLabel: label),
       style: TextButton.styleFrom(
         foregroundColor: coolingDown
             ? scheme.onSurfaceVariant.withValues(alpha: 0.5)

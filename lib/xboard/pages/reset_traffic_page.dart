@@ -541,7 +541,8 @@ class _ResetTrafficPageState extends ConsumerState<ResetTrafficPage> {
             child: const Text('重试'),
           ),
         XbPurchaseActions(
-          confirmLabel: _submitting ? '正在核对订单…' : '确认购买',
+          confirmLabel: '确认购买',
+          busyLabel: _submitting && ownerCurrent ? '正在核对订单…' : null,
           onCancel: _submitting && ownerCurrent ? null : _close,
           onConfirm: canSubmit ? () => _submitOrder(subscription) : null,
         ),
