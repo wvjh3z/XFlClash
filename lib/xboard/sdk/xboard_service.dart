@@ -186,6 +186,9 @@ abstract interface class XboardService {
   /// 拉邀请返佣汇总（合并 SDK invite 统计 + user 余额，cents→yuan 换算）。
   Future<XbResult<XbInviteInfo>> getInviteInfo();
 
+  /// Resolve the public site, or mint a fresh browser login link for this tap.
+  Future<XbResult<Uri>> getOfficialSiteUrl({required bool quickLogin, required bool Function() isActive});
+
   /// 生成邀请码（无码时 UI 进页面自动调）→ 返新邀请码字符串。
   Future<XbResult<String>> generateInviteCode();
 

@@ -64,12 +64,14 @@ Future<void> pumpMine(
   XbDomainSubscription? sub,
   XboardService? service,
   bool failProfile = false,
+  Future<bool> Function(Uri)? siteLauncher,
 }) async {
   await tester.pumpWidget(
     ProviderScope(
       overrides: [
         authStateProvider.overrideWith(() => _FakeAuth(auth)),
         if (service != null) xboardServiceProvider.overrideWithValue(service),
+        if (siteLauncher != null) officialSiteLauncherProvider.overrideWithValue(siteLauncher),
         if (failProfile)
           userProfileProvider.overrideWith(
             (ref) async => throw StateError('offline'),
@@ -91,12 +93,31 @@ Future<void> pumpMine(
 
 void main() {
   const gb = 1024 * 1024 * 1024;
+  setUpAll(() => registerFallbackValue(() => true));
   const urlChannel = MethodChannel('plugins.flutter.io/url_launcher');
 
   setUpAll(() => registerFallbackValue(CrispConfig(websiteID: 'test')));
 
   for (final days in <int?>[5, 0, null, -1]) {
-    testWidgets('没有明确重置时间时仅展示有效剩余天数：$days', (tester) async {
+    for (final guest in [true, false]) {
+    testWidgets('official site row opens externally once, guest=$guest', (t) async {
+      final service = _MockService();
+      final gate = Completer<XbResult<Uri>>();
+      var calls = 0;
+      final launched = <Uri>[];
+      when(() => service.getOfficialSiteUrl(quickLogin: !guest, isActive: any(named: 'isActive')))
+          .thenAnswer((_) { calls++; return gate.future; });
+      await pumpMine(t, auth: guest ? AuthState.unauthenticated : AuthState.authenticated,
+        sub: _sub(total: gb, used: 0), service: service, siteLauncher: (uri) async { launched.add(uri); return true; });
+      final open = find.text('打开官网');
+      await t.ensureVisible(open); await t.tap(open); await t.pump();
+      await t.tap(find.text('正在打开官网…')); await t.pump(); expect(calls, 1);
+      final url = Uri.parse('https://site.example/');
+      gate.complete(XbSuccess(url)); await t.pumpAndSettle();
+      expect(launched,[url]); expect(open,findsOneWidget);
+    });
+  }
+  testWidgets('没有明确重置时间时仅展示有效剩余天数：$days', (tester) async {
       await pumpMine(
         tester,
         auth: AuthState.authenticated,
@@ -761,6 +782,8 @@ void main() {
       );
       expect(find.text('在线客服'), findsOneWidget);
       await tester.ensureVisible(find.text('在线客服'));
+      verifyNever(() => driver.open(any()));
+      verifyNever(() => driver.setString(any(), any()));
       // Crisp 的串行队列以真实异步运行；让点击和会话清理在同一异步区完成。
       await tester.runAsync(() async {
         final cancelled = Completer<void>();

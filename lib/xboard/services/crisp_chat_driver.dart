@@ -557,6 +557,19 @@ class DesktopCrispChatDriver implements CrispChatDriver {
     }
   }
 
+  /// Optional metadata: a failed write must not close a functioning chat.
+  Future<bool> setClientIpForSession(String sid, String value) async {
+    final view = _active;
+    if (view == null || view.closing || view.closed) return false;
+    final generation = _generation;
+    final result = await _bounded(view.window.evaluateJavaScript(
+      '(function(){if(!window.__xbCrispReady || window.__xbCrispSession!==${jsonEncode(sid)})return "stale";'
+      'window.\$crisp.push(["set","session:data",[[["client_ip",${jsonEncode(value)}]]]]);return "ok";})();',
+    ), _ioTimeout, CrispChatFailure.sessionDataFailed);
+    _checkWindow(view, generation);
+    return _desktopString(result) == 'ok';
+  }
+
   @override
   Future<void> setString(String key, String value) async {
     final view = _active;

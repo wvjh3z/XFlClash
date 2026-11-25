@@ -933,6 +933,36 @@ class XboardServiceImpl
       });
 
   @override
+  Future<XbResult<Uri>> getOfficialSiteUrl({required bool quickLogin, required bool Function() isActive}) {
+    final epoch = _operationEpoch;
+    final revision = _sdkRevision;
+    bool current() => isActive() && _isCurrent(epoch, revision) &&
+        (!quickLogin || _sdk.authSession.state == AuthState.authenticated);
+    return _guard('getOfficialSiteUrl', () async {
+      final config = await _sdk.config.getConfig();
+      Uri? webUrl(String value) {
+        final uri = Uri.tryParse(value.trim());
+        return uri != null && uri.isScheme('https') && uri.host.isNotEmpty &&
+            !uri.authority.contains('@') && !value.contains('\\') ? uri : null;
+      }
+      final site = webUrl(config.appUrl);
+      if (site == null) throw const FormatException('官网地址未配置或无效');
+      if (!quickLogin) return site;
+      if (!current()) throw RequestNotDispatchedException('登录状态已变化');
+      final response = await _sdk.httpService.postRequest('/api/v1/user/getQuickLoginUrl', {'redirect':'dashboard'});
+      final raw = response['data'];
+      final link = raw is String ? webUrl(raw) : null;
+      final route = link == null ? null : Uri.tryParse(link.fragment);
+      if (response['success'] == false || link == null || link.origin != site.origin ||
+          route?.path != '/login' || (route?.queryParameters['verify'] ?? '').isEmpty ||
+          route?.queryParameters['redirect'] != 'dashboard') {
+        throw const FormatException('官网快捷登录链接无效');
+      }
+      return link;
+    }, isActive: current);
+  }
+
+  @override
   Future<XbResult<String>> generateInviteCode() async =>
       // throw 形态。SDK 两步（save + fetch）返回新邀请码 code 字符串。
       _guard('generateInviteCode', () => _sdk.invite.generateInviteCode());

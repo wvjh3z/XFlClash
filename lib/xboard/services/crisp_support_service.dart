@@ -53,6 +53,15 @@ class CrispOpenResult {
   bool get opened => failure == null;
 }
 
+/// Immutable local draft. Preparing it performs no platform or network I/O.
+/// The route-dependent IP is deliberately not captured in this snapshot.
+class CrispSupportDraft {
+  const CrispSupportDraft._(this.user, this.fields, this.hasAccount);
+  final User? user;
+  final Map<String,String> fields;
+  final bool hasAccount;
+}
+
 /// Crisp 在线客服服务（静态门面，串行会话生命周期）。
 class CrispSupportService {
   CrispSupportService._();
@@ -82,9 +91,46 @@ class CrispSupportService {
   static int _generation = 0;
   static Completer<void> _cancel = Completer<void>();
   static bool _resetFailed = false;
+  static VoidCallback? _stopIpUpdates;
+
+  static void _unbindIp() {
+    _stopIpUpdates?.call();
+    _stopIpUpdates = null;
+  }
+
+  // Serialize optional writes with open/reset. Re-read the signal after the
+  // session lookup so a late probe never replays a previous route's result.
+  static void _bindIp(ValueListenable<String?> signal, String sid, bool Function() owns) {
+    _unbindIp();
+    final driver = _driver;
+    var bound = true;
+    String? sent;
+    void changed() {
+      unawaited(_serialized(() async {
+        try {
+          if (!bound || !owns() || await driver.sessionId().timeout(const Duration(seconds: 2)) != sid) return;
+          if (!bound || !owns()) return;
+          final value = signal.value ?? ''; // Clear obsolete data even on a resumed Crisp session.
+          if (sent == value) return;
+          if (driver is DesktopCrispChatDriver) {
+            if (!await driver.setClientIpForSession(sid, value)) return;
+          } else {
+            await driver.setString('client_ip', value);
+          }
+          sent = value;
+        } catch (_) {
+          // Optional enrichment must not fail chat or log a raw IP.
+        }
+      }));
+    }
+    signal.addListener(changed);
+    _stopIpUpdates = () { bound = false; signal.removeListener(changed); };
+    changed();
+  }
 
   @visibleForTesting
   static Future<void> setDriverForTest(CrispChatDriver driver) async {
+    _unbindIp();
     _generation++;
     if (!_cancel.isCompleted) _cancel.complete();
     await _queue;
@@ -120,10 +166,35 @@ class CrispSupportService {
     return future;
   }
 
+  static CrispSupportDraft prepare(XbDomainSubscription? sub) {
+    final email = sub?.email.trim();
+    return CrispSupportDraft._(
+      email == null || email.isEmpty ? null : User(email: email, nickName: email.split('@').first,
+        company: Company(geoLocation: GeoLocation(country: _deviceCountry()))),
+      Map.unmodifiable({
+        'Source': _sourceLabel,
+        if (sub != null) ...{
+          'Email': sub.email, 'Plan': sub.planName ?? '未订阅套餐',
+          'Expires': _expiresText(sub), 'Traffic': '${_remainingGb(sub)} GB',
+        },
+      }), sub != null,
+    );
+  }
+
   /// The same serialized operation with actionable, privacy-safe failure reasons.
   static Future<CrispOpenResult> openWithResult({
     XbDomainSubscription? sub,
     bool Function()? isCurrent,
+    ValueListenable<String?>? clientIp,
+    bool Function()? ipOwnerCurrent,
+  }) {
+    return openPrepared(prepare(sub), isCurrent: isCurrent, clientIp: clientIp, ipOwnerCurrent: ipOwnerCurrent);
+  }
+
+  static Future<CrispOpenResult> openPrepared(CrispSupportDraft draft, {
+    bool Function()? isCurrent,
+    ValueListenable<String?>? clientIp,
+    bool Function()? ipOwnerCurrent,
   }) {
     if (!isEnabled) {
       return Future.value(
@@ -131,6 +202,7 @@ class CrispSupportService {
       );
     }
     if (_resultOpening != null) return _resultOpening!;
+    _unbindIp();
     final generation = _generation;
     final cancellation = _cancel.future;
     bool current() => generation == _generation && (isCurrent?.call() ?? true);
@@ -153,19 +225,10 @@ class CrispSupportService {
         events = _driver.sessionLoaded.listen((_) {
           if (!readySignal.isCompleted) readySignal.complete();
         }, onError: (Object _) {});
-        final email = sub?.email.trim();
         await _driver.open(
           CrispConfig(
             websiteID: websiteId,
-            user: email == null || email.isEmpty
-                ? null
-                : User(
-                    email: email,
-                    nickName: email.split('@').first,
-                    company: Company(
-                      geoLocation: GeoLocation(country: _deviceCountry()),
-                    ),
-                  ),
+            user: draft.user,
             sessionSegment: sourcePlatform,
             enableNotifications: false,
           ),
@@ -181,16 +244,7 @@ class CrispSupportService {
           if (!current()) return cancelled;
           if (sid != null && sid.isNotEmpty) {
             failure = CrispChatFailure.sessionDataFailed;
-            final values = <String, String>{
-              'Source': _sourceLabel,
-              if (sub != null) ...{
-                'Email': sub.email,
-                'Plan': sub.planName ?? '未订阅套餐',
-                'Expires': _expiresText(sub),
-                'Traffic': '${_remainingGb(sub)} GB',
-              },
-            };
-            for (final entry in values.entries) {
+            for (final entry in draft.fields.entries) {
               if (!current()) return cancelled;
               await _driver.setString(entry.key, entry.value);
             }
@@ -198,6 +252,9 @@ class CrispSupportService {
             final driver = _driver;
             if (driver is DesktopCrispChatDriver) await driver.reveal();
             opened = current();
+            if (opened && draft.hasAccount && clientIp != null) {
+              _bindIp(clientIp, sid, () => generation == _generation && (ipOwnerCurrent ?? current)());
+            }
             return opened ? const CrispOpenResult.opened() : cancelled;
           }
           await Future.any([
@@ -239,6 +296,7 @@ class CrispSupportService {
 
   /// Invalidate pending work immediately; serialize native reset after in-flight writes.
   static Future<void> reset() {
+    _unbindIp();
     _generation++;
     if (!_cancel.isCompleted) _cancel.complete();
     _cancel = Completer<void>();

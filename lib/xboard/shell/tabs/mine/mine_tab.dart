@@ -24,6 +24,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:fl_clash/xboard/models/xb_domain_subscription.dart';
 import 'package:fl_clash/xboard/models/xb_result.dart';
 import '../../../providers/network_recovery_provider.dart';
+import '../../../providers/exit_ip_provider.dart' show supportExitIpProvider;
 import '../../../providers/xboard_connectivity_provider.dart';
 import 'package:fl_clash/xboard/pages/invite_commission_page.dart';
 import 'package:fl_clash/xboard/pages/legal_pages.dart' show PrivacyPage, TermsPage;
@@ -64,6 +65,11 @@ final _rebateRateProvider = FutureProvider.autoDispose<int?>((ref) async {
 }, retry: (_, _) => null);
 
 /// 「我的」双栏布局：可用宽 ≥ [XbBreakpoints.desktop] 才双栏（策略见 xb_responsive）。
+
+// Only retain the current session/profile's draft while the account tab needs it.
+final _supportDraftProvider = Provider.autoDispose.family<CrispSupportDraft, (int, XbDomainSubscription?)>(
+  (_, owner) => CrispSupportService.prepare(owner.$2),
+);
 
 /// 我的 Tab。
 class MineTab extends ConsumerStatefulWidget {
@@ -167,6 +173,11 @@ class _MineTabState extends ConsumerState<MineTab> with XbRefreshThrottleGuard {
     });
     final isGuest = ref.watch(authStateProvider) != AuthState.authenticated;
     final profile = isGuest ? null : ref.watch(userProfileProvider);
+    if (widget.active && CrispSupportService.isEnabled && !CrispSupportService.usesExternalBrowser &&
+        (isGuest || (profile?.asData != null && !profile!.isLoading && !profile.hasError))) {
+      ref.watch(_supportDraftProvider((ref.read(authStateProvider.notifier).sessionRevision,
+        isGuest ? null : profile!.requireValue)));
+    }
     final stale = profile != null && (profile.hasError || profile.isLoading)
         ? ref.watch(staleAccountDisplayProvider) : null;
     final skeleton = stale == null && (_retrying || (profile != null && _skeletonLoading(profile)));
@@ -932,6 +943,7 @@ class _SettingsSection extends ConsumerWidget {
               // websiteId 未配置（XboardConfig.crispWebsiteId 空）→ 隐藏入口，不暴露空会话。
               if (CrispSupportService.isEnabled)
                 _SupportRow(isGuest: isGuest, large: large),
+              _OfficialSiteRow(large: large),
             ],
           ),
         ],
@@ -1069,6 +1081,48 @@ class _AboutRow extends ConsumerWidget {
   }
 }
 
+final officialSiteLauncherProvider = Provider<Future<bool> Function(Uri)>((_) =>
+    (uri) => launchUrl(uri, mode: LaunchMode.externalApplication));
+
+class _OfficialSiteRow extends ConsumerStatefulWidget {
+  const _OfficialSiteRow({required this.large});
+  final bool large;
+  @override
+  ConsumerState<_OfficialSiteRow> createState() => _OfficialSiteRowState();
+}
+
+class _OfficialSiteRowState extends ConsumerState<_OfficialSiteRow> with XbSubmitGuard<_OfficialSiteRow> {
+  Future<void> _open() async {
+    final auth = ref.read(authStateProvider);
+    final revision = ref.read(authStateProvider.notifier).sessionRevision;
+    bool current() => mounted && ref.read(authStateProvider) == auth &&
+        ref.read(authStateProvider.notifier).sessionRevision == revision &&
+        TickerMode.valuesOf(context).enabled && ModalRoute.of(context)?.isCurrent != false;
+    try {
+      final service = ref.read(xboardServiceProvider);
+      bool owns() => current() && identical(service, ref.read(xboardServiceProvider));
+      final result = await service.getOfficialSiteUrl(quickLogin: auth == AuthState.authenticated, isActive: owns);
+      if (!owns()) return;
+      final uri = result.dataOrNull;
+      if (uri == null) {
+        if (!mounted) return;
+        xbToast(context, '暂时无法获取官网地址，请稍后重试');
+        return;
+      }
+      final opened = await ref.read(officialSiteLauncherProvider)(uri);
+      if (!opened && mounted && owns()) xbToast(context, '未能打开系统浏览器，请重试');
+    } catch (_) {
+      if (mounted && current()) xbToast(context, '官网暂时无法打开，请稍后重试');
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => XbListRow(
+    icon: Icons.language, label: submitting ? '正在打开官网…' : '打开官网', large: widget.large,
+    showChevron: !submitting, onTap: submitting ? null : () => runSubmit(_open),
+  );
+}
+
 final _resumeChatProvider = NotifierProvider<_ResumeChat, bool>(_ResumeChat.new);
 
 class _ResumeChat extends Notifier<bool> {
@@ -1134,27 +1188,30 @@ class _SupportRowState extends ConsumerState<_SupportRow>
       }
       XbDomainSubscription? sub;
       if (!widget.isGuest) {
-        sub = ref.read(userProfileProvider).asData?.value;
-        if (sub == null) {
-          final result = await ref
-              .read(xboardServiceProvider)
-              .getSubscription()
-              .timeout(const Duration(seconds: 10));
-          if (!context.mounted || !current()) return;
-          sub = result.dataOrNull;
-          if (sub == null) {
-            if (xbIsRecoverableReadError(result.errorOrNull)) _pendingSessionRevision = revision;
+        try {
+          final profile = ref.read(userProfileProvider);
+          if (profile.hasError && !profile.isLoading) ref.invalidate(userProfileProvider);
+          sub = !profile.isLoading && !profile.hasError ? profile.asData?.value : null;
+          sub ??= await ref.read(userProfileProvider.future).timeout(const Duration(seconds: 10));
+        } catch (error) {
+          if (!current()) return;
+          if (xbIsRecoverableReadError(error) || error is TimeoutException) _pendingSessionRevision = revision;
+          if (context.mounted) {
             xbToast(context, _pendingSessionRevision == null
                 ? '账号资料暂时无法加载，请稍后再打开客服' : '网络暂不可用，恢复后将重试打开客服');
-            return;
           }
+          return;
         }
       }
       if (!context.mounted || !current()) return;
+      final container = ProviderScope.containerOf(context, listen: false);
       while (context.mounted && current()) {
-        final result = await CrispSupportService.openWithResult(
-          sub: sub,
+        final result = await CrispSupportService.openPrepared(
+          ref.read(_supportDraftProvider((revision, sub))),
           isCurrent: current,
+          clientIp: sub == null ? null : ref.read(supportExitIpProvider),
+          ipOwnerCurrent: () => container.read(authStateProvider) == AuthState.authenticated &&
+              identical(container.read(authStateProvider.notifier), notifier) && notifier.sessionRevision == revision,
         );
         if (!context.mounted || !current()) return;
         if (result.opened) {

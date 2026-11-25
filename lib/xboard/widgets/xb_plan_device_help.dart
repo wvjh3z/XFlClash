@@ -87,10 +87,11 @@ class XbPlanDeviceHelp extends StatelessWidget {
     tooltip: '查看设备使用与共享说明',
     padding: EdgeInsets.zero,
     style: IconButton.styleFrom(tapTargetSize: MaterialTapTargetSize.shrinkWrap),
-    constraints: const BoxConstraints.tightFor(width: 28, height: 28),
+    constraints: const BoxConstraints.tightFor(width: 26, height: 16),
+    iconSize: 16,
     icon: Icon(
       Icons.help_outline_rounded,
-      size: 17,
+      size: 16,
       color: xbReadableHtmlColor(Theme.of(context).colorScheme.primary, XbTokens.of(context).card),
     ),
     onPressed: () => xbShowDialog<void>(
@@ -158,11 +159,22 @@ class _DeviceHelpDialog extends StatelessWidget {
                                       ),
                                     ),
                                     const SizedBox(width: 4),
-                                    Text(
-                                      rule.$4 ? '严禁' : '支持',
-                                      style: TextStyle(
-                                        color: rule.$4 ? XbTokens.bad : t.onOk,
-                                        fontSize: 12,
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                                      decoration: BoxDecoration(
+                                        color: Color.alphaBlend(
+                                          (rule.$4 ? XbTokens.bad : XbTokens.ok)
+                                              .withValues(alpha: rule.$4 ? .09 : .11), t.sf2),
+                                        borderRadius: BorderRadius.circular(8),
+                                      ),
+                                      child: Text(
+                                        rule.$4 ? '严禁' : '支持',
+                                        softWrap: false,
+                                        style: TextStyle(
+                                          color: rule.$4 ? XbTokens.bad : t.onOk,
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.w600,
+                                        ),
                                       ),
                                     ),
                                   ],

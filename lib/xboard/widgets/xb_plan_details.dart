@@ -48,7 +48,9 @@ class XbPlanDetails extends ConsumerWidget {
           Html(
             data: wrapEmojiForHtml(withPlanDeviceHelp(description)),
             extensions: [
-              TagExtension(tagsToExtend: const {deviceHelpTag}, child: const XbPlanDeviceHelp()),
+              TagExtension.inline(tagsToExtend: const {deviceHelpTag}, child: const WidgetSpan(
+                alignment: PlaceholderAlignment.middle, child: XbPlanDeviceHelp(),
+              )),
               XbHtmlContrastExtension(background: t.card, foreground: t.on),
             ],
             style: {

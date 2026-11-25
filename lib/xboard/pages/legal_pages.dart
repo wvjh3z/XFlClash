@@ -337,6 +337,10 @@ class PrivacyPage extends StatelessWidget {
             TextSpan(text: '：崩溃与故障诊断信息上报，保留原始错误内容；可在设置中关闭，修改后需完全退出并重新打开应用'),
           ]),
           TextSpan(children: [
+            TextSpan(text: 'Crisp 在线客服', style: _strong),
+            TextSpan(text: '：已登录用户打开内嵌客服时，已有检测结果若为中国大陆公网 IPv4，会将该出口地址传给 Crisp 用于客服归属地查询；使用代理时可能是代理出口。'),
+          ]),
+          TextSpan(children: [
             TextSpan(text: '支付服务商', style: _strong),
             TextSpan(text: '（支付宝 / 微信等）：仅获取订单状态，不接触您的支付凭证'),
           ]),

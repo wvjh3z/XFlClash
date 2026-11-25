@@ -2,10 +2,18 @@ import 'dart:async';
 
 import 'package:fl_clash/providers/providers.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter/foundation.dart' show mapEquals;
+import 'package:flutter/foundation.dart' show mapEquals, ValueNotifier;
 
 import '../services/exit_ip_probe.dart';
+import '../services/crisp_client_ip.dart';
 import 'network_recovery_provider.dart';
+
+/// Passive projection: reading this does not instantiate the seven-source probe.
+final supportExitIpProvider = Provider<ValueNotifier<String?>>((ref) {
+  final signal = ValueNotifier<String?>(null);
+  ref.onDispose(signal.dispose);
+  return signal;
+});
 
 class XbExitIpState {
   const XbExitIpState({this.loading = false, this.result, this.failed = false});
@@ -30,9 +38,11 @@ class XbExitIpNotifier extends Notifier<XbExitIpState> {
 
   @override
   XbExitIpState build() {
+    final supportIp = ref.watch(supportExitIpProvider);
     final tracker = ref.read(routeTrackerProvider.notifier);
     var attached = false;
     ref.onDispose(() {
+      supportIp.value = null;
       _generation++;
       _debounce?.cancel();
       _probe?.cancel();
@@ -83,6 +93,7 @@ class XbExitIpNotifier extends Notifier<XbExitIpState> {
       if (visible) {
         if (_needsRefresh) refresh(preserveResult: true);
       } else {
+        // Opening native chat may hide Flutter; visibility alone is not a route change.
         _cancel();
         state = XbExitIpState(result: state.result, failed: state.failed);
       }
@@ -108,6 +119,7 @@ class XbExitIpNotifier extends Notifier<XbExitIpState> {
   /// Automatic triggers coalesce as in 0.8.93. Manual retry is immediate.
   void refresh({bool immediate = false, bool preserveResult = false}) {
     _needsRefresh = true;
+    ref.read(supportExitIpProvider).value = null;
     final previousResult = preserveResult ? state.result : null;
     // Route changes remain pending while hidden. Visibility alone does not
     // invalidate a successful result; cancelled/failed rounds still need work.
@@ -136,6 +148,7 @@ class XbExitIpNotifier extends Notifier<XbExitIpState> {
       final result = await probe.run();
       if (!ref.mounted || generation != _generation) return;
       _needsRefresh = result == null;
+      ref.read(supportExitIpProvider).value = crispClientIp(result);
       state = XbExitIpState(
         result: result ?? state.result,
         failed: result == null,

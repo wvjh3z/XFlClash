@@ -106,21 +106,26 @@ void main() {
       }),
     ]);
     addTearDown(container.dispose);
+    final ipForChat = container.read(supportExitIpProvider);
+    await tester.pump(const Duration(seconds: 1));
+    expect(probes, isEmpty, reason: 'customer support alone must not start a probe');
     await tester.pumpWidget(UncontrolledProviderScope(
       container: container,
       child: const MaterialApp(home: Scaffold(body: XbIpCard())),
     ));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));
-    probes.single.answer.complete(const XbExitIpResult('203.0.113.1', 'HK'));
+    probes.single.answer.complete(const XbExitIpResult('1.2.3.4', 'CN'));
     await flushProbe(tester);
     container.read(visible.notifier).state = false;
     await tester.pump();
+    expect(ipForChat.value, '1.2.3.4');
     final route = container.read(routeTrackerProvider.notifier) as _Route;
     route.hostChanged();
     route.advanceRoute();
     route.advanceRoute();
     await tester.pump(const Duration(seconds: 2));
+    expect(ipForChat.value, isNull, reason: 'never send previous-route data to chat');
     expect(probes, hasLength(1), reason: 'background must not send probes');
     container.read(visible.notifier).state = true;
     await tester.pump();
