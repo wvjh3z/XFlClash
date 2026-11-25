@@ -24,7 +24,6 @@ import '../../../widgets/xb_feedback.dart' show xbBrandColor;
 import '../../../widgets/xb_plan_details.dart';
 import '../../../widgets/xb_purchase_confirmation.dart';
 import '../../../widgets/xb_theme.dart';
-import '../../../widgets/xb_ui_kit.dart' show XbGradientAction;
 import 'xb_shop_navigation.dart';
 
 // The authenticated panel endpoint returns plans available to this account.
@@ -103,7 +102,6 @@ class _ShopTabState extends ConsumerState<ShopTab> {
   final _scroll = ScrollController(keepScrollOffset: false);
   final _titleKeys = <int, GlobalKey>{};
   final _selectedPeriods = <int, XbPlanPeriod>{};
-  int? _chosenPlanId;
   XbShopIntent? _scheduled;
   XbShopIntent? _handled;
   (AuthState, int)? _owner;
@@ -162,7 +160,6 @@ class _ShopTabState extends ConsumerState<ShopTab> {
     if (_owner == next) return;
     _owner = next;
     _selectedPeriods.clear();
-    _chosenPlanId = null;
     _titleKeys.clear();
     final dialog = _confirmation;
     if (dialog != null) {
@@ -285,7 +282,6 @@ class _ShopTabState extends ConsumerState<ShopTab> {
         if (accepted != true || !current()) return;
       }
       if (!mounted) return;
-      setState(() => _chosenPlanId = plan.id);
       // Opening checkout is read-only; only the checkout's submit can write.
       await xbPush(
         context,
@@ -526,10 +522,8 @@ class _ShopTabState extends ConsumerState<ShopTab> {
       selected: selected,
       renew: id == activeId,
       blocked: blocked,
-      chosen: id == _chosenPlanId && !blocked,
       onSelectPeriod: (period) => setState(() {
         _selectedPeriods[id] = period;
-        if (period != selected.period && _chosenPlanId == id) _chosenPlanId = null;
       }),
       onCheckout: blocked || !canCheckout
           ? null
@@ -538,7 +532,6 @@ class _ShopTabState extends ConsumerState<ShopTab> {
           : (_) {
               if (widget.active &&
                   ref.read(authStateProvider) == AuthState.unauthenticated) {
-                setState(() => _chosenPlanId = _chosenPlanId == id ? null : id);
                 widget.onTapLogin();
               }
             },
@@ -615,7 +608,6 @@ class _PlanCard extends StatelessWidget {
     required this.selected,
     required this.renew,
     required this.blocked,
-    required this.chosen,
     required this.onSelectPeriod,
     required this.onCheckout,
   });
@@ -625,7 +617,6 @@ class _PlanCard extends StatelessWidget {
   final _ShopPrice selected;
   final bool renew;
   final bool blocked;
-  final bool chosen;
   final ValueChanged<XbPlanPeriod> onSelectPeriod;
   final ValueChanged<XbPlanPeriod>? onCheckout;
 
@@ -638,6 +629,9 @@ class _PlanCard extends StatelessWidget {
     Color tone(XbPlanPeriod period) => switch (period) {
       XbPlanPeriod.monthly => dark ? const Color(0xFFF4A49A) : const Color(0xFFA82F24),
       XbPlanPeriod.quarterly => dark ? const Color(0xFFE9BC7A) : const Color(0xFF805318),
+      XbPlanPeriod.halfYearly => dark ? const Color(0xFF88CFA3) : const Color(0xFF24683F),
+      XbPlanPeriod.twoYearly => dark ? const Color(0xFFCEADEA) : const Color(0xFF714694),
+      XbPlanPeriod.threeYearly => dark ? const Color(0xFF85D1D6) : const Color(0xFF11676E),
       XbPlanPeriod.yearly => dark ? const Color(0xFF9BBDED) : const Color(0xFF255B9B),
       _ => dark ? const Color(0xFFA8C1B7) : const Color(0xFF4C665E),
     };
@@ -725,7 +719,7 @@ class _PlanCard extends StatelessWidget {
               TextSpan(
                 text: '¥$whole.$fraction',
                 style: theme.textTheme.headlineSmall?.copyWith(
-                  fontSize: 32,
+                  fontSize: 26,
                   height: 1.12,
                   fontFeatures: const [FontFeature.tabularFigures()],
                   fontWeight: FontWeight.w700,
@@ -741,9 +735,7 @@ class _PlanCard extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 5),
-          if (chosen)
-            XbGradientAction(height: 44, onPressed: buy, child: buyLabel)
-          else OutlinedButton(
+          OutlinedButton(
             onPressed: buy,
             style: OutlinedButton.styleFrom(
               minimumSize: const Size(0, 44),

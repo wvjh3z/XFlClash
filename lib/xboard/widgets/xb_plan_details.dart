@@ -7,6 +7,7 @@ import '../providers/xboard_providers.dart';
 import '../util/html_link.dart';
 import '../util/html_text.dart';
 import 'xb_html_contrast.dart';
+import 'xb_plan_device_help.dart';
 import 'xb_emoji_text.dart';
 import 'xb_theme.dart';
 
@@ -45,8 +46,9 @@ class XbPlanDetails extends ConsumerWidget {
           ),
         if (description.isNotEmpty)
           Html(
-            data: wrapEmojiForHtml(description),
+            data: wrapEmojiForHtml(withPlanDeviceHelp(description)),
             extensions: [
+              TagExtension(tagsToExtend: const {deviceHelpTag}, child: const XbPlanDeviceHelp()),
               XbHtmlContrastExtension(background: t.card, foreground: t.on),
             ],
             style: {

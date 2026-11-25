@@ -29,7 +29,7 @@ final shareLinkProvider = FutureProvider.autoDispose<XbShareLink>((ref) async {
   if (cached != null) return cached;
   final result = await ref.watch(xboardServiceProvider).getShareLink();
   return switch (result) {
-    XbSuccess(:final data) => cache.remember<XbShareLink>(ref, key, data),
+    XbSuccess(:final data) => cache.remember<XbShareLink>(ref, key, data, ttl: CatalogReadCache.shareLinkTtl),
     XbFailure(:final error) => throw error,
   };
 }, retry: (retryCount, error) => null);

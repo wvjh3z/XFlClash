@@ -29,6 +29,7 @@ class XbCenterToast {
     Duration duration = const Duration(seconds: 3),
     String? title,
     XbToastTone tone = XbToastTone.warning,
+    bool screenCentered = false,
   }) {
     final overlay = Overlay.maybeOf(context, rootOverlay: true);
     if (overlay == null) return null;
@@ -53,6 +54,7 @@ class XbCenterToast {
         duration: duration,
         title: title,
         tone: tone,
+        screenCentered: screenCentered,
         onDismissed: dismiss,
       ),
     );
@@ -70,6 +72,7 @@ class _ToastWidget extends StatefulWidget {
     required this.onDismissed,
     required this.title,
     required this.tone,
+    required this.screenCentered,
   });
 
   final String message;
@@ -78,6 +81,7 @@ class _ToastWidget extends StatefulWidget {
   final VoidCallback onDismissed;
   final String? title;
   final XbToastTone tone;
+  final bool screenCentered;
 
   @override
   State<_ToastWidget> createState() => _ToastWidgetState();
@@ -137,9 +141,11 @@ class _ToastWidgetState extends State<_ToastWidget>
       child: IgnorePointer(
         // 浮层不拦截点击（用户可继续操作下层）。
         child: SafeArea(
+          top: !widget.screenCentered, bottom: !widget.screenCentered,
+          left: !widget.screenCentered, right: !widget.screenCentered,
           child: Align(
             // 略偏上居中（屏幕中上部，避开底栏视觉重心）。
-            alignment: const Alignment(0, -0.15),
+            alignment: widget.screenCentered ? Alignment.center : const Alignment(0, -0.15),
             child: FadeTransition(
               opacity: _c,
               child: ScaleTransition(
@@ -165,7 +171,7 @@ class _ToastWidgetState extends State<_ToastWidget>
                         vertical: 15,
                       ),
                       decoration: BoxDecoration(
-                        color: Color.alphaBlend(
+                        color: widget.screenCentered ? t.card : Color.alphaBlend(
                           accent.withValues(alpha: 0.13),
                           t.card,
                         ),

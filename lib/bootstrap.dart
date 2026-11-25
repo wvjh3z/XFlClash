@@ -5,7 +5,7 @@ import 'package:fl_clash/common/boot_guard.dart';
 import 'package:fl_clash/common/boot_record.dart';
 import 'package:fl_clash/common/common.dart';
 import 'package:fl_clash/xboard/config/xboard_config.dart';
-import 'package:fl_clash/xboard/config/xb_tls_defaults.dart';
+import 'package:fl_clash/xboard/config/xb_brand_defaults.dart';
 import 'package:fl_clash/xboard/widgets/xb_welcome_dialog.dart';
 import 'package:fl_clash/common/launch.dart';
 import 'package:fl_clash/common/migration.dart';
@@ -96,7 +96,7 @@ class Bootstrap {
   ) async {
     await _claimDataDirectory();
     globalState.packageInfo = await PackageInfo.fromPlatform();
-    var config = await xbMigrateWithInitialTlsDefault(
+    var config = await xbMigrateBrandDefaults(
       migrate: migration.run,
       save: preferences.saveConfig,
     );

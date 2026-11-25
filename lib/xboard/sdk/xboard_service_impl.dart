@@ -30,6 +30,7 @@ import '../models/xb_notice.dart';
 import '../models/xb_result.dart';
 import '../models/xb_tutorial.dart';
 import '../services/sentry_bootstrap.dart';
+import '../services/withdraw_eligibility.dart' show withdrawMinimumPaidRecords;
 import '../util/pii_mask.dart';
 import '../util/subscription_cache.dart';
 import '../util/tutorial_resource_base.dart';
@@ -41,6 +42,7 @@ part 'confirmed_order_decision.dart';
 
 /// 使用教程取自知识库的「官方客户端」分类（用户确认的确切分类名）。
 const String _kTutorialCategory = '官方客户端';
+const String _ipTutorialCategory = '改IP教程';
 
 class XboardServiceImpl
     implements
@@ -436,6 +438,7 @@ class XboardServiceImpl
       'getPaymentMethods',
       'getInviteInfo',
       'getCommissionRecords',
+      'getWithdrawalRecordCount',
       'getWithdrawMethods',
       'getShareLink',
       'getTutorials',
@@ -955,6 +958,33 @@ class XboardServiceImpl
   });
 
   @override
+  Future<XbResult<int>> getWithdrawalRecordCount() => _guard('getWithdrawalRecordCount', () async {
+    // The SDK's row DTO loses the distinction between data:[] and missing data.
+    // Use the authenticated SDK transport and the same request validity scope.
+    final response = await _sdk.httpService.getRequest(
+      '/api/v1/user/invite/details?current=1&page_size=$withdrawMinimumPaidRecords',
+    );
+    final data = response['data'];
+    final rows = data is Map ? data['data'] : data;
+    final total = data is Map ? data['total'] ?? response['total'] : response['total'];
+    if ((response.containsKey('success') && response['success'] != true) ||
+        rows is! List || rows.length > withdrawMinimumPaidRecords ||
+        (total != null && (total is! int || total < 0 ||
+            rows.length != total.clamp(0, withdrawMinimumPaidRecords)))) {
+      throw const FormatException('返佣记录分页响应无效');
+    }
+    final ids = <int>{};
+    for (final row in rows) {
+      final raw = row is Map ? row['id'] : null;
+      final id = raw is int ? raw : raw is String ? int.tryParse(raw) : null;
+      if (id == null || id <= 0 || !ids.add(id)) {
+        throw const FormatException('返佣记录缺少有效标识');
+      }
+    }
+    return rows.length;
+  });
+
+  @override
   Future<XbResult<bool>> withdrawCommission({
     required String method,
     required String account,
@@ -1007,13 +1037,14 @@ class XboardServiceImpl
   Future<XbResult<List<XbTutorial>>> _getTutorials({
     bool Function()? isActive,
   }) =>
-      // KnowledgeList 只拉目录；过滤「官方客户端」，不回退到含正文的旧列表。
+      // KnowledgeList 只拉目录；只收录两种精确分类，不回退到含正文的旧列表。
       _guard('getTutorials', () async {
         final items = await _sdk.knowledgeList.getKnowledgeList();
         return [
           for (final it in items)
-            if (it.category == _kTutorialCategory)
+            if (it.category == _kTutorialCategory || it.category == _ipTutorialCategory)
               XbTutorial(
+                requiresIpPlan: it.category == _ipTutorialCategory,
                 id: it.id,
                 title: it.title,
                 updatedAt: _epochToDate(it.updatedAt),
@@ -1041,6 +1072,7 @@ class XboardServiceImpl
         final baseFuture = _readTutorialResourceBase();
         final a = await _sdk.knowledge.getKnowledgeDetail(id);
         return XbTutorialDetail(
+          requiresIpPlan: a.category == _ipTutorialCategory,
           id: a.id,
           title: a.title,
           body: a.body,

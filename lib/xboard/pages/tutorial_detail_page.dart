@@ -145,6 +145,9 @@ class _Article extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+        if (detail.requiresIpPlan && !ref.watch(ipTutorialPlanAccessProvider)) {
+          return const XbEmptyState(icon: Icons.lock_outline, title: '当前套餐无法查看这篇教程');
+        }
         final resourceBase =
             tutorialResourceBase(detail.resourceBase) ??
             tutorialResourceBase(ref.read(apiEndpointProvider)) ??

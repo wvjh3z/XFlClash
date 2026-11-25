@@ -10,6 +10,8 @@ import 'package:fl_clash/common/migration.dart';
 import 'package:fl_clash/models/models.dart';
 import 'package:fl_clash/xboard/config/xboard_config.dart';
 import 'package:fl_clash/xboard/config/xb_tls_defaults.dart';
+import 'package:fl_clash/xboard/config/xb_brand_defaults.dart';
+import 'package:prism_ui/prism_ui.dart' show ThemeMode;
 
 class _Disk extends InMemorySharedPreferencesStore {
   _Disk() : super.empty();
@@ -108,6 +110,23 @@ void main() {
           ),
         ),
       );
+      for (final initial in [null, ThemeMode.system, ThemeMode.dark, ThemeMode.light]) {
+        test('one-time bright theme: $initial then respect user after restart', () async {
+          var store = await reopen();
+          if (initial != null) {
+            await store.saveConfig(Config(themeProps: defaultThemeProps.copyWith(themeMode: initial)));
+          }
+          Future<Config> launch() => xbMigrateBrandDefaults(migrate: Migration(store: store).run, save: store.saveConfig);
+          var config = await launch();
+          expect(config.themeProps.themeMode, ThemeMode.light);
+          for (final selected in [ThemeMode.dark, ThemeMode.system, ThemeMode.light]) {
+            await store.saveConfig(config.copyWith(themeProps: config.themeProps.copyWith(themeMode: selected)));
+            store = await reopen();
+            config = await launch();
+            expect(config.themeProps.themeMode, selected);
+          }
+        });
+      }
       test(
         'fresh default persists; completed initialization respects later user choice',
         () async {

@@ -325,6 +325,7 @@ void main() {
       response.complete(XbResult.success(f.data));
       await _finishAnimations(tester);
       expect(f.profileLoads, 2, reason: '沿用按钮刷新完成后重载共享账号信息');
+      expect(find.text('个人信息已安全更新'), findsOneWidget);
       expect(_cooldown(false), findsOneWidget);
       await tester.tap(_cooldown(false));
       await _pull(tester, nodes: false);
@@ -361,6 +362,9 @@ void main() {
 
         response.complete(XbSyncOutcome.ok);
         await _finishAnimations(tester);
+        expect(find.text('节点信息已安全更新'), findsOneWidget);
+        final box = find.ancestor(of: find.text('节点信息已安全更新'), matching: find.byType(Material)).first;
+        expect(tester.getCenter(box), tester.getCenter(find.byType(Overlay).first));
         expect(_cooldown(true), findsOneWidget);
         if (capsuleSize != null) {
           expect(tester.getSize(capsule), capsuleSize);
@@ -443,6 +447,8 @@ void main() {
     await _finishAnimations(tester);
     expect(f.accountCalls, 1);
     expect(f.profileLoads, 2);
+    expect(find.text('个人信息刷新失败，请稍后重试'), findsOneWidget);
+    expect(find.text('个人信息已安全更新'), findsNothing);
     expect(_cooldown(false), findsNothing);
     await _pull(tester, nodes: false);
     expect(f.accountCalls, 2);
@@ -471,7 +477,8 @@ void main() {
     await _finishAnimations(tester);
     expect(f.syncCalls, 1);
     expect(find.text('可用测试节点', findRichText: true), findsOneWidget);
-    expect(find.text('刷新失败，请稍后重试'), findsOneWidget);
+    expect(find.text('节点信息刷新失败，请稍后重试'), findsOneWidget);
+    expect(find.text('节点信息已安全更新'), findsNothing);
     expect(_cooldown(true), findsNothing);
     await _pull(tester, nodes: true);
     expect(f.syncCalls, 2);

@@ -29,6 +29,7 @@ class _Service extends Mock
   bool replacing = false;
   Future<void>? submitGate;
   Future<void>? createGate;
+  Future<void>? verifyGate;
 
   @override
   Future<XbResult<String?>> confirmOrder(
@@ -44,6 +45,8 @@ class _Service extends Mock
     if (createGate != null && isActive()) {
       onStage?.call(ConfirmedOrderStage.creating);
       await createGate;
+      onStage?.call(ConfirmedOrderStage.verifying);
+      await verifyGate;
     }
     if (askAboutOldOrder) {
       acceptedOldOrder = await confirm(
@@ -85,8 +88,9 @@ void main() {
     addTearDown(t.view.reset);
     final read = Completer<XbResult<XbDomainSubscription>>();
     final write = Completer<void>();
+    final verify = Completer<void>();
     final check = Completer<void>();
-    final service = _Service()..submitGate = check.future..createGate = write.future;
+    final service = _Service()..submitGate = check.future..createGate = write.future..verifyGate = verify.future;
     when(service.getSubscription).thenAnswer((_) => read.future);
     await t.pumpWidget(ProviderScope(overrides: [
       authStateProvider.overrideWith(_Auth.new), xboardServiceProvider.overrideWithValue(service),
@@ -117,6 +121,11 @@ void main() {
     expect(service.submitCalls, 1);
     expect(t.takeException(), isNull);
     write.complete();
+    await t.pump();
+    expect(find.text('正在核实下单结果…'), findsNothing);
+    expect(t.widget<FilledButton>(busy).onPressed, isNull);
+    expect(service.submitCalls, 1);
+    verify.complete();
     await t.pumpAndSettle();
     expect(t.widget<FilledButton>(start).onPressed, isNotNull);
   });

@@ -161,14 +161,11 @@ class _WithdrawCommissionDialogState
     try {
       final result = await _withValidity(
         active,
-        () => widget.owner.getCommissionRecords(
-          page: 1,
-          pageSize: withdrawMinimumPaidRecords,
-        ),
+        widget.owner.getWithdrawalRecordCount,
       );
       failure = result.errorOrNull;
       if (result case XbSuccess(:final data)) {
-        count = withdrawPaidRecordCount(data);
+        count = data;
       }
     } catch (error) {
       failure = error;
@@ -387,6 +384,7 @@ class _WithdrawCommissionDialogState
           space: space,
           label: '成功邀请 ≥$withdrawMinimumPaidRecords 次',
           checking: _recordsChecking,
+          unknownLabel: '读取失败',
           known: records != null,
           value: records == null
               ? null
@@ -418,13 +416,14 @@ class _WithdrawCommissionDialogState
     required bool checking,
     required bool known,
     String? value,
+    String unknownLabel = '无法核实',
     required bool passed,
   }) {
     final t = XbTokens.of(context);
     final (icon, color, status) = checking
         ? (Icons.more_horiz, t.onv, '检测中…')
         : !known
-        ? (Icons.info_outline, t.onv, '无法核实')
+        ? (Icons.info_outline, t.onv, unknownLabel)
         : passed
         ? (Icons.check_circle, XbTokens.ok, '已达标')
         : (Icons.cancel, XbTokens.bad, '未达标');

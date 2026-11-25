@@ -1,7 +1,7 @@
 /// 使用教程列表页（form-a · 原型「使用教程」屏）。
 ///
 /// 从「我的」Tab → 账户组「使用教程」push 进入（**需登录**，入口仅登录态可点）。
-/// 加载后端知识库，仅「官方客户端」分类（过滤在反腐层做）。点条目 push 教程详情。
+/// 加载后端知识库，「官方客户端」及套餐可见的「改IP教程」分类（过滤在反腐层做）。点条目 push 教程详情。
 ///
 /// 加载时仅显示目录骨架；成功显示后台标题及更新时间，不加分类标题。
 /// 未返回目标分类与该分类无文章统一显示可刷新的空态；失败、超时与登录失效分别展示。
@@ -150,6 +150,10 @@ class _TutorialListBodyState extends ConsumerState<_TutorialListBody> {
     List<XbTutorial> tutorials,
     VoidCallback onRefresh, {bool busy = false}
   ) {
+    // Filter on display, including the last successful directory during recovery.
+    if (tutorials.any((item) => item.requiresIpPlan) && !ref.watch(ipTutorialPlanAccessProvider)) {
+      tutorials = tutorials.where((item) => !item.requiresIpPlan).toList();
+    }
     if (tutorials.isEmpty) {
       return _TutorialListStatus(
         icon: Icons.menu_book_outlined,

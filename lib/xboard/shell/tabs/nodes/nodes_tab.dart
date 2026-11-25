@@ -23,7 +23,7 @@ import 'package:fl_clash/xboard/providers/user_profile_provider.dart';
 import 'package:fl_clash/xboard/providers/xboard_providers.dart';
 import 'package:fl_clash/xboard/services/xboard_subscription_service.dart';
 import 'package:fl_clash/xboard/widgets/xb_components.dart';
-import 'package:fl_clash/xboard/widgets/xb_feedback.dart' show xbToast;
+import 'package:fl_clash/xboard/widgets/xb_feedback.dart' show xbToast, xbRefreshSuccess, xbRefreshFailure;
 import 'package:fl_clash/xboard/widgets/xb_refresh_throttle_guard.dart';
 import 'package:fl_clash/xboard/widgets/xb_theme.dart' show XbTokens;
 import 'package:prism_ui/prism_ui.dart' show AppRadius, AppTextStyle;
@@ -162,7 +162,7 @@ class _NodesTabState extends ConsumerState<NodesTab>
     if (ref.read(authStateProvider) != AuthState.authenticated) return;
     if (_refreshing) return;
     if (ref.read(interfaceUnavailableProvider)) {
-      xbToast(context, '未检测到网络连接，请连接网络后重试');
+      xbRefreshFailure(context, '未检测到网络连接，请连接网络后重试');
       return;
     }
     if (throttled) {
@@ -210,14 +210,19 @@ class _NodesTabState extends ConsumerState<NodesTab>
           } catch (_) {
             if (!ownsRecheck()) return;
             if (mounted && ref.read(subscriptionSyncStatusProvider)?.outcome == XbSyncOutcome.ok) {
-              xbToast(context, '账号资料未能更新，请稍后重试');
+              xbRefreshFailure(context, '账号资料未能更新，请稍后重试');
             }
             return;
           }
         }
       }
       if (!ownsPage() || (sync != null && !identical(sync, ref.read(subscriptionServiceProvider)))) return;
-      if (outcome == XbSyncOutcome.ok) startThrottle();
+      if (outcome == XbSyncOutcome.ok) {
+        startThrottle();
+        if (mounted && ref.read(subscriptionSyncStatusProvider)?.outcome == XbSyncOutcome.ok) {
+          xbRefreshSuccess(context, '节点信息已安全更新');
+        }
+      }
     } finally {
       if (mounted && ticket == _refreshGeneration) setState(() => _refreshing = false);
     }
@@ -227,9 +232,9 @@ class _NodesTabState extends ConsumerState<NodesTab>
         XbSyncOutcome.trafficExhausted => '本周期流量已用尽，请重置流量或更改套餐',
         XbSyncOutcome.noSubscription => '当前套餐无可用线路，请购买套餐',
         XbSyncOutcome.authExpired => '登录已过期，请重新登录',
-        _ => '刷新失败，请稍后重试',
+        _ => '节点信息刷新失败，请稍后重试',
       };
-      xbToast(context, msg);
+      xbRefreshFailure(context, msg);
     }
   }
 

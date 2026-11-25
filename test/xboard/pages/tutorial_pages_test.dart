@@ -7,6 +7,8 @@ import 'package:fl_clash/xboard/config/xboard_config.dart';
 import 'package:fl_clash/xboard/models/xb_domain_error.dart';
 import 'package:fl_clash/xboard/models/xb_result.dart';
 import 'package:fl_clash/xboard/models/xb_tutorial.dart';
+import 'package:fl_clash/xboard/models/xb_domain_subscription.dart';
+import 'package:fl_clash/xboard/providers/user_profile_provider.dart';
 import 'package:fl_clash/xboard/pages/tutorial_detail_page.dart';
 import 'package:fl_clash/xboard/pages/tutorial_list_page.dart';
 import 'package:fl_clash/xboard/providers/auth_state_provider.dart';
@@ -206,7 +208,7 @@ XbTutorialDetail _detail(String body, {int id = 21}) => XbTutorialDetail(
 );
 
 void main() {
-  test('directory and articles reuse successful reads until five minutes; refresh bypasses cache', () async {
+  test('directory and articles reuse successful reads until 24 hours; refresh bypasses cache', () async {
     var now = Duration.zero, lists = 0, articles = 0;
     final service = _Service();
     when(service.getTutorials).thenAnswer((_) async => XbSuccess([_tutorial(title: '目录${++lists}')]));
@@ -227,11 +229,11 @@ void main() {
     }
     await visit(tutorialsProvider);
     await visit(tutorialDetailProvider(21));
-    now = const Duration(minutes: 4, seconds: 59);
+    now = const Duration(hours: 23, minutes: 59, seconds: 59);
     expect((await visit(tutorialsProvider)).single.title, '目录1');
     expect((await visit(tutorialDetailProvider(21))).body, '正文1');
     expect((await visit(tutorialDetailProvider(22))).id, 22);
-    now = CatalogReadCache.ttl;
+    now = const Duration(hours: 24);
     expect((await visit(tutorialsProvider)).single.title, '目录2');
     expect((await visit(tutorialDetailProvider(21))).body, '正文3');
     final sub = c.listen(tutorialDetailProvider(21), (_, _) {});
@@ -333,6 +335,52 @@ void main() {
     });
   });
 
+  testWidgets('改IP教程按当前套餐筛选，缓存命中和已打开正文也随套餐更新', (t) async {
+    final instance = FakeXBoardSDK()..setupFor(XbScenario.loggedIn);
+    final list = _KnowledgeList(), articles = _Knowledge(), config = _Config();
+    when(() => instance.knowledgeList).thenReturn(list);
+    when(() => instance.knowledge).thenReturn(articles);
+    when(() => instance.config).thenReturn(config);
+    when(list.getKnowledgeList).thenAnswer((_) async => const [
+      sdk.KnowledgeItem(id: 1, category: '官方客户端', title: '普通教程', updatedAt: 1),
+      sdk.KnowledgeItem(id: 2, category: '改IP教程', title: '专属教程', updatedAt: 2),
+      sdk.KnowledgeItem(id: 3, category: '改IP教程说明', title: '相似分类', updatedAt: 3),
+    ]);
+    when(() => articles.getKnowledgeDetail(2)).thenAnswer((_) async => const sdk.KnowledgeArticle(
+        id: 2, category: '改IP教程', title: '专属教程', body: '<p>内容</p>', updatedAt: 2));
+    int? plan;
+    DateTime? expiry;
+    final c = ProviderContainer(overrides: [
+      authStateProvider.overrideWith(() => _Auth(AuthState.authenticated)),
+      xboardServiceProvider.overrideWithValue(XboardServiceImpl(sdk: instance)),
+      userProfileProvider.overrideWith((_) async => XbDomainSubscription(
+          // Traffic is exhausted throughout: only plan ID and expiry control access.
+          email:'fixture', uuid:'fixture', totalBytes:1024, usedBytes:1024, planId:plan, expiredAt:expiry)),
+      tutorialReaderBuilderProvider.overrideWithValue((_, _) => const Text('专属正文')),
+    ]);
+    addTearDown(c.dispose);
+    await t.pumpWidget(UncontrolledProviderScope(container:c,child:const MaterialApp(home:TutorialListPage())));
+    await _finish(t);
+    for (final id in <int?>[null, 28, 29, 30, 36, 37, 29]) {
+      plan=id; c.invalidate(userProfileProvider); await _finish(t);
+      expect(find.text('普通教程'), findsOneWidget);
+      expect(find.text('相似分类'), findsNothing);
+      expect(find.text('专属教程'), const {29,30,36}.contains(id) ? findsOneWidget : findsNothing);
+    }
+    expiry=DateTime.now().subtract(const Duration(seconds: 1));
+    c.invalidate(userProfileProvider); await _finish(t);
+    expect(find.text('专属教程'), findsNothing);
+    expect(find.text('普通教程'), findsOneWidget);
+    expiry=DateTime.now().add(const Duration(seconds: 10));
+    c.invalidate(userProfileProvider); await _finish(t);
+    verify(list.getKnowledgeList).called(1);
+    await t.tap(find.text('专属教程')); await _finish(t);
+    expect(find.text('专属正文'), findsOneWidget);
+    await t.pump(const Duration(seconds: 11)); await t.pump();
+    expect(find.text('专属正文'), findsNothing);
+    expect(find.text('当前套餐无法查看这篇教程'), findsOneWidget);
+    await t.pumpWidget(const SizedBox());
+  });
   testWidgets('目录只展示官方客户端，标题原文和后端顺序均保留', (tester) async {
     final instance = FakeXBoardSDK()..setupFor(XbScenario.loggedIn);
     final knowledgeList = _KnowledgeList();

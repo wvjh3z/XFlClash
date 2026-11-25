@@ -20,6 +20,19 @@ void xbToast(BuildContext context, String message) {
   XbCenterToast.show(context, message, duration: const Duration(seconds: 2));
 }
 
+/// Manual refresh completion, centered within the root overlay.
+void xbRefreshSuccess(BuildContext context, String message) =>
+    _refreshFeedback(context, message, success: true);
+
+void xbRefreshFailure(BuildContext context, String message) =>
+    _refreshFeedback(context, message, success: false);
+
+void _refreshFeedback(BuildContext context, String message, {required bool success}) {
+  if (!TickerMode.valuesOf(context).enabled || ModalRoute.of(context)?.isCurrent == false) return;
+  XbCenterToast.show(context, message, icon: success ? Icons.check_circle_outline_rounded : Icons.error_outline_rounded,
+      tone: success ? XbToastTone.success : XbToastTone.error, duration: const Duration(seconds: 2), screenCentered: true);
+}
+
 /// State 扩展：带 `mounted` 守卫的 toast —— 收口各页逐字复制的私有
 /// `void _toast(String){ if(!mounted) return; xbToast(context, msg); }`（§1.5/§11.4 单一来源）。
 /// 异步回调里调用安全（State 已 dispose 则静默跳过，不报错）。

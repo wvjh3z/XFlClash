@@ -2,15 +2,16 @@
 ///
 /// **零 SDK 类型穿透**（conventions §2.1）：UI / Provider 只见这些客户端类型，
 /// 反腐层 `XboardServiceImpl` 负责把 SDK `KnowledgeItem` / `KnowledgeArticle` 映射成本文件类型
-/// （并按「官方客户端」分类过滤、Unix 秒 → DateTime 换算）。
+/// （并保留目录可见性标记、Unix 秒 → DateTime 换算）。
 ///
 /// 手写不可变类（无 freezed / 无 codegen）：类型简单、无 copyWith / json 需求。
 library;
 
-/// 教程列表项（数据源：SDK `knowledge.getKnowledgeList()` 过滤「官方客户端」分类）。
+/// 教程列表项（数据源：SDK `knowledge.getKnowledgeList()` 精确匹配支持的分类）。
 class XbTutorial {
   /// 文章 ID（详情按此拉取）。
   final int id;
+  final bool requiresIpPlan;
 
   /// 标题。
   final String title;
@@ -20,6 +21,7 @@ class XbTutorial {
 
   const XbTutorial({
     required this.id,
+    this.requiresIpPlan = false,
     required this.title,
     required this.updatedAt,
   });
@@ -29,6 +31,7 @@ class XbTutorial {
 class XbTutorialDetail {
   /// 文章 ID。
   final int id;
+  final bool requiresIpPlan;
 
   /// 标题。
   final String title;
@@ -45,6 +48,7 @@ class XbTutorialDetail {
 
   const XbTutorialDetail({
     required this.id,
+    this.requiresIpPlan = false,
     required this.title,
     required this.body,
     required this.updatedAt,

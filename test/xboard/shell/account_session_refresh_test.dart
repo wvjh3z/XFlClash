@@ -200,7 +200,7 @@ void main() {
         await tester.pump();
         expect(calls, 2);
         expect(line, findsNothing);
-        await tester.tap(findActionLabel('刷新中…'));
+        await tester.tap(find.text('刷新节点'));
         verify(() => sync.sync(force: true)).called(1);
         expect(calls, 2);
         if (result == 'unmounted') {

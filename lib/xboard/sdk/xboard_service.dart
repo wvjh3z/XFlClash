@@ -195,6 +195,9 @@ abstract interface class XboardService {
     int pageSize = 20,
   });
 
+  /// 已发放返佣首批记录数，上限为提现所需条数。失败与成功空页分开。
+  Future<XbResult<int>> getWithdrawalRecordCount();
+
   /// 佣金提现（整笔；后端工单制，门槛 + 收款方式校验在后端）。
   Future<XbResult<bool>> withdrawCommission({
     required String method,

@@ -120,9 +120,9 @@ void main() {
     final service = _Service();
     when(service.getInviteInfo).thenAnswer((_) async => XbSuccess(_invite(200)));
     var reads = 0, methods = 0;
-    when(() => service.getCommissionRecords(page: 1, pageSize: 10)).thenAnswer((_) async =>
+    when(service.getWithdrawalRecordCount).thenAnswer((_) async =>
       ++reads == 1 ? const XbFailure(XbNetwork(XbNetworkKind.timeout, 'offline'))
-          : XbSuccess(_records(10)));
+          : const XbSuccess(10));
     when(service.getWithdrawMethods).thenAnswer((_) async =>
       ++methods == 1 ? const XbFailure(XbNetwork(XbNetworkKind.timeout, 'offline'))
           : const XbSuccess(['USDT-TRC20']));
@@ -144,8 +144,8 @@ void main() {
   testWidgets('320dp 大字号提现：金额保留左右列，键盘缩小视口后仍可确认', (tester) async {
     final service = _Service();
     when(() => service.getInviteInfo()).thenAnswer((_) async => XbSuccess(_invite(268.50)));
-    when(() => service.getCommissionRecords(page: 1, pageSize: 10))
-        .thenAnswer((_) async => XbSuccess(_records(10)));
+    when(service.getWithdrawalRecordCount)
+        .thenAnswer((_) async => const XbSuccess(10));
     when(() => service.getWithdrawMethods())
         .thenAnswer((_) async => const XbSuccess(['USDT-TRC20']));
     await _setup(tester, service, 'brand_a',
@@ -239,10 +239,10 @@ void main() {
       (199.99, 10, '未达标', '至少 10 次 · 已达标', false),
       (200.0, 9, '已达标', '9 次 · 未达标', false),
       (200.0, 10, '已达标', '至少 10 次 · 已达标', true),
-      (200.0, 0, '已达标', '无法核实', false),
+      (200.0, 0, '已达标', '0 次 · 未达标', false),
       (0.0, 10, '无法核实', '至少 10 次 · 已达标', false),
       (null, 10, '无法核实', '至少 10 次 · 已达标', false),
-      (200.0, null, '已达标', '无法核实', false),
+      (200.0, null, '已达标', '读取失败', false),
     ]) {
       testWidgets('$brand independent withdrawal gates $balance / $count', (
         tester,
@@ -256,16 +256,16 @@ void main() {
               : XbSuccess(_invite(balance)),
         );
         when(
-          () => service.getCommissionRecords(page: 1, pageSize: 10),
+          service.getWithdrawalRecordCount,
         ).thenAnswer(
           (_) async => count == null
               ? throw StateError('fixture malformed')
-              : XbSuccess(_records(count)),
+              : XbSuccess(count),
         );
         await _setup(tester, service, brand);
         expect(find.text(statusBalance), findsOneWidget);
         expect(find.text(statusCount), findsOneWidget);
-        if (count == 0 || count == null) {
+        if (count == null) {
           expect(find.text('重新检测'), findsOneWidget);
           expect(find.text('0 次 · 未达标'), findsNothing);
         }
@@ -280,7 +280,7 @@ void main() {
         expect(_submit, findsNothing);
         expect(tester.getSize(_continue).width, closeTo(tester.getSize(find.widgetWithText(FilledButton, '关闭')).width, 0.1));
         verify(() => service.getInviteInfo()).called(1);
-        verify(() => service.getCommissionRecords(page: 1, pageSize: 10)).called(1);
+        verify(service.getWithdrawalRecordCount).called(1);
         verifyNever(() => service.getWithdrawMethods());
         verifyNever(
           () => service.withdrawCommission(
@@ -297,12 +297,12 @@ void main() {
       tester,
     ) async {
       final service = _Service();
-      final lateRecords = Completer<XbResult<List<XbCommissionRecord>>>();
+      final lateRecords = Completer<XbResult<int>>();
       when(() => service.getInviteInfo()).thenAnswer(
         (_) async => XbSuccess(_invite(200)),
       );
       when(
-        () => service.getCommissionRecords(page: 1, pageSize: 10),
+        service.getWithdrawalRecordCount,
       ).thenAnswer((_) => lateRecords.future);
       final container = await _setup(tester, service, 'brand_a');
       expect(find.text('已达标'), findsOneWidget);
@@ -320,7 +320,7 @@ void main() {
           ),
         );
       }
-      lateRecords.complete(XbSuccess(_records(10)));
+      lateRecords.complete(const XbSuccess(10));
       if (scenario == 'background') {
         tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
       }
@@ -353,8 +353,8 @@ void main() {
         (_) async => XbSuccess(_invite(200)),
       );
       when(
-        () => service.getCommissionRecords(page: 1, pageSize: 10),
-      ).thenAnswer((_) async => XbSuccess(_records(10)));
+        service.getWithdrawalRecordCount,
+      ).thenAnswer((_) async => const XbSuccess(10));
       when(() => service.getWithdrawMethods()).thenAnswer(
         (_) async => outcome == 'methods fail'
             ? const XbFailure(

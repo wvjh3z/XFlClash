@@ -127,7 +127,7 @@ void _noWrites(_Service service) {
 void main() {
   setUpAll(() => registerFallbackValue(XbPlanPeriod.monthly));
 
-  testWidgets('shop re-entry reuses price for five minutes; pull refresh bypasses it', (t) async {
+  testWidgets('shop re-entry reuses price for 24 hours; pull refresh bypasses it', (t) async {
     var now = Duration.zero, calls = 0;
     final service = _Service();
     when(service.getPlans).thenAnswer((_) async { calls++; return const XbSuccess(_plans); });
@@ -144,9 +144,9 @@ void main() {
       await t.pumpWidget(_app(c)); await t.pumpAndSettle();
     }
     await reopen(); expect(calls, 1);
-    now = const Duration(minutes: 4, seconds: 59);
+    now = const Duration(hours: 23, minutes: 59, seconds: 59);
     await reopen(); expect(calls, 1);
-    now = CatalogReadCache.ttl;
+    now = const Duration(hours: 24);
     await reopen(); expect(calls, 2);
     final refresh = t.widget<RefreshIndicator>(find.byType(RefreshIndicator)).onRefresh();
     await t.pumpAndSettle(); await refresh;
@@ -325,13 +325,21 @@ void main() {
     await t.pumpAndSettle();
     expect(find.byIcon(Icons.data_usage), findsNothing);
     expect(find.textContaining('100 GB/月', findRichText: true), findsOneWidget);
+    final colors = <Color?>{};
+    for (final price in prices) {
+      final chip = find.byKey(ValueKey(('shop-period', 4, price.period)));
+      final button = t.widget<OutlinedButton>(find.descendant(of: chip, matching: find.byType(OutlinedButton)));
+      colors.add(button.style!.foregroundColor!.resolve({}));
+    }
+    expect(colors, hasLength(6));
     final last = find.byKey(const ValueKey(('shop-period', 4, XbPlanPeriod.threeYearly)));
     final row = find.ancestor(of: last, matching: find.byType(SingleChildScrollView)).first;
     expect(t.getRect(last).right, lessThanOrEqualTo(t.getRect(row).right));
     expect(t.getSize(last).height, greaterThanOrEqualTo(44));
     await t.tap(last);
     await t.pumpAndSettle();
-    expect(_text('¥25.00  / 三年'), findsOneWidget);
+    final price = t.renderObject<RenderParagraph>(_text('¥25.00  / 三年'));
+    expect(price.text.getSpanForPosition(const TextPosition(offset: 1))?.style?.fontSize, 26);
     _noWrites(service);
   });
   testWidgets('catalog shows cents, real periods and complete details', (t) async {
@@ -431,7 +439,8 @@ void main() {
       expect(page.confirmedFor, expired ? null : 4);
       Navigator.of(t.element(find.byType(PlanDetailPage))).pop();
       await t.pumpAndSettle();
-      expect(find.ancestor(of: _text(action), matching: find.byType(FilledButton)), findsOneWidget);
+      expect(find.ancestor(of: _text(action), matching: find.byType(OutlinedButton)), findsOneWidget);
+      expect(t.widget<Semantics>(find.byKey(ValueKey(('shop-period', page.plan.id, page.initialPeriod!)))).properties.selected, isTrue);
       _noWrites(service);
     });
   }
@@ -505,7 +514,7 @@ void main() {
     expect(t.widget<OutlinedButton>(outline).style!.foregroundColor!.resolve({}), const Color(0xFF365A73));
     await _tap(t, '购买 真实公开套餐');
     expect(login, 1);
-    expect(find.ancestor(of: buy, matching: find.byType(FilledButton)), findsOneWidget);
+    expect(outline, findsOneWidget);
     expect(find.byType(PlanDetailPage), findsNothing);
     expect(find.byType(AlertDialog), findsNothing);
     final auth = c.read(authStateProvider.notifier) as _Auth;

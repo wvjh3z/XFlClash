@@ -41,7 +41,7 @@ import 'package:fl_clash/xboard/util/format.dart';
 import 'package:fl_clash/xboard/widgets/xb_components.dart';
 import 'package:fl_clash/xboard/widgets/xb_plan_notice_card.dart';
 import 'package:fl_clash/xboard/widgets/xb_feedback.dart'
-    show xbConfirm, xbBrandColor, xbToast;
+    show xbConfirm, xbBrandColor, xbToast, xbRefreshSuccess, xbRefreshFailure;
 import 'package:fl_clash/xboard/widgets/xb_refresh_throttle_guard.dart';
 import 'package:fl_clash/xboard/widgets/xb_theme.dart'
     show xbDialogRoute, xbPush, xbShowDialog, XbTokens;
@@ -105,7 +105,7 @@ class _MineTabState extends ConsumerState<MineTab> with XbRefreshThrottleGuard {
       return;
     }
     if (ref.read(interfaceUnavailableProvider)) {
-      xbToast(context, '未检测到网络连接，请连接网络后重试');
+      xbRefreshFailure(context, '未检测到网络连接，请连接网络后重试');
       return;
     }
     if (!retry && throttled) {
@@ -120,12 +120,19 @@ class _MineTabState extends ConsumerState<MineTab> with XbRefreshThrottleGuard {
         ref.read(userProfileProvider.future).then((_) {}),
         if (!retry) _checkAppUpdate(),
       ]);
-      if (!retry && mounted && ref.read(authStateProvider.notifier).sessionRevision == revision) {
-        ref.invalidate(_rebateRateProvider);
-        startThrottle();
+      if (mounted && ref.read(authStateProvider.notifier).sessionRevision == revision) {
+        if (!retry) {
+          ref.invalidate(_rebateRateProvider);
+          startThrottle();
+        }
+        if (widget.active) xbRefreshSuccess(context, '个人信息已安全更新');
       }
     } catch (_) {
-      // The shared provider displays the failure; do not throttle a failed read.
+      if (mounted && widget.active &&
+          ref.read(authStateProvider.notifier).sessionRevision == revision &&
+          ref.read(authStateProvider) == AuthState.authenticated && ref.read(userProfileProvider).hasError) {
+        xbRefreshFailure(context, '个人信息刷新失败，请稍后重试');
+      }
     } finally {
       if (mounted && ref.read(authStateProvider.notifier).sessionRevision == revision) {
         setState(() { _refreshing = _retrying = false; });

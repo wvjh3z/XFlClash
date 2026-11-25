@@ -17,7 +17,8 @@ class CatalogReadCache {
   CatalogReadCache(this._now);
   final Duration Function() _now;
   final _entries = <Object, ({Duration until, Object value})>{};
-  static const ttl = Duration(minutes: 5);
+  static const catalogTtl = Duration(hours: 24);
+  static const shareLinkTtl = Duration(minutes: 5);
 
   bool fresh(Object key) {
     final entry = _entries[key];
@@ -30,7 +31,7 @@ class CatalogReadCache {
     return null;
   }
 
-  T remember<T extends Object>(Ref ref, Object key, T value) {
+  T remember<T extends Object>(Ref ref, Object key, T value, {Duration ttl = catalogTtl}) {
     if (!ref.mounted) return value;
     final now = _now();
     _entries.removeWhere((_, e) => now >= e.until);

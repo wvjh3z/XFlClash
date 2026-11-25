@@ -933,8 +933,7 @@ class _PlanDetailPageState extends ConsumerState<PlanDetailPage> {
             ConfirmedOrderStage.awaitingConfirmation => '等待确认旧订单…',
             ConfirmedOrderStage.cancelling => '正在取消旧订单…',
             ConfirmedOrderStage.checkingCancellation => '正在核实取消结果…',
-            ConfirmedOrderStage.creating => '正在创建订单…',
-            ConfirmedOrderStage.verifying => '正在核实下单结果…',
+            ConfirmedOrderStage.creating || ConfirmedOrderStage.verifying => '正在创建订单…',
           };
           if (_orderStage != label) setState(() => _orderStage = label);
         },
