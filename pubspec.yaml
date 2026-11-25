@@ -83,6 +83,7 @@ dependencies:
   sentry_flutter: 9.30.1          # NFR-7 — pin SDK and matching native bindings; CLI stays 2.58.4.
   flutter_secure_storage: 10.3.1   # NFR-3 — TokenStorage 注入实现
   flutter_html: ^3.0.0             # R8 — 套餐 content 富文本 HTML 渲染（emoji 标题/✓✗列表/颜色）
+  markdown: ^7.3.0                # 公告 Markdown 复用现有 HTML 渲染。
   flutter_inappwebview: 6.1.5       # Tutorial reader: Android, Windows and macOS native WebView.
   flutter_inappwebview_windows: 0.6.0 # Public environment adapter for this pinned Windows implementation.
   flutter_inappwebview_platform_interface: 1.3.0+1 # Channel extension used only by the Windows environment repair.

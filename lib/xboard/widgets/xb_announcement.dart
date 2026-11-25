@@ -3,7 +3,7 @@
 /// - 胶囊（[XbNoticePill]）：watch [noticeStateProvider]，仅 `hasUnread` 时显示（纯文字，无红点）。
 /// - 点击：**打开即已读**（用户决策）—— 本地标记已读（徽标消失，不重新请求正文）→ 弹 sheet。
 /// - sheet 正文用 flutter_html 渲染（复用 §6.5 框架：emoji 分流 / 正文清洗 / 主题色 / 链接），
-///   客户端按 HTML 渲染公告，不解析 Markdown。
+///   HTML 和 Markdown 共用正文样式与链接处理。
 library;
 
 import 'package:fl_clash/xboard/widgets/xb_emoji_text.dart';
@@ -18,7 +18,8 @@ import '../providers/xboard_providers.dart';
 import '../shell/sheets/sheet_scaffold.dart';
 import '../util/format.dart' show xbDate;
 import '../util/html_link.dart';
-import '../util/html_text.dart' show wrapEmojiForHtml, htmlRenderableBody, kXbEmojiClass;
+import '../util/html_text.dart' show wrapEmojiForHtml, kXbEmojiClass;
+import '../util/notice_html.dart';
 import 'xb_ui_kit.dart' show XbGradientAction;
 import 'xb_network_read_recovery.dart';
 import 'xb_html_contrast.dart' show xbReadableHtmlColor;
@@ -234,7 +235,7 @@ class _NoticeItem extends ConsumerWidget {
           const SizedBox(height: 8),
           // 正文：emoji 分流 + 正文清洗（§6.5）；链接走统一框架（base=当前 API endpoint）。
           Html(
-            data: wrapEmojiForHtml(htmlRenderableBody(notice.content)),
+            data: wrapEmojiForHtml(noticeRenderableHtml(notice.content)),
             style: {
               'body': Style(
                   margin: Margins.zero,
