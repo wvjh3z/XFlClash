@@ -1163,6 +1163,19 @@ void main() {
     },
   );
 
+  for (final status in [XbOrderStatus.cancelled, XbOrderStatus.completed, XbOrderStatus.discounted]) {
+    _paymentTest('desktop centers $status order information within its panel', (t, h) async {
+      h.service.onRead = (_) async => XbResult.success(order(status));
+      await h.mount(t, size: const Size(1264, 800), panelWidth: 1064);
+      final panel = t.getRect(find.byType(OrderPaymentPage));
+      for (final label in ['套餐内容', '创建时间']) {
+        final row = find.ancestor(of: text(label), matching: find.byType(Row)).first;
+        expect(t.getCenter(row).dx, closeTo(panel.center.dx, 1));
+      }
+      expect(text('检查支付状态'), findsNothing);
+    });
+  }
+
   _paymentTest(
     'desktop opening keeps information and detection in two columns',
     (t, h) async {

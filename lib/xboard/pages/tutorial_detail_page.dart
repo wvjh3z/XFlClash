@@ -5,6 +5,7 @@ import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../providers/auth_state_provider.dart';
+import '../providers/catalog_read_cache.dart' show shopPanelScopeProvider;
 import '../providers/tutorial_provider.dart';
 import '../providers/xboard_providers.dart';
 import '../util/tutorial_html.dart';
@@ -75,6 +76,8 @@ class TutorialDetailPage extends ConsumerWidget {
               key: ValueKey((
                 id,
                 ref.read(authStateProvider.notifier).sessionRevision,
+                ref.watch(shopPanelScopeProvider),
+                ref.watch(apiEndpointProvider),
               )),
               id: id,
             )

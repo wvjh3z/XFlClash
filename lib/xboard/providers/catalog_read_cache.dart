@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'auth_state_provider.dart';
@@ -9,6 +11,24 @@ final catalogReadCacheProvider = Provider<CatalogReadCache>((ref) {
   ref.watch(authStateProvider);
   ref.watch(apiEndpointProvider);
   ref.watch(xboardServiceProvider);
+  final clock = Stopwatch()..start();
+  return CatalogReadCache(() => clock.elapsed);
+});
+
+/// Only routes in the same configured API pool can share shop display prices.
+/// Without a recognized pool, keep the stricter single-endpoint boundary.
+final shopPanelScopeProvider = Provider<String>((ref) {
+  final endpoint = ref.watch(apiEndpointProvider);
+  final race = ref.watch(injectedRaceControllerProvider);
+  final urls = race?.apiCandidates.map((e) => e.url).toSet();
+  return jsonEncode(urls != null && urls.contains(endpoint)
+      ? (urls.toList()..sort()) : [endpoint]);
+});
+
+final shopReadCacheProvider = Provider<CatalogReadCache>((ref) {
+  ref.watch(authStateProvider);
+  ref.watch(xboardServiceProvider);
+  ref.watch(shopPanelScopeProvider);
   final clock = Stopwatch()..start();
   return CatalogReadCache(() => clock.elapsed);
 });

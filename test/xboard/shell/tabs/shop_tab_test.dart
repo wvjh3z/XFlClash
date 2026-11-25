@@ -1,4 +1,7 @@
 import 'dart:async';
+import 'package:fl_clash/xboard/models/bootstrap_payload.dart';
+import 'package:fl_clash/xboard/services/endpoint_race_controller.dart';
+import 'package:fl_clash/xboard/services/xboard_lifecycle_observer.dart';
 
 import 'package:fl_clash/xboard/models/plan_item.dart';
 import 'package:fl_clash/xboard/models/xb_domain_subscription.dart';
@@ -23,6 +26,7 @@ import 'package:flutter/rendering.dart' show RenderParagraph;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:mocktail/mocktail.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class _Auth extends AuthStateNotifier {
   _Auth(this.initial);
@@ -132,7 +136,7 @@ void main() {
     final service = _Service();
     when(service.getPlans).thenAnswer((_) async { calls++; return const XbSuccess(_plans); });
     final c = ProviderContainer(overrides: [
-      catalogReadCacheProvider.overrideWithValue(CatalogReadCache(() => now)),
+      shopReadCacheProvider.overrideWithValue(CatalogReadCache(() => now)),
       authStateProvider.overrideWith(() => _Auth(AuthState.authenticated)),
       xboardServiceProvider.overrideWithValue(service),
       userProfileProvider.overrideWith((_) async => _profile()),
@@ -152,6 +156,53 @@ void main() {
     await t.pumpAndSettle(); await refresh;
     expect(calls, 3);
   });
+  for (final auth in [AuthState.authenticated, AuthState.unauthenticated]) {
+    testWidgets('foreground restore keeps $auth shop prices across panel mirrors only', (t) async {
+      SharedPreferences.setMockInitialValues({});
+      final mobile = ThemeData().platform == TargetPlatform.android;
+      t.view.devicePixelRatio = 1;
+      t.view.physicalSize = mobile ? const Size(390, 844) : const Size(1280, 800);
+      addTearDown(t.view.reset);
+      final service = _Service();
+      var reads = 0;
+      final otherPanel = Completer<XbResult<List<PlanItem>>>();
+      Future<XbResult<List<PlanItem>>> load() async =>
+          ++reads == 1 ? const XbSuccess(_plans) : await otherPanel.future;
+      when(service.getPlans).thenAnswer((_) => load());
+      when(service.getGuestCatalog).thenAnswer((_) => load());
+      final c = _container(service, auth: auth, profile: () async => _profile());
+      const a = 'https://a.example.invalid', b = 'https://b.example.invalid';
+      var winner = a;
+      final race = EndpointRaceController(probe: (url) async => url == winner,
+          onApiSwitch: (url) => c.read(apiEndpointProvider.notifier).set(url));
+      addTearDown(race.dispose);
+      c.read(injectedRaceControllerProvider.notifier).set(race);
+      await race.raceApi(const [BootstrapEndpoint(url: a), BootstrapEndpoint(url: b)]);
+      final observer = XboardLifecycleObserver(raceController: race,
+          isWindowsOverride: !mobile, isMobileOverride: mobile)..attach();
+      addTearDown(observer.dispose);
+      await t.pumpWidget(_app(c, mobile: mobile));
+      await t.pumpAndSettle();
+      winner = b;
+      for (final state in [AppLifecycleState.inactive, AppLifecycleState.hidden,
+        if (mobile) ...[AppLifecycleState.paused, AppLifecycleState.hidden],
+        AppLifecycleState.inactive, AppLifecycleState.resumed]) {
+        t.binding.handleAppLifecycleStateChanged(state);
+        await t.pump();
+      }
+      await t.pump();
+      expect(c.read(apiEndpointProvider), b);
+      expect(reads, 1);
+      expect(_text('可续订套餐'), findsOneWidget);
+      c.read(apiEndpointProvider.notifier).set('https://another-panel.example.invalid');
+      await t.pump();
+      expect(reads, 2);
+      expect(_text('可续订套餐'), findsNothing);
+      otherPanel.complete(const XbSuccess([]));
+      await t.pumpAndSettle();
+    }, variant: const TargetPlatformVariant({TargetPlatform.windows, TargetPlatform.android}));
+  }
+
   testWidgets('首次读价显示骨架，资料晚到时保留套餐并显示进度条', (t) async {
     final service = _Service();
     final prices = Completer<XbResult<List<PlanItem>>>();
@@ -235,7 +286,7 @@ void main() {
       final c = _container(s, auth: AuthState.unauthenticated, profile: () async => _profile());
       await t.pumpWidget(_app(c));
       await t.pumpAndSettle();
-      c.read(apiEndpointProvider.notifier).set('https://fixture.invalid');
+      c.invalidate(shopReadCacheProvider);
       await t.pumpAndSettle();
       expect(find.byType(XbPlanNoticeCard), findsOneWidget);
       expect(find.textContaining(empty ? '上次目录没有可购买套餐' : '当前显示上次价格'), findsOneWidget);
@@ -269,8 +320,8 @@ void main() {
       }
       final annual = mode == 'default';
       final period = annual ? XbPlanPeriod.yearly : XbPlanPeriod.monthly;
-      expect(t.widget<Semantics>(find.byKey(ValueKey(('shop-period', 4, period)))).properties.selected, isTrue);
-      expect(_text(annual ? '¥270.89  / 年' : '¥25.01  / 月'), findsOneWidget);
+      expect(t.widget<Semantics>(find.byKey(const ValueKey(('shop-period', 4, XbPlanPeriod.monthly)))).properties.selected, isTrue);
+      expect(_text('¥25.01  / 月'), findsOneWidget);
       await _tap(t, '购买 可续订套餐');
       await _tap(t, '确认更换');
       expect(t.widget<PlanDetailPage>(find.byType(PlanDetailPage)).initialPeriod, period);
@@ -360,7 +411,7 @@ void main() {
     expect(t.getTopLeft(first).dy, t.getTopLeft(second).dy);
     expect(_text('商店'), findsNothing);
     expect(t.getTopLeft(first).dy - t.getTopLeft(find.byType(ShopTab)).dy, lessThan(80));
-    expect(_text('¥270.89  / 年'), findsOneWidget);
+    expect(_text('¥25.01  / 月'), findsOneWidget);
     expect(_text('¥359.00  一次性'), findsOneWidget);
     expect(find.textContaining('第四条完整显示', findRichText: true), findsWidgets);
     expect(_text('流量重置包'), findsNothing);
@@ -399,7 +450,6 @@ void main() {
         'switch' => '购买 不限时套餐',
         _ => '购买 可续订套餐',
       };
-      if (same && !expired) await _tap(t, '月付');
       if (expired) await _tap(t, '年付');
       await _tap(t, action);
       if (!expired) {
@@ -435,12 +485,13 @@ void main() {
       final page = t.widget<PlanDetailPage>(find.byType(PlanDetailPage));
       expect(page.renew, scenario == 'renew');
       expect(page.plan.id, same ? 4 : 9);
-      expect(page.initialPeriod, scenario == 'renew' ? XbPlanPeriod.monthly : same ? XbPlanPeriod.yearly : XbPlanPeriod.onetime);
+      expect(page.initialPeriod, same ? XbPlanPeriod.yearly : XbPlanPeriod.onetime);
       expect(page.confirmedFor, expired ? null : 4);
       Navigator.of(t.element(find.byType(PlanDetailPage))).pop();
       await t.pumpAndSettle();
       expect(find.ancestor(of: _text(action), matching: find.byType(OutlinedButton)), findsOneWidget);
-      expect(t.widget<Semantics>(find.byKey(ValueKey(('shop-period', page.plan.id, page.initialPeriod!)))).properties.selected, isTrue);
+      final displayed = scenario == 'renew' ? XbPlanPeriod.monthly : page.initialPeriod!;
+      expect(t.widget<Semantics>(find.byKey(ValueKey(('shop-period', page.plan.id, displayed)))).properties.selected, isTrue);
       _noWrites(service);
     });
   }

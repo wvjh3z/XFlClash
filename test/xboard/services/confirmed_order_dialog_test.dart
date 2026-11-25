@@ -63,6 +63,16 @@ Future<void> _open(WidgetTester tester, _Control control, {
 }
 
 void main() {
+  testWidgets('桌面替换提示和确认按钮文案各自保持一行', (tester) async {
+    await _open(tester, _Control(), size: const Size(1280, 800));
+    for (final label in ['确认后，将取消原订单，按本次选择重新下单。', '取消旧单并下单']) {
+      final paragraph = tester.renderObject<RenderParagraph>(find.text(label));
+      final boxes = paragraph.getBoxesForSelection(
+        TextSelection(baseOffset: 0, extentOffset: label.length),
+      );
+      expect(boxes.map((box) => box.top).toSet(), hasLength(1), reason: label);
+    }
+  });
   testWidgets('零抵扣不展示订单明细入口', (t) async {
     await _open(t, _Control(balance: 0, surplus: 0));
     expect(find.byType(SelectableText), findsNothing);

@@ -910,6 +910,7 @@ class XbSelectableOption extends StatelessWidget {
     this.tag,
     this.tagColor,
     this.compact = false,
+    this.insetTag = false,
   });
 
   final bool selected;
@@ -918,6 +919,7 @@ class XbSelectableOption extends StatelessWidget {
   final String? tag;
   final Color? tagColor;
   final bool compact;
+  final bool insetTag;
 
   @override
   Widget build(BuildContext context) {
@@ -939,8 +941,22 @@ class XbSelectableOption extends StatelessWidget {
           width: 1.5,
         ),
       ),
-      child: child,
+      child: insetTag ? Column(mainAxisSize: MainAxisSize.min, children: [
+        Align(alignment: Alignment.centerRight, child: Padding(
+          padding: const EdgeInsets.only(right: 5, bottom: 4),
+          child: Visibility(visible: tag != null, maintainSize: true,
+            maintainAnimation: true, maintainState: true,
+            child: DecoratedBox(decoration: BoxDecoration(
+              color: selected ? tagColor ?? scheme.primary : t.sf2,
+              borderRadius: BorderRadius.circular(9)),
+              child: Padding(padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                child: Text(tag ?? ' ', style: TextStyle(fontSize: 13,
+                  fontWeight: FontWeight.w600, color: selected ? Colors.white : t.on))))),
+        )),
+        child,
+      ]) : child,
     );
+    if (insetTag) return GestureDetector(onTap: onTap, behavior: HitTestBehavior.opaque, child: option);
     // **始终预留顶部 11px 浮标空间**（不管有无 tag）：浮标浮进这块预留区，且有/无 tag 的卡
     // 外形尺寸完全一致 —— 杜绝「无折扣卡(如月付)比有折扣卡矮一截、整行变形」（已被
     // plan_period_grid_test 尺寸断言锁定）。

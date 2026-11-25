@@ -31,6 +31,7 @@ import 'config/xboard_config.dart';
 import 'l10n/content_language.dart';
 import 'models/bootstrap_payload.dart';
 import 'providers/auth_state_provider.dart';
+import 'providers/catalog_read_cache.dart' show shopPanelScopeProvider;
 import 'providers/network_recovery_provider.dart';
 import 'providers/sentry_reporting_preference_provider.dart';
 import 'providers/xboard_providers.dart';
@@ -559,8 +560,10 @@ class XboardModule {
           instance.httpService.isEndpointAvailable;
       recoveryRace.resetApiEndpointHealth =
           instance.httpService.resetEndpointHealth;
-      recoveryRace.onApiCandidatesChanged =
-          instance.httpService.endpointCandidatesChanged;
+      recoveryRace.onApiCandidatesChanged = () {
+        instance.httpService.endpointCandidatesChanged();
+        container.invalidate(shopPanelScopeProvider);
+      };
       _raceController!.beginApiInitialization();
       _raceController!.seedEndpoints(
         _localPayload?.apiEndpoints ?? _factorySeed(activeConfig.devApiEndpoint),

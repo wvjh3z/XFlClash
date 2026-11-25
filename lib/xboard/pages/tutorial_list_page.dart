@@ -18,6 +18,7 @@ import '../models/xb_tutorial.dart';
 import '../providers/auth_state_provider.dart';
 import '../providers/tutorial_provider.dart';
 import '../providers/catalog_read_cache.dart';
+import '../providers/xboard_providers.dart' show apiEndpointProvider;
 import '../util/format.dart';
 import '../widgets/xb_components.dart';
 import '../widgets/xb_network_read_recovery.dart';
@@ -37,7 +38,8 @@ class TutorialListPage extends ConsumerWidget {
     return XbBrandScaffold(
       title: '使用教程',
       body: authenticated
-          ? _TutorialListBody(key: ValueKey(ref.read(authStateProvider.notifier).sessionRevision))
+          ? _TutorialListBody(key: ValueKey((ref.read(authStateProvider.notifier).sessionRevision,
+              ref.watch(shopPanelScopeProvider), ref.watch(apiEndpointProvider))))
           : const XbEmptyState(
               icon: Icons.lock_outline,
               title: '请先登录',

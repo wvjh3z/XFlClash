@@ -1,5 +1,6 @@
 import 'package:material_ui/material_ui.dart';
 
+import '../shell/widgets/xb_responsive.dart' show XbBreakpoints;
 import 'xb_theme.dart';
 import 'xb_plan_details.dart' show XbPlanComparison;
 import 'xb_ui_kit.dart' show XbGradientAction;
@@ -56,6 +57,8 @@ class XbPlanConfirmation extends StatelessWidget {
         const SizedBox(width: 8), Expanded(child: Text(value, textAlign: TextAlign.end,
           style: TextStyle(color: t.on, fontSize: 13, fontWeight: FontWeight.w700)))]));
     return AlertDialog(scrollable: true, backgroundColor: t.sf2,
+      constraints: !renew && MediaQuery.sizeOf(context).width >= XbBreakpoints.dialog
+          ? const BoxConstraints.tightFor(width: 440) : null,
       insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
       titlePadding: const EdgeInsets.fromLTRB(18,22,18,0),
       contentPadding: const EdgeInsets.fromLTRB(18,15,18,0),

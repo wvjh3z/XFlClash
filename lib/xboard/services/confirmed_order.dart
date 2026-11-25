@@ -4,6 +4,7 @@ import '../models/confirmed_order.dart';
 import '../models/xb_domain_error.dart';
 import '../models/xb_result.dart';
 import '../sdk/xboard_service.dart';
+import '../shell/widgets/xb_responsive.dart' show XbBreakpoints;
 import '../util/format.dart';
 import '../util/period_label.dart';
 import '../widgets/xb_feedback.dart' show xbBrandColor;
@@ -99,7 +100,8 @@ class _ExistingOrderDialog extends StatelessWidget {
     return Dialog(
       backgroundColor: t.card,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(XbTokens.rMd)),
-      constraints: const BoxConstraints(maxWidth: 303),
+      constraints: BoxConstraints(maxWidth:
+          MediaQuery.sizeOf(context).width >= XbBreakpoints.dialog ? 440 : 303),
       insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
       child: Padding(
         padding: const EdgeInsets.fromLTRB(16, 18, 16, 16),

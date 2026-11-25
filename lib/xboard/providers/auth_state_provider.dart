@@ -34,6 +34,8 @@ class AuthStateNotifier extends _$AuthStateNotifier {
 
   /// 客户端业务世代；建立/结束会话都会变化，不等同于 SDK revision。
   int get sessionRevision => _revision;
+  String? get displayCacheOwner => _displayCacheOwner;
+  String? _displayCacheOwner;
 
   @override
   AuthState build() {
@@ -154,6 +156,8 @@ class AuthStateNotifier extends _$AuthStateNotifier {
         return true;
       }
       _ownerHash = normalized == null ? null : userIdHashFromToken(normalized);
+      _displayCacheOwner = normalized == null || normalized.isEmpty
+          ? null : userIdHashFromToken(normalized, length: 64);
       _sdkRevision = snapshot?.revision;
       _authAttempt++;
       _revision++;
@@ -211,6 +215,7 @@ class AuthStateNotifier extends _$AuthStateNotifier {
     _revision++;
     _authAttempt++;
     _ownerHash = null;
+    _displayCacheOwner = null;
     _sdkRevision = null;
     _set(AuthState.unauthenticated);
 

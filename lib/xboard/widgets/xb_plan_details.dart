@@ -11,6 +11,14 @@ import 'xb_plan_device_help.dart';
 import 'xb_emoji_text.dart';
 import 'xb_theme.dart';
 
+TextStyle? xbPlanTitleStyle(ThemeData theme, {double? fontSize}) {
+  final windows = theme.platform == TargetPlatform.windows;
+  return theme.textTheme.titleLarge?.copyWith(
+    fontSize: fontSize,
+    fontWeight: windows ? FontWeight.w500 : FontWeight.w700,
+  );
+}
+
 /// Catalog facts shown identically in the shop and before checkout.
 class XbPlanDetails extends ConsumerWidget {
   const XbPlanDetails({super.key, required this.plan, this.showQuota = true, this.compact = false, this.tightDescription = false});

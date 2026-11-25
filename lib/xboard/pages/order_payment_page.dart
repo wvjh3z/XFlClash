@@ -677,21 +677,23 @@ class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage>
     );
 
     if (wide) {
+      final information = Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [productCard, const SizedBox(height: 16), orderCard],
+      );
       return SingleChildScrollView(
         padding: const EdgeInsets.fromLTRB(28, 24, 28, 28),
-        child: Row(
+        child: !canCheck
+            ? Center(child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 560),
+                child: information,
+              ))
+            : Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Expanded(
               flex: 21,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  productCard,
-                  const SizedBox(height: 16),
-                  orderCard,
-                ],
-              ),
+              child: information,
             ),
             const SizedBox(width: 18),
             Expanded(
@@ -706,7 +708,7 @@ class _OrderPaymentPageState extends ConsumerState<OrderPaymentPage>
                     ),
                     const SizedBox(height: 20),
                   ],
-                  if (canCheck) _actions(context),
+                  _actions(context),
                 ],
               ),
             ),

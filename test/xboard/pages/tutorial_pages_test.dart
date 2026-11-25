@@ -361,11 +361,11 @@ void main() {
     addTearDown(c.dispose);
     await t.pumpWidget(UncontrolledProviderScope(container:c,child:const MaterialApp(home:TutorialListPage())));
     await _finish(t);
-    for (final id in <int?>[null, 28, 29, 30, 36, 37, 29]) {
+    for (final id in <int?>[null, 28, 29, 30, 36, 37, 6]) {
       plan=id; c.invalidate(userProfileProvider); await _finish(t);
       expect(find.text('普通教程'), findsOneWidget);
       expect(find.text('相似分类'), findsNothing);
-      expect(find.text('专属教程'), const {29,30,36}.contains(id) ? findsOneWidget : findsNothing);
+      expect(find.text('专属教程'), const {6, 29, 30, 36}.contains(id) ? findsOneWidget : findsNothing);
     }
     expiry=DateTime.now().subtract(const Duration(seconds: 1));
     c.invalidate(userProfileProvider); await _finish(t);

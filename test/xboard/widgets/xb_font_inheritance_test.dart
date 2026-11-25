@@ -44,7 +44,8 @@ void main() {
         // No font assets or RenderParagraph rewriting: compare actual Material
         // defaults on the target platform with the production brand theme.
         final defaults = ThemeData(brightness: brightness);
-        final expectedFamily = defaults.textTheme.bodyMedium!.fontFamily;
+        final expectedFamily = defaults.platform == TargetPlatform.windows
+            ? 'Microsoft YaHei UI' : defaults.textTheme.bodyMedium!.fontFamily;
         for (final brandName in ['OmoFly', '袋鼠加速']) {
           final theme = buildXbTheme(
             brandColor: const Color(0xffd92e1a),

@@ -33,7 +33,8 @@ Future<void> _pump(WidgetTester tester, {double width = 393, double textScale = 
     ProviderScope(
       child: MaterialApp(
         home: MediaQuery(
-          data: MediaQueryData(textScaler: TextScaler.linear(textScale)),
+          data: MediaQueryData.fromView(tester.view).copyWith(
+            textScaler: TextScaler.linear(textScale)),
           child: PlanDetailPage(plan: _plan6()),
         ),
       ),
@@ -75,6 +76,11 @@ void main() {
       final badge = tester.getRect(find.descendant(of: cards.at(3), matching: find.text('省 10%')));
       expect(badge.center.dx, greaterThan(card.center.dx));
       expect(badge.bottom, lessThan(tester.getTopLeft(find.text('年付')).dy));
+      if (width == 1280) {
+        expect(badge.top - card.top, greaterThanOrEqualTo(8));
+        expect(tester.widget<Text>(find.text('省 10%')).style!.fontSize,
+            greaterThanOrEqualTo(13));
+      }
     });
   }
   testWidgets('同一行左右两卡顶端对齐（dy 相同）', (tester) async {

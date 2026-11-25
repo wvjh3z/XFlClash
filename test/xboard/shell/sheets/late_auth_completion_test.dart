@@ -55,8 +55,15 @@ void main() {
       await tester.enterText(find.byType(TextField).at(0), 'fixture@example.invalid');
       if (registration) await tester.enterText(find.byType(TextField).at(1), '123456');
       await tester.enterText(find.byType(TextField).last, 'fixture-password');
+      final buttonRect = tester.getRect(find.byType(FilledButton).last);
       await tester.tap(find.byType(FilledButton).last);
       await tester.pump();
+      if (!registration) {
+        expect(find.text('停止等待'), findsNothing);
+        final busy = find.widgetWithText(FilledButton, '正在登录…');
+        expect(tester.getRect(busy), buttonRect);
+        expect(tester.widget<FilledButton>(busy).onPressed, isNull);
+      }
       verify(() => api.loginResult(any(), any())).called(1);
       Navigator.of(tester.element(find.byType(registration ? RegisterSheet : LoginSheet))).pop();
       await tester.pump();

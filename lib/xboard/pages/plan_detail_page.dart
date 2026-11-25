@@ -500,9 +500,7 @@ class _PlanDetailPageState extends ConsumerState<PlanDetailPage> {
           header: true,
           child: XbEmojiText(
             plan.name,
-            style: Theme.of(context).textTheme.titleLarge?.copyWith(
-              fontWeight: FontWeight.w700,
-            ),
+            style: xbPlanTitleStyle(Theme.of(context)),
           ),
         ),
         XbPlanDetails(plan: plan, showQuota: false, compact: true, tightDescription: true),
@@ -550,24 +548,23 @@ class _PlanDetailPageState extends ConsumerState<PlanDetailPage> {
     final savePct = _discountPercent(p);
     final textScaler = MediaQuery.textScalerOf(context);
     final largeMobileText = mobile && textScaler.scale(14) > 21;
-    final selectedInk = mobile
-        ? _mobileBrandInk(
+    final selectedInk = _mobileBrandInk(
             scheme.primary,
             Color.alphaBlend(scheme.primary.withValues(alpha: 0.07), t.card),
             t.on,
-          )
-        : scheme.primary;
+          );
     final periodLabel = Text(
       planPeriodLabel(p.period),
       maxLines: 1,
       overflow: TextOverflow.ellipsis,
       style: TextStyle(
-        fontSize: 13,
+        fontSize: mobile ? 13 : 16,
         color: selected ? selectedInk : t.on,
         fontWeight: FontWeight.w500,
       ),
     );
     return XbSelectableOption(
+      insetTag: !mobile,
       selected: selected,
       tag: savePct == null ? null : '省 $savePct%',
       tagColor: _mobileBrandInk(scheme.primary, Colors.white, Colors.black),
@@ -591,13 +588,14 @@ class _PlanDetailPageState extends ConsumerState<PlanDetailPage> {
           // 已被 plan_period_grid_test 尺寸断言锁定）。固定行高 26 + XbFitText 仅在放不下时等比缩，
           // 不换行；固定高消除「短价格不缩/长价格缩」的亚像素行高差，所有卡严格等高。
           SizedBox(
-            height: largeMobileText ? textScaler.scale(16) * 1.4 : 22,
+            height: !mobile ? textScaler.scale(18) * 1.5 :
+                largeMobileText ? textScaler.scale(16) * 1.4 : 22,
             child: XbFitText(
               xbYuan(p.amountYuan),
               alignment: Alignment.center,
               textAlign: TextAlign.center,
               style: TextStyle(
-                fontSize: 16,
+                fontSize: mobile ? 16 : 18,
                 color: selected ? selectedInk : t.on,
                 fontWeight: FontWeight.w700,
                 fontFeatures: const [FontFeature.tabularFigures()],

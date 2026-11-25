@@ -9,6 +9,7 @@
 /// （内部调本文件），堵住「sheet/页面挂根 Navigator 拿不到主题」的漏洞。
 library;
 
+import 'package:flutter/foundation.dart' show defaultTargetPlatform;
 import 'package:material_ui/material_ui.dart';
 import 'xb_legacy_material.dart';
 
@@ -195,7 +196,12 @@ ThemeData buildXbTheme({required Color brandColor, required Brightness brightnes
     surfaceTint: Colors.transparent,
   );
 
-  final base = ThemeData(useMaterial3: true, brightness: brightness, colorScheme: scheme);
+  final base = ThemeData(
+    useMaterial3: true,
+    brightness: brightness,
+    colorScheme: scheme,
+    fontFamily: defaultTargetPlatform == TargetPlatform.windows ? 'Microsoft YaHei UI' : null,
+  );
 
   OutlinedBorder rrect(double r) =>
       RoundedRectangleBorder(borderRadius: BorderRadius.circular(r));

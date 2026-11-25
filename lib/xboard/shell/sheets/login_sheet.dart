@@ -6,7 +6,6 @@
 /// + token 存储，全链路零重写（自有代码不经 adapter）。
 library;
 
-import 'dart:async';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -52,7 +51,6 @@ class _LoginSheetState extends ConsumerState<LoginSheet>
   bool _checking = false;
   bool _checkSucceeded = false;
   int _checkGeneration = 0;
-  VoidCallback? _cancelLogin;
 
   @override
   void initState() {
@@ -159,25 +157,13 @@ class _LoginSheetState extends ConsumerState<LoginSheet>
       final service = ref.read(xboardServiceProvider);
       final scoped = service is XboardAuthenticationRequestControl
           ? service as XboardAuthenticationRequestControl : null;
-      final cancelled = Completer<XbResult<String>>();
-      if (mounted) {
-        setState(() {
-        _cancelLogin = () {
-          if (!auth.isAuthenticationCurrent(attempt) || cancelled.isCompleted) return;
-          auth.failAuthentication(attempt);
-          cancelled.complete(const XbFailure(XbNetwork(XbNetworkKind.cancelled, '已停止等待')));
-          setState(() { _cancelLogin = null; _banner = '已停止本次登录。'; });
-        };
-        });
-      }
       final request = scoped != null
           ? scoped.loginForRequest(email, pw,
               isActive: () => auth.isAuthenticationCurrent(attempt),
               establish: (token) => auth.completeAuthentication(token: token, attempt: attempt))
           : service.login(email, pw);
-      final result = await Future.any([request, cancelled.future]).timeout(const Duration(seconds: 15),
+      final result = await request.timeout(const Duration(seconds: 15),
           onTimeout: () => const XbFailure<String>(XbNetwork(XbNetworkKind.timeout, '登录请求超时')));
-      _cancelLogin = null;
       // The service may already have saved a new SDK revision. Complete the
       // owned attempt even if this sheet was closed while login was in flight.
       switch (result) {
@@ -293,8 +279,6 @@ class _LoginSheetState extends ConsumerState<LoginSheet>
           ),
         ),
         const SizedBox(height: 20),
-        if (submitting && _cancelLogin != null)
-          TextButton(onPressed: _cancelLogin, child: const Text('停止等待')),
         SizedBox(
           width: double.infinity,
           child: XbGradientAction(

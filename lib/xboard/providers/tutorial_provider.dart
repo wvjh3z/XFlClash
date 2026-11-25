@@ -14,6 +14,7 @@ import '../models/xb_domain_error.dart';
 import '../sdk/xboard_service.dart';
 import 'auth_state_provider.dart';
 import 'catalog_read_cache.dart';
+import 'display_snapshot.dart';
 import 'xboard_providers.dart';
 import 'user_profile_provider.dart';
 
@@ -27,7 +28,7 @@ class IpTutorialPlanAccess extends Notifier<bool> {
     final profile = ref.watch(userProfileProvider);
     final sub = profile.asData?.value;
     if (profile.isLoading || profile.hasError || sub == null ||
-        !const {29, 30, 36}.contains(sub.planId)) {
+        !const {6, 29, 30, 36}.contains(sub.planId)) {
       return false;
     }
     final expiry = sub.expiredAt;
@@ -58,32 +59,32 @@ final tutorialsProvider = FutureProvider.autoDispose<List<XbTutorial>>((
   }
   final cache = ref.watch(catalogReadCacheProvider);
   final key = ('tutorials', ref.read(authStateProvider.notifier).sessionRevision);
-  final cached = cache.lookup<List<XbTutorial>>(ref, key);
-  if (cached != null) return cached;
-  final service = ref.watch(xboardServiceProvider);
-  final timeout = ref.watch(tutorialListTimeoutProvider);
-  var active = true;
-  ref.onDispose(() => active = false);
-  try {
-    final pending = service is XboardTutorialRequestControl
-        ? (service as XboardTutorialRequestControl).getTutorialsForRequest(
-            isActive: () => active,
-          )
-        : service.getTutorials();
-    final result = await pending.timeout(
-      timeout,
-      onTimeout: () {
-        active = false;
-        throw XbDomainError.network(XbNetworkKind.timeout, '教程目录加载超时');
-      },
-    );
-    return switch (result) {
-      XbSuccess(:final data) => cache.remember<List<XbTutorial>>(ref, key, data),
-      XbFailure(:final error) => throw error,
-    };
-  } finally {
-    active = false;
-  }
+  return readDisplaySnapshot(ref, cache, key, 'tutorials', tutorialSnapshots, () async {
+    final service = ref.watch(xboardServiceProvider);
+    final timeout = ref.watch(tutorialListTimeoutProvider);
+    var active = true;
+    ref.onDispose(() => active = false);
+    try {
+      final pending = service is XboardTutorialRequestControl
+          ? (service as XboardTutorialRequestControl).getTutorialsForRequest(
+              isActive: () => active,
+            )
+          : service.getTutorials();
+      final result = await pending.timeout(
+        timeout,
+        onTimeout: () {
+          active = false;
+          throw XbDomainError.network(XbNetworkKind.timeout, '教程目录加载超时');
+        },
+      );
+      return switch (result) {
+        XbSuccess(:final data) => data,
+        XbFailure(:final error) => throw error,
+      };
+    } finally {
+      active = false;
+    }
+  });
 }, retry: (retryCount, error) => null);
 
 /// 单篇教程详情（按文章 id）。family + autoDispose：按文章隔离24 小时成功缓存。
@@ -94,21 +95,21 @@ final tutorialDetailProvider = FutureProvider.autoDispose
       }
       final cache = ref.watch(catalogReadCacheProvider);
       final key = ('article', ref.read(authStateProvider.notifier).sessionRevision, id);
-      final cached = cache.lookup<XbTutorialDetail>(ref, key);
-      if (cached != null) return cached;
-      final service = ref.watch(xboardServiceProvider);
-      var active = true;
-      ref.onDispose(() => active = false);
-      try {
-        final result = service is XboardTutorialRequestControl
-            ? await (service as XboardTutorialRequestControl)
-                  .getTutorialDetailForRequest(id, isActive: () => active)
-            : await service.getTutorialDetail(id);
-        return switch (result) {
-          XbSuccess(:final data) => cache.remember<XbTutorialDetail>(ref, key, data),
-          XbFailure(:final error) => throw error,
-        };
-      } finally {
-        active = false;
-      }
+      return readDisplaySnapshot(ref, cache, key, 'article_$id', articleSnapshots, () async {
+        final service = ref.watch(xboardServiceProvider);
+        var active = true;
+        ref.onDispose(() => active = false);
+        try {
+          final result = service is XboardTutorialRequestControl
+              ? await (service as XboardTutorialRequestControl)
+                    .getTutorialDetailForRequest(id, isActive: () => active)
+              : await service.getTutorialDetail(id);
+          return switch (result) {
+            XbSuccess(:final data) => data,
+            XbFailure(:final error) => throw error,
+          };
+        } finally {
+          active = false;
+        }
+      });
     }, retry: (retryCount, error) => null);
