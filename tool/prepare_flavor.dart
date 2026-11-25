@@ -152,8 +152,9 @@ Future<void> main(List<String> argv) async {
   }
   if (args['android-identity'] as bool) {
     // Flutter wide layouts use the shared in-app PNG, not Android mipmaps.
-    File(p.join(flavorDir, 'assets', 'icons', '$flavor.png'))
-        .copySync(p.join('assets', 'images', 'icon.png'));
+    final target = File(p.join('assets', 'images', 'icon.png'));
+    target.parent.createSync(recursive: true);
+    File(p.join(flavorDir, 'assets', 'icons', '$flavor.png')).copySync(target.path);
     final nativeConfig = File('build_config.yaml');
     if (nativeConfig.existsSync()) {
       nativeConfig.writeAsStringSync(

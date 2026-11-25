@@ -232,7 +232,7 @@ android {{
                         expected[brand] = {'appName': name, 'appId': app_id}
                         folder = case / 'flavors' / brand
                         (folder / 'assets/icons').mkdir(parents=True)
-                        (folder / f'assets/icons/{brand}.png').write_bytes(b'public-icon')
+                        (folder / f'assets/icons/{brand}.png').write_bytes(f'public-icon-{brand}'.encode())
                         (folder / 'assets/fallback.bin').write_bytes(b'public-fallback')
                         text = f'''appName: {value}
 appId: '{app_id}'
@@ -253,6 +253,8 @@ sentryDsn: "PRIVATE_FIXTURE_SENTINEL"
                     for selected in names:
                         run([dart_executable(), '--packages=' + str(ROOT / '.dart_tool/package_config.json'),
                              ROOT / 'tool/prepare_flavor.dart', '--flavor', selected, '--target', 'test', '--android-identity'], case)
+                        self.assertEqual((case / 'assets/images/icon.png').read_bytes(),
+                                         f'public-icon-{selected}'.encode())
                         generated = case / '.dart_tool/xboard/android_brand_identity.json'
                         public = json.loads(generated.read_text(encoding='utf-8'))
                         self.assertNotIn('PRIVATE_FIXTURE_SENTINEL', generated.read_text())

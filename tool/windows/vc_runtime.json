@@ -1,13 +1,13 @@
 {
   "architecture": "x64",
-  "bundledVersion": "14.51.36247.0",
+  "bundledVersion": "14.52.37029.0",
   "minimumVersion": "14.44.35211.0",
   "validatedCompilerFamily": "19.44",
   "arm64Policy": {
-    "minimumVersion": "14.51.36247.0",
-    "validatedCompilerFamily": "19.51"
+    "minimumVersion": "14.52.37029.0",
+    "validatedCompilerFamily": "19.52"
   },
-  "url": "https://download.visualstudio.microsoft.com/download/pr/ebdab8e5-1d7b-4d9f-a11b-cbb1720c3b12/843068991DAAA1F73AD9F6239BCE4D0F6A07A51F18C37EA2A867E9BECA71295C/VC_redist.x64.exe",
-  "sha256": "843068991daaa1f73ad9f6239bce4d0f6a07a51f18c37ea2a867e9beca71295c",
-  "size": 18731856
+  "url": "https://download.visualstudio.microsoft.com/download/pr/78d061c5-9ef3-42ab-98ed-3309d1095dc4/9C02C9ED120F671B900E6B9471D890E3B2414117A7E53F4AE2E855466FA2B7C9/VC_redist.x64.exe",
+  "sha256": "9c02c9ed120f671b900e6b9471d890e3b2414117a7e53f4ae2e855466fa2b7c9",
+  "size": 18863624
 }

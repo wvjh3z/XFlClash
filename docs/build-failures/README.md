@@ -494,3 +494,9 @@ Flash 复核修订：我的页比例精度／游客样式、订单券额明细�
 结算三列轻描边验收：1.5 倍字号出现选中与未选卡高度差 1dp（两侧描边分别为 1.5/1dp）。统一描边宽度，以颜色表达选中，六卡等宽等高断言通过。四张截图差异只从周期卡开始，核对三列、金额居中、压线折扣及下方上移后定向更新；相关 117 项与截图／无障碍 12 项通过，未出包。
 
 账户页官网入口：新增末行后，游客、已登录和账号刷新失败三张旧基线分别出现约 15.7% 差异，核对区域限于新增行与后续分组下移；游客订单仍置灰，官网正常。仅采纳对应三张受控渲染；此回归不代替与生产官网联调。
+
+### Release Package #177：Android 品牌图标目标目录与 Windows ARM64 VC 运行库
+
+品牌 B build 43，源码 `5a06b3a3`，[失败运行](https://github.com/wvjh3z/XFlClash/actions/runs/45694668616)。Android 失败在真实 `prepare_flavor.dart --android-identity` 夹具：源品牌图标已创建，隔离目录缺少 `assets/images`，复制失败。工具改为先建目标父目录，测试分别提供 A/B 不同内容，核对每次选中品牌的最终 PNG 字节。授权 Linux/Android 机复跑 #177 原失败方法 `AndroidIdentityGradleTests.test_real_prepare_cli_and_actual_gradle_identity_and_flavor_dsl`，真实 Dart CLI 和 Gradle DSL 验证通过（86 秒）。
+
+Windows ARM64 在安装器 ISPP 预处理时触发 compiler family 守卫。该任务 `toolchain-versions.json` 记录 `windows-11-arm` 镜像 `20261115.219.1`、MSVC `19.52.37029.0`，原策略只接受 `19.51`。固定微软发布的 `14.52.37029.0` redistributable（固定下载 URL、字节数、SHA-256）；ARM64 门槛改为该版本和实测编译器系列，x64 的最低版本与允许编译器系列不变。Windows PowerShell 40 项正负控通过（含错误架构与未审核编译器拒绝），Windows 原生 DownloadOnly 校验通过（固定大小、摘要、微软 Authenticode 签名和文件版本）；Python 18 项安装器契约通过。未用 x64 主机代替 GitHub ARM64 正式出包，未放宽 DLL/AOT 架构与 ARM64X 字节指纹守卫。macOS ARM64 在本批仅显示取消，没有已证实的代码故障。需新源码上的正式 workflow 复验，重跑原 #177 不会取得这些修订。
