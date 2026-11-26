@@ -9,6 +9,7 @@ import '../models/tutorial_package.dart';
 import '../providers/xboard_providers.dart';
 import '../services/xb_update_probe.dart';
 import '../services/xb_update_sources.dart';
+import 'xb_theme.dart' show XbTokens;
 
 final tutorialManifestProvider = Provider<Future<AppUpdateModel?> Function(TutorialPackage)>((ref) {
   final sdk = ref.watch(xboardSdkProvider);
@@ -77,6 +78,8 @@ class _DownloadState extends ConsumerState<TutorialDownloadDialog> {
   @override
   Widget build(BuildContext context) {
     final waiting = phase == _Phase.fetching || phase == _Phase.checking;
+    final tokens = XbTokens.of(context);
+    const padding = EdgeInsets.symmetric(horizontal: 8, vertical: 8);
     return AlertDialog(scrollable: true, title: const Text('客户端下载'),
       content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
         if (widget.package case final package?) Text(package.label, style: Theme.of(context).textTheme.titleMedium),
@@ -93,9 +96,21 @@ class _DownloadState extends ConsumerState<TutorialDownloadDialog> {
             Wrap(spacing: 6, children: [for (final (i, entry) in mirrors.entries.where((e) => _group(e.value) == group).indexed)
               OutlinedButton(onPressed: launching ? null : () => open(entry.key), child: Text('线路 ${i+1}'))]),
           ],
-      ]), actions: [TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('返回教程')),
-        if (phase == _Phase.failed) FilledButton(onPressed: load, child: const Text('重新获取')),
-        if (phase == _Phase.opened) FilledButton(onPressed: launching ? null : () => open(opened!), child: const Text('打开下载链接'))]);
+      ]),
+      actionsPadding: const EdgeInsets.fromLTRB(24, 4, 24, 20),
+      actions: [IntrinsicHeight(child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        Expanded(child: OutlinedButton(
+          style: OutlinedButton.styleFrom(foregroundColor: tokens.on, backgroundColor: tokens.sf2,
+              side: BorderSide(color: tokens.line), minimumSize: const Size(0, 48), padding: padding),
+          onPressed: () => Navigator.of(context).pop(), child: const Text('返回教程', textAlign: TextAlign.center))),
+        if (phase == _Phase.failed || phase == _Phase.opened) ...[
+          const SizedBox(width: 8),
+          Expanded(child: FilledButton(
+            style: FilledButton.styleFrom(minimumSize: const Size(0, 48), padding: padding),
+            onPressed: phase == _Phase.failed ? load : launching ? null : () => open(opened!),
+            child: Text(phase == _Phase.failed ? '重新获取' : '打开下载链接', textAlign: TextAlign.center))),
+        ],
+      ]))]);
   }
   String _group(String region) => region == 'cn' || region == 'overseas' ? region : 'unknown';
 }
