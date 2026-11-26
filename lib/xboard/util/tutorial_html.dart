@@ -8,6 +8,8 @@ library;
 import 'dart:convert';
 import 'dart:math';
 
+import '../models/tutorial_package.dart';
+
 import 'package:html/dom.dart';
 import 'package:html/parser.dart' as html;
 
@@ -136,6 +138,14 @@ String buildTutorialHtml(
         }
       } else if (name == 'style') {
         element.attributes[key] = _resolveCss(value, base);
+      }
+    }
+    if (tag == 'a' && element.attributes.containsKey('data-client-download')) {
+      final platform = element.attributes['data-client-download'];
+      if (const {'windows', 'android', 'linux', 'macos'}.contains(platform)) {
+        final package = TutorialPackage.match(platform, element.attributes['data-download-slot'],
+            element.attributes['data-apk-download']);
+        element.attributes['href'] = '${TutorialPackage.linkPrefix}${package?.slot ?? 'unavailable'}';
       }
     }
     if (tag == 'style') element.text = _resolveCss(element.text, base);

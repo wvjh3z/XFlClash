@@ -18,6 +18,10 @@ import '../util/html_link.dart';
 import '../services/tutorial_webview_environment.dart';
 import '../services/xboard_release_dio.dart';
 import 'tutorial_html_fallback.dart';
+import 'tutorial_download_dialog.dart';
+import '../models/tutorial_package.dart';
+import 'xb_theme.dart' show xbShowDialog;
+import 'xb_feedback.dart' show xbBrandColor;
 import 'xb_components.dart';
 import 'xb_network_read_recovery.dart';
 
@@ -213,6 +217,14 @@ class _TutorialWebViewState extends ConsumerState<TutorialWebView> {
     if (!_current(generation)) return false;
     final uri = resolveHtmlLink(raw, base: widget.resourceBase.toString());
     if (uri == null || uri.userInfo.isNotEmpty) return false;
+    if (uri.toString().startsWith(TutorialPackage.linkPrefix)) {
+      if (ModalRoute.of(context)?.isCurrent != true) return false;
+      final slot = uri.toString().substring(TutorialPackage.linkPrefix.length);
+      await xbShowDialog<void>(context: context, brandColor: xbBrandColor(), builder: (_) =>
+          TutorialDownloadDialog(package: TutorialPackage.values.where((p) => p.slot == slot).firstOrNull,
+              ownerActive: () => _current(generation)));
+      return true;
+    }
     if (uri.host == widget.resourceBase.host &&
         uri.scheme == widget.resourceBase.scheme &&
         uri.port == widget.resourceBase.port) {

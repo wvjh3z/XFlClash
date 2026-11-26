@@ -110,6 +110,8 @@ class XbUpdateSourceProbe {
   var _started = false;
   var _closed = false;
 
+  bool get hasConfirmedSource => _confirmed.isNotEmpty;
+
   bool get _withinBudget => !_closed && _clock.elapsed < timeout;
 
   Future<List<String>> run(List<String> orderedUrls) {
