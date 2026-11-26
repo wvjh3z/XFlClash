@@ -10,12 +10,12 @@ import struct
 import subprocess
 from sentry_elf import inspect_elf
 
-# Microsoft-signed 14.51.36247.0 from the upstream v0.9.3 ARM64 release.
-# dumpbin identifies this exact AMD64-header CRT as ARM64X. Do not generalize
-# the exception to arbitrary x64 files, names, or unverified future runtimes.
-PINNED_ARM64X_CRT = {
-    'vcruntime140_1.dll': '60c70e34e2e156f8bd214b92c2125c252e17d86ac8a25799ea1a4ecabde1d97c',
-}
+def verify_arm64x_crt(path):
+    if os.name != 'nt':
+        raise ValueError('Windows signature and ARM64X inspection required for ' + path.name)
+    subprocess.run(['powershell.exe', '-NoProfile', '-NonInteractive', '-ExecutionPolicy',
+                    'Bypass', '-File', str(Path(__file__).parent/'windows/verify_arm64x_crt.ps1'),
+                    '-Path', str(path.resolve())], check=True, timeout=90)
 
 
 def pe_machine(path):
@@ -70,9 +70,10 @@ def verify_bundle(bundle, architecture):
         if machine not in allowed:
             digest = hashlib.sha256(path.read_bytes()).hexdigest()
             if (target == 'arm64' and machine == 0x8664
-                    and PINNED_ARM64X_CRT.get(relative) == digest):
+                    and relative == 'vcruntime140_1.dll'):
+                verify_arm64x_crt(path)
                 facts.append({'file': relative, 'machine': hex(machine),
-                              'format': 'pinned-microsoft-arm64x-crt', 'sha256': digest})
+                              'format': 'verified-microsoft-arm64x-crt', 'sha256': digest})
                 continue
             raise ValueError('Wrong PE architecture: ' + relative + ' machine=' + hex(machine)
                              + ' sha256=' + digest)

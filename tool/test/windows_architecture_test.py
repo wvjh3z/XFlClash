@@ -104,9 +104,7 @@ class WindowsArchitectureTests(unittest.TestCase):
         self.assertEqual(package_environment({'platform': 'windows', 'arch': 'amd64'}, inherited), inherited)
         self.assertEqual(inherited['SENTRY_NATIVE_BACKEND'], 'crashpad')
 
-    def test_arm64x_crt_exception_requires_exact_name_and_bytes(self):
-        # Synthetic policy boundary; the real pinned signed DLL is independently
-        # checked against the upstream release, not replaced by this fixture.
+    def test_arm64x_crt_exception_requires_exact_name_and_native_verification(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             for name in ('OmoFly.exe', 'flutter_windows.dll'):
@@ -115,20 +113,16 @@ class WindowsArchitectureTests(unittest.TestCase):
             (root/'data/app.so').write_bytes(elf_fixture(architecture='aarch64', executable=True))
             runtime = root/'vcruntime140_1.dll'
             pe(runtime, 0x8664)
-            with self.assertRaisesRegex(ValueError, 'vcruntime140_1.dll'):
-                verify_bundle(root, 'arm64')
-            original = runtime.read_bytes()
-            digest = hashlib.sha256(original).hexdigest()
-            with mock.patch.dict(windows_architecture.PINNED_ARM64X_CRT,
-                                 {'vcruntime140_1.dll': digest}, clear=True):
-                report = verify_bundle(root, 'arm64')
-                row = next(row for row in report['files'] if row['file'] == runtime.name)
-                self.assertEqual(row['format'], 'pinned-microsoft-arm64x-crt')
-                self.assertEqual(row['sha256'], digest)
-                runtime.write_bytes(original+b'changed')
-                with self.assertRaisesRegex(ValueError, 'sha256='):
+            with mock.patch.object(windows_architecture, 'verify_arm64x_crt',
+                                   side_effect=ValueError('unverified CRT')):
+                with self.assertRaisesRegex(ValueError, 'unverified CRT'):
                     verify_bundle(root, 'arm64')
-                runtime.write_bytes(original)
+            with mock.patch.object(windows_architecture, 'verify_arm64x_crt') as check:
+                report = verify_bundle(root, 'arm64')
+                check.assert_called_once_with(runtime)
+                row = next(row for row in report['files'] if row['file'] == runtime.name)
+                self.assertEqual(row['format'], 'verified-microsoft-arm64x-crt')
+                self.assertEqual(row['sha256'], hashlib.sha256(runtime.read_bytes()).hexdigest())
                 runtime.rename(root/'unexpected_plugin.dll')
                 with self.assertRaisesRegex(ValueError, 'unexpected_plugin.dll'):
                     verify_bundle(root, 'arm64')
