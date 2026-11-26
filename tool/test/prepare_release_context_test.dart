@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:test/test.dart';
@@ -29,6 +30,34 @@ Map<String, Object> make({
   includeZip: zip,
   includeRpm: rpm,
 );
+
+String get _dart {
+  final flutter = Platform.environment['FLUTTER_ROOT'];
+  return Platform.isWindows && flutter != null
+      ? '$flutter/bin/cache/dart-sdk/bin/dart.exe' : 'dart';
+}
+
+Future<ProcessResult> _runDart(List<String> args, Directory directory,
+    String stage, {Duration budget = const Duration(seconds: 60)}) async {
+  final elapsed = Stopwatch()..start();
+  final process = await Process.start(_dart, args, workingDirectory: directory.path,
+    environment: Map.of(Platform.environment)..remove('GITHUB_ENV'),
+    includeParentEnvironment: false);
+  final output = process.stdout.transform(const Utf8Decoder(allowMalformed: true)).join();
+  final errors = process.stderr.transform(const Utf8Decoder(allowMalformed: true)).join();
+  final exit = process.exitCode;
+  try {
+    final code = await exit.timeout(budget);
+    return ProcessResult(process.pid, code, await output, await errors);
+  } on TimeoutException {
+    process.kill(ProcessSignal.sigkill);
+    await exit.timeout(const Duration(seconds: 10));
+    await Future.wait([output, errors]);
+    throw TimeoutException('Release context CLI timed out: $stage (pid ${process.pid})', budget);
+  } finally {
+    stdout.writeln('Release context CLI: $stage took ${elapsed.elapsedMilliseconds} ms');
+  }
+}
 
 void main() {
   test(
@@ -82,6 +111,16 @@ void main() {
       throwsFormatException,
     );
   });
+  test('stalled CLI is reaped before fixture cleanup', () async {
+    final temp = Directory.systemTemp.createTempSync('context timeout ');
+    addTearDown(() { if (temp.existsSync()) temp.deleteSync(recursive: true); });
+    final script = File('${temp.path}/wait.dart')
+      ..writeAsStringSync("import 'dart:io'; void main() { sleep(const Duration(minutes: 2)); }");
+    await expectLater(_runDart([script.path], temp, 'timeout fixture',
+        budget: const Duration(seconds: 2)), throwsA(isA<TimeoutException>().having(
+        (e) => e.message, 'stage', contains('timeout fixture'))));
+    temp.deleteSync(recursive: true);
+  });
   test(
     'real CLI parses YAML quotes/comments and preserves source counter',
     () async {
@@ -102,36 +141,16 @@ void main() {
       final counter = File('${temp.path}/scripts/build_number.brand_b.txt')
         ..parent.createSync(recursive: true)
         ..writeAsStringSync('50\n');
-      final flutter = Platform.environment['FLUTTER_ROOT'];
-      final dart = Platform.isWindows && flutter != null
-          ? '$flutter/bin/cache/dart-sdk/bin/dart.exe'
-          : 'dart';
-      final result = await Process.run(
-        dart,
-        [
-          '--packages=$root/.dart_tool/package_config.json',
-          '$root/tool/prepare_release_context.dart',
-          '--flavor',
-          'brand_b',
-          '--platform',
-          'windows',
-          '--arch',
-          'amd64',
-          '--build-number',
-          '30',
-          '--source-revision',
-          'a' * 40,
-          '--build-tag',
-          '202610182200',
-          '--align-package-name',
-        ],
-        workingDirectory: temp.path,
-        environment: {
-          for (final e in Platform.environment.entries)
-            if (e.key != 'GITHUB_ENV') e.key: e.value,
-        },
-        includeParentEnvironment: false,
-      );
+      Future<ProcessResult> run(String target, String number, String stage) =>
+          _runDart([
+            '--packages=$root/.dart_tool/package_config.json',
+            '$root/tool/prepare_release_context.dart',
+            '--flavor', 'brand_b', '--platform', target,
+            '--arch', target == 'android' ? '' : 'amd64',
+            '--build-number', number, '--source-revision', 'a' * 40,
+            '--build-tag', '202610182200', '--align-package-name',
+          ], temp, stage);
+      final result = await run('windows', '30', 'windows');
       expect(result.exitCode, 0, reason: '${result.stdout} ${result.stderr}');
       final c =
           jsonDecode(
@@ -143,33 +162,8 @@ void main() {
       expect(c['product_version'], '1.2.3+test');
       expect(c['build_number'], 30);
       // Same formal CLI: Linux product/build metadata, then no leakage to Android.
-      for (final target in ['linux', 'linux', 'android']) {
-        final again = await Process.run(
-          dart,
-          [
-            '--packages=$root/.dart_tool/package_config.json',
-            '$root/tool/prepare_release_context.dart',
-            '--flavor',
-            'brand_b',
-            '--platform',
-            target,
-            '--arch',
-            target == 'android' ? '' : 'amd64',
-            '--build-number',
-            '31',
-            '--source-revision',
-            'a' * 40,
-            '--build-tag',
-            '202610182200',
-            '--align-package-name',
-          ],
-          workingDirectory: temp.path,
-          environment: {
-            for (final e in Platform.environment.entries)
-              if (e.key != 'GITHUB_ENV') e.key: e.value,
-          },
-          includeParentEnvironment: false,
-        );
+      for (final (i, target) in ['linux', 'linux', 'android'].indexed) {
+        final again = await run(target, '31', '$target #${i + 1}');
         expect(again.exitCode, 0, reason: '${again.stdout} ${again.stderr}');
         final options = File(
           '${temp.path}/distribute_options.yaml',
@@ -191,5 +185,6 @@ void main() {
         isNot(contains('PRIVATE_MARKER')),
       );
     },
+    timeout: const Timeout(Duration(minutes: 5)),
   );
 }

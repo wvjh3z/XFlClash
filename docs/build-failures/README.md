@@ -508,3 +508,9 @@ Windows ARM64 在安装器 ISPP 预处理时触发 compiler family 守卫。该�
 **#180/#181 同摘要样本复核**：从与 `tool/windows/vc_runtime.json` 固定 SHA-256 一致的微软 `VC_redist.x64.exe` 解包，分别取 ARM64 与 AMD64 载荷的 `vcruntime140_1.dll`。ARM64 文件 SHA-256 与两次作业打印的 `8aff83cd…4d741e` 完全一致；Windows `Get-AuthenticodeSignature` 状态 Valid、签名 Microsoft Corporation、文件版本 14.52.37029.0。微软 `dumpbin /headers /loadconfig` 给出 `8664 machine (x64) (ARM64X)` 以及 ARM64X dispatch、redirection metadata 和 x64 code ranges。AMD64 对照文件同版本、摘要 `a14b4a42a2c6df04d6d53a8340816023d953406f7f3d94996c7cab30c414ff63`，只显示 `8664 machine (x64)`。确认此处是已验证新版本 ARM64X 被旧精确指纹守卫拒绝。应用目录由 `windows/CMakeLists.txt` 安装 CMake `InstallRequiredSystemLibraries` 文件列表，区别于 ISPP 内嵌 prerequisite 安装器；同摘要证明文件内容，不证明 runner 当时复制的绝对路径。尚未更新守卫、重跑或在 ARM64 设备安装。
 
 随后以 Windows 原生签名/格式验证替换应用目录 ARM64X CRT 固定摘要白名单：仅 ARM64 包根目录指定 CRT、AMD64 PE 头触发，检查有效微软签名、原始文件名、dumpbin ARM64X 标志和非零重定向元数据；缺工具或验证失败不放行。14.52 两份官方 DLL 实测 ARM64X 通过、普通 x64 拒绝，Python 架构专项 5 项通过。报告中的摘要仅用于诊断，不作为此 DLL 准入条件。待新提交正式 ARM64 构建验证。
+
+### #182 / #183：同源码 Windows ARM64 发布上下文测试超时
+
+`cd0af1c9` 的[品牌 A #182](https://github.com/wvjh3z/XFlClash/actions/runs/45726809515)全平台成功；[品牌 B #183 Windows ARM64](https://github.com/wvjh3z/XFlClash/actions/runs/45726835611/job/139599258045) 在 `Check brand resource checkout` 的 91 项测试中有一项超过 30 秒：`prepare_release_context_test.dart` 的 `real CLI parses YAML quotes/comments and preserves source counter`。随后 teardown 删除子进程工作目录报 Windows errno 32。该用例在两品牌作业均使用自建 brand_b fixture，连续调用真实 Dart CLI；#182 对应用例通过。不是 YAML 断言不匹配，也未到包内 CRT 验证。实际哪次子进程耗时及主机负载未确认；尚无本轮修复或 #183 重跑结果。
+
+#183 针对性修订：仅四次顺序调用真实 Dart CLI 的集成用例设 5 分钟总预算，每次调用限 60 秒并记录目标和耗时；超时终止子进程并等待退出与输出管道关闭后再清理工作目录，不自动重试或吞掉失败。受控挂起进程（2 秒预算）在 Windows AMD64 构建机约 2.09 秒超时并成功删除夹具，原 CLI 与其余专项共 5 项通过（复用本机已有 package config 执行；`dart run test` 的外层控制请求曾超时，未作为通过证据）。授权 Linux 主机以 CI 同组四文件验证 92 项通过。此验证不等于 GitHub Windows ARM64 runner 已验收，需从包含修订的新提交复验。
