@@ -27,8 +27,8 @@ import 'xb_feedback.dart' show xbBrandColor;
 import 'xb_theme.dart' show xbShowDialog, XbTokens;
 
 /// 弹出更新弹窗（对外唯一入口）。
-void showXbUpdateDialog(BuildContext context, AppUpdateModel info) {
-  xbShowDialog<void>(
+Future<void> showXbUpdateDialog(BuildContext context, AppUpdateModel info) async {
+  await xbShowDialog<void>(
     context: context,
     brandColor: xbBrandColor(),
     barrierDismissible: !info.force,
@@ -180,7 +180,7 @@ class _UpdateDialogState extends ConsumerState<_UpdateDialog> {
       if (result is UpdateAvailable) {
         _info = result.info;
         // 同步刷新全局 provider（徽章/关于行/下次弹窗都用最新）。
-        ref.read(availableUpdateProvider.notifier).set(result.info);
+        ref.read(availableUpdateProvider.notifier).set(result.info, prompt: false);
       }
       // UpdateNotAvailable / 失败 → 沿用缓存 _info（best effort）。
     }

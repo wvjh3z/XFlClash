@@ -69,6 +69,20 @@ void main() {
       container.read(availableUpdateProvider.notifier).set(update);
       await tester.pumpAndSettle();
       expect(find.text('立即更新'), findsOneWidget);
+      await tester.tap(find.text('以后再说'));
+      await tester.pumpAndSettle();
+      expect(find.text('立即更新'), findsNothing);
+      container.read(availableUpdateProvider.notifier).set(update);
+      await tester.pumpAndSettle();
+      expect(find.text('以后再说'), findsOneWidget);
+      await tester.tap(find.text('以后再说'));
+      await tester.pumpAndSettle();
+      container.read(availableUpdateProvider.notifier).set(const AppUpdateModel(
+          versionCode: 999, versionName: 'fixture', region: 'unknown', downloads: [],
+          sha256: '', changelog: '', force: true));
+      await tester.pumpAndSettle();
+      expect(find.text('以后再说'), findsNothing);
+      expect(find.text('立即更新'), findsOneWidget);
     } finally {
       await tester.pumpWidget(const SizedBox());
       container.dispose();

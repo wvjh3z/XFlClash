@@ -59,8 +59,10 @@ class _AboutBodyState extends ConsumerState<_AboutBody> {
       if (!mounted) return;
       switch (result) {
         case UpdateAvailable(:final info):
-          ref.read(availableUpdateProvider.notifier).set(info);
-          if (ModalRoute.of(context)?.isCurrent != false) showXbUpdateDialog(context, info);
+          ref.read(availableUpdateProvider.notifier).set(info, prompt: false);
+          if (ModalRoute.of(context)?.isCurrent != false) {
+            await showXbUpdateDialog(context, info);
+          }
         case UpdateNotAvailable():
           ref.read(availableUpdateProvider.notifier).clear();
           XbCenterToast.show(

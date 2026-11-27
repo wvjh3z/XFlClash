@@ -224,7 +224,16 @@ class AvailableUpdate extends _$AvailableUpdate {
   AppUpdateModel? build() => null;
 
   // ignore: use_setters_to_change_properties
-  void set(AppUpdateModel? model) => state = model;
+  void set(AppUpdateModel? model, {bool prompt = true}) {
+    pendingPrompt = prompt ? model : null;
+    state = model;
+  }
 
-  void clear() => state = null;
+  AppUpdateModel? pendingPrompt;
+
+  @override
+  bool updateShouldNotify(AppUpdateModel? previous, AppUpdateModel? next) =>
+      previous != next || pendingPrompt != null;
+
+  void clear() => set(null);
 }

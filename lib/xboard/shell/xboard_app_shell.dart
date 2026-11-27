@@ -69,7 +69,7 @@ class _XboardAppShellState extends ConsumerState<XboardAppShell> {
   /// 桌面设置保持懒加载。
   bool _desktopSettingsVisited = false;
 
-  /// 本会话是否已自动弹过更新弹窗（一次会话只自动弹一次，避免反复打扰）。
+  /// 排队或展示中的弹窗，避免重复入栈。
   bool _updateDialogShown = false;
 
   /// 只消费有效会话过期通知；普通登出、登录失败或网络错误不会触发此导航。
@@ -174,15 +174,15 @@ class _XboardAppShellState extends ConsumerState<XboardAppShell> {
       if (next > _lastAuthExpiryNotice) _returnToGuestMine(next);
     });
 
-    // 检测到更新 → 在 Tab 主界面自动弹一次更新弹窗。
+    // 每轮成功检查有新版时提醒一次，普通页面重建不重新提醒。
     // 监听 provider 变化（VPN 连上/onResume 后检测到）+ build 时补查（冷启动已检测到）。
     ref.listen<AppUpdateModel?>(availableUpdateProvider, (prev, next) {
-      if (next != null) _maybeAutoShowUpdate(next);
+      if (next != null) _maybeAutoShowUpdate();
     });
     final existing = ref.watch(availableUpdateProvider);
     if (existing != null) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) _maybeAutoShowUpdate(existing);
+        if (mounted) _maybeAutoShowUpdate();
       });
     }
 
@@ -222,32 +222,35 @@ class _XboardAppShellState extends ConsumerState<XboardAppShell> {
     });
   }
 
-  /// 自动弹更新弹窗（页面控制 + 一次会话一次）。
-  ///
-  /// 条件：本会话未弹过 + shell 与内容根路由均未被覆盖。
-  /// 支付/详情/登录 sheet 等盖在上面时 isCurrent==false → 不弹，等回到 Tab 再弹。
-  void _maybeAutoShowUpdate(AppUpdateModel info) {
-    if (_updateDialogShown || _contentCanPop) return;
-    // shell 不在栈顶（有子页/sheet 覆盖）→ 不弹。
-    final route = ModalRoute.of(context);
-    if (route != null && !route.isCurrent) return;
+  /// Covered routes defer the pending result until the shell is visible.
+  void _maybeAutoShowUpdate() {
+    final notices = ref.read(availableUpdateProvider.notifier);
+    if (_updateDialogShown || _contentCanPop || notices.pendingPrompt == null ||
+        ModalRoute.of(context)?.isCurrent == false) {
+      return;
+    }
     _updateDialogShown = true;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (!mounted) return;
-      // 再次确认在栈顶（post-frame 期间可能 push 了子页）。
-      final r = ModalRoute.of(context);
-      if (_contentCanPop || (r != null && !r.isCurrent)) {
-        _updateDialogShown = false; // 复位，等下次回到 Tab 再弹
-        return;
-      }
-      // The manifest may be withdrawn/replaced between scheduling and display.
-      // Do not consume this shell's prompt allowance for a cancelled notice.
-      final current = ref.read(availableUpdateProvider);
-      if (current == null) {
+      final current = notices.pendingPrompt;
+      if (_contentCanPop || ModalRoute.of(context)?.isCurrent == false || current == null) {
         _updateDialogShown = false;
         return;
       }
-      showXbUpdateDialog(context, current);
+      notices.pendingPrompt = null;
+      try {
+        await showXbUpdateDialog(context, current);
+      } finally {
+        _updateDialogShown = false;
+        if (mounted) {
+          final pending = notices.pendingPrompt;
+          if (pending != null && pending.versionCode == current.versionCode && pending.force == current.force) {
+            notices.pendingPrompt = null; // Already represented by the visible dialog.
+          } else if (pending != null) {
+            setState(() {}); // A new version or changed enforcement still needs presentation.
+          }
+        }
+      }
     });
   }
 
